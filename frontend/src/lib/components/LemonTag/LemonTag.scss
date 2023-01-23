@@ -34,6 +34,10 @@
         color: var(--indigo);
     }
 
+    &.none {
+        background: none;
+    }
+
     .LemonTag__icon {
         font-size: 0.875rem;
         margin-right: 0.125rem;

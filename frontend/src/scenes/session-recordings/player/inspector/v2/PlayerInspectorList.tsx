@@ -25,6 +25,7 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
+import { TZLabel } from '@posthog/apps-common'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {
@@ -184,7 +185,7 @@ function PlayerInspectorListItem({
                 >
                     <span className="p-1 text-xs">
                         {timestampMode === 'absolute' ? (
-                            <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
+                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="hh:mm:ss" noStyles />
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (
@@ -207,10 +208,10 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab } = useValues(
-        playerInspectorLogic(props)
-    )
-    const { setSyncScroll } = useActions(playerInspectorLogic(props))
+    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScrollingPaused, tab } =
+        useValues(playerInspectorLogic(props))
+    const { setSyncScrollPaused } = useActions(playerInspectorLogic(props))
+    const { syncScroll } = useValues(playerSettingsLogic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const performanceEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
@@ -227,6 +228,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
 
     const listRef = useRef<List | null>()
     const scrolledByJsFlag = useRef<boolean>(true)
+    const mouseHoverRef = useRef<boolean>(false)
 
     // TRICKY: this is hacky but there is no other way to add a timestamp marker to the <List> component children
     // We want this as otherwise we would have a tonne of unecessary re-rendering going on or poor scroll matching
@@ -252,7 +254,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                 .getElementById('PlayerInspectorListMarker')
                 ?.setAttribute('style', `transform: translateY(${offset}px)`)
 
-            if (syncScroll) {
+            if (!syncScrollingPaused && syncScroll) {
                 scrolledByJsFlag.current = true
                 listRef.current.scrollToRow(playbackIndicatorIndex)
             }
@@ -286,7 +288,11 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
     return (
         <div className="flex flex-col bg-side flex-1 overflow-hidden relative">
             {items.length ? (
-                <div className="absolute inset-0">
+                <div
+                    className="absolute inset-0"
+                    onMouseEnter={() => (mouseHoverRef.current = true)}
+                    onMouseLeave={() => (mouseHoverRef.current = false)}
+                >
                     <AutoSizer>
                         {({ height, width }) => (
                             <List
@@ -301,8 +307,11 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 ref={listRef as any}
                                 id="PlayerInspectorList"
                                 onScroll={() => {
-                                    if (!scrolledByJsFlag.current) {
-                                        setSyncScroll(false)
+                                    // TRICKY: There is no way to know for sure whether the scroll is directly from user input
+                                    // As such we only pause scrolling if we the last scroll triggered wasn't by the autoscroller
+                                    // and the user is currently hovering over the list
+                                    if (!scrolledByJsFlag.current && mouseHoverRef.current) {
+                                        setSyncScrollPaused(true)
                                     }
                                     scrolledByJsFlag.current = false
                                 }}

@@ -132,7 +132,6 @@ export const FEATURE_FLAGS = {
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
-    BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
     BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
@@ -142,6 +141,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
+    FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

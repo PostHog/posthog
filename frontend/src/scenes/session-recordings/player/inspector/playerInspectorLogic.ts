@@ -73,7 +73,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
-        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter']],
+        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter', 'setSyncScroll']],
         values: [
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
@@ -99,7 +99,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
-        setSyncScroll: (syncScroll: boolean) => ({ syncScroll }),
+        setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
     reducers(({}) => ({
         searchQuery: [
@@ -126,11 +126,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        syncScroll: [
+        syncScrollingPaused: [
             false,
             {
-                setSyncScroll: (_, { syncScroll }) => syncScroll,
-                setItemExpanded: () => false,
+                setTab: () => false,
+                setSyncScrollPaused: (_, { paused }) => paused,
+                setItemExpanded: () => true,
+                setSyncScroll: () => false,
             },
         ],
     })),
@@ -162,6 +164,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             () => [(_, props) => props.matching],
             (matchingEvents): MatchedRecordingEvent[] => {
                 return matchingEvents?.map((x: any) => x.events).flat() ?? []
+            },
+        ],
+
+        showMatchingEventsFilter: [
+            (s) => [s.matchingEvents, s.tab],
+            (matchingEvents, tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && matchingEvents.length > 0
             },
         ],
 
@@ -221,6 +230,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.miniFiltersByKey,
                 s.matchingEvents,
                 s.showOnlyMatching,
+                s.showMatchingEventsFilter,
                 s.windowIdFilter,
             ],
             (
@@ -233,6 +243,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 miniFiltersByKey,
                 matchingEvents,
                 showOnlyMatching,
+                showMatchingEventsFilter,
                 windowIdFilter
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
@@ -448,7 +459,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                         const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
-                        if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
+                        if (showMatchingEventsFilter && showOnlyMatching) {
                             // Special case - overrides the others
                             include = include && isMatchingEvent
                         }

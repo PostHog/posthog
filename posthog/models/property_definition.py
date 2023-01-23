@@ -4,7 +4,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
 
 
 class PropertyType(models.TextChoices):
@@ -27,6 +27,11 @@ class PropertyFormat(models.TextChoices):
 
 
 class PropertyDefinition(UUIDModel):
+    class Type(models.IntegerChoices):
+        EVENT = 1, "event"
+        PERSON = 2, "person"
+        GROUP = 3, "group"
+
     team: models.ForeignKey = models.ForeignKey(
         Team, on_delete=models.CASCADE, related_name="property_definitions", related_query_name="team"
     )
@@ -40,6 +45,11 @@ class PropertyDefinition(UUIDModel):
 
     property_type = models.CharField(max_length=50, choices=PropertyType.choices, blank=True, null=True)
 
+    # :TRICKY: May be null for historical events
+    type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type.choices)
+    # Only populated for `Type.GROUP`
+    group_type_index: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=True)
+
     # DEPRECATED
     property_type_format = models.CharField(
         max_length=50, choices=PropertyFormat.choices, blank=True, null=True
@@ -49,7 +59,6 @@ class PropertyDefinition(UUIDModel):
     volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
 
     class Meta:
-        unique_together = ("team", "name")
         indexes = (
             [
                 GinIndex(
@@ -60,12 +69,21 @@ class PropertyDefinition(UUIDModel):
             else []
         )  # This index breaks the --no-migrations option when running tests
         constraints = [
-            models.CheckConstraint(name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values))
+            models.CheckConstraint(
+                name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values)
+            ),
+            models.CheckConstraint(
+                name="group_type_index_set", check=~models.Q(type=3) | models.Q(group_type_index__isnull=False)
+            ),
+            UniqueConstraintByExpression(
+                name="posthog_propertydefinition_uniq",
+                expression="(team_id, name, type, coalesce(group_type_index, -1))",
+            ),
         ]
 
     def __str__(self) -> str:
         return f"{self.name} / {self.team.name}"
 
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
-    def is_event_property(self) -> None:
+    def is_seen_on_filtered_events(self) -> None:
         return None

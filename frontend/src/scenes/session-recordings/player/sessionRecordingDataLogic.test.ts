@@ -79,8 +79,8 @@ describe('sessionRecordingDataLogic', () => {
                 person: recordingMetaJson.person,
                 metadata: parseMetadataResponse(recordingMetaJson),
                 bufferedTo: {
-                    time: 44579,
-                    windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                    time: 167777,
+                    windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                 },
                 next: undefined,
                 snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
@@ -439,8 +439,8 @@ describe('sessionRecordingDataLogic', () => {
                         person: recordingMetaJson.person,
                         metadata: parseMetadataResponse(recordingMetaJson),
                         bufferedTo: {
-                            time: 44579,
-                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            time: 167777,
+                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                         },
                         next: undefined,
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
@@ -485,8 +485,8 @@ describe('sessionRecordingDataLogic', () => {
                     person: recordingMetaJson.person,
                     metadata: parseMetadataResponse(recordingMetaJson),
                     bufferedTo: {
-                        time: 44579,
-                        windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                        time: 167777,
+                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     },
                     snapshotsByWindowId: {
                         '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
@@ -505,8 +505,8 @@ describe('sessionRecordingDataLogic', () => {
                         person: recordingMetaJson.person,
                         metadata: parseMetadataResponse(recordingMetaJson),
                         bufferedTo: {
-                            time: 44579,
-                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            time: 167777,
+                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                         },
                         snapshotsByWindowId: {
                             '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': [
@@ -566,8 +566,8 @@ describe('sessionRecordingDataLogic', () => {
                     person: recordingMetaJson.person,
                     metadata: parseMetadataResponse(recordingMetaJson),
                     bufferedTo: {
-                        time: 44579,
-                        windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                        time: 167777,
+                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     },
                     snapshotsByWindowId: {
                         '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
