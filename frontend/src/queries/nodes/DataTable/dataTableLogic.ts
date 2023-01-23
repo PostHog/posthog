@@ -142,6 +142,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showReload: query.showReload ?? showIfFull,
                         showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
+                        showSavedQueries: query.showSavedQueries ?? showIfFull,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                     }),

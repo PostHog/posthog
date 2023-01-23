@@ -33,6 +33,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
+import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
 
 interface DataTableProps {
     query: DataTableNode
@@ -82,6 +83,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showExport,
         showElapsedTime,
         showColumnConfigurator,
+        showSavedQueries,
         showEventsBufferWarning,
         expandable,
     } = queryWithDefaults
@@ -294,7 +296,20 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         [setQuery]
     )
 
-    const firstRow = [
+    const firstRowLeft = [
+        showSavedQueries && isEventsQuery(query.source) ? <SavedQueries query={query} setQuery={setQuery} /> : null,
+        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        showElapsedTime ? <ElapsedTime /> : null,
+    ].filter((x) => !!x)
+
+    const firstRowRight = [
+        showColumnConfigurator && isEventsQuery(query.source) ? (
+            <ColumnConfigurator query={query} setQuery={setQuery} />
+        ) : null,
+        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
+    const secondRowLeft = [
         showDateRange && isEventsQuery(query.source) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -312,20 +327,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         ) : null,
     ].filter((x) => !!x)
 
-    const secondRowLeft = [
-        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
-    ].filter((x) => !!x)
-
-    const secondRowRight = [
-        showColumnConfigurator && isEventsQuery(query.source) ? (
-            <ColumnConfigurator query={query} setQuery={setQuery} />
-        ) : null,
-        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
-    ].filter((x) => !!x)
-
-    const showFirstRow = firstRow.length > 0
-    const showSecondRow = secondRowLeft.length > 0 || secondRowRight.length > 0
+    const showFirstRow = firstRowLeft.length > 0 || firstRowRight.length > 0
+    const showSecondRow = secondRowLeft.length > 0
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     return (
@@ -334,12 +337,11 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 <div className="space-y-4 relative">
                     {showFirstRow && (
                         <div className="flex gap-4 items-center">
-                            {firstRow}
+                            {firstRowLeft}
+                            <div className="flex-1" />
+                            {firstRowRight}
                             {inlineEditorButtonOnRow === 1 ? (
-                                <>
-                                    <div className="flex-1" />
-                                    <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
-                                </>
+                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
@@ -348,7 +350,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}
                             <div className="flex-1" />
-                            {secondRowRight}
                             {inlineEditorButtonOnRow === 2 ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
