@@ -160,9 +160,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            if (cache.selectorToElement === undefined) {
-                                cache.selectorToElement = {}
-                            }
+                            cache.selectorToElement = cache.selectorToElement || {}
+
                             let domElements: HTMLElement[] | undefined = cache.selectorToElement?.[combinedSelector]
                             if (domElements === undefined) {
                                 domElements = Array.from(
