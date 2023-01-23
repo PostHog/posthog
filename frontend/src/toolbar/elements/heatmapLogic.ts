@@ -159,14 +159,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            cache.selectorToElement = cache.selectorToElement || {}
+                            cache.selectorToElements = cache.selectorToElements || {}
 
-                            let domElements: HTMLElement[] | undefined = cache.selectorToElement?.[combinedSelector]
+                            let domElements: HTMLElement[] | undefined = cache.selectorToElements?.[combinedSelector]
                             if (domElements === undefined) {
                                 domElements = Array.from(
                                     querySelectorAllDeep(combinedSelector, document, cache.pageElements)
                                 ) as HTMLElement[]
-                                cache.selectorToElement[combinedSelector] = domElements
+                                cache.selectorToElements[combinedSelector] = domElements
                             }
 
                             if (domElements.length === 1) {
