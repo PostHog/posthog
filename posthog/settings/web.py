@@ -39,11 +39,9 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
-# build middleware based on env var
 
-SHORT_CIRCUIT_MIDDLEWARES = get_from_env("SHORT_CIRCUIT_MIDDLEWARES", False, type_cast=str_to_bool)
-
-ALWAYS_PREFIX_MIDDLEWARES = [
+MIDDLEWARE = [
+    "posthog.middleware.CaptureMiddleware",
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -54,34 +52,23 @@ ALWAYS_PREFIX_MIDDLEWARES = [
     # ok below the above middlewares however.
     "posthog.health.healthcheck_middleware",
     "posthog.middleware.ShortCircuitMiddleware",
-    "django.contrib.sessions.middleware.SessionMiddleware",
-    "django.contrib.auth.middleware.AuthenticationMiddleware",
-    "django.contrib.messages.middleware.MessageMiddleware",
-]
-
-ALWAYS_POSTFIX_MIDDLEWARES = [
-    "posthog.middleware.CHQueries",
-    "django_prometheus.middleware.PrometheusAfterMiddleware",
-]
-
-OPTIONAL_MIDDLEWARE = [
     "posthog.middleware.AllowIPMiddleware",
     "google.cloud.sqlcommenter.django.middleware.SqlCommenter",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
     "whitenoise.middleware.WhiteNoiseMiddleware",
     "axes.middleware.AxesMiddleware",
     "posthog.middleware.AutoProjectMiddleware",
+    "posthog.middleware.CHQueries",
+    "django_prometheus.middleware.PrometheusAfterMiddleware",
 ]
-
-if not SHORT_CIRCUIT_MIDDLEWARES:
-    MIDDLEWARE = ALWAYS_PREFIX_MIDDLEWARES + OPTIONAL_MIDDLEWARE + ALWAYS_POSTFIX_MIDDLEWARES
-else:
-    MIDDLEWARE = ALWAYS_PREFIX_MIDDLEWARES + ALWAYS_POSTFIX_MIDDLEWARES
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")

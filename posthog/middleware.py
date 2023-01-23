@@ -2,6 +2,7 @@ import time
 from ipaddress import ip_address, ip_network
 from typing import List, Optional, cast
 
+from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
 from django.db import connection
@@ -10,12 +11,16 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
+from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+from django_statsd.middleware import StatsdMiddleware, StatsdMiddlewareTimer
 from statshog.defaults.django import statsd
 
+from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.settings.statsd import STATSD_HOST
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -269,4 +274,65 @@ class ShortCircuitMiddleware:
             finally:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
+        return response
+
+
+class CaptureMiddleware:
+    """
+    Middleware to serve up capture responses. We specifically want to avoid
+    doing any unnecessary work in these endpoints as they are hit very
+    frequently, and we want to provide the best availability possible, which
+    translates to keeping dependencies to a minimum.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+        self.CAPTURE_MIDDLEWARE = [
+            PrometheusBeforeMiddleware(),
+            CorsMiddleware(),
+            PrometheusAfterMiddleware(),
+        ]
+
+        if STATSD_HOST is not None:
+            self.CAPTURE_MIDDLEWARE.insert(0, StatsdMiddleware())
+            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
+
+    def __call__(self, request: HttpRequest):
+
+        if request.path in (
+            "/e",
+            "/e/",
+            "/s",
+            "/s/",
+            "/track",
+            "/track/",
+            "/capture",
+            "/capture/",
+            "/batch",
+            "/batch/",
+            "/engage/",
+            "/engage",
+        ):
+            try:
+                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
+                tag_queries(
+                    kind="request",
+                    id=request.path,
+                    route_id=resolve(request.path).route,
+                    container_hostname=settings.CONTAINER_HOSTNAME,
+                )
+
+                for middleware in self.CAPTURE_MIDDLEWARE:
+                    middleware.process_request(request)
+
+                response: HttpResponse = get_event(request)
+
+                for middleware in self.CAPTURE_MIDDLEWARE[::-1]:
+                    middleware.process_response(request, response)
+
+                return response
+            finally:
+                reset_query_tags()
+
+        response = self.get_response(request)
         return response

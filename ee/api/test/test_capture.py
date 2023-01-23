@@ -4,13 +4,11 @@ from typing import Any
 from unittest.mock import patch
 
 from django.http.request import HttpRequest
-from django.test import modify_settings
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
 from posthog.api.utils import get_event_ingestion_context
-from posthog.settings import OPTIONAL_MIDDLEWARE
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
@@ -19,7 +17,6 @@ def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 
-@modify_settings(MIDDLEWARE={"remove": OPTIONAL_MIDDLEWARE})
 class TestCaptureAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
