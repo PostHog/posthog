@@ -11,8 +11,8 @@ interface SavedQueriesProps {
 }
 
 const eventsQueries: Record<string, EventsQuery> = {
-    'Default list': getDefaultEventsSceneQuery().source as EventsQuery,
-    'Events and counts': {
+    'Live events (default)': getDefaultEventsSceneQuery().source as EventsQuery,
+    'Events counts': {
         kind: NodeKind.EventsQuery,
         select: ['event', 'count()'],
         after: '-24h',
@@ -41,18 +41,16 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
         <LemonButtonWithPopup
             popup={{
                 sameWidth: false,
-                overlay: [
-                    ...Object.entries(eventsQueries).map(([title, eventsQuery]) => (
-                        <LemonButton
-                            key={title}
-                            fullWidth
-                            status={title === selectedTitle ? 'primary' : 'stealth'}
-                            onClick={() => setQuery?.({ ...query, source: eventsQuery })}
-                        >
-                            {title}
-                        </LemonButton>
-                    )),
-                ],
+                overlay: Object.entries(eventsQueries).map(([title, eventsQuery]) => (
+                    <LemonButton
+                        key={title}
+                        fullWidth
+                        status={title === selectedTitle ? 'primary' : 'stealth'}
+                        onClick={() => setQuery?.({ ...query, source: eventsQuery })}
+                    >
+                        {title}
+                    </LemonButton>
+                )),
             }}
             type="secondary"
             status="primary-alt"
