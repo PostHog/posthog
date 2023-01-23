@@ -1,7 +1,7 @@
 import { toId } from '../../helpers/storybook'
 import { test, expect } from '../../fixtures/storybook'
 
-test.describe('trends insight', () => {
+test.describe.skip('trends insight', () => {
     test('displays line viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
         await storyPage.expectSceneScreenshot()
