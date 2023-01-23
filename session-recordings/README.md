@@ -132,11 +132,16 @@ of the existing monthly cost at the limit.
 To be able to start playing back a recording with `session_id`, we need to first
 see which blobs we need to pull, then pull the first one. This should be enough
 to start playing the first 10 minutes. We can then pull further blobs for
-subsequent time blocks.
+subsequent time blocks. If we need to provide faster feedback, we can for
+instance persist the first part of the recording sooner e.g. after 1 minute, or
+even the first snapshot event, which will increase the number of writes by 1 for
+each recording.
 
 TODO: include window_id handling and active window metadata
+
 TODO: include details of handling of large Kafka messages / chunking / no chunk
 left behind via Kafka transactions
+
 TODO: include details on querying metadata
 
 ## Components
