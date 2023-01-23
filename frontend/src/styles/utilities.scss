@@ -731,6 +731,9 @@
 .rounded-3xl {
     border-radius: calc(var(--radius) * 6); /* 24px */
 }
+.rounded-4xl {
+    border-radius: calc(var(--radius) * 8); /* 32px */
+}
 .rounded-full {
     border-radius: 1000rem;
 }
