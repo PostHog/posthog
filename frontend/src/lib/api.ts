@@ -663,7 +663,7 @@ const api = {
             event_names?: string[]
             excluded_properties?: string[]
             properties?: string[]
-            is_event_property?: boolean
+            filter_by_event_names?: boolean
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -686,7 +686,7 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
-            is_event_property?: boolean
+            filter_by_event_names?: boolean
             is_feature_flag?: boolean
             limit?: number
             offset?: number

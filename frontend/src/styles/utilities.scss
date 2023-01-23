@@ -279,6 +279,18 @@
     }
 }
 
+@each $name, $hex in $colors {
+    .hover\:text-#{$name}:hover {
+        color: $hex;
+    }
+    .hover\:bg-#{$name}:hover {
+        background-color: $hex;
+    }
+    .hover\:border-#{$name}:hover {
+        border-color: $hex;
+    }
+}
+
 // Widths / heights
 
 @each $kind in ('width', 'height') {
