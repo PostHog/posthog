@@ -12,49 +12,6 @@ import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Tooltip } from 'lib/components/Tooltip'
 import './HeatmapStat.scss'
 
-/**
- * Within the toolbar if a tooltip attaches to the body (the default) it is not visible
- *
- * LemonButton can accept a `disabledReason` prop, but it attaches its tooltip to the body
- *
- * This component wraps the LemonButton in a div, and attaches the tooltip to that div
- * and passes the correct stacking context so that the tooltip is visible
- * */
-function ButtonWithTooltipInStackingContext(props: {
-    canLoadMoreElementStats: any
-    onClick: () => any
-    popupContainer: () => any
-}): JSX.Element {
-    const button = (
-        <>
-            <LemonButton
-                icon={<IconSync />}
-                type={'secondary'}
-                status={'primary-alt'}
-                size={'small'}
-                onClick={props.onClick}
-                disabled={!props.canLoadMoreElementStats}
-            >
-                Load more
-            </LemonButton>
-        </>
-    )
-    return (
-        <>
-            {props.canLoadMoreElementStats ? (
-                button
-            ) : (
-                <Tooltip
-                    title={'Loaded all elements in this data range.'}
-                    getPopupContainer={getShadowRootPopupContainer}
-                >
-                    <div>{button}</div>
-                </Tooltip>
-            )}
-        </>
-    )
-}
-
 export function HeatmapStats(): JSX.Element {
     const {
         matchLinksByHref,
@@ -92,11 +49,19 @@ export function HeatmapStats(): JSX.Element {
                         Found: {countedElements.length} elements / {clickCount} clicks!
                     </div>
                     <div>
-                        <ButtonWithTooltipInStackingContext
-                            canLoadMoreElementStats={canLoadMoreElementStats}
-                            onClick={() => loadMoreElementStats()}
-                            popupContainer={getShadowRootPopupContainer}
-                        />
+                        <LemonButton
+                            icon={<IconSync />}
+                            type={'secondary'}
+                            status={'primary-alt'}
+                            size={'small'}
+                            onClick={loadMoreElementStats}
+                            disabledReason={
+                                canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
+                            }
+                            getPopupContainer={getShadowRootPopupContainer}
+                        >
+                            Load more
+                        </LemonButton>
                     </div>
 
                     <Tooltip
