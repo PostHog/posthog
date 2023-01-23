@@ -1,0 +1,94 @@
+import { useValues } from 'kea'
+
+import { userLogic } from 'scenes/userLogic'
+
+import { AvailableFeature, PathsFilterType } from '~/types'
+import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
+import { IconEllipsis } from 'lib/components/icons'
+import { copyToClipboard } from 'lib/utils'
+
+import { pageUrl, PathNodeData } from './pathUtils'
+import { pathsLogicType } from './pathsLogicType'
+
+type PathNodeCardButton = {
+    name: string
+    count: number
+    node: PathNodeData
+    viewPathToFunnel: pathsLogicType['actions']['viewPathToFunnel']
+    openPersonsModal: pathsLogicType['actions']['openPersonsModal']
+    filter: PathsFilterType
+    setFilter: (filter: PathsFilterType) => void
+}
+
+export function PathNodeCardButton({
+    name,
+    count,
+    node,
+    viewPathToFunnel,
+    openPersonsModal,
+    filter,
+    setFilter,
+}: PathNodeCardButton): JSX.Element {
+    const { user } = useValues(userLogic)
+    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
+
+    const setAsPathStart = (): void => setFilter({ start_point: pageUrl(node) })
+    const setAsPathEnd = (): void => setFilter({ end_point: pageUrl(node) })
+    const excludePathItem = (): void => {
+        setFilter({ exclude_events: [...(filter.exclude_events || []), pageUrl(node, false)] })
+    }
+    const viewFunnel = (): void => {
+        viewPathToFunnel(node)
+    }
+    const copyName = (): void => {
+        copyToClipboard(pageUrl(node))
+    }
+    const openModal = (): void => openPersonsModal({ path_end_key: name })
+
+    return (
+        <div className="flex justify-between items-center w-full">
+            <div className="flex items-center font-semibold">
+                <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
+                <span className="text-xs">{pageUrl(node, true)}</span>
+            </div>
+            <div className="flex flex-nowrap">
+                <LemonButton size="small" status="stealth">
+                    <span className="text-primary text-xs pr-1 font-medium" onClick={openModal}>
+                        {count}
+                    </span>
+                </LemonButton>
+                <LemonButtonWithPopup
+                    size="small"
+                    status="muted"
+                    icon={<IconEllipsis />}
+                    popup={{
+                        overlay: (
+                            <>
+                                <LemonButton size="small" fullWidth status="stealth" onClick={setAsPathStart}>
+                                    Set as path start
+                                </LemonButton>
+                                {hasAdvancedPaths && (
+                                    <>
+                                        <LemonButton size="small" fullWidth status="stealth" onClick={setAsPathEnd}>
+                                            Set as path end
+                                        </LemonButton>
+                                        <LemonButton size="small" fullWidth status="stealth" onClick={excludePathItem}>
+                                            Exclude path item
+                                        </LemonButton>
+                                        <LemonButton size="small" fullWidth status="stealth" onClick={viewFunnel}>
+                                            View funnel
+                                        </LemonButton>
+                                    </>
+                                )}
+                                <LemonButton size="small" fullWidth status="stealth" onClick={copyName}>
+                                    Copy path item name
+                                </LemonButton>
+                            </>
+                        ),
+                        placement: 'bottom-end',
+                    }}
+                />
+            </div>
+        </div>
+    )
+}
