@@ -80,7 +80,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
 # An abstraction over Kafka that allows us to consume, via a ClickHouse
 # Materialized View from a Kafka topic and insert the messages into the
 # ClickHouse MergeTree table `person_overrides`
-PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
+KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
@@ -91,16 +91,7 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
         'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
     )
 
-    -- We use the same schema as the `person_overrides` table except for columns
-    -- that are set e.g. as defaults.
-    EMPTY AS SELECT
-        team_id,
-        old_person_id,
-        override_person_id,
-        merged_at,
-        -- created_at is not included in the Kafka message, rather it is set as
-        -- a default in the MergeTree table
-        version
+    EMPTY AS SELECT *
     FROM `{CLICKHOUSE_DATABASE}`.`person_overrides`
 """
 
