@@ -15,6 +15,10 @@
     {% endif %}
     <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
+    <link rel="prefetch" href="{% static 'sleeping-hog.png' %}" />
+    <link rel="prefetch" href="{%  static "background.png" %}" />
+
+
     <script>
         !function (t, e) {
             var o, n, p, r;
@@ -125,13 +129,9 @@
         }
 
         img {
-            width: 100%;
-        }
-
-        @media only screen and (min-width: 650px) {
-            img {
-                max-width: 800px;
-            }
+            width: 90%;
+            height: auto;
+            max-width: 800px;
         }
 
     </style>
@@ -139,7 +139,10 @@
 <body>
 
 <h1>Year in PostHog is hibernating.</h1>
-<img src="{% static 'sleeping-hog.png' %}" alt="Year in PostHog is hibernating."/>
+<img alt="Year in PostHog is hibernating."
+     width="578" height="400"
+     src="{% static 'sleeping-hog.png' %}"
+/>
 
 </body>
 </html>
