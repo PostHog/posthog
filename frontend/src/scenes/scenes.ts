@@ -66,11 +66,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.EventPropertyDefinitions]: {
+    [Scene.PropertyDefinitions]: {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.EventPropertyDefinition]: {
+    [Scene.PropertyDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -291,8 +291,8 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
-    [urls.propertyDefinitions()]: Scene.EventPropertyDefinitions,
-    [urls.propertyDefinition(':id')]: Scene.EventPropertyDefinition,
+    [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
+    [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
