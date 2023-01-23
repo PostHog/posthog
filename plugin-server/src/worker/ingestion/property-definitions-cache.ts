@@ -4,6 +4,7 @@ import LRUCache from 'lru-cache'
 
 import { ONE_HOUR } from '../../config/constants'
 import { GroupTypeIndex, PluginsServerConfig, PropertyDefinitionTypeEnum, PropertyType, TeamId } from '../../types'
+import { DB } from '../../utils/db/db'
 
 export const NULL_IN_DATABASE = Symbol('NULL_IN_DATABASE')
 export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TYPE_DETECTION')
@@ -24,7 +25,7 @@ type PropertyDefinitionsCacheValue = PropertyType | typeof NULL_IN_DATABASE | ty
  * - it is in the cache and has been confirmed as having no property type -> it never needs to be updated ('NULL_AFTER_PROPERTY_TYPE_DETECTION')
  */
 export class PropertyDefinitionsCache {
-    private readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
+    readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
     private readonly statsd?: StatsD
     private readonly lruCacheSize: number
 
@@ -34,21 +35,24 @@ export class PropertyDefinitionsCache {
         this.propertyDefinitionsCache = new Map()
     }
 
-    initialize(
-        teamId: number,
-        items: {
-            name: string
-            property_type: PropertyDefinitionsCacheValue
-        }[]
-    ): void {
+    async initialize(teamId: number, db: DB): Promise<void> {
+        const properties = await db.postgresQuery(
+            'SELECT name, property_type, type, group_type_index FROM posthog_propertydefinition WHERE team_id = $1',
+            [teamId],
+            'fetchPropertyDefinitions'
+        )
+
         const teamPropertyDefinitionsCache = new LRU<string, PropertyDefinitionsCacheValue>({
             max: this.lruCacheSize, // keep in memory the last 10k property definitions we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
 
-        for (const item of items) {
-            teamPropertyDefinitionsCache.set(item.name, item.property_type ?? NULL_IN_DATABASE)
+        for (const item of properties.rows) {
+            teamPropertyDefinitionsCache.set(
+                this.key(item.name, item.type, item.group_type_index),
+                item.property_type ?? NULL_IN_DATABASE
+            )
         }
 
         this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
