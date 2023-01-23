@@ -142,6 +142,7 @@ export const FEATURE_FLAGS = {
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
+    PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
