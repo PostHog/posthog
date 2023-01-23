@@ -188,10 +188,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
-                if (!response || !isEventsQuery(query)) {
+                if (!isEventsQuery(query)) {
                     return null
                 }
-                if (isEventsQuery(query)) {
+                if (isEventsQuery(query) && !query.before) {
                     const sortKey = query.orderBy?.[0] ?? '-timestamp'
                     if (sortKey === '-timestamp') {
                         const sortColumnIndex = query.select
@@ -203,6 +203,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             if (firstTimestamp) {
                                 const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
                                 return nextQuery
+                            } else {
+                                return query
                             }
                         }
                     }
@@ -212,9 +214,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
         nextQuery: [
-            (s, p) => [p.query, s.response, s.responseError],
-            (query, response, responseError): DataNode | null => {
-                if (isEventsQuery(query) && !responseError) {
+            (s, p) => [p.query, s.response, s.responseError, s.dataLoading],
+            (query, response, responseError, dataLoading): DataNode | null => {
+                if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? '-timestamp'
                         const typedResults = (response as EventsQuery['response'])?.results
