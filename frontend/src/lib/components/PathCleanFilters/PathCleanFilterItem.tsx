@@ -21,7 +21,16 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
         <Popup
             visible={visible}
             onClickOutside={() => setVisible(false)}
-            overlay={<PathRegexPopup filter={filter} onSave={onChange} onCancel={() => setVisible(false)} />}
+            overlay={
+                <PathRegexPopup
+                    filter={filter}
+                    onSave={(filter: PathCleaningFilter) => {
+                        onChange(filter)
+                        setVisible(false)
+                    }}
+                    onCancel={() => setVisible(false)}
+                />
+            }
         >
             {/* required for popup placement */}
             <div className="relative">
