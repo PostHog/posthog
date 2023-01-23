@@ -10,7 +10,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconSync } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Tooltip } from 'lib/components/Tooltip'
-import './HeatmapStat.scss'
 
 export function HeatmapStats(): JSX.Element {
     const {
