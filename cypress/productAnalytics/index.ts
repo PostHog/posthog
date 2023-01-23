@@ -69,7 +69,7 @@ export const dashboards = {
         cy.get('button[data-attr="dashboard-submit-and-go"]').click()
     },
     visitDashboard: (dashboardName: string): void => {
-        cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+        cy.get('[placeholder="Search for dashboards"]').clear().type(dashboardName)
 
         cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
             cy.get('a').click()

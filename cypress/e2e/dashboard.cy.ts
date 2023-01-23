@@ -131,11 +131,35 @@ describe('Dashboard', () => {
     })
 
     it('Move dashboard item', () => {
-        cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        const sourceDashboard = randomString('source-dashboard')
+        const targetDashboard = randomString('target-dashboard')
+        const insightToMove = randomString('insight-to-move')
+        dashboards.createAndGoToEmptyDashboard(sourceDashboard)
+        const insightToLeave = randomString('insight-to-leave')
+        dashboard.addInsightToEmptyDashboard(insightToLeave)
+        dashboard.addInsightToEmptyDashboard(insightToMove)
+
+        // create the target dashboard and get it cached by turbo-mode
+        cy.clickNavMenu('dashboards')
+        dashboards.createAndGoToEmptyDashboard(targetDashboard)
+
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(sourceDashboard)
+
+        cy.contains('.InsightCard ', insightToMove).within(() => {
+            cy.get('[data-attr=more-button]').first().click({ force: true })
+        })
+
         cy.get('button').contains('Move to').click()
-        cy.get('button').contains('App Analytics').click()
+        cy.get('button').contains(targetDashboard).click()
+
         cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
+
+        cy.get('.CardMeta h4').should('have.text', insightToLeave)
+
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(targetDashboard)
+        cy.get('.CardMeta h4').should('have.text', insightToMove)
     })
 
     it('Opens dashboard item in insights', () => {
