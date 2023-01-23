@@ -214,9 +214,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
         nextQuery: [
-            (s, p) => [p.query, s.response, s.responseError],
-            (query, response, responseError): DataNode | null => {
-                if (isEventsQuery(query) && !responseError) {
+            (s, p) => [p.query, s.response, s.responseError, s.dataLoading],
+            (query, response, responseError, dataLoading): DataNode | null => {
+                if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? '-timestamp'
                         const typedResults = (response as EventsQuery['response'])?.results
