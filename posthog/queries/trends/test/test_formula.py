@@ -215,8 +215,8 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[2]["label"], "Belo Horizonte")
 
         # regression test for empty string values
-        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
-        self.assertEqual(response[2]["label"], "")
+        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
+        self.assertEqual(response[3]["label"], "")
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
