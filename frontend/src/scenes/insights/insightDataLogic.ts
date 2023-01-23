@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { FilterType, InsightLogicProps, InsightType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BreakdownFilter, InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
@@ -18,7 +18,12 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
 const getCleanedQuery = (
-    kind: NodeKind.TrendsQuery | NodeKind.StickinessQuery | NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery
+    kind:
+        | NodeKind.TrendsQuery
+        | NodeKind.PathsQuery
+        | NodeKind.StickinessQuery
+        | NodeKind.LifecycleQuery
+        | NodeKind.UnimplementedQuery
 ): InsightVizNode => {
     if (kind === NodeKind.TrendsQuery) {
         return {
@@ -34,6 +39,16 @@ const getCleanedQuery = (
                     },
                 ],
                 trendsFilter: {},
+            },
+        }
+    } else if (kind === NodeKind.PathsQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: {
+                    include_event_types: [PathType.PageView],
+                },
             },
         }
     } else if (kind === NodeKind.StickinessQuery) {
@@ -175,6 +190,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setActiveView: ({ type }) => {
             if (type === InsightType.TRENDS) {
                 actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
+            } else if (type === InsightType.PATHS) {
+                actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
             } else if (type === InsightType.STICKINESS) {
                 actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
             } else if (type === InsightType.LIFECYCLE) {

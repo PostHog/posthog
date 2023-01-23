@@ -1,11 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import tk from 'timekeeper'
 
 import { Database, Hub, Person } from '../../../src/types'
+import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
-import { PersonState } from '../../../src/worker/ingestion/person-state'
+import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { createUserTeamAndOrganization, insertRow, resetTestDatabase } from '../../helpers/sql'
 
@@ -1780,6 +1782,258 @@ describe('PersonState.update()', () => {
                     },
                 ])
             )
+        })
+    })
+    describe('on persons merges', () => {
+        it('postgres and clickhouse get updated', async () => {
+            const first: Person = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid.toString(),
+                ['first']
+            )
+            const second: Person = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid2.toString(),
+                ['second']
+            )
+
+            const state: PersonState = personState({}, first)
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(state, 'aliasDeprecated').mockImplementation()
+            await state.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: 'first',
+                otherPerson: second,
+                otherPersonDistinctId: 'second',
+                timestamp: timestamp,
+                totalMergeAttempts: 0,
+            })
+            await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(state.aliasDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
+            // verify Postgres persons
+            const persons = await hub.db.fetchPersons()
+            expect(persons.length).toEqual(1)
+            expect(persons[0]).toEqual(
+                expect.objectContaining({
+                    id: expect.any(Number),
+                    uuid: uuid.toString(),
+                    properties: {},
+                    created_at: timestamp,
+                    version: 1,
+                    is_identified: true,
+                })
+            )
+
+            // verify Postgres distinct_ids
+            const distinctIds = await hub.db.fetchDistinctIdValues(persons[0])
+            expect(distinctIds).toEqual(expect.arrayContaining(['first', 'second']))
+
+            // verify ClickHouse persons
+            await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
+            const clickhousePersons = await fetchPersonsRows() // but verify full state
+            expect(clickhousePersons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: uuid.toString(),
+                        properties: '{}',
+                        created_at: timestampch,
+                        version: 1,
+                        is_identified: 1,
+                    }),
+                    expect.objectContaining({
+                        id: uuid2.toString(),
+                        is_deleted: 1,
+                        version: 100,
+                    }),
+                ])
+            )
+
+            // verify ClickHouse distinct_ids
+            await delayUntilEventIngested(() => fetchDistinctIdsClickhouseVersion1())
+            const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
+            expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['first', 'second']))
+        })
+        it('first failure is retried', async () => {
+            const first: Person = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid.toString(),
+                ['first']
+            )
+            const second: Person = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid2.toString(),
+                ['second']
+            )
+
+            const state: PersonState = personState({}, first)
+            // break postgres
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(() => {
+                throw error
+            })
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(state, 'aliasDeprecated').mockImplementation()
+            await state.mergePeople({
+                mergeInto: first,
+                mergeIntoDistinctId: 'first',
+                otherPerson: second,
+                otherPersonDistinctId: 'second',
+                timestamp: timestamp,
+                totalMergeAttempts: 0,
+            })
+
+            await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
+            expect(state.aliasDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            // verify Postgres persons
+            const persons = await hub.db.fetchPersons()
+            expect(persons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid2.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
+        })
+
+        it('throws if retry limits hit', async () => {
+            const first: Person = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid.toString(),
+                ['first']
+            )
+            const second: Person = await hub.db.createPerson(
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                uuid2.toString(),
+                ['second']
+            )
+
+            const state: PersonState = personState({}, first)
+            // break postgres
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(() => {
+                throw error
+            })
+            jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
+            jest.spyOn(state, 'aliasDeprecated').mockImplementation()
+            await expect(
+                state.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: 'first',
+                    otherPerson: second,
+                    otherPersonDistinctId: 'second',
+                    timestamp: timestamp,
+                    totalMergeAttempts: 2, // Retry limit hit
+                })
+            ).rejects.toThrow(error)
+
+            await hub.db.kafkaProducer.flush()
+
+            expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
+            expect(state.aliasDeprecated).not.toHaveBeenCalled()
+            expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
+            // verify Postgres persons
+            const persons = await hub.db.fetchPersons()
+            expect(persons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid2.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
+        })
+    })
+
+    describe('ageInMonthsLowCardinality', () => {
+        beforeEach(() => {
+            tk.freeze(new Date('2022-03-15'))
+        })
+        it('gets the correct age in months', () => {
+            let date = DateTime.fromISO('2022-01-16')
+            expect(ageInMonthsLowCardinality(date)).toEqual(2)
+            date = DateTime.fromISO('2022-01-14')
+            expect(ageInMonthsLowCardinality(date)).toEqual(3)
+            date = DateTime.fromISO('2021-11-25')
+            expect(ageInMonthsLowCardinality(date)).toEqual(4)
+        })
+        it('returns 0 for future dates', () => {
+            let date = DateTime.fromISO('2022-06-01')
+            expect(ageInMonthsLowCardinality(date)).toEqual(0)
+            date = DateTime.fromISO('2023-01-01')
+            expect(ageInMonthsLowCardinality(date)).toEqual(0)
+        })
+        it('returns a low cardinality value', () => {
+            let date = DateTime.fromISO('1990-01-01')
+            expect(ageInMonthsLowCardinality(date)).toEqual(50)
+            date = DateTime.fromMillis(0)
+            expect(ageInMonthsLowCardinality(date)).toEqual(50)
         })
     })
 })

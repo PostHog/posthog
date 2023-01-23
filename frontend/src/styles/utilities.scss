@@ -406,6 +406,24 @@
     position: absolute;
 }
 
+// Display
+
+.block {
+    display: block;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.inline {
+    display: inline;
+}
+
+.hidden {
+    display: none;
+}
+
 // Flex
 .flex {
     display: flex;
@@ -606,7 +624,7 @@
 }
 
 .text-xxs {
-    font-size: 0.5rem; /* 8px */
+    font-size: 0.625rem; /* 10px */
     line-height: 0.75rem; /* 12px */
 }
 .text-xs {
@@ -915,10 +933,6 @@
 
 .invisible {
     visibility: hidden;
-}
-
-.hidden {
-    display: none;
 }
 
 .resize-y {
