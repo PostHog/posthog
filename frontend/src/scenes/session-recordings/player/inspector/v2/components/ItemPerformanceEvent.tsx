@@ -7,7 +7,6 @@ import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Fragment } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
-import { IconInfo } from 'lib/components/icons'
 
 export interface ItemPerformanceEvent {
     item: PerformanceEvent
@@ -158,30 +157,27 @@ export function ItemPerformanceEvent({
                                 {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
                                     <Fragment key={key}>
                                         {index !== 0 && <LemonDivider vertical dashed />}
-                                        <div className="flex-1 p-2 text-center">
-                                            <div className="text-sm">
-                                                {label}
-                                                <Tooltip isDefaultTooltip title={description}>
-                                                    <IconInfo className="text-xl text-muted" />
-                                                </Tooltip>
+                                        <Tooltip isDefaultTooltip title={description}>
+                                            <div className="flex-1 p-2 text-center">
+                                                <div className="text-sm">{label}</div>
+                                                <div className="text-lg font-semibold">
+                                                    {item?.[key] === undefined ? (
+                                                        '-'
+                                                    ) : (
+                                                        <span
+                                                            className={clsx({
+                                                                'text-danger-dark': item[key] >= scoreBenchmarks[1],
+                                                                'text-warning-dark':
+                                                                    item[key] >= scoreBenchmarks[0] &&
+                                                                    item[key] < scoreBenchmarks[1],
+                                                            })}
+                                                        >
+                                                            {humanFriendlyMilliseconds(item[key])}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <div className="text-lg font-semibold">
-                                                {item?.[key] === undefined ? (
-                                                    '-'
-                                                ) : (
-                                                    <span
-                                                        className={clsx({
-                                                            'text-danger-dark': item[key] >= scoreBenchmarks[1],
-                                                            'text-warning-dark':
-                                                                item[key] >= scoreBenchmarks[0] &&
-                                                                item[key] < scoreBenchmarks[1],
-                                                        })}
-                                                    >
-                                                        {humanFriendlyMilliseconds(item[key])}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
+                                        </Tooltip>
                                     </Fragment>
                                 ))}
                             </div>
@@ -211,23 +207,54 @@ export function ItemPerformanceEvent({
                     <CodeSnippet language={Language.Markup} wrap copyDescription="performance event name">
                         {item.name}
                     </CodeSnippet>
-                    <p>
-                        Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and
-                        took <b>{humanFriendlyMilliseconds(item.duration)}</b>
-                        {item.decoded_body_size ? (
-                            <>
-                                {' '}
-                                to load <b>{humanizeBytes(item.decoded_body_size)}</b> of data
-                            </>
-                        ) : null}
-                        {compressionPercentage && item.encoded_body_size ? (
-                            <>
-                                , compressed to <b>{humanizeBytes(item.encoded_body_size)}</b> saving{' '}
-                                <b>{compressionPercentage.toFixed(1)}%</b>
-                            </>
-                        ) : null}
-                        .
-                    </p>
+
+                    {item.entry_type === 'navigation' ? (
+                        <>
+                            {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }) => (
+                                <div key={key}>
+                                    <div className="flex gap-2 font-semibold my-1">
+                                        <span>{label}</span>
+                                        <span>
+                                            {item?.[key] === undefined ? (
+                                                '-'
+                                            ) : (
+                                                <span
+                                                    className={clsx({
+                                                        'text-danger-dark': item[key] >= scoreBenchmarks[1],
+                                                        'text-warning-dark':
+                                                            item[key] >= scoreBenchmarks[0] &&
+                                                            item[key] < scoreBenchmarks[1],
+                                                    })}
+                                                >
+                                                    {humanFriendlyMilliseconds(item[key])}
+                                                </span>
+                                            )}
+                                        </span>
+                                    </div>
+
+                                    <p>{description}</p>
+                                </div>
+                            ))}
+                        </>
+                    ) : (
+                        <p>
+                            Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b>{' '}
+                            and took <b>{humanFriendlyMilliseconds(item.duration)}</b>
+                            {item.decoded_body_size ? (
+                                <>
+                                    {' '}
+                                    to load <b>{humanizeBytes(item.decoded_body_size)}</b> of data
+                                </>
+                            ) : null}
+                            {compressionPercentage && item.encoded_body_size ? (
+                                <>
+                                    , compressed to <b>{humanizeBytes(item.encoded_body_size)}</b> saving{' '}
+                                    <b>{compressionPercentage.toFixed(1)}%</b>
+                                </>
+                            ) : null}
+                            .
+                        </p>
+                    )}
 
                     <LemonDivider dashed />
                     <SimpleKeyValueList item={sanitizedProps} />

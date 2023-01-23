@@ -215,7 +215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                       event_names: eventNames,
                                       is_feature_flag: false,
-                                      is_event_property: true,
+                                      filter_by_event_names: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }) =>
@@ -243,7 +243,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                       event_names: eventNames,
                                       is_feature_flag: true,
-                                      is_event_property: true,
+                                      filter_by_event_names: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }) =>

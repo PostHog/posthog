@@ -10,7 +10,7 @@ import {
 } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
+import { PathsDataExploration } from 'scenes/paths/Paths'
 import {
     // BindLogic,
     useValues,
@@ -51,7 +51,7 @@ const VIEW_MAP = {
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
     // [`${InsightType.FUNNELS}`]: <FunnelInsight />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <Paths />,
+    [`${InsightType.PATHS}`]: <PathsDataExploration />,
 }
 
 export function InsightContainer({

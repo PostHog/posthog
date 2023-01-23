@@ -11,7 +11,7 @@
 */
 
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
-@each $space in $spaces {
+@each $space in $tiny_spaces {
     .space-y-#{escape-number($space)} {
         & > * + * {
             margin-top: #{$space * 0.25}rem;
@@ -34,28 +34,6 @@
 
     .gap-y-#{escape-number($space)} {
         row-gap: #{$space * 0.25}rem;
-    }
-
-    .w-#{escape-number($space)} {
-        width: #{$space * 0.25}rem;
-    }
-
-    .h-#{escape-number($space)} {
-        height: #{$space * 0.25}rem;
-    }
-
-    .max-w-#{escape-number($space)} {
-        max-width: #{$space * 0.25}rem;
-    }
-    .max-h-#{escape-number($space)} {
-        max-height: #{$space * 0.25}rem;
-    }
-
-    .min-w-#{escape-number($space)} {
-        min-width: #{$space * 0.25}rem;
-    }
-    .min-h-#{escape-number($space)} {
-        min-height: #{$space * 0.25}rem;
     }
 
     .m-#{escape-number($space)} {
@@ -112,6 +90,31 @@
         .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             padding-#{$side}: #{$space * 0.25}rem;
         }
+    }
+}
+
+// TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
+@each $space in $all_spaces {
+    .w-#{escape-number($space)} {
+        width: #{$space * 0.25}rem;
+    }
+
+    .h-#{escape-number($space)} {
+        height: #{$space * 0.25}rem;
+    }
+
+    .max-w-#{escape-number($space)} {
+        max-width: #{$space * 0.25}rem;
+    }
+    .max-h-#{escape-number($space)} {
+        max-height: #{$space * 0.25}rem;
+    }
+
+    .min-w-#{escape-number($space)} {
+        min-width: #{$space * 0.25}rem;
+    }
+    .min-h-#{escape-number($space)} {
+        min-height: #{$space * 0.25}rem;
     }
 }
 
@@ -276,6 +279,18 @@
     }
 }
 
+@each $name, $hex in $colors {
+    .hover\:text-#{$name}:hover {
+        color: $hex;
+    }
+    .hover\:bg-#{$name}:hover {
+        background-color: $hex;
+    }
+    .hover\:border-#{$name}:hover {
+        border-color: $hex;
+    }
+}
+
 // Widths / heights
 
 @each $kind in ('width', 'height') {
@@ -389,6 +404,24 @@
 
 .absolute {
     position: absolute;
+}
+
+// Display
+
+.block {
+    display: block;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.inline {
+    display: inline;
+}
+
+.hidden {
+    display: none;
 }
 
 // Flex
@@ -591,7 +624,7 @@
 }
 
 .text-xxs {
-    font-size: 0.5rem; /* 8px */
+    font-size: 0.625rem; /* 10px */
     line-height: 0.75rem; /* 12px */
 }
 .text-xs {
@@ -651,7 +684,7 @@
     @extend %mixin-text-ellipsis;
 }
 
-@each $space in $spaces {
+@each $space in $tiny_spaces {
     .leading-#{escape-number($space)} {
         line-height: #{$space * 0.25}rem;
     }
@@ -900,10 +933,6 @@
 
 .invisible {
     visibility: hidden;
-}
-
-.hidden {
-    display: none;
 }
 
 .resize-y {

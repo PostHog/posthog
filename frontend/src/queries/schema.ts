@@ -204,6 +204,8 @@ export interface DataTableNode extends Node {
     showElapsedTime?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
+    /** Shows a list of saved queries */
+    showSavedQueries?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
     /** Link properties via the URL (default: false) */
