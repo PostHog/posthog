@@ -119,7 +119,7 @@ export function HeatmapStats(): JSX.Element {
                         {countedElements.map(({ element, count, actionStep }, index) => {
                             return (
                                 <div
-                                    className="p-2 flex flex-row justify-between cursor-pointer HeatmapStats__elements-list"
+                                    className="p-2 flex flex-row justify-between cursor-pointer hover:bg-primary-highlight"
                                     key={index}
                                     onClick={() => setSelectedElement(element)}
                                     onMouseEnter={() => setHighlightElement(element)}
