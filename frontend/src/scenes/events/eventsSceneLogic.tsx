@@ -20,6 +20,7 @@ export const getDefaultEventsSceneQuery = (): DataTableNode => ({
         limit: 100,
     },
     propertiesViaUrl: true,
+    showSavedQueries: true,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
