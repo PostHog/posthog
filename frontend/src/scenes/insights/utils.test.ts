@@ -30,7 +30,15 @@ import {
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { Noun } from '~/models/groupsModel'
-import { EventsNode, ActionsNode, NodeKind, LifecycleQuery, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import {
+    EventsNode,
+    ActionsNode,
+    NodeKind,
+    LifecycleQuery,
+    StickinessQuery,
+    TrendsQuery,
+    PathsQuery,
+} from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
@@ -785,6 +793,47 @@ describe('summarizeInsightQuery()', () => {
         const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
 
         expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
+    })
+
+    it('summarizes a Paths insight based on all events', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('User paths based on all events')
+    })
+
+    it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                include_event_types: [],
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('User paths based on all events')
+    })
+
+    it('summarizes a Paths insight based on pageviews with start and end points', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                include_event_types: [PathType.PageView],
+                start_point: '/landing-page',
+                end_point: '/basket',
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
     })
 
     it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {

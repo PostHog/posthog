@@ -22,7 +22,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
         values: [toolbarLogic, ['apiURL']],
-        actions: [currentPageLogic, ['setHref']],
     }),
     actions({
         getElementStats: (url?: string | null) => ({
@@ -34,19 +33,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
-        storePageElements: (elements: HTMLHtmlElement[]) => ({ elements }),
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
     }),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
-        pageElements: [
-            [] as HTMLHtmlElement[],
-            {
-                storePageElements: (_, { elements }) => elements,
-                disableHeatmap: () => [],
-                enableHeatmap: () => collectAllElementsDeep('*', document),
-            },
-        ],
         canLoadMoreElementStats: [
             true,
             {
@@ -154,10 +144,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (selectors) => [
                 selectors.elementStats,
                 toolbarLogic.selectors.dataAttributes,
-                selectors.pageElements,
+                currentPageLogic.selectors.href,
                 selectors.matchLinksByHref,
             ],
-            (elementStats, dataAttributes, pageElements, matchLinksByHref) => {
+            (elementStats, dataAttributes, href, matchLinksByHref) => {
+                cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
+                cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
+
+                cache.lastHref = href
+
                 const elements: CountedHTMLElement[] = []
                 elementStats?.results.forEach((event) => {
                     let combinedSelector: string
@@ -169,19 +164,15 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                 matchLinksByHref ? element : { ...element, href: undefined },
                                 dataAttributes
                             ) || '*'
-
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            if (cache.selectorToElement === undefined) {
-                                cache.selectorToElement = {}
-                            }
-                            let domElements: HTMLElement[] = cache.selectorToElement?.[combinedSelector] || []
-                            if (domElements.length === 0) {
+                            let domElements: HTMLElement[] | undefined = cache.selectorToElements?.[combinedSelector]
+                            if (domElements === undefined) {
                                 domElements = Array.from(
-                                    querySelectorAllDeep(combinedSelector, document, pageElements)
+                                    querySelectorAllDeep(combinedSelector, document, cache.pageElements)
                                 ) as HTMLElement[]
-                                cache.selectorToElement[combinedSelector] = domElements
+                                cache.selectorToElements[combinedSelector] = domElements
                             }
 
                             if (domElements.length === 1) {
@@ -227,7 +218,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                     lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
                                     continue
                                 } else {
-                                    console.log('heatmap: Found empty selector: ', combinedSelector)
+                                    console.log('Found empty selector: ', combinedSelector)
                                 }
                             }
                         } catch (error) {
@@ -292,7 +283,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     afterMount(({ actions, values, cache }) => {
         if (values.heatmapEnabled) {
-            actions.storePageElements(collectAllElementsDeep('*', document))
             actions.getElementStats()
         }
         cache.keyDownListener = (event: KeyboardEvent) => {
@@ -314,11 +304,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         window.removeEventListener('keyup', cache.keyUpListener)
     }),
 
-    listeners(({ actions, values, cache }) => ({
-        setHref: () => {
-            cache.selectorToElements = {}
-            actions.storePageElements(collectAllElementsDeep('*', document))
-        },
+    listeners(({ actions, values }) => ({
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
