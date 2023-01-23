@@ -81,7 +81,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
 # Materialized View from a Kafka topic and insert the messages into the
 # ClickHouse MergeTree table `person_overrides`
 PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
-    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_kafka`
+    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
     ENGINE = Kafka(
@@ -111,5 +111,5 @@ PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     TO `{CLICKHOUSE_DATABASE}`.`person_overrides`
     AS SELECT *
-    FROM `{CLICKHOUSE_DATABASE}`.`person_overrides_kafka`
+    FROM `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
 """
