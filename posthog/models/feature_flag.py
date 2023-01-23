@@ -686,9 +686,10 @@ def get_all_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    no_cache: bool = False,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
 
-    all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
+    all_feature_flags = None if no_cache else get_feature_flags_for_team_in_cache(team_id)
     if all_feature_flags is None:
         all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
 
