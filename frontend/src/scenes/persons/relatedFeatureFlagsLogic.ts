@@ -21,7 +21,7 @@ export interface FeatureFlagEvaluationType {
 
 export interface RelatedFeatureFlagResponse {
     [key: string]: {
-        value: boolean | string
+        value: boolean | string | undefined
         evaluation: FeatureFlagEvaluationType
     }
 }
