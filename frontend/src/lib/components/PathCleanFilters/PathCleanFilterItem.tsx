@@ -23,14 +23,17 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
             onClickOutside={() => setVisible(false)}
             overlay={<PathRegexPopup filter={filter} onSave={onChange} onCancel={() => setVisible(false)} />}
         >
-            <LemonPill
-                onClick={() => {
-                    setVisible(!visible)
-                }}
-                onDelete={onRemove}
-            >
-                <span title={label}>{midEllipsis(label, 32)}</span>
-            </LemonPill>
+            {/* required for popup placement */}
+            <div className="relative">
+                <LemonPill
+                    onClick={() => {
+                        setVisible(!visible)
+                    }}
+                    onDelete={onRemove}
+                >
+                    <span title={label}>{midEllipsis(label, 32)}</span>
+                </LemonPill>
+            </div>
         </Popup>
     )
 }
