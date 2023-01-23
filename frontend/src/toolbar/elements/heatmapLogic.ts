@@ -137,12 +137,19 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
     })),
 
-    selectors({
+    selectors(({ cache }) => ({
         elements: [
-            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes],
-            (elementStats, dataAttributes) => {
-                // cache all elements in shadow roots
-                const allElements = collectAllElementsDeep('*', document)
+            (selectors) => [
+                selectors.elementStats,
+                toolbarLogic.selectors.dataAttributes,
+                currentPageLogic.selectors.href,
+            ],
+            (elementStats, dataAttributes, href) => {
+                cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
+                cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
+
+                cache.lastHref = href
+
                 const elements: CountedHTMLElement[] = []
                 elementStats?.results.forEach((event) => {
                     let combinedSelector: string
@@ -152,9 +159,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            const domElements = Array.from(
-                                querySelectorAllDeep(combinedSelector, document, allElements)
-                            ) as HTMLElement[]
+                            let domElements: HTMLElement[] | undefined = cache.selectorToElements?.[combinedSelector]
+                            if (domElements === undefined) {
+                                domElements = Array.from(
+                                    querySelectorAllDeep(combinedSelector, document, cache.pageElements)
+                                ) as HTMLElement[]
+                                cache.selectorToElements[combinedSelector] = domElements
+                            }
 
                             if (domElements.length === 1) {
                                 const e = event.elements[i]
@@ -186,7 +197,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                             if (domElements.length === 0) {
                                 if (i === event.elements.length - 1) {
-                                    console.error(
+                                    console.log(
                                         'For event: ',
                                         event,
                                         '. Found a case with 0 elements using: ',
@@ -199,11 +210,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                     lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
                                     continue
                                 } else {
-                                    console.log('Found empty selector')
+                                    console.log('Found empty selector: ', combinedSelector)
                                 }
                             }
                         } catch (error) {
-                            console.error('Invalid selector!', combinedSelector)
+                            console.log('Invalid selector!', combinedSelector)
                             break
                         }
 
@@ -260,7 +271,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (countedElements) =>
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
-    }),
+    })),
 
     afterMount(({ actions, values, cache }) => {
         if (values.heatmapEnabled) {
