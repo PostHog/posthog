@@ -13,7 +13,7 @@ import {
 import type { definitionEditLogicType } from './definitionEditLogicType'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
 import { tagsModel } from '~/models/tagsModel'
 
 export interface DefinitionEditLogicProps extends DefinitionLogicProps {

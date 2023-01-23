@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { expectLogic } from 'kea-test-utils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 

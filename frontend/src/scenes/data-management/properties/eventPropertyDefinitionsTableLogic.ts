@@ -30,7 +30,7 @@ export interface EventPropertyDefinitionsTableLogicProps {
 }
 
 export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTableLogicType>([
-    path(['scenes', 'data-management', 'event-properties', 'eventPropertyDefinitionsTableLogic']),
+    path(['scenes', 'data-management', 'properties', 'eventPropertyDefinitionsTableLogic']),
     props({} as EventPropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
     actions({

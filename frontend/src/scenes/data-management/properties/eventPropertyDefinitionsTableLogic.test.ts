@@ -8,7 +8,7 @@ import { combineUrl, router } from 'kea-router'
 import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
-} from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+} from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
 describe('eventPropertyDefinitionsTableLogic', () => {

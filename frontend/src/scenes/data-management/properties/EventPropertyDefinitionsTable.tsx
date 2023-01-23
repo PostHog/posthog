@@ -10,7 +10,7 @@ import { humanFriendlyNumber } from 'lib/utils'
 import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
     eventPropertyDefinitionsTableLogic,
-} from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+} from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
