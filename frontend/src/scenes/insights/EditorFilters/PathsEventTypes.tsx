@@ -1,54 +1,82 @@
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { PathType, EditorFilterProps } from '~/types'
+import { PathType, EditorFilterProps, QueryEditorFilterProps, PathsFilterType } from '~/types'
 import { LemonButtonWithPopup, LemonButton } from 'lib/components/LemonButton'
 import { humanizePathsEventTypes } from '../utils'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+
+export function PathsEventsTypesDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+
+    return (
+        <PathsEventTypesComponent
+            includeEventTypes={(insightFilter as PathsFilterType)?.include_event_types}
+            setIncludeEventTypes={(includeEventTypes: PathsFilterType['include_event_types']) => {
+                updateInsightFilter({ include_event_types: includeEventTypes })
+            }}
+        />
+    )
+}
 
 export function PathsEventTypes({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
 
+    return (
+        <PathsEventTypesComponent
+            includeEventTypes={filter.include_event_types}
+            setIncludeEventTypes={(includeEventTypes: PathsFilterType['include_event_types']) => {
+                setFilter({
+                    include_event_types: includeEventTypes,
+                })
+            }}
+        />
+    )
+}
+
+type PathsEventTypesComponentProps = {
+    includeEventTypes: PathsFilterType['include_event_types']
+    setIncludeEventTypes: (includeEventTypes: PathsFilterType['include_event_types']) => void
+}
+
+export function PathsEventTypesComponent({
+    includeEventTypes,
+    setIncludeEventTypes,
+}: PathsEventTypesComponentProps): JSX.Element {
     const options = [
         {
             type: PathType.PageView,
             label: 'Page views',
-            selected: filter.include_event_types?.includes(PathType.PageView),
+            selected: includeEventTypes?.includes(PathType.PageView),
         },
         {
             type: PathType.Screen,
             label: 'Screen views',
-            selected: filter.include_event_types?.includes(PathType.Screen),
+            selected: includeEventTypes?.includes(PathType.Screen),
         },
         {
             type: PathType.CustomEvent,
             label: 'Custom events',
-            selected: filter.include_event_types?.includes(PathType.CustomEvent),
+            selected: includeEventTypes?.includes(PathType.CustomEvent),
         },
     ]
 
     const onClickPathtype = (pathType: PathType): void => {
-        if (filter.include_event_types) {
-            if (filter.include_event_types.includes(pathType)) {
-                setFilter({
-                    include_event_types: filter.include_event_types.filter((types) => types !== pathType),
-                })
+        if (includeEventTypes) {
+            if (includeEventTypes.includes(pathType)) {
+                setIncludeEventTypes(includeEventTypes.filter((types) => types !== pathType))
             } else {
-                setFilter({
-                    include_event_types: filter.include_event_types
-                        ? [...filter.include_event_types, pathType]
-                        : [pathType],
-                })
+                setIncludeEventTypes(includeEventTypes ? [...includeEventTypes, pathType] : [pathType])
             }
         } else {
-            setFilter({
-                include_event_types: [pathType],
-            })
+            setIncludeEventTypes([pathType])
         }
     }
 
-    const summary = capitalizeFirstLetter(humanizePathsEventTypes(filter).join(' & '))
+    const summary = capitalizeFirstLetter(humanizePathsEventTypes(includeEventTypes).join(' & '))
 
     return (
         <LemonButtonWithPopup
@@ -63,7 +91,11 @@ export function PathsEventTypes({ insightProps }: EditorFilterProps): JSX.Elemen
                         key={option.type}
                         onClick={() => onClickPathtype(option.type)}
                         status="stealth"
-                        disabled={option.selected && filter.include_event_types?.length === 1}
+                        disabledReason={
+                            option.selected && includeEventTypes?.length === 1
+                                ? 'At least one event type must be selected'
+                                : undefined
+                        }
                         fullWidth
                         data-attr={option['data-attr']}
                     >
