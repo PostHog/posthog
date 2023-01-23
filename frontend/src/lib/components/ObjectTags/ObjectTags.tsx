@@ -19,7 +19,7 @@ interface ObjectTagsPropsBase {
     'data-attr'?: string
 }
 
-type ObjectTagsProps =
+export type ObjectTagsProps =
     | (ObjectTagsPropsBase & {
           /** Tags CAN'T be added or removed. */
           staticOnly: true
