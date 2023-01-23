@@ -41,7 +41,9 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
         created_at DateTime64(6, 'UTC') DEFAULT now(),
 
         -- the specific version of the `old_person_id` mapping. This is used to
-        -- allow us to discard old mappings as new ones are added.
+        -- allow us to discard old mappings as new ones are added. This version
+        -- will be provided by the corresponding PostgreSQL
+        --`posthog_personoverrides` table
         version INT NOT NULL
     )
 
