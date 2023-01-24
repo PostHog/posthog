@@ -1,4 +1,4 @@
-import { useValues, useActions, useMountedLogic } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { EditorFilterProps } from '~/types'
@@ -51,6 +51,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
             <div className="mt-4 space-y-4">

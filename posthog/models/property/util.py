@@ -2,7 +2,16 @@ import re
 from collections import Counter
 from typing import Any, Callable
 from typing import Counter as TCounter
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
@@ -10,7 +19,7 @@ from rest_framework import exceptions
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
-from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.hogql import HogQLContext, translate_hogql
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -759,7 +768,19 @@ def build_selector_regex(selector: Selector) -> str:
 
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
-    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
+    counters: List[tuple] = []
+    for prop in props:
+        #
+        if prop.type == "hogql":
+            context = HogQLContext()
+            translate_hogql(prop.key, context)
+            if context.found_event_property_access:
+                counters.append(("properties", "event", None))
+            if context.found_person_property_access:
+                counters.append(("properties", "person", None))
+        else:
+            counters.append((prop.key, prop.type, prop.group_type_index))
+    return Counter(cast(Iterable, counters))
 
 
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
