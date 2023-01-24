@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Dict, List
 
+from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -109,6 +110,9 @@ expected_rage_click_data_response_results: List[Dict] = [
 ]
 
 
+@override_settings(
+    PERSON_ON_EVENTS_OVERRIDE=False
+)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
 class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_element_automatic_order(self) -> None:
         elements = [

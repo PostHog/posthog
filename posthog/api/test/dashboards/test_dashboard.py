@@ -2,6 +2,7 @@ import json
 from unittest.mock import MagicMock
 
 from dateutil import parser
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -18,6 +19,9 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from posthog.utils import generate_cache_key
 
 
+@override_settings(
+    PERSON_ON_EVENTS_OVERRIDE=False
+)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()

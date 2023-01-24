@@ -6,6 +6,7 @@ from urllib.parse import unquote, urlencode
 import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -24,6 +25,9 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 
+@override_settings(
+    PERSON_ON_EVENTS_OVERRIDE=False
+)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "event"
 

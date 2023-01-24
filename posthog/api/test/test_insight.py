@@ -6,6 +6,7 @@ from unittest.case import skip
 from unittest.mock import patch
 
 import pytz
+from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -41,6 +42,9 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
 
 
+@override_settings(
+    PERSON_ON_EVENTS_OVERRIDE=False
+)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
 
