@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
-import { LemonPill } from '@posthog/lemon-ui'
+import { LemonSnack } from '@posthog/lemon-ui'
 import { Popup } from 'lib/components/Popup/Popup'
 import { midEllipsis } from 'lib/utils'
 
@@ -34,14 +34,15 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
         >
             {/* required for popup placement */}
             <div className="relative">
-                <LemonPill
+                <LemonSnack
+                    type="pill"
                     onClick={() => {
                         setVisible(!visible)
                     }}
-                    onDelete={onRemove}
+                    onClose={onRemove}
                 >
                     <span title={label}>{midEllipsis(label, 32)}</span>
-                </LemonPill>
+                </LemonSnack>
             </div>
         </Popup>
     )
