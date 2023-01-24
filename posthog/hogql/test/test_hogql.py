@@ -21,21 +21,21 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
     def test_hogql_fields_and_properties(self):
         self.assertEqual(
             self._translate("properties.bla"),
-            "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._translate("properties['bla']"),
-            "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._translate('properties["bla"]'),
-            "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
         )
 
         context = HogQLContext()
         self.assertEqual(
             translate_hogql("properties.$bla", context),
-            "replaceRegexpAll(JSONExtractRaw(properties, '$bla'), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -44,7 +44,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "$bla"],
                     "event.properties",
                     "$bla",
-                    "replaceRegexpAll(JSONExtractRaw(properties, '$bla'), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
@@ -52,7 +52,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         context = HogQLContext()
         self.assertEqual(
             translate_hogql("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(person_properties, 'bla'), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(person_properties, %(val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -61,7 +61,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["person", "properties", "bla"],
                     "person.properties",
                     "bla",
-                    "replaceRegexpAll(JSONExtractRaw(person_properties, 'bla'), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
@@ -159,7 +159,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "prop"],
                     "event.properties",
                     "prop",
-                    "replaceRegexpAll(JSONExtractRaw(properties, 'prop'), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
                 ),
                 HogQLFieldAccess(["uuid"], "event", "uuid", "uuid"),
                 HogQLFieldAccess(["event"], "event", "event", "event"),
@@ -177,7 +177,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "event"],
                     "event.properties",
                     "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, 'event'), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
                 ),
             ],
         )
@@ -201,14 +201,14 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "event"],
                     "event.properties",
                     "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, 'event'), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
                 ),
                 HogQLFieldAccess(["event"], "event", "event", "event"),
                 HogQLFieldAccess(
                     ["properties", "event"],
                     "event.properties",
                     "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, 'event'), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_1)s), '^\"|\"$', '')",
                 ),
             ],
         )
@@ -221,7 +221,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(
             self._translate("properties.bla and properties.bla2"),
-            "and(replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(properties, 'bla2'), '^\"|\"$', ''))",
+            "and(replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(properties, %(val_1)s), '^\"|\"$', ''))",
         )
         self.assertEqual(
             self._translate("event or timestamp or true or count()"),
@@ -246,10 +246,12 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
             self._translate("*"),
             "tuple(uuid,event,properties,timestamp,team_id,distinct_id,elements_chain,created_at,person_id,person_created_at,person_properties)",
         )
+        context = HogQLContext()
         self.assertEqual(
-            self._translate("person"),
-            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, 'name'), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^\"|\"$', ''))",
+            translate_hogql("person", context),
+            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(val_1)s), '^\"|\"$', ''))",
         )
+        self.assertEqual(context.values, {"val_0": "name", "val_1": "email"})
         self._assert_value_error("person + 1", 'Can not use the field "person" in an expression')
 
     def test_hogql_values(self):
