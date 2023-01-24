@@ -17,7 +17,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
 
     connect: (props: InsightLogicProps) => ({
         values: [insightDataLogic(props), ['querySource', 'insightFilter'], groupsModel, ['aggregationLabel']],
-        actions: [insightDataLogic(props), ['updateInsightFilter']],
+        actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     }),
 
     selectors: {

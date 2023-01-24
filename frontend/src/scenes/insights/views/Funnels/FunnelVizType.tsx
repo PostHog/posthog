@@ -1,47 +1,18 @@
-import { useValues, useActions } from 'kea'
 import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant-design/icons'
-import { EditorFilterProps, FunnelsFilterType, FunnelVizType as VizType, QueryEditorFilterProps } from '~/types'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { FunnelsFilterType, FunnelVizType as VizType } from '~/types'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { Noun } from '~/models/groupsModel'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-export function FunnelVizTypeDataExploration({
-    insightProps,
-}: Pick<QueryEditorFilterProps, 'insightProps'>): JSX.Element | null {
-    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { insightFilter } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
-
-    return (
-        <FunnelVizTypeComponent
-            aggregationTargetLabel={aggregationTargetLabel}
-            setFilter={updateInsightFilter}
-            {...insightFilter}
-        />
-    )
-}
-
-export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
-    const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-
-    return (
-        <FunnelVizTypeComponent aggregationTargetLabel={aggregationTargetLabel} setFilter={setFilters} {...filters} />
-    )
-}
-
-type FunnelVizTypeComponentProps = {
+type FunnelVizTypeProps = {
     setFilter: (filter: FunnelsFilterType) => void
     aggregationTargetLabel: Noun
 } & FunnelsFilterType
 
-function FunnelVizTypeComponent({
+export function FunnelVizType({
     funnel_viz_type,
     setFilter,
     aggregationTargetLabel,
-}: FunnelVizTypeComponentProps): JSX.Element | null {
+}: FunnelVizTypeProps): JSX.Element | null {
     const options = [
         {
             key: VizType.Steps,
