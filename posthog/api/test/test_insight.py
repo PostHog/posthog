@@ -2260,7 +2260,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 data={
                     "events": json.dumps([{"id": "$pageview"}]),
                     "properties": json.dumps(
-                        [{"key": "toInt(properties.int_value) > 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                        [
+                            {"key": "toInt(properties.int_value) > 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                            {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                        ]
                     ),
                 },
             )
@@ -2385,3 +2388,57 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_json["result"][1]["name"], "user did things")
         self.assertEqual(response_json["result"][1]["count"], 0)
         self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_retention_hogql(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["person1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=11),
+            properties={"int_value": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=10),
+            properties={"int_value": 20},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/").json()
+
+        self.assertEqual(len(response["result"]), 11)
+        self.assertEqual(response["result"][0]["values"][0]["count"], 1)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/retention/",
+            data={
+                "properties": json.dumps(
+                    [
+                        {"key": "toInt(properties.int_value) > 100 and 'bla' != 'a%sd'", "type": "hogql"},
+                        {"key": "like(person.properties.email, '%test.com%')", "type": "hogql"},
+                    ]
+                ),
+            },
+        ).json()
+        self.assertEqual(len(response["result"]), 11)
+        self.assertEqual(response["result"][0]["values"][0]["count"], 0)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/retention/",
+            data={
+                "properties": json.dumps(
+                    [
+                        {"key": "toInt(properties.int_value) > 0 and 'bla' != 'a%sd'", "type": "hogql"},
+                        {"key": "like(person.properties.email, '%test.com%')", "type": "hogql"},
+                    ]
+                ),
+            },
+        ).json()
+        self.assertEqual(len(response["result"]), 11)
+        self.assertEqual(response["result"][0]["values"][0]["count"], 1)
