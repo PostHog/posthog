@@ -43,6 +43,7 @@ import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/Pa
 import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -114,6 +115,14 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                               key: 'ends-target',
                               label: 'Ends at',
                               component: PathsTargetEndDataExploration,
+                          },
+                      ])
+                    : []),
+                ...(isFunnels
+                    ? filterFalsy([
+                          {
+                              key: 'query-steps',
+                              component: FunnelsQueryStepsDataExploration,
                           },
                       ])
                     : []),

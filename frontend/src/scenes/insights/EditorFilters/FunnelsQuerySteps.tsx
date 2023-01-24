@@ -1,17 +1,36 @@
 import { useValues, useActions, useMountedLogic } from 'kea'
+
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { EditorFilterProps } from '~/types'
-import { groupsModel } from '~/models/groupsModel'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { ToggleButtonChartFilter } from '../views/Funnels/ToggleButtonChartFilter'
+import { insightDataLogic } from '../insightDataLogic'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
+import { groupsModel } from '~/models/groupsModel'
+
+import { EditorFilterProps, FunnelsFilterType } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { ToggleButtonChartFilter } from '../views/Funnels/ToggleButtonChartFilter'
+import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
+
+export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(insightDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+
+    return (
+        <div className="flex justify-between items-center">
+            <LemonLabel>Query Steps</LemonLabel>
+
+            <div className="flex items-center gap-2">
+                <span className="text-muted">Graph type</span>
+                <ToggleButtonChartFilter {...insightFilter} setFilter={updateInsightFilter} />
+            </div>
+        </div>
+    )
+}
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element {
     const { isStepsEmpty, filterSteps, filters } = useValues(funnelLogic(insightProps))
@@ -27,7 +46,10 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
 
                 <div className="flex items-center gap-2">
                     <span className="text-muted">Graph type</span>
-                    <ToggleButtonChartFilter simpleMode />
+                    <ToggleButtonChartFilter
+                        {...filters}
+                        setFilter={(filter: FunnelsFilterType) => setFilters({ ...filters, ...filter })}
+                    />
                 </div>
             </div>
 

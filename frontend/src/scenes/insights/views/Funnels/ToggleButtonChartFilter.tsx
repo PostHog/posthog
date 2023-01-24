@@ -1,19 +1,20 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant-design/icons'
-import { FunnelVizType } from '~/types'
-import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
+import { FunnelsFilterType, FunnelVizType } from '~/types'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-interface ToggleButtonChartFilterProps {}
+type ToggleButtonChartFilterProps = {
+    setFilter: (filter: FunnelsFilterType) => void
+} & FunnelsFilterType
 
-export function ToggleButtonChartFilter({}: ToggleButtonChartFilterProps): JSX.Element | null {
+export function ToggleButtonChartFilter({
+    funnel_viz_type,
+    setFilter,
+}: ToggleButtonChartFilterProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
-    const { chartFilter } = useValues(chartFilterLogic(insightProps))
-    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
-    const defaultDisplay = FunnelVizType.Steps
 
     const options = [
         {
@@ -36,20 +37,21 @@ export function ToggleButtonChartFilter({}: ToggleButtonChartFilterProps): JSX.E
         },
     ]
 
-    const innerContent = (
+    return (
         <div className="funnel-chart-filter">
             <DropdownSelector
                 options={options}
-                value={chartFilter || defaultDisplay}
+                value={funnel_viz_type || FunnelVizType.Steps}
                 onValueChange={(val) => {
                     const valueTyped = val as FunnelVizType
-                    setChartFilter(valueTyped)
+
+                    if (funnel_viz_type !== valueTyped) {
+                        setFilter({ funnel_viz_type: valueTyped })
+                    }
                 }}
                 hideDescriptionOnDisplay
                 compact
             />
         </div>
     )
-
-    return innerContent
 }
