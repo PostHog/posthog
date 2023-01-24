@@ -27,20 +27,14 @@ export function ToggleButtonChartFilter({}: ToggleButtonChartFilterProps): JSX.E
             label: 'Time to convert',
             description: `Track how long it takes for ${aggregationTargetLabel.plural} to convert`,
             icon: <ClockCircleOutlined />,
-            hidden: false,
         },
         {
             key: FunnelVizType.Trends,
             label: 'Historical trends',
             description: "Track how this funnel's conversion rate is trending over time",
             icon: <LineChartOutlined />,
-            hidden: false,
         },
     ]
-
-    if (options.filter((option) => !option.hidden).length <= 1) {
-        return null
-    }
 
     const innerContent = (
         <div className="funnel-chart-filter">
