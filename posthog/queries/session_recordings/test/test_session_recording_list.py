@@ -328,7 +328,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
-    @also_test_with_materialized_columns(["$current_url", "$browser"])
+    @also_test_with_materialized_columns(event_properties=["$current_url", "$browser"], person_properties=["email"])
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_event_filter_with_hogql_properties(self):
@@ -352,7 +352,10 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                         "type": "events",
                         "order": 0,
                         "name": "$pageview",
-                        "properties": [{"key": "properties.$browser == 'Chrome'", "type": "hogql"}],
+                        "properties": [
+                            {"key": "properties.$browser == 'Chrome'", "type": "hogql"},
+                            {"key": "person.properties.email == 'bla'", "type": "hogql"},
+                        ],
                     }
                 ]
             },
