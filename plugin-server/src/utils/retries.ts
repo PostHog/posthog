@@ -21,7 +21,7 @@ export async function promiseRetry<T>(
           })
 }
 
-// For Apps retries - limiting also the time
+// For Apps retries
 export function getNextRetryMs(baseMs: number, multiplier: number, attempt: number): number {
     if (attempt < 1) {
         throw new Error('Attempts are indexed starting with 1')

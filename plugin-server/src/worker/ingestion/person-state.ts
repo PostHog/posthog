@@ -124,31 +124,6 @@ export class PersonState {
         return this.personContainer
     }
 
-    private async createOrGetPerson(properties: Properties, propertiesOnce: Properties): Promise<boolean> {
-        const personId = await this.db.getPersonId(this.teamId, this.distinctId)
-        if (personId) {
-            this.personContainer = this.personContainer.reset()
-            return false
-        }
-
-        // Catch race condition where in between getting and creating, another request already created this user
-        const person = await this.createPerson(
-            this.timestamp,
-            properties || {},
-            propertiesOnce || {},
-            this.teamId,
-            null,
-            // :NOTE: This should never be set in this branch, but adding this for logical consistency
-            this.updateIsIdentified,
-            this.newUuid,
-            this.event.uuid,
-            [this.distinctId]
-        )
-        // :TRICKY: Avoid subsequent queries re-fetching person
-        this.personContainer = this.personContainer.with(person)
-        return true
-    }
-
     // If we created the person we already updated the properties, in that case we return true
     // If the person already existed we do nothing here, which means properties aren't updated and we return false
     private async createPersonIfDistinctIdIsNew({
@@ -165,7 +140,6 @@ export class PersonState {
         const propertiesOnce = excludeProperties ? {} : this.eventProperties['$set_once'] || {}
 
         try {
-            // return this.createOrGetPerson(properties, propertiesOnce)
             return promiseRetry(() => this.createOrGetPerson(properties, propertiesOnce))
         } catch (error) {
             // TODO: figure out if we need to add Sentry here or it's already upstream
@@ -179,6 +153,33 @@ export class PersonState {
             })
             throw error
         }
+    }
+
+    // If we created the person we already updated the properties, in that case we return true
+    // If the person already existed we do nothing here, which means properties aren't updated and we return false
+    private async createOrGetPerson(properties: Properties, propertiesOnce: Properties): Promise<boolean> {
+        // getPersonId hits Redis cache first, if not there goes to Postgres
+        const personId = await this.db.getPersonId(this.teamId, this.distinctId)
+        if (personId) {
+            this.personContainer = this.personContainer.reset()
+            return false
+        }
+
+        const person = await this.createPerson(
+            this.timestamp,
+            properties || {},
+            propertiesOnce || {},
+            this.teamId,
+            null,
+            // :NOTE: This should never be set in this branch, but adding this for logical consistency
+            this.updateIsIdentified,
+            this.newUuid,
+            this.event.uuid,
+            [this.distinctId]
+        )
+        // :TRICKY: Avoid subsequent queries re-fetching person
+        this.personContainer = this.personContainer.with(person)
+        return true
     }
 
     private async createPerson(
