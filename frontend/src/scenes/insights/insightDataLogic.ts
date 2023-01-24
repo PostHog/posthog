@@ -41,6 +41,15 @@ const getCleanedQuery = (
                 trendsFilter: {},
             },
         }
+    } else if (kind === NodeKind.FunnelsQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {},
+            },
+        }
     } else if (kind === NodeKind.PathsQuery) {
         return {
             kind: NodeKind.InsightVizNode,
@@ -190,6 +199,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setActiveView: ({ type }) => {
             if (type === InsightType.TRENDS) {
                 actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
+            } else if (type === InsightType.FUNNELS) {
+                actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
             } else if (type === InsightType.PATHS) {
                 actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
             } else if (type === InsightType.STICKINESS) {

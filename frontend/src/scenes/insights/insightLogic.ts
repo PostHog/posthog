@@ -756,6 +756,7 @@ export const insightLogic = kea<insightLogicType>([
                 return (
                     !!featureDataExploration &&
                     (isTrendsFilter(filters) ||
+                        isFunnelsFilter(filters) ||
                         isPathsFilter(filters) ||
                         isStickinessFilter(filters) ||
                         isLifecycleFilter(filters))
