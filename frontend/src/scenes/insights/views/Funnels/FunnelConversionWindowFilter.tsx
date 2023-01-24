@@ -3,11 +3,42 @@ import { capitalizeFirstLetter, pluralize } from 'lib/utils'
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { FunnelConversionWindow, FunnelConversionWindowTimeUnit } from '~/types'
+import { EditorFilterProps, FunnelConversionWindow, FunnelConversionWindowTimeUnit, FunnelsFilterType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { useDebouncedCallback } from 'use-debounce'
 import { LemonInput, LemonSelect, LemonSelectOption } from '@posthog/lemon-ui'
+import { Noun } from '~/models/groupsModel'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+export function FunnelConversionWindowFilterDataExploration({
+    insightProps,
+}: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
+    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { insightFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    return (
+        <FunnelConversionWindowFilterComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            setFilter={updateInsightFilter}
+            {...insightFilter}
+        />
+    )
+}
+
+export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
+    const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { filters } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
+
+    return (
+        <FunnelConversionWindowFilterComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            setFilter={setFilters}
+            {...filters}
+        />
+    )
+}
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
@@ -17,44 +48,52 @@ const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
     [FunnelConversionWindowTimeUnit.Month]: [1, 12],
 }
 
-export function FunnelConversionWindowFilter(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    const { conversionWindow, aggregationTargetLabel, filters } = useValues(funnelLogic(insightProps))
-    const { setFilters } = useActions(funnelLogic(insightProps))
-    const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>(conversionWindow)
+type FunnelConversionWindowFilterComponentProps = {
+    setFilter: (filter: FunnelsFilterType) => void
+    aggregationTargetLabel: Noun
+} & FunnelsFilterType
+
+export function FunnelConversionWindowFilterComponent({
+    aggregation_group_type_index,
+    funnel_window_interval = 14,
+    funnel_window_interval_unit = FunnelConversionWindowTimeUnit.Day,
+    aggregationTargetLabel,
+    setFilter,
+}: FunnelConversionWindowFilterComponentProps): JSX.Element {
+    const [localConversionWindow, setLocalConversionWindow] = useState<FunnelConversionWindow>({
+        funnel_window_interval,
+        funnel_window_interval_unit,
+    })
 
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
-            label: capitalizeFirstLetter(
-                pluralize(conversionWindow.funnel_window_interval ?? 7, unit, `${unit}s`, false)
-            ),
+            label: capitalizeFirstLetter(pluralize(funnel_window_interval ?? 7, unit, `${unit}s`, false)),
             value: unit as FunnelConversionWindowTimeUnit,
         })
     )
-    const intervalBounds =
-        TIME_INTERVAL_BOUNDS[conversionWindow.funnel_window_interval_unit ?? FunnelConversionWindowTimeUnit.Day]
+    const intervalBounds = TIME_INTERVAL_BOUNDS[funnel_window_interval_unit ?? FunnelConversionWindowTimeUnit.Day]
 
     const setConversionWindow = useDebouncedCallback((): void => {
         if (
-            localConversionWindow.funnel_window_interval !== conversionWindow.funnel_window_interval ||
-            localConversionWindow.funnel_window_interval_unit !== conversionWindow.funnel_window_interval_unit
+            localConversionWindow.funnel_window_interval !== funnel_window_interval ||
+            localConversionWindow.funnel_window_interval_unit !== funnel_window_interval_unit
         ) {
-            setFilters(localConversionWindow)
+            setFilter(localConversionWindow)
         }
     }, 200)
 
     return (
-        <div className={'flex items-center gap-2 '}>
+        <div className="flex items-center gap-2">
             <span className="whitespace-nowrap">
                 Conversion window limit{' '}
                 <Tooltip
                     title={
                         <>
                             <b>Recommended!</b> Limit to {aggregationTargetLabel.plural}{' '}
-                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a
-                            specific time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
-                            {filters.aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in this
-                            time frame will be considered as drop-offs.
+                            {aggregation_group_type_index != undefined ? 'that' : 'who'} converted within a specific
+                            time frame. {capitalizeFirstLetter(aggregationTargetLabel.plural)}{' '}
+                            {aggregation_group_type_index != undefined ? 'that' : 'who'} do not convert in this time
+                            frame will be considered as drop-offs.
                         </>
                     }
                 >
@@ -68,7 +107,7 @@ export function FunnelConversionWindowFilter(): JSX.Element {
                     fullWidth={false}
                     min={intervalBounds[0]}
                     max={intervalBounds[1]}
-                    defaultValue={conversionWindow.funnel_window_interval}
+                    defaultValue={funnel_window_interval}
                     value={localConversionWindow.funnel_window_interval}
                     onChange={(funnel_window_interval) => {
                         setLocalConversionWindow((state) => ({
