@@ -10,6 +10,7 @@ from unittest.mock import patch
 import pytest
 import sqlparse
 from django.apps import apps
+from django.core.cache import cache
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
@@ -167,6 +168,10 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
     def is_cloud(self, value: bool):
         TEST_clear_cloud_cache()
         return self.settings(MULTI_TENANCY=value)
@@ -191,6 +196,8 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
     def setUp(self):
         super().setUp()
+
+        cache.clear()
 
         # Clear the cached "is_cloud" setting so that it's recalculated for each test
         TEST_clear_cloud_cache()
