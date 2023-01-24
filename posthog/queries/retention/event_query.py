@@ -88,13 +88,14 @@ class RetentionEventsQuery(EventQuery):
             # lives easier when zero filling the response. We could however
             # handle this WITH FILL within the query.
 
+            start_of_week_day = self._to_start_of_week_day(self._trunc_func)
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [
                     f"""
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s, %(timezone)s)),
+                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
                             {self._trunc_func}(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s)))
                         )
                     ] as breakdown_values
@@ -106,7 +107,7 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s, %(timezone)s)),
+                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
                             {self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s))
                         )
                     ] as breakdown_values
@@ -168,8 +169,9 @@ class RetentionEventsQuery(EventQuery):
             )
 
     def get_timestamp_field(self) -> str:
+        start_of_week_day = self._to_start_of_week_day(self._trunc_func)
         if self._event_query_type == RetentionQueryType.TARGET:
-            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp), %(timezone)s) AS event_date"
+            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
             return f"min({self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s))) as event_date"
         else:
@@ -232,3 +234,9 @@ class RetentionEventsQuery(EventQuery):
             f"{self._event_query_type}_end_date": end_date.strftime("%Y-%m-%d %H:%M:%S"),
         }
         return query, params
+
+    # toStartOfWeek, unlike other toStartOfX functions, takes a second argument indicating
+    # if weeks should be Sunday-based (mode=0) or Monday-based (mode=1)
+    # we use Sunday-based, so set the mode to 0
+    def _to_start_of_week_day(trunc_func: str) -> str:
+        return ", 0" if trunc_func == "toStartOfWeek" else ""
