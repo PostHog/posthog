@@ -47,7 +47,14 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema'
-import { isEventsNode, isLifecycleQuery, isPathsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import {
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -341,7 +348,7 @@ export function summarizeInsightQuery(
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
 ): string {
     if (isTrendsQuery(query)) {
-        let summary = (query as TrendsQuery).series
+        let summary = query.series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
                 const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
@@ -385,6 +392,29 @@ export function summarizeInsightQuery(
             summary = `${query.trendsFilter.formula} on ${summary}`
         }
 
+        return summary
+    } else if (isFunnelsQuery(query)) {
+        let summary = ''
+        const linkSymbol =
+            query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
+                ? '⇉'
+                : query.funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED
+                ? '&'
+                : '→'
+        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
+            aggregationLabel(query.aggregation_group_type_index, true).singular
+        } conversion`
+        if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+            summary += ' time'
+        } else if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+            summary += ' trend'
+        } else {
+            // Steps are the default viz type
+            summary += ' rate'
+        }
+        if (query.breakdown?.breakdown_type) {
+            summary += ` by ${summarizeBreakdown(query.breakdown, aggregationLabel, cohortsById)}`
+        }
         return summary
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails
