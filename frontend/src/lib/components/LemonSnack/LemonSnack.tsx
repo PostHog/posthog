@@ -23,19 +23,25 @@ export function LemonSnack({
 }: LemonSnackProps): JSX.Element {
     return (
         <span
-            className={clsx(`LemonSnack bg-${color}`, className, {
-                'LemonSnack--wrap': wrap,
-            })}
+            className={clsx(
+                'LemonSnack',
+                `inline-flex rounded text-primary-alt max-w-full overflow-hidden break-all items-center px-1.5 py-1 bg-${color}`,
+                !wrap && 'whitespace-nowrap',
+                className
+            )}
         >
-            <span className="LemonSnack__inner" title={title ?? (typeof children === 'string' ? children : undefined)}>
+            <span
+                className="overflow-hidden text-ellipsis"
+                title={title ?? (typeof children === 'string' ? children : undefined)}
+            >
                 {children}
             </span>
 
-            {onClose ? (
-                <span className="LemonSnack__close">
+            {onClose && (
+                <span className="LemonSnack__close ml-1 shrink-0">
                     <LemonButton status="stealth" size="small" noPadding icon={<IconClose />} onClick={onClose} />
                 </span>
-            ) : undefined}
+            )}
         </span>
     )
 }
