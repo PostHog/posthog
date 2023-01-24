@@ -56,7 +56,6 @@ export async function resetRedis(pluginServerConfig: PluginsServerConfig): Promi
     await redisPool.release(redis)
 }
 
-// TODO: we should always reset Redis too
 export async function resetTestDatabase(
     code?: string,
     extraServerConfig: Partial<PluginsServerConfig> = {},

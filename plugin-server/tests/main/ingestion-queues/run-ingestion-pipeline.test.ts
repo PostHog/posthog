@@ -6,7 +6,7 @@ import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { createTaskRunner } from '../../../src/worker/worker'
-import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY, resetRedis } from '../../helpers/sql'
+import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
     let hub: Hub
@@ -16,7 +16,6 @@ describe('workerTasks.runEventPipeline()', () => {
     const OLD_ENV = process.env
 
     beforeAll(async () => {
-        await resetRedis()
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)

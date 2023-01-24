@@ -14,7 +14,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
 import { RaceConditionError, UUIDT } from '../../src/utils/utils'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
-import { createOrganization, createTeam, getFirstTeam, insertRow, resetRedis, resetTestDatabase } from '../helpers/sql'
+import { createOrganization, createTeam, getFirstTeam, insertRow, resetTestDatabase } from '../helpers/sql'
 import { plugin60 } from './../helpers/plugins'
 
 jest.mock('../../src/utils/status')
@@ -27,7 +27,6 @@ describe('DB', () => {
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
-        await resetRedis()
         db = hub.db
     })
 
