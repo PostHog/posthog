@@ -20,6 +20,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 const getCleanedQuery = (
     kind:
         | NodeKind.TrendsQuery
+        | NodeKind.FunnelsQuery
         | NodeKind.PathsQuery
         | NodeKind.StickinessQuery
         | NodeKind.LifecycleQuery
@@ -46,7 +47,13 @@ const getCleanedQuery = (
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.FunnelsQuery,
-                series: [],
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
                 funnelsFilter: {},
             },
         }
