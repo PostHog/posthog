@@ -27,9 +27,8 @@ describe('DB', () => {
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
+        await resetRedis()
         db = hub.db
-
-        await resetRedis(hub)
     })
 
     afterEach(async () => {

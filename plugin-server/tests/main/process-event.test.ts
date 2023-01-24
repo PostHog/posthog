@@ -148,9 +148,9 @@ beforeEach(async () => {
                 return event
             }
         `
+    await resetRedis()
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
-    await resetRedis(hub)
     ;[hub, closeHub] = await createTestHub()
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0
