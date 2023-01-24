@@ -12,8 +12,12 @@ jobs:
         runs-on: ubuntu-20.04
         container:
             image: mcr.microsoft.com/playwright:v1.28.1-focal
+        env:
+            CYPRESS_INSTALL_BINARY: '0'
         steps:
             - uses: actions/checkout@v3
+              with:
+                  lfs: true
 
             - name: Install pnpm
               uses: pnpm/action-setup@v2
@@ -33,12 +37,12 @@ jobs:
               run: pnpm install concurrently http-server wait-on
 
             - name: Build Storybook
-              run: pnpm build-storybook --quiet # Silence build logging as it results in massive walls of spam
+              run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
 
             - name: Serve Storybook and run tests
               run: |
                   pnpm exec concurrently -k -s first -n "SRVR,TEST" -c "magenta,blue" \
-                    "pnpm exec http-server storybook-static --port 6006" \
+                    "pnpm exec http-server storybook-static --port 6006 --silent " \
                     "pnpm exec wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test && pnpm exec test-storybook --ci"
 
             - name: Upload Playwright report
