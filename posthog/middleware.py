@@ -1,6 +1,6 @@
 import time
 from ipaddress import ip_address, ip_network
-from typing import List, Optional, cast
+from typing import Any, List, Optional, cast
 
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
@@ -9,6 +9,7 @@ from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.middleware.security import SecurityMiddleware
 from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware
@@ -287,11 +288,27 @@ class CaptureMiddleware:
 
     def __init__(self, get_response):
         self.get_response = get_response
-        self.CAPTURE_MIDDLEWARE = [
-            PrometheusBeforeMiddleware(),
-            CorsMiddleware(),
-            PrometheusAfterMiddleware(),
-        ]
+
+        middlewares: List[Any] = []
+        # based on how we're using these middlewares, only middlewares that
+        # have a process_request and process_response attribute can be valid here.
+        # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
+        # reconciles the old style middleware with the new style middleware.
+        for middleware_class in (
+            PrometheusBeforeMiddleware,
+            SecurityMiddleware,
+            CorsMiddleware,
+            PrometheusAfterMiddleware,
+        ):
+            try:
+                # Some middlewares raise MiddlewareNotUsed if they are not
+                # needed. In this case we want to avoid the default middlewares
+                # being used.
+                middlewares.append(middleware_class(get_response=None))
+            except MiddlewareNotUsed:
+                pass
+
+        self.CAPTURE_MIDDLEWARE = middlewares
 
         if STATSD_HOST is not None:
             self.CAPTURE_MIDDLEWARE.insert(0, StatsdMiddleware())
