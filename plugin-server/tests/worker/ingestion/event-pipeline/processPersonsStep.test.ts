@@ -107,7 +107,6 @@ describe('processPersonsStep()', () => {
             expect.any(DateTime),
             'hub.db',
             'hub.statsd',
-            'hub.personManager',
             personContainer
         )
         expect(response).toEqual(['prepareEventStep', pluginEvent, updatedContainer])

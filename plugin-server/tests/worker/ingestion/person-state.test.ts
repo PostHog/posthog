@@ -46,7 +46,7 @@ describe('PersonState.update()', () => {
             new UUIDT().toString()
         )
 
-        jest.spyOn(hub.personManager, 'isNewPerson')
+        jest.spyOn(hub.db, 'getPersonId')
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'updatePersonDeprecated')
     })
@@ -70,7 +70,6 @@ describe('PersonState.update()', () => {
             timestamp,
             hub.db,
             hub.statsd,
-            hub.personManager,
             personContainer,
             uuid
         )
@@ -105,7 +104,7 @@ describe('PersonState.update()', () => {
             }).update()
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
@@ -177,7 +176,7 @@ describe('PersonState.update()', () => {
             await hub.db.kafkaProducer.flush()
             const racePerson = await racePersonContainer.get()
 
-            jest.spyOn(hub.personManager, 'isNewPerson').mockResolvedValueOnce(true)
+            jest.spyOn(hub.db, 'getPersonId').mockResolvedValueOnce(5)
 
             // Run person-state update. This will try create the person, but fail and re-fetch it later.
             const personContainer = await state.update()
@@ -217,7 +216,7 @@ describe('PersonState.update()', () => {
             }).update()
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
             expect(hub.db.updatePersonDeprecated).not.toHaveBeenCalled()
 
@@ -260,7 +259,7 @@ describe('PersonState.update()', () => {
             }).update()
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
 
             // verify Postgres persons
@@ -307,7 +306,7 @@ describe('PersonState.update()', () => {
             ).update()
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(0)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(0)
 
             // verify Postgres persons
@@ -450,7 +449,7 @@ describe('PersonState.update()', () => {
             }).update()
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
 
@@ -968,7 +967,7 @@ describe('PersonState.update()', () => {
             await hub.db.kafkaProducer.flush()
 
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1) // It does a single reset after failing once
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(0)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(0)
 
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -1105,7 +1104,7 @@ describe('PersonState.update()', () => {
             }).update()
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
+            expect(hub.db.getPersonId).toHaveBeenCalledTimes(1)
             expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
 

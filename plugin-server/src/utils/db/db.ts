@@ -851,6 +851,7 @@ export class DB {
         uuid: string,
         distinctIds?: string[]
     ): Promise<Person> {
+        console.log('person creation')
         const kafkaMessages: ProducerRecord[] = []
 
         const person = await this.postgresTransaction('createPerson', async (client) => {
