@@ -1443,7 +1443,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             )
 
     def test_insight_paths_basic(self) -> None:
-        _create_person(team=self.team, distinct_ids=["person_1"])
+        _create_person(team=self.team, distinct_ids=["person_1"], properties={"$os": "Mac"})
         _create_event(
             properties={"$current_url": "/", "test": "val"},
             distinct_id="person_1",
@@ -1475,12 +1475,33 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/path",
             data={"properties": json.dumps([{"key": "test", "value": "val"}])},
         ).json()
+        self.assertEqual(len(get_response["result"]), 1)
+
         post_response = self.client.post(
             f"/api/projects/{self.team.id}/insights/path",
             {"properties": [{"key": "test", "value": "val"}]},
         ).json()
-        self.assertEqual(len(get_response["result"]), 1)
         self.assertEqual(len(post_response["result"]), 1)
+
+        hogql_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path",
+            data={
+                "properties": json.dumps(
+                    [{"key": "properties.test == 'val' and person.properties.$os == 'Mac'", "type": "hogql"}]
+                )
+            },
+        ).json()
+        self.assertEqual(len(hogql_response["result"]), 1)
+
+        hogql_non_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path",
+            data={
+                "properties": json.dumps(
+                    [{"key": "properties.test == 'val' and person.properties.$os == 'Windows'", "type": "hogql"}]
+                )
+            },
+        ).json()
+        self.assertEqual(len(hogql_non_response["result"]), 0)
 
     def test_insight_funnels_basic_post(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"])
