@@ -1,22 +1,21 @@
 import base64
 import gzip
+import hashlib
 import json
 import random
 import string
 import zlib
 from collections import Counter
-from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Union
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
-from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
-from django.db import connections
+from django.db import connection
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -29,21 +28,40 @@ from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
+from posthog.models.instance_setting import InstanceSetting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import (
+    CONSTANCE_CONFIG,
+    CONSTANCE_DATABASE_PREFIX,
+    DATA_UPLOAD_MAX_MEMORY_SIZE,
+    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
+)
 from posthog.test.base import BaseTest
 
 
-@contextmanager
-def simulate_postgres_error():
+class DatabaseErrorWrapper:
+    """A wrapper for database connections that will throw an error."""
+
+    def __init__(self, test_sql: Optional[str]):
+        self.test_sql = test_sql
+
+    def __call__(self, execute, sql, params, many, context):
+        if self.test_sql is None or self.test_sql in sql:
+            raise DjangoDatabaseError("A generic database error")
+        return execute(sql, params, many, context)
+
+
+def simulate_postgres_error(test_sql: Optional[str] = None):
+    """Simulate an error in Postgres by raising the upper most Error in django.db.
+
+    Args:
+        test_sql: Optional argument that when set will cause an error to be raised
+            only if the sql query to be executed contains the test_sql substring.
+            Otherwise the query runs as normal. This is useful if we need to target
+            specific queries with induced failures.
     """
-    Causes any call to cursor to raise the upper most Error in djangos db
-    Exception hierachy
-    """
-    with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
-        cursor_mock.side_effect = DjangoDatabaseError  # This should be the most general
-        yield
+    return connection.execute_wrapper(DatabaseErrorWrapper(test_sql))
 
 
 def mocked_get_ingest_context_from_token(_: Any) -> None:
@@ -129,7 +147,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
@@ -172,6 +190,102 @@ class TestCapture(BaseTest):
             },
             self._to_arguments(kafka_produce),
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_with_db_error_no_default(self, kafka_produce):
+        """Test database errors while fetching instance settings don't fail capture.
+
+        Even though we are creating an InstanceSetting, it should not be fetched as we
+        force a database error to occur (with the DatabaseErrorWrapper). This should
+        cause us to use the default EVENT_PARTITION_KEYS_TO_OVERRIDE setting. As this
+        is not set to the current expected_key, no override will occur.
+        """
+        distinct_id = "999"
+        expected_key = f"{self.team.pk}:{distinct_id}"
+        key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+        InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": distinct_id,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                ],
+            },
+        }
+        patched_config = {"EVENT_PARTITION_KEYS_TO_OVERRIDE": ("not_current_expected_key", "a help str", str)}
+        with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
+            with simulate_postgres_error("posthog_instancesetting"):
+                with self.assertNumQueries(2):
+                    response = self.client.get(
+                        "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost"
+                    )
+
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": distinct_id,
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+        kafka_produce_key = kafka_produce.call_args_list[0].kwargs["key"]
+        self.assertEqual(kafka_produce_key, hashlib.sha256(expected_key.encode()).hexdigest())
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_with_db_error_with_default(self, kafka_produce):
+        """Test database errors while fetching instance settings don't fail capture.
+
+        Even though we are creating an InstanceSetting, it should not be fetched as we
+        force a database error to occur (with the DatabaseErrorWrapper). This should
+        cause us to use the default EVENT_PARTITION_KEYS_TO_OVERRIDE setting. As this
+        is set to the current expected_key, we will assert it is being overriden.
+        """
+        distinct_id = "999"
+        expected_key = f"{self.team.pk}:{distinct_id}"
+        key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+        InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": distinct_id,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                ],
+            },
+        }
+        patched_config = {"EVENT_PARTITION_KEYS_TO_OVERRIDE": (f'["{expected_key}"]', "a help str", str)}
+        with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
+            with simulate_postgres_error("posthog_instancesetting"):
+                with self.assertNumQueries(2):
+                    response = self.client.get(
+                        "/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost"
+                    )
+
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        self.assertEqual(response.status_code, 200)
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": distinct_id,
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+        kafka_produce_key = kafka_produce.call_args_list[0].kwargs["key"]
+        self.assertEqual(kafka_produce_key, None)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_too_large(self, kafka_produce):
@@ -355,7 +469,7 @@ class TestCapture(BaseTest):
         }
         now = timezone.now()
         with freeze_time(now):
-            with self.assertNumQueries(5):
+            with self.assertNumQueries(6):
                 response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         arguments = self._to_arguments(kafka_produce)

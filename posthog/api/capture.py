@@ -427,6 +427,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         candidate_partition_key = f"{team_id}:{distinct_id}"
 
         keys_to_override = get_instance_setting("EVENT_PARTITION_KEYS_TO_OVERRIDE")
+
         if candidate_partition_key not in keys_to_override:
             kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
