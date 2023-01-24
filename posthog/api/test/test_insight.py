@@ -2232,9 +2232,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.maxDiff = None
         assert activity == expected
 
-    @also_test_with_materialized_columns(["int_value"])
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
     def test_insight_trend_hogql_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
         with freeze_time("2012-01-14T03:21:34.000Z"):
             for i in range(25):
                 _create_event(
@@ -2275,7 +2276,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             {
                                 "id": "$pageview",
                                 "properties": json.dumps(
-                                    [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                                    [
+                                        {
+                                            "key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'",
+                                            "type": "hogql",
+                                        },
+                                        {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                                    ]
                                 ),
                             }
                         ]
@@ -2304,8 +2311,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # Tests backwards-compatibility when we changed GET to POST | GET
 
     @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     def test_insight_funnels_hogql_global_filters(self) -> None:
-        _create_person(team=self.team, distinct_ids=["1"])
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
         _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
         _create_event(team=self.team, event="user did things", distinct_id="1", properties={"int_value": 20})
         response = self.client.post(
@@ -2316,7 +2324,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     {"id": "user did things", "type": "events", "order": 1},
                 ],
                 "properties": json.dumps(
-                    [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                    [
+                        {"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                    ]
                 ),
                 "funnel_window_days": 14,
             },
@@ -2331,8 +2342,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_json["timezone"], "UTC")
 
     @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     def test_insight_funnels_hogql_local_filters(self) -> None:
-        _create_person(team=self.team, distinct_ids=["1"])
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
         _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
         _create_event(team=self.team, event="user did things", distinct_id="1", properties={"int_value": 20})
         response = self.client.post(
@@ -2344,7 +2356,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "type": "events",
                         "order": 0,
                         "properties": json.dumps(
-                            [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                            [
+                                {"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                                {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                            ]
                         ),
                     },
                     {
@@ -2352,7 +2367,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "type": "events",
                         "order": 1,
                         "properties": json.dumps(
-                            [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                            [
+                                {"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                                {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                            ]
                         ),
                     },
                 ],
