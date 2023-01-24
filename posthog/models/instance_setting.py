@@ -2,6 +2,7 @@ import json
 from contextlib import contextmanager
 from typing import Any, List
 
+from django.core.cache import cache
 from django.db import models
 
 from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
@@ -22,8 +23,14 @@ class InstanceSetting(models.Model):
 def get_instance_setting(key: str) -> Any:
     assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
+    cached_setting = cache.get(key)
+
+    if cached_setting:
+        return json.loads(cached_setting)
+
     saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
     if saved_setting is not None:
+        cache.set(key, saved_setting.raw_value)
         return saved_setting.value
     else:
         return CONSTANCE_CONFIG[key][0]  # Get the default value

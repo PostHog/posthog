@@ -123,6 +123,13 @@ CONSTANCE_CONFIG = {
         "Reply address to which email clients should send responses.",
         str,
     ),
+    "EVENT_PARTITION_KEYS_TO_OVERRIDE": (
+        get_from_env("EVENT_PARTITION_KEYS_TO_OVERRIDE", default=""),
+        "A list of <team_id:distinct_id> pairs (in the format 2:myLovelyId) that we should use"
+        "random partitioning for when producing events to the Kafka topic consumed by the plugin server"
+        "This is a measure to handle hot partitions in ad-hoc cases.",
+        str,
+    ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
         "Used to disable emails from async migrations service",
@@ -195,6 +202,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "EMAIL_USE_SSL",
     "EMAIL_DEFAULT_FROM",
     "EMAIL_REPLY_TO",
+    "EVENT_PARTITION_KEYS_TO_OVERRIDE",
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS",
     "PERSON_ON_EVENTS_ENABLED",
     "GROUPS_ON_EVENTS_ENABLED",

@@ -1,4 +1,6 @@
+import json
 from typing import cast
+from unittest.mock import patch
 
 import pytest
 
@@ -67,3 +69,22 @@ def test_can_retrieve_multiple_settings(db):
         "MATERIALIZED_COLUMNS_ENABLED": True,
         "ASYNC_MIGRATIONS_AUTO_CONTINUE": True,
     }
+
+
+@pytest.mark.parametrize("cached_value", ("true", '["1:cool","abc:123"]', '"a_string"', "123"))
+def test_get_cached_instance_setting(db, cache, cached_value):
+    """Test a deserialized cached value will be returned when available instead of querying db."""
+    import posthog.settings as settings
+
+    key = "my_key"
+    patched = {key: ("default_value", "a help str", str)}
+
+    with patch.dict(settings.CONSTANCE_CONFIG, patched, clear=True):
+        default_value = get_instance_setting(key)
+        # Ensure value is not initially set, so default is returned
+        assert default_value == "default_value"
+
+        cache.set(key, cached_value)
+        value = get_instance_setting(key)
+
+        assert value == json.loads(cached_value)
