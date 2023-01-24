@@ -184,9 +184,58 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(result[0]["days"], ["2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01"])
 
+    @snapshot_clickhouse_queries
+    def test_lifecycle_hogql_event_properties(self):
+        with freeze_time("2021-05-05T12:00:00Z"):
+            self._setup_returning_lifecycle_data(20)
+            result = self._run_lifecycle(
+                {
+                    "date_from": "-7d",
+                    "interval": "day",
+                    "properties": [
+                        {"key": "toInt(properties.int_value) > 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                    ],
+                }
+            )
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0] * 8},
+                {"status": "new", "data": [0] * 8},
+                {"status": "resurrecting", "data": [0] * 8},
+                {"status": "returning", "data": [0] * 8},
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_lifecycle_hogql_person_properties(self):
+        with freeze_time("2021-05-05T12:00:00Z"):
+            self._setup_returning_lifecycle_data(20)
+            result = self._run_lifecycle(
+                {
+                    "date_from": "-7d",
+                    "interval": "day",
+                    "properties": [
+                        {"key": "like(person.properties.email, '%test.com')", "type": "hogql"},
+                    ],
+                }
+            )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0] * 8},
+                {"status": "new", "data": [0] * 8},
+                {"status": "resurrecting", "data": [0] * 8},
+                {"status": "returning", "data": [1] * 8},
+            ],
+        )
+
     def _setup_returning_lifecycle_data(self, days):
         with freeze_time("2019-01-01T12:00:00Z"):
-            Person.objects.create(distinct_ids=["person1"], team_id=self.team.pk)
+            Person.objects.create(
+                distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "person@test.com"}
+            )
 
         journeys_for(
             {
