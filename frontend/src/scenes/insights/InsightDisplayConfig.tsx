@@ -9,7 +9,7 @@ import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { RetentionDatePicker } from './RetentionDatePicker'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
-import { PathStepPicker } from './views/Paths/PathStepPicker'
+import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './filters/ReferencePicker'
 import { Tooltip } from 'antd'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
@@ -27,6 +27,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
+
 interface InsightDisplayConfigProps {
     filters: FilterType
     activeView: InsightType
@@ -82,10 +83,11 @@ function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
 }
 
 export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
-    const showFunnelBarOptions = isFunnelsFilter(filters)
-    const showPathOptions = isPathsFilter(filters)
+    const isFunnels = isFunnelsFilter(filters)
+    const isPaths = isPathsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const { isUsingDataExploration, insightProps } = useValues(insightLogic)
     const { setFilters } = useActions(insightLogic)
 
     return (
@@ -95,7 +97,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     <ConfigFilter>
                         <span>Date range</span>
                         <InsightDateFilter
-                            disabled={showFunnelBarOptions && isFunnelEmpty(filters)}
+                            disabled={isFunnels && isFunnelEmpty(filters)}
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
@@ -136,9 +138,13 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </ConfigFilter>
                 )}
 
-                {showPathOptions && (
+                {isPaths && (
                     <ConfigFilter>
-                        <PathStepPicker />
+                        {isUsingDataExploration ? (
+                            <PathStepPickerDataExploration insightProps={insightProps} />
+                        ) : (
+                            <PathStepPicker insightProps={insightProps} />
+                        )}
                     </ConfigFilter>
                 )}
 
@@ -163,14 +169,14 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </>
                 )}
 
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.Steps && (
+                {isFunnels && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <ConfigFilter>
                             <FunnelDisplayLayoutPicker />
                         </ConfigFilter>
                     </>
                 )}
-                {showFunnelBarOptions && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
+                {isFunnels && filters.funnel_viz_type === FunnelVizType.TimeToConvert && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>

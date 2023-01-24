@@ -1,6 +1,9 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+
 import type { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType, PathsFilterType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -10,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { PathNodeData } from './pathUtils'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -57,21 +60,16 @@ export const pathsLogic = kea<pathsLogicType>({
     actions: {
         setProperties: (properties: PropertyFilter[]) => ({ properties }),
         setFilter: (filter: Partial<PathsFilterType>) => ({ filter }),
-        showPathEvents: (event: PathType) => ({ event }),
-        updateExclusions: (exclusions: string[]) => ({ exclusions }),
         openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
             props,
-        viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
+        viewPathToFunnel: (pathItemCard: PathNodeData) => ({ pathItemCard }),
     },
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ values, props }) => ({
         setProperties: ({ properties }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filter, properties }))
         },
         setFilter: ({ filter }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filter, ...filter }))
-        },
-        updateExclusions: ({ exclusions }) => {
-            actions.setFilter({ exclude_events: exclusions })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const filters: Partial<PathsFilterType> = {
@@ -93,17 +91,6 @@ export const pathsLogic = kea<pathsLogicType>({
                         isDropOff: Boolean(path_dropoff_key),
                     }),
                 })
-            }
-        },
-        showPathEvents: ({ event }) => {
-            const { filter } = values
-            if (filter.include_event_types) {
-                const include_event_types = filter.include_event_types.includes(event)
-                    ? filter.include_event_types.filter((e) => e !== event)
-                    : [...filter.include_event_types, event]
-                actions.setFilter({ ...filter, include_event_types })
-            } else {
-                actions.setFilter({ ...filter, include_event_types: [event] })
             }
         },
         viewPathToFunnel: ({ pathItemCard }) => {
@@ -146,10 +133,6 @@ export const pathsLogic = kea<pathsLogicType>({
             (inflightFilters): Partial<PathsFilterType> =>
                 inflightFilters && isPathsFilter(inflightFilters) ? inflightFilters : {},
         ],
-        loadedFilters: [
-            (s) => [s.insight],
-            ({ filters }): Partial<PathsFilterType> => (filters && isPathsFilter(filters) ? filters : {}),
-        ],
         results: [
             (s) => [s.insight],
             ({ filters, result }): PathNode[] => (filters && isPathsFilter(filters) ? result || [] : []),
@@ -175,31 +158,6 @@ export const pathsLogic = kea<pathsLogicType>({
             },
         ],
         pathsError: [(s) => [s.insight], (insight): PathNode => insight.result?.error],
-        loadedFilter: [
-            (s) => [s.results, s.filter],
-            (results: PathResult, filter: Partial<FilterType>) => results?.filter || filter,
-        ],
-        propertiesForUrl: [
-            (s) => [s.filter],
-            (filter: Partial<FilterType>) => {
-                let result: Partial<FilterType> = {
-                    insight: InsightType.PATHS,
-                }
-                if (filter && Object.keys(filter).length > 0) {
-                    result = {
-                        ...result,
-                        ...filter,
-                    }
-                }
-                return Object.keys(result).length === 0 ? '' : result
-            },
-        ],
-        wildcards: [
-            (s) => [s.filter],
-            (filter: Partial<PathsFilterType>) => {
-                return filter.path_groupings?.map((name) => ({ name }))
-            },
-        ],
         taxonomicGroupTypes: [
             (s) => [s.filter],
             (filter: Partial<PathsFilterType>) => {

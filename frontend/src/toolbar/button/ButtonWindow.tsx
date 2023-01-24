@@ -1,6 +1,7 @@
 import { Fade } from 'lib/components/Fade/Fade'
 import Draggable from 'react-draggable'
 import { CloseOutlined } from '@ant-design/icons'
+
 interface ButtonWindowProps {
     name: string
     visible: boolean

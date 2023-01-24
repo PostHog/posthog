@@ -197,7 +197,7 @@ function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.E
     return (
         <div className="SeriesDisplay">
             <div>
-                User paths based on <b>{humanizePathsEventTypes(filters).join(' and ')}</b>
+                User paths based on <b>{humanizePathsEventTypes(filters.include_event_types).join(' and ')}</b>
             </div>
             {filters.start_point && (
                 <div>
