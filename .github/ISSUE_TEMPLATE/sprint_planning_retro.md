@@ -65,7 +65,7 @@ Team ___
 
 ## OKR
 
-1. OKR, status (red/yellow/green)
+1. OKR, status (red/yellow/green) and action points if yellow/red
 
 
 ### High priority
