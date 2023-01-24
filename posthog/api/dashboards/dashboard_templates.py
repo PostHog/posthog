@@ -34,7 +34,9 @@ class DashboardTemplateSerializer(serializers.Serializer):
             raise ValidationError(f"Could not load template from GitHub. {e}")
 
         if "template_name" not in template or template["template_name"] != validated_data["name"]:
-            raise ValidationError(detail="The requested URL does not match the requested template.")
+            raise ValidationError(
+                detail=f'The requested template "{validated_data["name"]}" does not match the requested template URL which loaded the template "{template["template_name"]}"'
+            )
 
         return DashboardTemplate.objects.create(team_id=validated_data["team_id"], **template)
 
