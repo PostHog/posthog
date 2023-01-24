@@ -48,14 +48,17 @@ module.exports = {
     },
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
-        if (storyContext.parameters?.layout === 'fullscreen') {
-            if (storyContext.parameters.testRunner?.includeNavigation) {
-                await expectStoryToMatchFullPageSnapshot(page, context)
+        // TODO: Remove disableSnapshot condition to test every single story
+        if (storyContext.parameters?.chromatic?.disableSnapshot === false) {
+            if (storyContext.parameters?.layout === 'fullscreen') {
+                if (storyContext.parameters.testRunner?.includeNavigation) {
+                    await expectStoryToMatchFullPageSnapshot(page, context)
+                } else {
+                    await expectStoryToMatchSceneSnapshot(page, context)
+                }
             } else {
-                await expectStoryToMatchSceneSnapshot(page, context)
+                await expectStoryToMatchComponentSnapshot(page, context)
             }
-        } else {
-            await expectStoryToMatchComponentSnapshot(page, context)
         }
     },
 } as TestRunnerConfig
