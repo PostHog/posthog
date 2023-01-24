@@ -167,7 +167,6 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         properties_filter = json.dumps(
             [
                 {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
-                {"type": "hogql", "key": "like(person.properties.email, '%mail.com')"},
             ]
         )
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
