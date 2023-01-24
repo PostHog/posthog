@@ -134,7 +134,7 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
                 SELECT
                     {trunc_func}(toDateTime(%(formatted_date_from)s, %(timezone)s) + {interval_func}(number) {start_of_week_fix(self._filter.interval)}) AS entrance_period_start
                     {', breakdown_value as prop' if breakdown_clause else ''}
-                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s, %(timezone)s), toDateTime(%(formatted_date_to)s, %(timezone)s)) + 1) AS period_offsets
+                FROM numbers(dateDiff(%(interval)s, toDateTime(%(formatted_date_from)s, %(timezone)s), {interval_func}(toDateTime(%(formatted_date_to)s, %(timezone)s))) + 1) AS period_offsets
                 {'ARRAY JOIN (%(breakdown_values)s) AS breakdown_value' if breakdown_clause else ''}
             ) fill
             USING (entrance_period_start {breakdown_clause})
