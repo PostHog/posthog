@@ -329,6 +329,258 @@
   OFFSET 0
   '
 ---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.click_count) as click_count,
+         any(session_recordings.keypress_count) as keypress_count,
+         any(session_recordings.urls) as urls,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id ,
+         countIf(event = '$pageview'
+                 AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Chrome'))) as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview'
+                               AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Chrome'))) as matching_events_0
+  FROM
+    (SELECT uuid,
+            distinct_id,
+            event,
+            team_id,
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id ,
+            events.properties as properties
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  JOIN
+    (SELECT session_id,
+            any(window_id) as window_id,
+            minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') as start_time,
+            MAX(last_event_timestamp) as end_time,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
+            groupArrayArray(urls) as urls,
+            dateDiff('second', start_time, end_time) as duration,
+            any(distinct_id) as distinct_id,
+            SUM(has_full_snapshot) as full_snapshots
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  WHERE ((notEmpty(events.session_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(events.session_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time)))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  AND count_event_match_0 > 0
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties.1
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.click_count) as click_count,
+         any(session_recordings.keypress_count) as keypress_count,
+         any(session_recordings.urls) as urls,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id ,
+         countIf(event = '$pageview'
+                 AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Firefox'))) as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview'
+                               AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Firefox'))) as matching_events_0
+  FROM
+    (SELECT uuid,
+            distinct_id,
+            event,
+            team_id,
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id ,
+            events.properties as properties
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  JOIN
+    (SELECT session_id,
+            any(window_id) as window_id,
+            minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') as start_time,
+            MAX(last_event_timestamp) as end_time,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
+            groupArrayArray(urls) as urls,
+            dateDiff('second', start_time, end_time) as duration,
+            any(distinct_id) as distinct_id,
+            SUM(has_full_snapshot) as full_snapshots
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  WHERE ((notEmpty(events.session_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(events.session_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time)))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  AND count_event_match_0 > 0
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties_materialized
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.click_count) as click_count,
+         any(session_recordings.keypress_count) as keypress_count,
+         any(session_recordings.urls) as urls,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id ,
+         countIf(event = '$pageview'
+                 AND (equals("mat_$browser", 'Chrome'))) as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview'
+                               AND (equals("mat_$browser", 'Chrome'))) as matching_events_0
+  FROM
+    (SELECT uuid,
+            distinct_id,
+            event,
+            team_id,
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id ,
+            events.mat_$browser as mat_$browser
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  JOIN
+    (SELECT session_id,
+            any(window_id) as window_id,
+            minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') as start_time,
+            MAX(last_event_timestamp) as end_time,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
+            groupArrayArray(urls) as urls,
+            dateDiff('second', start_time, end_time) as duration,
+            any(distinct_id) as distinct_id,
+            SUM(has_full_snapshot) as full_snapshots
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  WHERE ((notEmpty(events.session_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(events.session_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time)))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  AND count_event_match_0 > 0
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
+# name: TestClickhouseSessionRecordingsList.test_event_filter_with_hogql_properties_materialized.1
+  '
+  
+  SELECT session_recordings.session_id,
+         any(session_recordings.start_time) as start_time,
+         any(session_recordings.end_time) as end_time,
+         any(session_recordings.click_count) as click_count,
+         any(session_recordings.keypress_count) as keypress_count,
+         any(session_recordings.urls) as urls,
+         any(session_recordings.duration) as duration,
+         any(session_recordings.distinct_id) as distinct_id ,
+         countIf(event = '$pageview'
+                 AND (equals("mat_$browser", 'Firefox'))) as count_event_match_0 ,
+         groupUniqArrayIf(100)((events.timestamp,
+                                events.uuid,
+                                events.session_id,
+                                events.window_id), event = '$pageview'
+                               AND (equals("mat_$browser", 'Firefox'))) as matching_events_0
+  FROM
+    (SELECT uuid,
+            distinct_id,
+            event,
+            team_id,
+            timestamp,
+            $session_id as session_id,
+            $window_id as window_id ,
+            events.mat_$browser as mat_$browser
+     FROM events
+     WHERE team_id = 2
+       AND event IN ['$pageview']
+       AND timestamp >= '2021-01-13 12:00:00'
+       AND timestamp <= '2021-01-22 08:00:00' ) AS events
+  JOIN
+    (SELECT session_id,
+            any(window_id) as window_id,
+            minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') as start_time,
+            MAX(last_event_timestamp) as end_time,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
+            groupArrayArray(urls) as urls,
+            dateDiff('second', start_time, end_time) as duration,
+            any(distinct_id) as distinct_id,
+            SUM(has_full_snapshot) as full_snapshots
+     FROM session_recording_events PREWHERE team_id = 2
+     AND timestamp >= '2021-01-13 12:00:00'
+     AND timestamp <= '2021-01-22 08:00:00'
+     GROUP BY session_id
+     HAVING full_snapshots > 0
+     AND start_time >= '2021-01-14 00:00:00'
+     AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  WHERE ((notEmpty(events.session_id)
+          AND events.session_id == session_recordings.session_id)
+         OR (empty(events.session_id)
+             AND (events.timestamp >= session_recordings.start_time
+                  AND events.timestamp <= session_recordings.end_time)))
+  GROUP BY session_recordings.session_id
+  HAVING 1 = 1
+  AND count_event_match_0 > 0
+  ORDER BY start_time DESC
+  LIMIT 51
+  OFFSET 0
+  '
+---
 # name: TestClickhouseSessionRecordingsList.test_event_filter_with_matching_on_session_id
   '
   
