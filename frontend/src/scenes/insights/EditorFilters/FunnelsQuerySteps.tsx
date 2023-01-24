@@ -9,7 +9,7 @@ import { EditorFilterProps, FunnelsFilterType } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { ToggleButtonChartFilter } from '../views/Funnels/ToggleButtonChartFilter'
+import { FunnelVizType } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
@@ -26,7 +26,7 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
 
             <div className="flex items-center gap-2">
                 <span className="text-muted">Graph type</span>
-                <ToggleButtonChartFilter {...insightFilter} setFilter={updateInsightFilter} />
+                <FunnelVizType {...insightFilter} setFilter={updateInsightFilter} />
             </div>
         </div>
     )
@@ -46,7 +46,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
 
                 <div className="flex items-center gap-2">
                     <span className="text-muted">Graph type</span>
-                    <ToggleButtonChartFilter
+                    <FunnelVizType
                         {...filters}
                         setFilter={(filter: FunnelsFilterType) => setFilters({ ...filters, ...filter })}
                     />
