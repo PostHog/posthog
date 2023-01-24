@@ -9,7 +9,7 @@ from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.urls.base import resolve
+from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware
 from django_statsd.middleware import StatsdMiddlewareTimer
@@ -338,6 +338,13 @@ class CaptureMiddleware:
 
                 for middleware in self.CAPTURE_MIDDLEWARE:
                     middleware.process_request(request)
+
+                # call process_view for PrometheusAfterMiddleware to get the right metrics in place
+                # simulate how django prepares the url
+                resolver_match = resolve(request.path)
+                request.resolver_match = resolver_match
+                for middleware in self.CAPTURE_MIDDLEWARE:
+                    middleware.process_view(request, resolver_match.func, resolver_match.args, resolver_match.kwargs)
 
                 response: HttpResponse = get_event(request)
 
