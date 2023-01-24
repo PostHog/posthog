@@ -278,12 +278,6 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ).json()
         self.assertEqual(response["result"][0]["count"], 1)
 
-        # TODO: # funnels insight
-        # response = self.client.get(
-        #     f"/api/projects/{self.team.id}/insights/funnel/?actions={json.dumps([{'type': 'actions', 'id': action.id, 'order':0},{'type': 'actions', 'id': action.id, 'order': 1}])}"
-        # ).json()
-        # self.assertEqual(response["result"][0]["count"], 1)
-
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
         with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
