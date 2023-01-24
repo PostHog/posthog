@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
+import posthog.settings as settings
 from posthog.models.instance_setting import (
     InstanceSetting,
     get_instance_setting,
@@ -71,11 +72,11 @@ def test_can_retrieve_multiple_settings(db):
     }
 
 
-@pytest.mark.parametrize("cached_value", ("true", '["1:cool","abc:123"]', '"a_string"', "123"))
+@pytest.mark.parametrize(
+    "cached_value", ("true", '["1:cool","abc:123","123:b83b5ca6-:6fa2:d28a:2759"]', '"a_string"', "123")
+)
 def test_get_cached_instance_setting(db, cache, cached_value):
     """Test a deserialized cached value will be returned when available instead of querying db."""
-    import posthog.settings as settings
-
     key = "my_key"
     patched = {key: ("default_value", "a help str", str)}
 
@@ -88,3 +89,24 @@ def test_get_cached_instance_setting(db, cache, cached_value):
         value = get_instance_setting(key)
 
         assert value == json.loads(cached_value)
+
+
+@pytest.mark.parametrize(
+    "raw_value", ("true", '["1:cool","abc:123","123:b83b5ca6-:6fa2:d28a:2759"]', '"a_string"', "123")
+)
+def test_get_instance_setting_sets_cache(db, cache, raw_value):
+    """Test cache is set after calling get_instance_settings the first time."""
+    key = "my_key"
+    patched = {key: ("default_value", "a help str", str)}
+
+    InstanceSetting.objects.create(key=settings.CONSTANCE_DATABASE_PREFIX + key, raw_value=raw_value)
+
+    with patch.dict(settings.CONSTANCE_CONFIG, patched, clear=True):
+        assert cache.get(key) is None
+
+        first_value = get_instance_setting(key)
+        assert first_value == json.loads(raw_value)
+        assert cache.get(key) == raw_value
+
+        second_value = get_instance_setting(key)
+        assert second_value == json.loads(raw_value)
