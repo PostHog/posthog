@@ -129,7 +129,6 @@ class Filter(
         if "team" in kwargs:
             self.team = kwargs["team"]
             self.hogql_context.using_persons_on_events = kwargs["team"].person_on_events_querying_enabled
-
-        if self.team and not self.is_simplified:
-            simplified_filter = self.simplify(kwargs["team"])
-            self._data = simplified_filter._data
+            if not self.is_simplified:
+                simplified_filter = self.simplify(kwargs["team"])
+                self._data = simplified_filter._data
