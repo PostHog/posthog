@@ -2,8 +2,9 @@ from typing import Dict, List, Optional, Union
 
 from rest_framework import status
 
+from posthog.api.property_definition import PropertyDefinitionQuerySerializer
 from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
@@ -221,6 +222,66 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]], [("first_visit", True)]
         )
 
+    def test_person_property_filter(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="event property", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, name="person property", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, name="another", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["person property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=prop")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["event property"])
+
+    def test_group_property_filter(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="group1 property",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=1,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="group1 another",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=1,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="group2 property",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=2,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["group1 another", "group1 property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["group2 property"])
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?type=group&search=prop&group_type_index=1"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["group1 property"])
+
     def test_is_feature_flag_property_filter(self):
         PropertyDefinition.objects.create(team=self.team, name="$feature/plan", property_type="String")
 
@@ -241,3 +302,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "plan")
+
+
+class TestPropertyDefinitionQuerySerializer(BaseTest):
+    def test_validation(self):
+        assert PropertyDefinitionQuerySerializer(data={}).is_valid()
+        assert PropertyDefinitionQuerySerializer(data={"type": "event", "event_names": '["foo","bar"]'}).is_valid()
+        assert PropertyDefinitionQuerySerializer(data={"type": "person"}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "person", "event_names": '["foo","bar"]'}).is_valid()
+
+        assert PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 3}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "group"}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
