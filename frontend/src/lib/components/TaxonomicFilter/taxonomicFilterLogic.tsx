@@ -274,8 +274,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        logic: personPropertiesModel,
-                        value: 'personProperties',
+                        logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                            ? undefined
+                            : personPropertiesModel,
+                        value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                            ? undefined
+                            : 'personProperties',
+                        endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                  type: 'person',
+                              }).url
+                            : undefined,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
                         ...propertyTaxonomicGroupProps(true),
@@ -458,14 +467,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 })),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
-            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
+            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel, s.featureFlags],
+            (groupTypes, teamId, aggregationLabel, featureFlags): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    logic: groupPropertiesModel,
-                    value: `groupProperties_${type.group_type_index}`,
+                    logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                        ? undefined
+                        : groupPropertiesModel,
+                    value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                        ? undefined
+                        : `groupProperties_${type.group_type_index}`,
+                    endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                        ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                              type: 'group',
+                              group_type_index: type.group_type_index,
+                          }).url
+                        : undefined,
                     valuesEndpoint: (key) =>
                         `api/projects/${teamId}/groups/property_values/?${toParams({
                             key,
