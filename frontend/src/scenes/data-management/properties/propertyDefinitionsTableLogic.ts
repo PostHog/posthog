@@ -6,11 +6,12 @@ import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
+
+import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
 
 export interface Filters {
     property: string
@@ -25,22 +26,22 @@ function cleanFilters(filter: Partial<Filters>): Filters {
 
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
-export interface EventPropertyDefinitionsTableLogicProps {
+export interface PropertyDefinitionsTableLogicProps {
     key: string
 }
 
-export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTableLogicType>([
-    path(['scenes', 'data-management', 'properties', 'eventPropertyDefinitionsTableLogic']),
-    props({} as EventPropertyDefinitionsTableLogicProps),
+export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicType>([
+    path(['scenes', 'data-management', 'properties', 'propertyDefinitionsTableLogic']),
+    props({} as PropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
     actions({
-        loadEventPropertyDefinitions: (url: string | null = '') => ({
+        loadPropertyDefinitions: (url: string | null = '') => ({
             url,
         }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
-        setLocalEventPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
+        setLocalPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
     }),
     reducers({
         filters: [
@@ -71,7 +72,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 results: [],
             } as PropertyDefinitionsPaginatedResponse,
             {
-                loadEventPropertyDefinitions: async ({ url }, breakpoint) => {
+                loadPropertyDefinitions: async ({ url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
@@ -100,7 +101,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                     }
                     return cache.apiCache[url]
                 },
-                setLocalEventPropertyDefinition: ({ definition }) => {
+                setLocalPropertyDefinition: ({ definition }) => {
                     if (!values.eventPropertyDefinitions.current) {
                         return values.eventPropertyDefinitions
                     }
@@ -131,7 +132,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                         path: urls.eventDefinitions(),
                     },
                     {
-                        name: 'Event Properties',
+                        name: 'Properties',
                         path: urls.propertyDefinitions(),
                     },
                 ]
@@ -140,7 +141,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
-            actions.loadEventPropertyDefinitions(
+            actions.loadPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(
                     values.eventPropertyDefinitions.current,
                     {
@@ -150,7 +151,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 )
             )
         },
-        loadEventPropertyDefinitionsSuccess: () => {
+        loadPropertyDefinitionsSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
@@ -161,7 +162,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 cache.propertiesStartTime = undefined
             }
         },
-        loadEventPropertyDefinitionsFailure: ({ error }) => {
+        loadPropertyDefinitionsFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
@@ -178,7 +179,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
             } else if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                actions.loadEventPropertyDefinitions()
+                actions.loadPropertyDefinitions()
             }
         },
     })),

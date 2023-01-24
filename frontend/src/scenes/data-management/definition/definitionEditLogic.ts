@@ -13,7 +13,7 @@ import {
 import type { definitionEditLogicType } from './definitionEditLogicType'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
+import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { tagsModel } from '~/models/tagsModel'
 
 export interface DefinitionEditLogicProps extends DefinitionLogicProps {
@@ -29,8 +29,8 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
         actions: [
             definitionLogic({ id }),
             ['setDefinition', 'setPageMode'],
-            eventPropertyDefinitionsTableLogic,
-            ['setLocalEventPropertyDefinition'],
+            propertyDefinitionsTableLogic,
+            ['setLocalPropertyDefinition'],
             eventDefinitionsTableLogic,
             ['setLocalEventDefinition'],
             tagsModel,
@@ -86,7 +86,7 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                     if (values.isEvent) {
                         actions.setLocalEventDefinition(definition)
                     } else {
-                        actions.setLocalEventPropertyDefinition(definition)
+                        actions.setLocalPropertyDefinition(definition)
                     }
                     actions.setPageMode(DefinitionPageMode.View)
                     actions.setDefinition(definition)

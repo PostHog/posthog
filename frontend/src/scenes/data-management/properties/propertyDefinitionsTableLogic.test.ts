@@ -7,12 +7,12 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { combineUrl, router } from 'kea-router'
 import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    eventPropertyDefinitionsTableLogic,
-} from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
+    propertyDefinitionsTableLogic,
+} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { urls } from 'scenes/urls'
 
-describe('eventPropertyDefinitionsTableLogic', () => {
-    let logic: ReturnType<typeof eventPropertyDefinitionsTableLogic.build>
+describe('propertyDefinitionsTableLogic', () => {
+    let logic: ReturnType<typeof propertyDefinitionsTableLogic.build>
 
     beforeEach(async () => {
         useMocks({
@@ -61,7 +61,7 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             .toDispatchActions(['loadCurrentOrganizationSuccess'])
         jest.spyOn(api, 'get')
         api.get.mockClear()
-        logic = eventPropertyDefinitionsTableLogic({
+        logic = propertyDefinitionsTableLogic({
             key: '1',
             syncWithUrl: true,
         })
@@ -81,8 +81,8 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions([
                     router.actionCreators.push(url),
-                    'loadEventPropertyDefinitions',
-                    'loadEventPropertyDefinitionsSuccess',
+                    'loadPropertyDefinitions',
+                    'loadPropertyDefinitionsSuccess',
                 ])
                 .toMatchValues({
                     eventPropertyDefinitions: partial({
@@ -102,8 +102,8 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledWith(startingUrl)
 
             await expectLogic(logic, () => {
-                logic.actions.loadEventPropertyDefinitions(startingUrl)
-            }).toDispatchActions(['loadEventPropertyDefinitions', 'loadEventPropertyDefinitionsSuccess'])
+                logic.actions.loadPropertyDefinitions(startingUrl)
+            }).toDispatchActions(['loadPropertyDefinitions', 'loadPropertyDefinitionsSuccess'])
 
             // Doesn't call api.get again
             expect(api.get).toBeCalledTimes(1)
@@ -115,8 +115,8 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             await expectLogic(logic)
                 .toDispatchActions([
                     router.actionCreators.push(url),
-                    'loadEventPropertyDefinitions',
-                    'loadEventPropertyDefinitionsSuccess',
+                    'loadPropertyDefinitions',
+                    'loadPropertyDefinitionsSuccess',
                 ])
                 .toMatchValues({
                     eventPropertyDefinitions: partial({
@@ -127,11 +127,11 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledTimes(1)
             // Forwards
             await expectLogic(logic, () => {
-                logic.actions.loadEventPropertyDefinitions(
+                logic.actions.loadPropertyDefinitions(
                     `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=50`
                 )
             })
-                .toDispatchActions(['loadEventPropertyDefinitions', 'loadEventPropertyDefinitionsSuccess'])
+                .toDispatchActions(['loadPropertyDefinitions', 'loadPropertyDefinitionsSuccess'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     eventPropertyDefinitions: partial({
@@ -143,9 +143,9 @@ describe('eventPropertyDefinitionsTableLogic', () => {
             expect(api.get).toBeCalledTimes(2)
             // Backwards
             await expectLogic(logic, () => {
-                logic.actions.loadEventPropertyDefinitions(startingUrl)
+                logic.actions.loadPropertyDefinitions(startingUrl)
             })
-                .toDispatchActions(['loadEventPropertyDefinitions', 'loadEventPropertyDefinitionsSuccess'])
+                .toDispatchActions(['loadPropertyDefinitions', 'loadPropertyDefinitionsSuccess'])
                 .toMatchValues({
                     eventPropertyDefinitions: partial({
                         count: 50,

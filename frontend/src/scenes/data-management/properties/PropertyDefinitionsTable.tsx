@@ -1,4 +1,4 @@
-import './EventPropertyDefinitionsTable.scss'
+import './PropertyDefinitionsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { PropertyDefinition } from '~/types'
@@ -9,8 +9,8 @@ import { PropertyDefinitionHeader } from 'scenes/data-management/events/Definiti
 import { humanFriendlyNumber } from 'lib/utils'
 import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    eventPropertyDefinitionsTableLogic,
-} from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
+    propertyDefinitionsTableLogic,
+} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -20,17 +20,16 @@ import { AlertMessage } from 'lib/components/AlertMessage'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 
 export const scene: SceneExport = {
-    component: EventPropertyDefinitionsTable,
-    logic: eventPropertyDefinitionsTableLogic,
+    component: PropertyDefinitionsTable,
+    logic: propertyDefinitionsTableLogic,
     paramsToProps: () => ({ syncWithUrl: true }),
 }
 
-export function EventPropertyDefinitionsTable(): JSX.Element {
+export function PropertyDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } = useValues(
-        eventPropertyDefinitionsTableLogic
-    )
-    const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
+    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } =
+        useValues(propertyDefinitionsTableLogic)
+    const { loadPropertyDefinitions, setFilters } = useActions(propertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
@@ -98,7 +97,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     </div>
                 )
             )}
-            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
+            <DataManagementPageTabs tab={DataManagementTab.PropertyDefinitions} />
             <div className="mb-4">
                 <LemonInput
                     type="search"
@@ -121,12 +120,12 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
                     onForward: !!eventPropertyDefinitions.next
                         ? () => {
-                              loadEventPropertyDefinitions(eventPropertyDefinitions.next)
+                              loadPropertyDefinitions(eventPropertyDefinitions.next)
                           }
                         : undefined,
                     onBackward: !!eventPropertyDefinitions.previous
                         ? () => {
-                              loadEventPropertyDefinitions(eventPropertyDefinitions.previous)
+                              loadPropertyDefinitions(eventPropertyDefinitions.previous)
                           }
                         : undefined,
                 }}

@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 import { definitionEditLogic } from 'scenes/data-management/definition/definitionEditLogic'
 import { expectLogic } from 'kea-test-utils'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { eventPropertyDefinitionsTableLogic } from 'scenes/data-management/properties/eventPropertyDefinitionsTableLogic'
+import { propertyDefinitionsTableLogic } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 
@@ -34,7 +34,7 @@ describe('definitionEditLogic', () => {
         initKeaTests()
         await expectLogic(definitionLogic({ id: '1' })).toFinishAllListeners()
         eventDefinitionsTableLogic.mount()
-        eventPropertyDefinitionsTableLogic.mount()
+        propertyDefinitionsTableLogic.mount()
         logic = definitionEditLogic({ id: '1', definition: mockEventDefinitions[0] })
         logic.mount()
     })
