@@ -288,6 +288,41 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce_key, None)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_override_key_caching(self, kafka_produce):
+        """Test override key is being cached after first DB query.
+
+        First request would query the database but all follow-up requests should be
+        hitting the cache. This means we wouldn't expect to see a database query.
+        """
+        distinct_id = "999"
+        expected_key = f"{self.team.pk}:{distinct_id}"
+        key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+        InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": distinct_id,
+                "token": self.team.api_token,
+            },
+        }
+
+        first_request = True
+        for _ in range(20):
+
+            if first_request:
+                num_queries_expected = 2
+                first_request = False
+            else:
+                num_queries_expected = 1
+
+            with self.assertNumQueries(num_queries_expected):
+                response = self.client.get("/e/?data=%s" % quote(self._to_json(data)))
+
+            self.assertEqual(response.status_code, 200)
+            kafka_produce_key = kafka_produce.call_args_list[0].kwargs["key"]
+            self.assertEqual(kafka_produce_key, None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_too_large(self, kafka_produce):
         # There is a setting in Django, `DATA_UPLOAD_MAX_MEMORY_SIZE`, which
         # limits the size of the request body. An error is  raise, e.g. when we
