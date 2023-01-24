@@ -21,19 +21,17 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
-        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
-        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
-        cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
-        cy.get('[data-attr="insight-name"] input').type('Test Insight Zeus')
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
-        cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
-        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.wait('@patchInsight').then(() => {
-            cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
-            cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
-            cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
-        })
+        const dashboardName = randomString('to add an insight to')
+        const insightName = randomString('insight to add to dashboard')
+
+        // create and visit a dashboard to get it into turbomode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+
+        insight.create(insightName)
+
+        insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
+
+        cy.get('.CardMeta h4').should('have.text', insightName)
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {
@@ -317,7 +315,7 @@ describe('Dashboard', () => {
                     cy.get('.row-name a').click()
                 })
 
-                insight.addInsightToDashboard(dashboardName)
+                insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
 
                 cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
                 cy.get('button').contains('Delete dashboard').click()
