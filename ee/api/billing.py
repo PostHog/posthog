@@ -312,7 +312,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         return res.json()
 
-    def _get_plans(self, plan_keys: str, organization: Optional[Organization]):
+    def _get_plans(self, plan_keys: Optional[str], organization: Optional[Organization]):
         res = requests.get(
             f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
         )

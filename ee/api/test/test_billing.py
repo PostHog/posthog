@@ -503,7 +503,7 @@ class TestBillingAPI(APILicensedTest):
             },
         }
 
-        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+        def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
             mock = MagicMock()
             mock.status_code = 404
 
@@ -519,7 +519,7 @@ class TestBillingAPI(APILicensedTest):
 
             return mock
 
-        mock_request.side_effect = mock_implementation
+        mock_request.side_effect = mock_implementation_missing_customer
 
         # Test unsubscribed config
         res = self.client.get("/api/billing-v2")
