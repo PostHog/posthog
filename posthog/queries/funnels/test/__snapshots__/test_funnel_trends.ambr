@@ -91,7 +91,7 @@
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
     (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC') + toIntervalDay(number)) AS entrance_period_start
-     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00', 'UTC'), toDateTime('2021-05-07 00:00:00', 'UTC')) + 1) AS period_offsets) fill USING (entrance_period_start)
+     FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'UTC'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
   '
 ---
@@ -188,7 +188,7 @@
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
     (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific') + toIntervalDay(number)) AS entrance_period_start
-     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00', 'US/Pacific'), toDateTime('2021-05-07 00:00:00', 'US/Pacific')) + 1) AS period_offsets) fill USING (entrance_period_start)
+     FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific')), toStartOfDay(toDateTime('2021-05-07 00:00:00', 'US/Pacific'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
   '
 ---
