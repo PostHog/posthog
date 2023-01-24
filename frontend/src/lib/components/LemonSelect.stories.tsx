@@ -138,13 +138,10 @@ CustomElement.args = {
     ],
 }
 
-export const _FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
+export const FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="items-center w-full border p-4 gap-2">
             <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />
         </div>
     )
 }
-
-export const FullWidth = _FullWidth.bind({})
-FullWidth.args = {}

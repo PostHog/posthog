@@ -24,7 +24,7 @@ const localProperties: PropertyDefinitionStorage = {
         name: '$session_duration',
         description: 'Duration of the session',
         is_numerical: true,
-        is_event_property: false,
+        is_seen_on_filtered_events: false,
         property_type: PropertyType.Duration,
     },
 }

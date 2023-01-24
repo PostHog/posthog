@@ -19,6 +19,36 @@ expected_all_data_response_results: List[Dict] = [
     {
         "count": 2,
         "hash": None,
+        "type": "$autocapture",
+        "elements": [
+            {
+                "text": "event 1",
+                "tag_name": "a",
+                "attr_class": None,
+                "href": "https://posthog.com/event-1",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 0,
+            },
+            {
+                "text": "event 1",
+                "tag_name": "div",
+                "attr_class": None,
+                "href": "https://posthog.com/event-1",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 1,
+            },
+        ],
+    },
+    {
+        "count": 2,
+        "hash": None,
+        "type": "$autocapture",
         "elements": [
             {
                 "text": "event 2",
@@ -44,9 +74,13 @@ expected_all_data_response_results: List[Dict] = [
             },
         ],
     },
+]
+
+expected_rage_click_data_response_results: List[Dict] = [
     {
         "count": 1,
         "hash": None,
+        "type": "$rageclick",
         "elements": [
             {
                 "text": "event 1",
@@ -189,6 +223,32 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         assert results == expected_all_data_response_results
 
+    def test_element_stats_can_load_only_rageclick_data(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclick")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_rage_click_data_response_results
+
+    def test_element_stats_can_load_rageclick_and_autocapture_data(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(
+            f"/api/element/stats/?paginate_response=true&include=$rageclick&include=$autocapture"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_all_data_response_results + expected_rage_click_data_response_results
+
     def test_element_stats_obeys_limit_parameter(self) -> None:
         self._setup_events()
 
@@ -216,10 +276,24 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_element_stats_does_not_allow_unexepcted_include(self) -> None:
+        response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def _setup_events(self):
         _create_person(distinct_ids=["one"], team=self.team)
         _create_person(distinct_ids=["two"], team=self.team)
         _create_person(distinct_ids=["three"], team=self.team)
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
+                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+            ],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
         _create_event(
             team=self.team,
             elements=[
@@ -249,4 +323,14 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             event="$autocapture",
             distinct_id="three",
             properties={"$current_url": "http://example.com/another_page"},
+        )
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
+                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+            ],
+            event="$rageclick",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
         )

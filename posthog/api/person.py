@@ -640,13 +640,33 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
+    group_properties_filter_group = []
+    if hasattr(filter, "aggregation_group_type_index"):
+        group_properties_filter_group += [
+            {
+                "key": "name",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+            {
+                "key": "slug",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+        ]
+
     new_group = {
         "type": "OR",
         "values": [
             {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
             {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-        ],
+        ]
+        + group_properties_filter_group,
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}

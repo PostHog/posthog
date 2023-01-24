@@ -1,9 +1,4 @@
-.paths-container {
-    height: 100%;
-    width: 100%;
-    overflow: auto;
-}
-.paths {
+.Paths {
     position: relative;
     max-height: 100%;
     width: 100%;
@@ -12,41 +7,5 @@
     svg {
         height: 100% !important;
         width: 100%;
-    }
-
-    .ant-btn {
-        border-radius: 4px;
-        z-index: 100;
-        &:hover {
-            border-radius: 4px 4px 0px 0px;
-            color: black;
-            z-index: 999;
-        }
-    }
-}
-.paths-dropdown-ellipsis {
-    display: flex;
-    font-size: 18px;
-    border: none;
-    font-weight: 600;
-    padding: 0px 4px;
-    height: 26px;
-    border-radius: 4px;
-    line-height: 18px;
-    &:hover {
-        cursor: pointer;
-        background-color: rgba(83, 117, 255, 0.08);
-    }
-}
-
-.paths-options-dropdown {
-    padding: 8px;
-    border-radius: 4px;
-    border: 1px solid var(--primary);
-    .ant-dropdown-menu-item {
-        &:hover {
-            background-color: rgba(83, 117, 255, 0.08);
-            border-radius: 4;
-        }
     }
 }
