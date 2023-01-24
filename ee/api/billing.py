@@ -186,11 +186,10 @@ class BillingViewset(viewsets.GenericViewSet):
             usage_limit = product.get("usage_limit", product.get("free_allocation"))
             product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
 
-        # if there is a "plan_keys" query param get the specified plans
-        if request.query_params.get("plan_keys", None):
-            plan_keys = request.query_params.get("plan_keys", "")
-            plans = self._get_plans(plan_keys, org)
-            response["available_plans"] = plans["plans"]
+        # Get the specified plans from "plan_keys" query param, otherwise get the defaults
+        plan_keys = request.query_params.get("plan_keys", None)
+        plans = self._get_plans(plan_keys, org)
+        response["available_plans"] = plans["plans"]
 
         # Before responding ensure the org is updated with the latest info
         if org:
@@ -314,11 +313,8 @@ class BillingViewset(viewsets.GenericViewSet):
         return res.json()
 
     def _get_plans(self, plan_keys: str, organization: Optional[Organization]):
-        if not plan_keys:
-            raise Exception("Please provide plan keys to fetch.")
-
         res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/plans?keys={plan_keys}",
+            f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
         )
 
         handle_billing_service_error(res)

@@ -69,9 +69,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
             null as BillingV2Type | null,
             {
                 loadBilling: async () => {
-                    const response = await api.get(
-                        'api/billing-v2?plan_keys=starter-20230117,scale-20230117,enterprise-20230117'
-                    )
+                    const response = await api.get('api/billing-v2')
 
                     return parseBillingResponse(response)
                 },
