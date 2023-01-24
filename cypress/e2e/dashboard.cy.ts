@@ -129,6 +129,8 @@ describe('Dashboard', () => {
     })
 
     it('Move dashboard item', () => {
+        cy.intercept('PATCH', /api\/projects\/\d+\/dashboards\/\d+\/move_tile.*/).as('moveTile')
+
         const sourceDashboard = randomString('source-dashboard')
         const targetDashboard = randomString('target-dashboard')
         const insightToMove = randomString('insight-to-move')
@@ -151,13 +153,15 @@ describe('Dashboard', () => {
         cy.get('button').contains('Move to').click()
         cy.get('button').contains(targetDashboard).click()
 
-        cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
+        cy.wait('@moveTile').then(() => {
+            cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
 
-        cy.get('.CardMeta h4').should('have.text', insightToLeave)
+            cy.get('.CardMeta h4').should('have.text', insightToLeave)
 
-        cy.clickNavMenu('dashboards')
-        dashboards.visitDashboard(targetDashboard)
-        cy.get('.CardMeta h4').should('have.text', insightToMove)
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(targetDashboard)
+            cy.get('.CardMeta h4').should('have.text', insightToMove)
+        })
     })
 
     it('Opens dashboard item in insights', () => {
