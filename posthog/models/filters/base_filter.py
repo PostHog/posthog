@@ -24,10 +24,10 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self._data = data
+        self.hogql_context = hogql_context or HogQLContext()
         self.kwargs = kwargs
         if kwargs.get("team"):
             self.team = kwargs["team"]
-        self.hogql_context = hogql_context or HogQLContext()
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = self.simplify(kwargs["team"])  # type: ignore
