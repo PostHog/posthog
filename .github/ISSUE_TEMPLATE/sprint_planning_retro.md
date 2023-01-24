@@ -63,19 +63,12 @@ Team ___
 
 - Item 1. prioritised/deprioritise
 
-## Planning
+## OKR
 
-<!-- Each item should have a single owner. Owner can only be an engineer. -->
+1. OKR, status (red/yellow/green)
 
- - any vacations?
- - any support here?
- - who is on secondary support this sprint? 
 
 ### High priority
-
--
-
-### Bugs
 
 -
 
