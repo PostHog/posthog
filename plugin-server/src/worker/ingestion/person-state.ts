@@ -10,10 +10,10 @@ import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { promiseRetry } from '../../utils/retries'
 import { status } from '../../utils/status'
 import { castTimestampOrNow, NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
-import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
 
 const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
@@ -52,7 +52,6 @@ export class PersonState {
 
     private db: DB
     private statsd: StatsD | undefined
-    private personManager: PersonManager
     private updateIsIdentified: boolean
     private poEEmbraceJoin: boolean
 
@@ -63,7 +62,6 @@ export class PersonState {
         timestamp: DateTime,
         db: DB,
         statsd: StatsD | undefined,
-        personManager: PersonManager,
         personContainer: LazyPersonContainer,
         poEEmbraceJoin: boolean,
         uuid: UUIDT | undefined = undefined,
@@ -79,7 +77,6 @@ export class PersonState {
 
         this.db = db
         this.statsd = statsd
-        this.personManager = personManager
 
         // Used to avoid unneeded person fetches and to respond with updated person details
         // :KLUDGE: May change through these flows.
@@ -116,52 +113,58 @@ export class PersonState {
         return this.personContainer
     }
 
+    // If we created the person we already updated the properties, in that case we return true
+    // If the person already existed we do nothing here, which means properties aren't updated and we return false
     private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
         // :TRICKY: Short-circuit if person container already has loaded person and it exists
         if (this.personContainer.loaded) {
             return false
         }
 
-        const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
-        if (isNewPerson) {
-            const properties = this.eventProperties['$set'] || {}
-            const propertiesOnce = this.eventProperties['$set_once'] || {}
-            // Catch race condition where in between getting and creating, another request already created this user
-            try {
-                const person = await this.createPerson(
-                    this.timestamp,
-                    properties || {},
-                    propertiesOnce || {},
-                    this.teamId,
-                    null,
-                    // :NOTE: This should never be set in this branch, but adding this for logical consistency
-                    this.updateIsIdentified,
-                    this.newUuid,
-                    this.event.uuid,
-                    [this.distinctId]
-                )
-                // :TRICKY: Avoid subsequent queries re-fetching person
-                this.personContainer = this.personContainer.with(person)
-                return true
-            } catch (error) {
-                status.error('🚨', 'create_person_failed', { error, teamId: this.teamId, distinctId: this.distinctId })
-                if (!error.message || !error.message.includes('duplicate key value violates unique constraint')) {
-                    Sentry.captureException(error, {
-                        extra: {
-                            teamId: this.teamId,
-                            distinctId: this.distinctId,
-                            timestamp: this.timestamp,
-                            personUuid: this.newUuid,
-                        },
-                    })
-                }
-            }
+        const properties = this.eventProperties['$set'] || {}
+        const propertiesOnce = this.eventProperties['$set_once'] || {}
+
+        try {
+            return promiseRetry(() => this.createOrGetPerson(properties, propertiesOnce))
+        } catch (error) {
+            status.error('🚨', 'create_person_failed', { error, teamId: this.teamId, distinctId: this.distinctId })
+            Sentry.captureException(error, {
+                extra: {
+                    teamId: this.teamId,
+                    distinctId: this.distinctId,
+                    timestamp: this.timestamp,
+                    personUuid: this.newUuid,
+                },
+            })
+            throw error
+        }
+    }
+
+    // If we created the person we already updated the properties, in that case we return true
+    // If the person already existed we do nothing here, which means properties aren't updated and we return false
+    private async createOrGetPerson(properties: Properties, propertiesOnce: Properties): Promise<boolean> {
+        // getPersonId hits Redis cache first, if not there goes to Postgres
+        const personId = await this.db.getPersonId(this.teamId, this.distinctId)
+        if (personId) {
+            this.personContainer = this.personContainer.reset()
+            return false
         }
 
-        // Person was likely created in-between start-of-processing and now, so ensure that subsequent queries
-        // to fetch person still return the right `person`
-        this.personContainer = this.personContainer.reset()
-        return false
+        const person = await this.createPerson(
+            this.timestamp,
+            properties || {},
+            propertiesOnce || {},
+            this.teamId,
+            null,
+            // :NOTE: This should never be set in this branch, but adding this for logical consistency
+            this.updateIsIdentified,
+            this.newUuid,
+            this.event.uuid,
+            [this.distinctId]
+        )
+        // :TRICKY: Avoid subsequent queries re-fetching person
+        this.personContainer = this.personContainer.with(person)
+        return true
     }
 
     private async createPerson(

@@ -23,7 +23,6 @@ export async function processPersonsStep(
         timestamp,
         runner.hub.db,
         runner.hub.statsd,
-        runner.hub.personManager,
         personContainer,
         runner.poEEmbraceJoin
     )

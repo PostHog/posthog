@@ -28,10 +28,6 @@ describe('DB', () => {
         ;[hub, closeServer] = await createHub()
         await resetTestDatabase(undefined, {}, {}, { withExtendedTestData: false })
         db = hub.db
-
-        const redis = await hub.redisPool.acquire()
-        await redis.flushdb()
-        await db.redisPool.release(redis)
     })
 
     afterEach(async () => {

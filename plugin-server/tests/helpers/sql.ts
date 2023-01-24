@@ -1,3 +1,5 @@
+import { createPool } from 'generic-pool'
+import Redis from 'ioredis'
 import { Pool, PoolClient } from 'pg'
 
 import { defaultConfig } from '../../src/config/config'
@@ -12,7 +14,7 @@ import {
     RawOrganization,
     Team,
 } from '../../src/types'
-import { UUIDT } from '../../src/utils/utils'
+import { createRedis, UUIDT } from '../../src/utils/utils'
 import {
     commonOrganizationId,
     commonOrganizationMembershipId,
@@ -37,6 +39,23 @@ BEGIN
 END $$;
 `
 
+export async function resetRedis(pluginServerConfig: PluginsServerConfig): Promise<void> {
+    const redisPool = createPool<Redis.Redis>(
+        {
+            create: () => createRedis(pluginServerConfig),
+            destroy: async (client) => {
+                await client.quit()
+            },
+        },
+        {
+            autostart: true,
+        }
+    )
+    const redis = await redisPool.acquire()
+    await redis.flushdb()
+    await redisPool.release(redis)
+}
+
 export async function resetTestDatabase(
     code?: string,
     extraServerConfig: Partial<PluginsServerConfig> = {},
@@ -44,6 +63,8 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
+    await resetRedis(config)
+
     const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
 
     await db.query(POSTGRES_DELETE_TABLES_QUERY)

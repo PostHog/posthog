@@ -96,7 +96,6 @@ describe.each([[true], [false]])('processPersonsStep()', (poEEmbraceJoin) => {
             expect.any(DateTime),
             'hub.db',
             'hub.statsd',
-            'hub.personManager',
             personContainer,
             runner.poEEmbraceJoin
         )

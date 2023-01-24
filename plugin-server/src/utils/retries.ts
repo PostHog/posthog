@@ -4,6 +4,24 @@ import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
 import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-metrics'
 
+// Simple retries in our code
+const MAX_RETRIES_DEFAULT = 3
+const MAX_RETRY_INTERVAL_DEFAULT = 100
+export async function promiseRetry<T>(
+    fn: () => Promise<T>,
+    retries = MAX_RETRIES_DEFAULT,
+    retryIntervalMillis: number = MAX_RETRY_INTERVAL_DEFAULT,
+    previousError?: Error
+): Promise<T> {
+    return !retries
+        ? Promise.reject(previousError)
+        : fn().catch(async (error) => {
+              await new Promise((resolve) => setTimeout(resolve, retryIntervalMillis))
+              return promiseRetry(fn, retries - 1, retryIntervalMillis, error)
+          })
+}
+
+// For Apps retries
 export function getNextRetryMs(baseMs: number, multiplier: number, attempt: number): number {
     if (attempt < 1) {
         throw new Error('Attempts are indexed starting with 1')
