@@ -648,15 +648,16 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
     team = Team.objects.create(organization=org)
     cohort = Cohort.objects.create(team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
 
-    f = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]}, team=team)
+    filter = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]}, team=team)
 
     assert (
         parse_prop_grouped_clauses(
             team_id=1,
-            property_group=f.property_groups,
+            property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
             allow_denormalized_props=False,
             person_id_joined_alias="pdi.person_id",
+            hogql_context=filter.hogql_context,
         )
         == snapshot
     )
