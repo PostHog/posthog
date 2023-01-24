@@ -6,19 +6,9 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-interface ToggleButtonChartFilterProps {
-    onChange?: (chartFilter: FunnelVizType) => void
-    disabled?: boolean
-    simpleMode?: boolean // Hide title & compact mode for dropdown
-}
+interface ToggleButtonChartFilterProps {}
 
-const noop = (): void => {}
-
-export function ToggleButtonChartFilter({
-    onChange = noop,
-    disabled = false,
-    simpleMode,
-}: ToggleButtonChartFilterProps): JSX.Element | null {
+export function ToggleButtonChartFilter({}: ToggleButtonChartFilterProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
@@ -60,21 +50,12 @@ export function ToggleButtonChartFilter({
                 onValueChange={(val) => {
                     const valueTyped = val as FunnelVizType
                     setChartFilter(valueTyped)
-                    onChange(valueTyped)
                 }}
-                disabled={disabled}
                 hideDescriptionOnDisplay
-                compact={simpleMode}
+                compact
             />
         </div>
     )
 
-    return simpleMode ? (
-        innerContent
-    ) : (
-        <div>
-            <h4 className="secondary">Graph Type</h4>
-            {innerContent}
-        </div>
-    )
+    return innerContent
 }
