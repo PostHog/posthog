@@ -43,7 +43,7 @@ KAFKA_GROUPS_TABLE_SQL = lambda: GROUPS_TABLE_BASE_SQL.format(
 # You must include the database here because of a bug in clickhouse
 # related to https://github.com/ClickHouse/ClickHouse/issues/10471
 GROUPS_TABLE_MV_SQL = f"""
-CREATE MATERIALIZED VIEW {GROUPS_TABLE}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS {GROUPS_TABLE}_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 TO {CLICKHOUSE_DATABASE}.{GROUPS_TABLE}
 AS SELECT
 group_type_index,

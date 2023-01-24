@@ -15,7 +15,7 @@ export const Popup_ = Template.bind({})
 Popup_.args = {
     visible: true,
     children: (
-        <span style={{ fontSize: '1.5rem' }}>
+        <span className="text-2xl">
             <IconArrowDropDown />
         </span>
     ),

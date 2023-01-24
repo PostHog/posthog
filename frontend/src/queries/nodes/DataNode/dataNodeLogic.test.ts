@@ -109,7 +109,15 @@ describe('dataNodeLogic', () => {
         })
         logic.mount()
         await expectLogic(logic)
-            .toMatchValues({ responseLoading: true, canLoadNewData: false, newQuery: null, response: null })
+            .toMatchValues({
+                responseLoading: true,
+                canLoadNewData: true,
+                newQuery: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
+                response: null,
+            })
             .delay(0)
         await expectLogic(logic).toMatchValues({
             responseLoading: false,
@@ -318,8 +326,11 @@ describe('dataNodeLogic', () => {
         await expectLogic(logic)
             .toMatchValues({
                 responseLoading: true,
-                canLoadNewData: false,
-                newQuery: null,
+                canLoadNewData: true,
+                newQuery: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['*', 'event', 'timestamp'],
+                },
                 response: null,
                 autoLoadToggled: false,
                 autoLoadStarted: false,

@@ -1,6 +1,6 @@
 # name: test_create_kafka_events_with_disabled_protobuf
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -24,18 +24,18 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -51,12 +51,12 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('test.kafka.broker:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_dead_letter_queue]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -75,14 +75,14 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_events_json]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -106,18 +106,18 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_groups]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -125,14 +125,14 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -140,14 +140,14 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_performance_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -197,14 +197,14 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -214,14 +214,14 @@
       is_identified Int8,
       is_deleted Int8 DEFAULT 0,
       version UInt64
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id2]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -229,15 +229,15 @@
       person_id UUID,
       is_deleted Int8,
       version Int64 DEFAULT 1
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
   '
-
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -245,12 +245,44 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
-
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
+      ON CLUSTER 'posthog'
+  
+      ENGINE = Kafka(
+          'kafka:9092', -- Kafka hosts
+          'clickhouse_person_override_test', -- Kafka topic
+          'clickhouse-person-overrides', -- Kafka consumer group id
+          'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
+      )
+  
+      -- Take the types from the `person_overrides` table, except for the
+      -- `created_at`, which we want to use the DEFAULT now() from the
+      -- `person_overrides` definition. See
+      -- https://github.com/ClickHouse/ClickHouse/pull/38272 for details of `EMPTY
+      -- AS SELECT`
+      EMPTY AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          oldest_event,
+          -- We don't want to insert this column via Kafka, as it's
+          -- set as a default value in the `person_overrides` table.
+          -- created_at,
+          version
+      FROM `posthog_test`.`person_overrides`
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_plugin_log_entries]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -262,14 +294,14 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_session_recording_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -280,15 +312,42 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-
-
+      
+      
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
-
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[person_overrides_kafka]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides_kafka`
+      ON CLUSTER 'posthog'
+  
+      ENGINE = Kafka(
+          'kafka:9092', -- Kafka hosts
+          'clickhouse_person_override_test', -- Kafka topic
+          'clickhouse-person-overrides', -- Kafka consumer group id
+          'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
+      )
+  
+      -- We use the same schema as the `person_overrides` table except for columns
+      -- that are set e.g. as defaults.
+      EMPTY AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          -- created_at is not included in the Kafka message, rather it is set as
+          -- a default in the MergeTree table
+          version
+      FROM `posthog_test`.`person_overrides`
+  
   '
 ---
 # name: test_create_table_query[app_metrics]
   '
-
+  
   CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -302,19 +361,19 @@
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE=Distributed('posthog', 'posthog_test', 'sharded_app_metrics', rand())
-
+  
   '
 ---
 # name: test_create_table_query[app_metrics_mv]
   '
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
   TO posthog_test.sharded_app_metrics
   AS SELECT
@@ -330,12 +389,12 @@
   error_type,
   error_details
   FROM posthog_test.kafka_app_metrics
-
+  
   '
 ---
 # name: test_create_table_query[cohortpeople]
   '
-
+  
   CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
@@ -345,13 +404,13 @@
       version UInt64
   ) ENGINE = CollapsingMergeTree(sign)
   Order By (team_id, cohort_id, person_id, version)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -375,7 +434,7 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
+      
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
       , $group_2 VARCHAR COMMENT 'column_materializer::$group_2'
@@ -383,19 +442,19 @@
       , $group_4 VARCHAR COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR COMMENT 'column_materializer::$session_id'
-
-
+  
+      
   , _timestamp DateTime
   , _offset UInt64
-
-
+  
+      
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
-
+  
   '
 ---
 # name: test_create_table_query[events_dead_letter_queue]
   '
-
+  
   CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -414,23 +473,23 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_events_dead_letter_queue _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplacingMergeTree(_timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
-
+  
   SETTINGS index_granularity=512
-
+  
   '
 ---
 # name: test_create_table_query[events_dead_letter_queue_mv]
   '
-
+  
   CREATE MATERIALIZED VIEW IF NOT EXISTS events_dead_letter_queue_mv ON CLUSTER 'posthog'
   TO posthog_test.events_dead_letter_queue
   AS SELECT
@@ -453,13 +512,13 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_events_dead_letter_queue
-
+  
   '
 ---
 # name: test_create_table_query[events_json_mv]
   '
-
-  CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER 'posthog'
   TO posthog_test.events
   AS SELECT
   uuid,
@@ -486,12 +545,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_events_json
-
+  
   '
 ---
 # name: test_create_table_query[groups]
   '
-
+  
   CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -499,20 +558,20 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplacingMergeTree(_timestamp)
   Order By (team_id, group_type_index, group_key)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[groups_mv]
   '
-
-  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
   AS SELECT
   group_type_index,
@@ -523,12 +582,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_groups
-
+  
   '
 ---
 # name: test_create_table_query[ingestion_warnings]
   '
-
+  
   CREATE TABLE IF NOT EXISTS ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -536,19 +595,19 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_ingestion_warnings', rand())
-
+  
   '
 ---
 # name: test_create_table_query[ingestion_warnings_mv]
   '
-
-  CREATE MATERIALIZED VIEW ingestion_warnings_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
   TO posthog_test.ingestion_warnings
   AS SELECT
   team_id,
@@ -560,12 +619,12 @@
   _offset,
   _partition
   FROM posthog_test.kafka_ingestion_warnings
-
+  
   '
 ---
 # name: test_create_table_query[kafka_app_metrics]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -581,12 +640,12 @@
       error_details String CODEC(ZSTD(3))
   )
   ENGINE=Kafka('kafka:9092', 'clickhouse_app_metrics_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_events_dead_letter_queue]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -605,14 +664,14 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
+      
   ) ENGINE = Kafka('kafka:9092', 'events_dead_letter_queue_test', 'group1', 'JSONEachRow')
    SETTINGS kafka_skip_broken_messages=1000
   '
 ---
 # name: test_create_table_query[kafka_events_json]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_events_json ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -636,18 +695,18 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
-
-
+      
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_events_json_test', 'group1', 'JSONEachRow')
-
+  
       SETTINGS kafka_skip_broken_messages = 100
-
+  
   '
 ---
 # name: test_create_table_query[kafka_groups]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -655,14 +714,14 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_groups_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_ingestion_warnings]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -670,14 +729,14 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_ingestion_warnings_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_performance_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -727,14 +786,14 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_performance_events_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_person]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -744,14 +803,14 @@
       is_identified Int8,
       is_deleted Int8 DEFAULT 0,
       version UInt64
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_person_distinct_id2]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -759,15 +818,15 @@
       person_id UUID,
       is_deleted Int8,
       version Int64 DEFAULT 1
-
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_distinct_id_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_person_distinct_id]
   '
-
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
+  
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -775,12 +834,44 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
-
+  
+  '
+---
+# name: test_create_table_query[kafka_person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
+      ON CLUSTER 'posthog'
+  
+      ENGINE = Kafka(
+          'kafka:9092', -- Kafka hosts
+          'clickhouse_person_override_test', -- Kafka topic
+          'clickhouse-person-overrides', -- Kafka consumer group id
+          'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
+      )
+  
+      -- Take the types from the `person_overrides` table, except for the
+      -- `created_at`, which we want to use the DEFAULT now() from the
+      -- `person_overrides` definition. See
+      -- https://github.com/ClickHouse/ClickHouse/pull/38272 for details of `EMPTY
+      -- AS SELECT`
+      EMPTY AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          oldest_event,
+          -- We don't want to insert this column via Kafka, as it's
+          -- set as a default value in the `person_overrides` table.
+          -- created_at,
+          version
+      FROM `posthog_test`.`person_overrides`
+  
   '
 ---
 # name: test_create_table_query[kafka_plugin_log_entries]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -792,14 +883,14 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   ) ENGINE = Kafka('kafka:9092', 'plugin_log_entries_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[kafka_session_recording_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS kafka_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -810,15 +901,15 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-
-
+      
+      
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_session_recording_events_test', 'group1', 'JSONEachRow')
-
+  
   '
 ---
 # name: test_create_table_query[performance_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -868,30 +959,30 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
-
+  
   '
 ---
 # name: test_create_table_query[performance_events_mv]
   '
-
-  CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writeable_performance_events
   AS SELECT
   uuid, session_id, window_id, pageview_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start
   ,_timestamp, _offset, _partition
   FROM posthog_test.kafka_performance_events
-
+  
   '
 ---
 # name: test_create_table_query[person]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -901,22 +992,22 @@
       is_identified Int8,
       is_deleted Int8 DEFAULT 0,
       version UInt64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplacingMergeTree(version)
   Order By (team_id, id)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[person_distinct_id2]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -924,25 +1015,25 @@
       person_id UUID,
       is_deleted Int8,
       version Int64 DEFAULT 1
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , _partition UInt64
       , INDEX kafka_timestamp_minmax_person_distinct_id2 _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplacingMergeTree(version)
-
+  
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
-
+      
   '
 ---
 # name: test_create_table_query[person_distinct_id2_mv]
   '
-
-  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id2
   AS SELECT
   team_id,
@@ -954,12 +1045,12 @@
   _offset,
   _partition
   FROM posthog_test.kafka_person_distinct_id2
-
+  
   '
 ---
 # name: test_create_table_query[person_distinct_id]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
@@ -967,20 +1058,20 @@
       team_id Int64,
       _sign Int8 DEFAULT 1,
       is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = CollapsingMergeTree(_sign)
   Order By (team_id, distinct_id, person_id)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[person_distinct_id_mv]
   '
-
-  CREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id
   AS SELECT
   distinct_id,
@@ -990,13 +1081,13 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_person_distinct_id
-
+  
   '
 ---
 # name: test_create_table_query[person_mv]
   '
-
-  CREATE MATERIALIZED VIEW person_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
   TO posthog_test.person
   AS SELECT
   id,
@@ -1009,31 +1100,146 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_person
-
+  
+  '
+---
+# name: test_create_table_query[person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
+      ON CLUSTER 'posthog' (
+          team_id INT NOT NULL,
+  
+          -- When we merge two people `old_person_id` and `override_person_id`, we
+          -- want to keep track of a mapping from the `old_person_id` to the
+          -- `override_person_id`. This allows us to join with the
+          -- `sharded_events` table to find all events that were associated with
+          -- the `old_person_id` and update them to be associated with the
+          -- `override_person_id`.
+          old_person_id UUID NOT NULL,
+          override_person_id UUID NOT NULL,
+  
+          -- The timestamp the merge of the two people was completed.
+          merged_at DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp of the oldest event associated with the
+          -- `old_person_id`.
+          oldest_event DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp rows are created. This isn't part of the JOIN process
+          -- with the events table but rather a housekeeping column to allow us to
+          -- see when the row was created. This shouldn't have any impact of the
+          -- JOIN as it will be stored separately with the Wide ClickHouse table
+          -- storage.
+          created_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+          -- the specific version of the `old_person_id` mapping. This is used to
+          -- allow us to discard old mappings as new ones are added. This version
+          -- will be provided by the corresponding PostgreSQL
+          --`posthog_personoverrides` table
+          version INT NOT NULL
+      )
+  
+      -- By specifying Replacing merge tree on version, we allow ClickHouse to
+      -- discard old versions of a `old_person_id` mapping. This should help keep
+      -- performance in check as new versions are added. Note that given we can
+      -- have partitioning by `oldest_event` which will change as we update
+      -- `person_id` on old partitions.
+      --
+      -- We also need to ensure that the data is replicated to all replicas in the
+      -- cluster, as we do not have any constraints on person_id and which shard
+      -- associated events are on. To do this we use the ReplicatedReplacingMergeTree
+      -- engine specifying a static `zk_path`. This will cause the Engine to
+      -- consider all replicas as the same. See
+      -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
+      -- for details.
+      ENGINE = ReplicatedReplacingMergeTree(
+          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          '{replica}-{shard}',
+          version
+      )
+  
+      -- We partition the table by the `oldest_event` column. This allows us to
+      -- handle updating the events table partition by partition, progressing each
+      -- override partition by partition in lockstep with the events table. Note
+      -- that this means it is possible that we have a mapping from
+      -- `old_person_id` in multiple partitions during the merge process.
+      PARTITION BY toYYYYMM(oldest_event)
+  
+      -- We want to collapse down on the `old_person_id` such that we end up with
+      -- the newest known mapping for it in the table. Query side we will need to
+      -- ensure that we are always querying the latest version of the mapping.
+      ORDER BY (team_id, old_person_id)
+  
+  '
+---
+# name: test_create_table_query[person_overrides_kafka]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides_kafka`
+      ON CLUSTER 'posthog'
+  
+      ENGINE = Kafka(
+          'kafka:9092', -- Kafka hosts
+          'clickhouse_person_override_test', -- Kafka topic
+          'clickhouse-person-overrides', -- Kafka consumer group id
+          'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
+      )
+  
+      -- We use the same schema as the `person_overrides` table except for columns
+      -- that are set e.g. as defaults.
+      EMPTY AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          -- created_at is not included in the Kafka message, rather it is set as
+          -- a default in the MergeTree table
+          version
+      FROM `posthog_test`.`person_overrides`
+  
+  '
+---
+# name: test_create_table_query[person_overrides_mv]
+  '
+  
+      CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
+      ON CLUSTER 'posthog'
+      TO `posthog_test`.`person_overrides`
+      AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          oldest_event,
+          -- We don't want to insert this column via Kafka, as it's
+          -- set as a default value in the `person_overrides` table.
+          -- created_at,
+          version
+      FROM `posthog_test`.`kafka_person_overrides`
+  
   '
 ---
 # name: test_create_table_query[person_static_cohort]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
       cohort_id Int64,
       team_id Int64
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplacingMergeTree(_timestamp)
   Order By (team_id, cohort_id, person_id, id)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[plugin_log_entries]
   '
-
+  
   CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1045,21 +1251,21 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplacingMergeTree(_timestamp)
   PARTITION BY plugin_id ORDER BY (team_id, id)
-
+  
   SETTINGS index_granularity=512
-
+  
   '
 ---
 # name: test_create_table_query[plugin_log_entries_mv]
   '
-
-  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.plugin_log_entries
   AS SELECT
   id,
@@ -1074,12 +1280,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_plugin_log_entries
-
+  
   '
 ---
 # name: test_create_table_query[session_recording_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1091,18 +1297,18 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       , has_full_snapshot Int8 COMMENT 'column_materializer::has_full_snapshot', events_summary Array(String) COMMENT 'column_materializer::events_summary', click_count Int8 COMMENT 'column_materializer::click_count', keypress_count Int8 COMMENT 'column_materializer::keypress_count', timestamps_summary Array(DateTime64(6, 'UTC')) COMMENT 'column_materializer::timestamps_summary', first_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::first_event_timestamp', last_event_timestamp Nullable(DateTime64(6, 'UTC')) COMMENT 'column_materializer::last_event_timestamp', urls Array(String) COMMENT 'column_materializer::urls'
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
-
+  
   '
 ---
 # name: test_create_table_query[session_recording_events_mv]
   '
-
-  CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER 'posthog'
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
   TO posthog_test.session_recording_events
   AS SELECT
   uuid,
@@ -1116,12 +1322,12 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_session_recording_events
-
+  
   '
 ---
 # name: test_create_table_query[sharded_app_metrics]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1135,21 +1341,21 @@
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE = AggregatingMergeTree()
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
-
+  
   '
 ---
 # name: test_create_table_query[sharded_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1173,7 +1379,7 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
+      
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
       , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
@@ -1181,26 +1387,26 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
-
-
+  
+      
   , _timestamp DateTime
   , _offset UInt64
-
-
+  
+      
       , PROJECTION fast_max_kafka_timestamp_events (SELECT max(_timestamp))
       , INDEX kafka_timestamp_minmax_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplacingMergeTree(_timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[sharded_ingestion_warnings]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1208,20 +1414,20 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = MergeTree()
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
-
+  
   '
 ---
 # name: test_create_table_query[sharded_performance_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1271,21 +1477,21 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query[sharded_session_recording_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1297,24 +1503,24 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplacingMergeTree(_timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-
+  
   SETTINGS index_granularity=512
-
+  
   '
 ---
 # name: test_create_table_query[writable_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS writable_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1338,19 +1544,19 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
-
+  
+      
   ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
-
+  
   '
 ---
 # name: test_create_table_query[writable_session_recording_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS writable_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1361,18 +1567,18 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
-
+  
   '
 ---
 # name: test_create_table_query[writeable_performance_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS writeable_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1422,18 +1628,18 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[cohortpeople]
   '
-
+  
   CREATE TABLE IF NOT EXISTS cohortpeople ON CLUSTER 'posthog'
   (
       person_id UUID,
@@ -1443,13 +1649,13 @@
       version UInt64
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
-
-
+  
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[events_dead_letter_queue]
   '
-
+  
   CREATE TABLE IF NOT EXISTS events_dead_letter_queue ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1468,23 +1674,23 @@
       error_location VARCHAR,
       error VARCHAR,
       tags Array(VARCHAR)
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_events_dead_letter_queue _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
-
+  
   SETTINGS index_granularity=512
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[groups]
   '
-
+  
   CREATE TABLE IF NOT EXISTS groups ON CLUSTER 'posthog'
   (
       group_type_index UInt8,
@@ -1492,19 +1698,19 @@
       created_at DateTime64,
       team_id Int64,
       group_properties VARCHAR
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[person]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1514,22 +1720,22 @@
       is_identified Int8,
       is_deleted Int8 DEFAULT 0,
       version UInt64
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
   Order By (team_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id2]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id2 ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1537,24 +1743,24 @@
       person_id UUID,
       is_deleted Int8,
       version Int64 DEFAULT 1
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , _partition UInt64
       , INDEX kafka_timestamp_minmax_person_distinct_id2 _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
-
+  
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
-
+      
   '
 ---
 # name: test_create_table_query_replicated_and_storage[person_distinct_id]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
@@ -1562,38 +1768,106 @@
       team_id Int64,
       _sign Int8 DEFAULT 1,
       is_deleted Int8 ALIAS if(_sign==-1, 1, 0)
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
   Order By (team_id, distinct_id, person_id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
+      ON CLUSTER 'posthog' (
+          team_id INT NOT NULL,
+  
+          -- When we merge two people `old_person_id` and `override_person_id`, we
+          -- want to keep track of a mapping from the `old_person_id` to the
+          -- `override_person_id`. This allows us to join with the
+          -- `sharded_events` table to find all events that were associated with
+          -- the `old_person_id` and update them to be associated with the
+          -- `override_person_id`.
+          old_person_id UUID NOT NULL,
+          override_person_id UUID NOT NULL,
+  
+          -- The timestamp the merge of the two people was completed.
+          merged_at DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp of the oldest event associated with the
+          -- `old_person_id`.
+          oldest_event DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp rows are created. This isn't part of the JOIN process
+          -- with the events table but rather a housekeeping column to allow us to
+          -- see when the row was created. This shouldn't have any impact of the
+          -- JOIN as it will be stored separately with the Wide ClickHouse table
+          -- storage.
+          created_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+          -- the specific version of the `old_person_id` mapping. This is used to
+          -- allow us to discard old mappings as new ones are added. This version
+          -- will be provided by the corresponding PostgreSQL
+          --`posthog_personoverrides` table
+          version INT NOT NULL
+      )
+  
+      -- By specifying Replacing merge tree on version, we allow ClickHouse to
+      -- discard old versions of a `old_person_id` mapping. This should help keep
+      -- performance in check as new versions are added. Note that given we can
+      -- have partitioning by `oldest_event` which will change as we update
+      -- `person_id` on old partitions.
+      --
+      -- We also need to ensure that the data is replicated to all replicas in the
+      -- cluster, as we do not have any constraints on person_id and which shard
+      -- associated events are on. To do this we use the ReplicatedReplacingMergeTree
+      -- engine specifying a static `zk_path`. This will cause the Engine to
+      -- consider all replicas as the same. See
+      -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
+      -- for details.
+      ENGINE = ReplicatedReplacingMergeTree(
+          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          '{replica}-{shard}',
+          version
+      )
+  
+      -- We partition the table by the `oldest_event` column. This allows us to
+      -- handle updating the events table partition by partition, progressing each
+      -- override partition by partition in lockstep with the events table. Note
+      -- that this means it is possible that we have a mapping from
+      -- `old_person_id` in multiple partitions during the merge process.
+      PARTITION BY toYYYYMM(oldest_event)
+  
+      -- We want to collapse down on the `old_person_id` such that we end up with
+      -- the newest known mapping for it in the table. Query side we will need to
+      -- ensure that we are always querying the latest version of the mapping.
+      ORDER BY (team_id, old_person_id)
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[person_static_cohort]
   '
-
+  
   CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
   (
       id UUID,
       person_id UUID,
       cohort_id Int64,
       team_id Int64
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
   Order By (team_id, cohort_id, person_id, id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[plugin_log_entries]
   '
-
+  
   CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
   (
       id UUID,
@@ -1605,20 +1879,20 @@
       type VARCHAR,
       message VARCHAR,
       instance_id UUID
-
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY plugin_id ORDER BY (team_id, id)
-
+  
   SETTINGS index_granularity=512
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1632,21 +1906,21 @@
       error_uuid UUID,
       error_type String,
       error_details String CODEC(ZSTD(3))
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   )
   ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[sharded_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1670,7 +1944,7 @@
       group2_created_at DateTime64,
       group3_created_at DateTime64,
       group4_created_at DateTime64
-
+      
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
       , $group_2 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_2'), '^"|"$', '') COMMENT 'column_materializer::$group_2'
@@ -1678,26 +1952,26 @@
       , $group_4 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_4'), '^"|"$', '') COMMENT 'column_materializer::$group_4'
       , $window_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$window_id'), '^"|"$', '') COMMENT 'column_materializer::$window_id'
       , $session_id VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$session_id'), '^"|"$', '') COMMENT 'column_materializer::$session_id'
-
-
+  
+      
   , _timestamp DateTime
   , _offset UInt64
-
-
+  
+      
       , PROJECTION fast_max_kafka_timestamp_sharded_events (SELECT max(_timestamp))
       , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[sharded_ingestion_warnings]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_ingestion_warnings ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1705,20 +1979,20 @@
       type VARCHAR,
       details VARCHAR CODEC(ZSTD(3)),
       timestamp DateTime64(6, 'UTC')
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[sharded_performance_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_performance_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1768,21 +2042,21 @@
   navigation_type LowCardinality(String),
   unload_event_end Float64,
   unload_event_start Float64
-
+      
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
-
+  
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   SETTINGS storage_policy = 'hot_to_cold'
-
+  
   '
 ---
 # name: test_create_table_query_replicated_and_storage[sharded_session_recording_events]
   '
-
+  
   CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
@@ -1794,18 +2068,18 @@
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
       , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
-
-
+      
+      
   , _timestamp DateTime
   , _offset UInt64
-
+  
       , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
-
+      
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
-
+  
   SETTINGS index_granularity=512
-
+  
   '
 ---
