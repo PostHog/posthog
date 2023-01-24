@@ -341,12 +341,14 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Chrome'))) as count_event_match_0 ,
+                 AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Chrome')
+                      AND equals(replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''), 'bla'))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Chrome'))) as matching_events_0
+                               AND (equals(replaceRegexpAll(JSONExtractRaw(properties, '$browser'), '^"|"$', ''), 'Chrome')
+                                    AND equals(replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', ''), 'bla'))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -379,6 +381,20 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(properties, version) as person_props
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(events.session_id)
@@ -467,12 +483,14 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals("mat_$browser", 'Chrome'))) as count_event_match_0 ,
+                 AND (equals("mat_$browser", 'Chrome')
+                      AND equals("pmat_email", 'bla'))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals("mat_$browser", 'Chrome'))) as matching_events_0
+                               AND (equals("mat_$browser", 'Chrome')
+                                    AND equals("pmat_email", 'bla'))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -505,6 +523,20 @@
      HAVING full_snapshots > 0
      AND start_time >= '2021-01-14 00:00:00'
      AND start_time <= '2021-01-21 20:00:00') AS session_recordings ON session_recordings.distinct_id = events.distinct_id
+  JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
+     WHERE team_id = 2
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) as pdi ON pdi.distinct_id = session_recordings.distinct_id
+  INNER JOIN
+    (SELECT id,
+            argMax(pmat_email, version) as pmat_email
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
   WHERE ((notEmpty(events.session_id)
           AND events.session_id == session_recordings.session_id)
          OR (empty(events.session_id)
