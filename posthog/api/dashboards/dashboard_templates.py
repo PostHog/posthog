@@ -69,7 +69,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return response.Response(annotated_templates)
 
-    @cache_for(timedelta(seconds=5))
+    @cache_for(timedelta(seconds=1))
     def _load_repository_listing(self) -> List[Dict]:
         """
         The repository in GitHub will change infrequently,
