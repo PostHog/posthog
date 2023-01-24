@@ -171,7 +171,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQ
 )
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 {columns}

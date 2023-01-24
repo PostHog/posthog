@@ -607,7 +607,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     ? JSON.stringify(
                           {
                               template_name: dashboard.name,
-                              description: dashboard.description,
+                              dashboard_description: dashboard.description,
                               dashboard_filters: dashboard.filters,
                               tags: dashboard.tags || [],
                               tiles: dashboard.tiles.map((tile) => {

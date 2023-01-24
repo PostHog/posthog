@@ -1811,19 +1811,15 @@ describe('PersonState.update()', () => {
 
             const state: PersonState = personState({}, first)
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-            jest.spyOn(state, 'aliasDeprecated').mockImplementation()
             await state.mergePeople({
                 mergeInto: first,
                 mergeIntoDistinctId: 'first',
                 otherPerson: second,
                 otherPersonDistinctId: 'second',
-                timestamp: timestamp,
-                totalMergeAttempts: 0,
             })
             await hub.db.kafkaProducer.flush()
 
             expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
-            expect(state.aliasDeprecated).not.toHaveBeenCalled()
             expect(hub.db.kafkaProducer.queueMessages).toHaveBeenCalledTimes(1)
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -1868,7 +1864,7 @@ describe('PersonState.update()', () => {
             const clickHouseDistinctIds = await fetchDistinctIdsClickhouse(persons[0])
             expect(clickHouseDistinctIds).toEqual(expect.arrayContaining(['first', 'second']))
         })
-        it('first failure is retried', async () => {
+        it('throws if postgres unavailable', async () => {
             const first: Person = await hub.db.createPerson(
                 timestamp,
                 {},
@@ -1899,20 +1895,18 @@ describe('PersonState.update()', () => {
                 throw error
             })
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-            jest.spyOn(state, 'aliasDeprecated').mockImplementation()
-            await state.mergePeople({
-                mergeInto: first,
-                mergeIntoDistinctId: 'first',
-                otherPerson: second,
-                otherPersonDistinctId: 'second',
-                timestamp: timestamp,
-                totalMergeAttempts: 0,
-            })
+            await expect(
+                state.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: 'first',
+                    otherPerson: second,
+                    otherPersonDistinctId: 'second',
+                })
+            ).rejects.toThrow(error)
 
             await hub.db.kafkaProducer.flush()
 
             expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
-            expect(state.aliasDeprecated).toHaveBeenCalledTimes(1)
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
@@ -1937,8 +1931,7 @@ describe('PersonState.update()', () => {
                 ])
             )
         })
-
-        it('throws if retry limits hit', async () => {
+        it('retries merges up to retry limit if postgres down', async () => {
             const first: Person = await hub.db.createPerson(
                 timestamp,
                 {},
@@ -1950,41 +1943,20 @@ describe('PersonState.update()', () => {
                 uuid.toString(),
                 ['first']
             )
-            const second: Person = await hub.db.createPerson(
-                timestamp,
-                {},
-                {},
-                {},
-                teamId,
-                null,
-                false,
-                uuid2.toString(),
-                ['second']
-            )
+            await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid2.toString(), ['second'])
 
             const state: PersonState = personState({}, first)
             // break postgres
             const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
-            jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(() => {
+            jest.spyOn(state, 'mergePeople').mockImplementation(() => {
                 throw error
             })
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
-            jest.spyOn(state, 'aliasDeprecated').mockImplementation()
-            await expect(
-                state.mergePeople({
-                    mergeInto: first,
-                    mergeIntoDistinctId: 'first',
-                    otherPerson: second,
-                    otherPersonDistinctId: 'second',
-                    timestamp: timestamp,
-                    totalMergeAttempts: 2, // Retry limit hit
-                })
-            ).rejects.toThrow(error)
+            await expect(state.merge('second', 'first', teamId, timestamp, true)).rejects.toThrow(error)
 
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
-            expect(state.aliasDeprecated).not.toHaveBeenCalled()
+            expect(state.mergePeople).toHaveBeenCalledTimes(3)
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()

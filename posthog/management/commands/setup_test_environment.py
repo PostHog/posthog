@@ -49,7 +49,8 @@ class Command(BaseCommand):
             print("Destroying old test ClickHouse database...")  # noqa: T201
             database.drop_database()
         database.create_database()
-        create_clickhouse_schema_in_parallel(CREATE_MERGETREE_TABLE_QUERIES + CREATE_KAFKA_TABLE_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_MERGETREE_TABLE_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_KAFKA_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DISTRIBUTED_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
 

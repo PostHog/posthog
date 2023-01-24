@@ -143,6 +143,36 @@ class TestCapture(BaseTest):
             self._to_arguments(kafka_produce),
         )
 
+    @patch("axes.middleware.AxesMiddleware")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_shortcircuits(self, kafka_produce, patch_axes):
+        patch_axes.return_value.side_effect = Exception("Axes middleware should not be called")
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                ],
+            },
+        }
+        with self.assertNumQueries(1):
+            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_too_large(self, kafka_produce):
         # There is a setting in Django, `DATA_UPLOAD_MAX_MEMORY_SIZE`, which

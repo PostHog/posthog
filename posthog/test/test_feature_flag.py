@@ -6,7 +6,7 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
-from posthog.models.feature_flag import (
+from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,

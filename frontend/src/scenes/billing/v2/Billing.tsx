@@ -31,12 +31,18 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingV2Logic)
     const { reportBillingV2Shown } = useActions(billingV2Logic)
     const { preflight } = useValues(preflightLogic)
+    const cloudOrDev = preflight?.cloud || preflight?.is_debug
 
     useEffect(() => {
         if (billing) {
             reportBillingV2Shown()
         }
     }, [!!billing])
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
+    })
 
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
@@ -59,7 +65,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     {supportLink}.
                 </AlertMessage>
 
-                {!preflight?.cloud ? (
+                {!cloudOrDev ? (
                     <AlertMessage type="info">
                         Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
                         <br />
@@ -73,11 +79,6 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
 
     const products = billing?.products
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        1000: 'medium',
-    })
-
     return (
         <div ref={ref}>
             {billing?.free_trial_until ? (
@@ -85,7 +86,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </AlertMessage>
             ) : null}
-            {!billing?.billing_period && preflight?.cloud && (
+            {!billing?.billing_period && cloudOrDev && (
                 <>
                     <div className="my-8">
                         <BillingHero />
@@ -173,7 +174,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                             </Form>
                         </>
                     ) : null}
-                    {!preflight?.cloud && billing?.license?.plan ? (
+                    {!cloudOrDev && billing?.license?.plan ? (
                         <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
                             <div className="text-center font-bold">
                                 {capitalizeFirstLetter(billing.license.plan)} license
@@ -185,7 +186,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                         </div>
                     ) : null}
 
-                    {!preflight?.cloud && !billing?.has_active_subscription ? (
+                    {!cloudOrDev && !billing?.has_active_subscription ? (
                         <p>
                             Self-hosted licenses are no longer available for purchase. Please contact{' '}
                             <a href="mailto:sales@posthog.com">sales@posthog.com</a> to discuss options.

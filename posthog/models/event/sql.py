@@ -107,7 +107,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
 )
 
 EVENTS_TABLE_JSON_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 uuid,
