@@ -31,20 +31,68 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
             self._translate('properties["bla"]'),
             "replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', '')",
         )
+
+        context = HogQLContext()
         self.assertEqual(
-            self._translate("properties.$bla"),
+            translate_hogql("properties.$bla", context),
             "replaceRegexpAll(JSONExtractRaw(properties, '$bla'), '^\"|\"$', '')",
         )
+        self.assertEqual(context.found_event_field_access, False)
+        self.assertEqual(context.found_event_property_access, True)
+        self.assertEqual(context.found_person_field_access, False)
+        self.assertEqual(context.found_person_property_access, False)
+
+        context = HogQLContext()
         self.assertEqual(
-            self._translate("person.properties.bla"),
+            translate_hogql("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(person_properties, 'bla'), '^\"|\"$', '')",
         )
-        self.assertEqual(self._translate("uuid"), "uuid")
-        self.assertEqual(self._translate("event"), "event")
-        self.assertEqual(self._translate("timestamp"), "timestamp")
-        self.assertEqual(self._translate("distinct_id"), "distinct_id")
-        self.assertEqual(self._translate("person_id"), "person_id")
-        self.assertEqual(self._translate("person.created_at"), "person_created_at")
+        self.assertEqual(context.found_event_field_access, False)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, False)
+        self.assertEqual(context.found_person_property_access, True)
+
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("uuid", context), "uuid")
+        self.assertEqual(context.found_event_field_access, True)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, False)
+        self.assertEqual(context.found_person_property_access, False)
+
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("event", context), "event")
+        self.assertEqual(context.found_event_field_access, True)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, False)
+        self.assertEqual(context.found_person_property_access, False)
+
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("timestamp", context), "timestamp")
+        self.assertEqual(context.found_event_field_access, True)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, False)
+        self.assertEqual(context.found_person_property_access, False)
+
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("distinct_id", context), "distinct_id")
+        self.assertEqual(context.found_event_field_access, True)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, False)
+        self.assertEqual(context.found_person_property_access, False)
+
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("person_id", context), "person_id")
+        self.assertEqual(context.found_event_field_access, False)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, True)
+        self.assertEqual(context.found_person_property_access, False)
+
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("person.created_at", context), "person_created_at")
+        self.assertEqual(context.found_event_field_access, False)
+        self.assertEqual(context.found_event_property_access, False)
+        self.assertEqual(context.found_person_field_access, True)
+        self.assertEqual(context.found_person_property_access, False)
 
     def test_hogql_materialized_fields_and_properties(self):
         try:
@@ -103,6 +151,10 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         translate_hogql("avg(properties.prop) + avg(uuid) + event", context)
         self.assertEqual(context.attribute_list, [["properties", "prop"], ["uuid"], ["event"]])
         self.assertEqual(context.found_aggregation, True)
+        self.assertEqual(context.found_event_field_access, True)
+        self.assertEqual(context.found_event_property_access, True)
+        self.assertEqual(context.found_person_property_access, False)
+        self.assertEqual(context.found_person_field_access, False)
 
         context = HogQLContext()
         translate_hogql("coalesce(event, properties.event)", context)
@@ -113,6 +165,8 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         translate_hogql("count() + sum(timestamp)", context)
         self.assertEqual(context.attribute_list, [["timestamp"]])
         self.assertEqual(context.found_aggregation, True)
+        self.assertEqual(context.found_event_field_access, True)
+        self.assertEqual(context.found_event_property_access, False)
 
         context = HogQLContext()
         translate_hogql("event + avg(event + properties.event) + avg(event + properties.event)", context)

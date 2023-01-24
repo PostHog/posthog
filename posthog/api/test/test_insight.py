@@ -2300,3 +2300,70 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(result[0]["breakdown_value"], "more")
             self.assertEqual(result[1]["count"], 10)
             self.assertEqual(result[1]["breakdown_value"], "le%ss")
+
+        # Tests backwards-compatibility when we changed GET to POST | GET
+
+    @snapshot_clickhouse_queries
+    def test_insight_funnels_hogql_global_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"])
+        _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
+        _create_event(team=self.team, event="user did things", distinct_id="1", properties={"int_value": 20})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {
+                "events": [
+                    {"id": "user signed up", "type": "events", "order": 0},
+                    {"id": "user did things", "type": "events", "order": 1},
+                ],
+                "properties": json.dumps(
+                    [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                ),
+                "funnel_window_days": 14,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(len(response_json["result"]), 2)
+        self.assertEqual(response_json["result"][0]["name"], "user signed up")
+        self.assertEqual(response_json["result"][0]["count"], 1)
+        self.assertEqual(response_json["result"][1]["name"], "user did things")
+        self.assertEqual(response_json["result"][1]["count"], 0)
+        self.assertEqual(response_json["timezone"], "UTC")
+
+    @snapshot_clickhouse_queries
+    def test_insight_funnels_hogql_local_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"])
+        _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
+        _create_event(team=self.team, event="user did things", distinct_id="1", properties={"int_value": 20})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": json.dumps(
+                            [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                        ),
+                    },
+                    {
+                        "id": "user did things",
+                        "type": "events",
+                        "order": 1,
+                        "properties": json.dumps(
+                            [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                        ),
+                    },
+                ],
+                "funnel_window_days": 14,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(len(response_json["result"]), 2)
+        self.assertEqual(response_json["result"][0]["name"], "user signed up")
+        self.assertEqual(response_json["result"][0]["count"], 1)
+        self.assertEqual(response_json["result"][1]["name"], "user did things")
+        self.assertEqual(response_json["result"][1]["count"], 0)
+        self.assertEqual(response_json["timezone"], "UTC")

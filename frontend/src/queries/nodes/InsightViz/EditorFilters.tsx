@@ -12,7 +12,7 @@ import {
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { isTrendsQuery, isFunnelsQuery, isStickinessQuery, isLifecycleQuery } from '~/queries/utils'
+import { isTrendsQuery, isFunnelsQuery, isStickinessQuery, isLifecycleQuery, isPathsQuery } from '~/queries/utils'
 
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
@@ -50,6 +50,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
 
     const isTrends = isTrendsQuery(query)
     const isFunnels = isFunnelsQuery(query)
+    const isPaths = isPathsQuery(query)
     const isStickiness = isStickinessQuery(query)
     const isLifecycle = isLifecycleQuery(query)
 

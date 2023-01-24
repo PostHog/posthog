@@ -131,8 +131,13 @@ class HogQLContext:
     values: Optional[Dict] = field(default_factory=dict)
     # List of field and property accesses found in the expression
     attribute_list: List[List[str]] = field(default_factory=list)
-    # Did the last calls to translate_hogql since setting this to False contain any HOGQL_AGGREGATIONS
+
+    # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
+    found_event_field_access: bool = False
+    found_event_property_access: bool = False
+    found_person_field_access: bool = False
+    found_person_property_access: bool = False
 
 
 def translate_hogql(hql: str, context: HogQLContext) -> str:
@@ -258,7 +263,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
                 break
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
-        response = property_access_to_clickhouse(attribute_chain)
+        response = property_access_to_clickhouse(attribute_chain, context)
         context.attribute_list.append(attribute_chain)
 
     elif isinstance(node, ast.Call):
@@ -301,7 +306,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif isinstance(node, ast.Name) and isinstance(node.id, str):
-        response = property_access_to_clickhouse([node.id])
+        response = property_access_to_clickhouse([node.id], context)
         context.attribute_list.append([node.id])
     else:
         ast.dump(node)
@@ -311,13 +316,14 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
     return response
 
 
-def property_access_to_clickhouse(chain: List[str]):
+def property_access_to_clickhouse(chain: List[str], context: HogQLContext) -> str:
     # Circular import otherwise
     from posthog.models.property.util import get_property_string_expr
 
     """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
     if len(chain) == 2:
         if chain[0] == "properties":
+            context.found_event_property_access = True
             expression, _ = get_property_string_expr(
                 "events",
                 chain[1],
@@ -327,10 +333,15 @@ def property_access_to_clickhouse(chain: List[str]):
             return expression
         elif chain[0] == "person":
             if chain[1] in EVENT_PERSON_FIELDS:
+                if chain[1] == "properties":
+                    context.found_person_property_access = True
+                else:
+                    context.found_person_field_access = True
                 return f"person_{chain[1]}"
             else:
                 raise ValueError(f"Unknown person field '{chain[1]}'")
     elif len(chain) == 3 and chain[0] == "person" and chain[1] == "properties":
+        context.found_person_property_access = True
         expression, _ = get_property_string_expr(
             "events",
             chain[2],
@@ -341,10 +352,15 @@ def property_access_to_clickhouse(chain: List[str]):
         return expression
     elif len(chain) == 1:
         if chain[0] in EVENT_FIELDS:
+            context.found_event_field_access = True
             if chain[0] == "id":
                 return "uuid"
             return chain[0]
         elif chain[0].startswith("person_") and chain[0][7:] in EVENT_PERSON_FIELDS:
+            if chain[0][7:] == "properties":
+                context.found_person_property_access = True
+            else:
+                context.found_person_field_access = True
             return chain[0]
         elif chain[0].lower() in KEYWORDS:
             return chain[0].lower()
