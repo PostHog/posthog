@@ -11,6 +11,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
+from ee.api.test.fixtures.billing_plans_response import create_billing_plans_mock_response
 from ee.models.license import License
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
@@ -29,6 +30,7 @@ def create_missing_billing_customer(**kwargs) -> Dict[str, Any]:
         "custom_limits_usd": {},
         "has_active_subscription": False,
         "available_features": [],
+        "available_plans": create_billing_plans_mock_response()["plans"],
     }
     data.update(kwargs)
     return data
@@ -42,6 +44,7 @@ def create_billing_customer(**kwargs) -> Dict[str, Any]:
         "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
         "current_total_amount_usd": "100.00",
         "available_features": [],
+        "available_plans": create_billing_plans_mock_response()["plans"],
         "deactivated": False,
         "products": [
             {
@@ -132,6 +135,9 @@ class TestUnlicensedBillingAPI(APIBaseTest):
             if "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -141,6 +147,7 @@ class TestUnlicensedBillingAPI(APIBaseTest):
         assert res.status_code == 200
         assert res.json() == {
             "available_features": [],
+            "available_plans": create_billing_plans_mock_response()["plans"],
             "products": [
                 {
                     "name": "Product OS",
@@ -193,12 +200,25 @@ class TestBillingAPI(APILicensedTest):
     @patch("ee.api.billing.requests.get")
     @freeze_time("2022-01-01")
     def test_billing_v2_calls_the_service_with_appropriate_token(self, mock_request):
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(customer=create_billing_customer())
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(customer=create_billing_customer())
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
 
         self.client.get("/api/billing-v2")
-        assert mock_request.call_args.args[0].endswith("/api/billing")
-        token = mock_request.call_args.kwargs["headers"]["Authorization"].split(" ")[1]
+        assert mock_request.call_args_list[0].args[0].endswith("/api/billing")
+        assert mock_request.call_args_list[1].args[0].endswith("/api/plans")
+        token = mock_request.call_args_list[0].kwargs["headers"]["Authorization"].split(" ")[1]
 
         secret = self.license.key.split("::")[1]
 
@@ -217,8 +237,21 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_billing_v2_returns_if_billing_exists(self, mock_request):
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(customer=create_billing_customer())
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(customer=create_billing_customer())
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
         response = self.client.get("/api/billing-v2")
         assert response.status_code == status.HTTP_200_OK
 
@@ -230,6 +263,7 @@ class TestBillingAPI(APILicensedTest):
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
             "current_total_amount_usd": "100.00",
             "available_features": [],
+            "available_plans": create_billing_plans_mock_response()["plans"],
             "deactivated": False,
             "products": [
                 {
@@ -266,6 +300,9 @@ class TestBillingAPI(APILicensedTest):
             if "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -279,6 +316,7 @@ class TestBillingAPI(APILicensedTest):
             "custom_limits_usd": {},
             "has_active_subscription": False,
             "available_features": [],
+            "available_plans": create_billing_plans_mock_response()["plans"],
             "products": [
                 {
                     "name": "Product OS",
@@ -397,13 +435,25 @@ class TestBillingAPI(APILicensedTest):
 
     @patch("ee.api.billing.requests.get")
     def test_organization_available_features_updated_if_different(self, mock_request):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(available_features=["feature1", "feature2"])
+                )
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
         self.organization.available_features = []
         self.organization.save()
-
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(
-            customer=create_billing_customer(available_features=["feature1", "feature2"])
-        )
 
         assert self.organization.available_features == []
         self.client.get("/api/billing-v2")
@@ -416,12 +466,27 @@ class TestBillingAPI(APILicensedTest):
         self.organization.usage = None
         self.organization.save()
 
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(
-            customer=create_billing_customer(has_active_subscription=True)
-        )
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
 
-        mock_request.return_value.json.return_value["customer"]["products"][0]["current_usage"] = 1000
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    customer=create_billing_customer(has_active_subscription=True)
+                )
+                mock.json.return_value["customer"]["products"][0]["current_usage"] = 1000
+
+            if "api/products" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_products_response()
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
 
         assert not self.organization.usage
         res = self.client.get("/api/billing-v2")
@@ -448,6 +513,9 @@ class TestBillingAPI(APILicensedTest):
             if "api/products" in url:
                 mock.status_code = 200
                 mock.json.return_value = create_billing_products_response()
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
 
             return mock
 
@@ -472,6 +540,24 @@ class TestBillingAPI(APILicensedTest):
     @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     @patch("ee.api.billing.requests.get")
     def test_organization_usage_count_with_demo_project(self, mock_request, *args):
+        def mock_implementation(url: str, headers: Any = None, params: Any = None) -> MagicMock:
+            mock = MagicMock()
+            mock.status_code = 404
+
+            if "api/billing" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_response(
+                    # Set usage to none so it is calculated from scratch
+                    customer=create_billing_customer(has_active_subscription=False, usage=None)
+                )
+            if "api/plans" in url:
+                mock.status_code = 200
+                mock.json.return_value = create_billing_plans_mock_response()
+
+            return mock
+
+        mock_request.side_effect = mock_implementation
+
         self.organization.customer_id = None
         self.organization.usage = None
         self.organization.save()
@@ -496,12 +582,6 @@ class TestBillingAPI(APILicensedTest):
                     team=demo_team,
                 )
             flush_persons_and_events()
-
-        mock_request.return_value.status_code = 200
-        mock_request.return_value.json.return_value = create_billing_response(
-            # Set usage to none so it is calculated from scratch
-            customer=create_billing_customer(has_active_subscription=False, usage=None)
-        )
 
         assert not self.organization.usage
         res = self.client.get("/api/billing-v2")

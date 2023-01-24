@@ -74,7 +74,7 @@ export enum AvailableFeature {
     TRAINING = 'training',
     CONFIGURATION_SUPPORT = 'configuration_support',
     TERMS_AND_CONDITIONS = 'terms_and_conditions',
-    SECURITY_ASSSESSMENT = 'security_assessment',
+    SECURITY_ASSESSMENT = 'security_assessment',
     BESPOKE_PRICING = 'bespoke_pricing',
     INVOICE_PAYMENTS = 'invoice_payments',
     SUPPORT_SLAS = 'support_slas',

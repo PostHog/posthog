@@ -188,7 +188,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.TRAINING]: LicensePlan.Starter,
     [AvailableFeature.CONFIGURATION_SUPPORT]: LicensePlan.Starter,
     [AvailableFeature.TERMS_AND_CONDITIONS]: LicensePlan.Starter,
-    [AvailableFeature.SECURITY_ASSSESSMENT]: LicensePlan.Starter,
+    [AvailableFeature.SECURITY_ASSESSMENT]: LicensePlan.Starter,
     [AvailableFeature.BESPOKE_PRICING]: LicensePlan.Starter,
     [AvailableFeature.INVOICE_PAYMENTS]: LicensePlan.Starter,
     [AvailableFeature.SUPPORT_SLAS]: LicensePlan.Starter,
