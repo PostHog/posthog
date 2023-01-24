@@ -13,7 +13,7 @@ import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
-import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
+import { createUserTeamAndOrganization, resetRedis, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -30,6 +30,7 @@ describe('postgres parity', () => {
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
+        await resetRedis(hub)
     })
 
     beforeEach(async () => {

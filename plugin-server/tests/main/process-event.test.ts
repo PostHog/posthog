@@ -31,7 +31,7 @@ import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/r
 import { EventsProcessor } from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
-import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
+import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetRedis, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(600000) // 600 sec timeout.
@@ -150,6 +150,7 @@ beforeEach(async () => {
         `
     await resetTestDatabase(testCode, TEST_CONFIG)
     await resetTestDatabaseClickhouse(TEST_CONFIG)
+    await resetRedis(hub)
     ;[hub, closeHub] = await createTestHub()
     eventsProcessor = new EventsProcessor(hub)
     processEventCounter = 0

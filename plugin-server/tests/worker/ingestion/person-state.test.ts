@@ -9,7 +9,7 @@ import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
 import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
-import { createUserTeamAndOrganization, insertRow, resetTestDatabase } from '../../helpers/sql'
+import { createUserTeamAndOrganization, insertRow, resetRedis, resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
@@ -32,7 +32,8 @@ describe('PersonState.update()', () => {
         teamId++
         ;[hub, closeHub] = await createHub({})
         await Promise.all([
-            resetTestDatabase(hub),
+            resetRedis(hub),
+            resetTestDatabase(),
             resetTestDatabaseClickhouse(),
             // Avoid collapsing merge tree causing race conditions in tests!
             hub.db.clickhouseQuery('SYSTEM STOP MERGES'),
