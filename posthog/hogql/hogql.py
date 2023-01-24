@@ -141,6 +141,7 @@ class HogQLContext:
     field_access_logs: List[HogQLFieldAccess] = field(default_factory=list)
     # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
+    person_properties_field_name: str = "person_properties"
 
 
 def translate_hogql(hql: str, context: HogQLContext) -> str:
@@ -266,7 +267,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
                 break
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
-        field_access = parse_field_access(attribute_chain)
+        field_access = parse_field_access(attribute_chain, context)
         context.field_access_logs.append(field_access)
         response = field_access.sql
 
@@ -310,7 +311,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif isinstance(node, ast.Name) and isinstance(node.id, str):
-        field_access = parse_field_access([node.id])
+        field_access = parse_field_access([node.id], context)
         context.field_access_logs.append(field_access)
         response = field_access.sql
     else:
@@ -321,7 +322,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
     return response
 
 
-def parse_field_access(chain: List[str]) -> HogQLFieldAccess:
+def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAccess:
     # Circular import otherwise
     from posthog.models.property.util import get_property_string_expr
 
@@ -345,8 +346,8 @@ def parse_field_access(chain: List[str]) -> HogQLFieldAccess:
             "events",
             chain[2],
             escape_param(chain[2]),
-            "person_properties",
-            materialised_table_column="person_properties",
+            context.person_properties_field_name,
+            materialised_table_column=context.person_properties_field_name,
         )
         return HogQLFieldAccess(chain, "person.properties", chain[2], expression)
     elif len(chain) == 1:

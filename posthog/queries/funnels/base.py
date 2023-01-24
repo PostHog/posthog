@@ -69,6 +69,9 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
+        # funnel subqueries use a different person properties column
+        self._filter.hogql_context.person_properties_field_name = "person_props"
+
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
             self._filter = self._filter.with_data({FUNNEL_WINDOW_INTERVAL: 14, FUNNEL_WINDOW_INTERVAL_UNIT: "day"})
