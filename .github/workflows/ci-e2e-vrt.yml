@@ -30,16 +30,22 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
-              run: pnpm install concurrently http-server wait-on
+              run: pnpm install http-server wait-on
 
             - name: Build Storybook
-              run: pnpm build-storybook --quiet
+              run: pnpm build-storybook
 
-            - name: Serve Storybook and run tests
-              run: |
-                  pnpm exec concurrently -k -s first -n "SRVR,TEST" -c "magenta,blue" \
-                    "pnpm exec http-server storybook-static --port 6006" \
-                    "pnpm exec wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test"
+            - name: Serve Storybook
+              run: pnpm exec http-server storybook-static --port 6006 &
+
+            - name: Wait for Storybook server to be ready
+              run: pnpm exec wait-on http://127.0.0.1:6006 --timeout 60
+
+            - name: Run Playwright tests
+              run: pnpm exec playwright test
+
+            - name: Run Storybook tests
+              run: pnpm exec test-storybook --ci
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
