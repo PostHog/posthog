@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, InsightLogicProps, InsightType, PathType } from '~/types'
+import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BreakdownFilter, InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
@@ -54,7 +54,9 @@ const getCleanedQuery = (
                         event: '$pageview',
                     },
                 ],
-                funnelsFilter: {},
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
             },
         }
     } else if (kind === NodeKind.PathsQuery) {

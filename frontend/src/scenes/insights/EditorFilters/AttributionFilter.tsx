@@ -1,21 +1,54 @@
 import { useActions, useValues } from 'kea'
-import { BreakdownAttributionType, EditorFilterProps, StepOrderValue } from '~/types'
+import {
+    BreakdownAttributionType,
+    EditorFilterProps,
+    FunnelStepWithNestedBreakdown,
+    QueryEditorFilterProps,
+    StepOrderValue,
+} from '~/types'
 import { LemonSelect } from '@posthog/lemon-ui'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { FunnelsFilter } from '~/queries/schema'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+export function AttributionDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    // TODO: implement in funnelDataLogic
+    const steps: FunnelStepWithNestedBreakdown[] = []
+
+    return <AttributionComponent setFilters={updateInsightFilter} steps={steps} {...insightFilter} />
+}
 
 export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
+    const { filters, steps } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
-    const { filters, breakdownAttributionStepOptions } = useValues(funnelLogic(insightProps))
 
+    return <AttributionComponent setFilters={setFilters} steps={steps} {...filters} />
+}
+
+type AttributionComponentProps = {
+    setFilters: (filters: FunnelsFilter) => void
+    steps: FunnelStepWithNestedBreakdown[]
+} & FunnelsFilter
+
+export function AttributionComponent({
+    breakdown_attribution_type,
+    breakdown_attribution_value,
+    funnel_order_type,
+    setFilters,
+    steps,
+}: AttributionComponentProps): JSX.Element {
     return (
         <LemonSelect
-            value={filters.breakdown_attribution_type || BreakdownAttributionType.FirstTouch}
+            value={breakdown_attribution_type || BreakdownAttributionType.FirstTouch}
             placeholder="Attribution"
             options={[
                 { value: BreakdownAttributionType.FirstTouch, label: 'First touchpoint' },
                 { value: BreakdownAttributionType.LastTouch, label: 'Last touchpoint' },
                 { value: BreakdownAttributionType.AllSteps, label: 'All steps' },
-                filters.funnel_order_type === StepOrderValue.UNORDERED
+                funnel_order_type === StepOrderValue.UNORDERED
                     ? { value: BreakdownAttributionType.Step, label: 'Any step' }
                     : {
                           value: BreakdownAttributionType.Step,
@@ -32,9 +65,9 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
                                       }
                                   }}
                                   placeholder={`Step ${
-                                      filters.breakdown_attribution_value ? filters.breakdown_attribution_value + 1 : 1
+                                      breakdown_attribution_value ? breakdown_attribution_value + 1 : 1
                                   }`}
-                                  options={breakdownAttributionStepOptions}
+                                  options={steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` }))}
                               />
                           ),
                       },
@@ -43,7 +76,7 @@ export function Attribution({ insightProps }: EditorFilterProps): JSX.Element {
                 if (value) {
                     setFilters({
                         breakdown_attribution_type: value,
-                        breakdown_attribution_value: filters.breakdown_attribution_value || 0,
+                        breakdown_attribution_value: breakdown_attribution_value || 0,
                     })
                 }
             }}

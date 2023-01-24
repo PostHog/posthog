@@ -44,6 +44,7 @@ import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilter
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -80,6 +81,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
+    const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
@@ -192,6 +194,28 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                               </>
                           ),
                           component: Breakdown,
+                      }
+                    : null,
+                hasAttribution
+                    ? {
+                          key: 'attribution',
+                          label: 'Attribution type',
+                          position: 'right',
+                          tooltip: (
+                              <div>
+                                  Attribution type determines which property value to use for the entire funnel.
+                                  <ul className="list-disc pl-4">
+                                      <li>First step: the first property value seen from all steps is chosen.</li>
+                                      <li>Last step: last property value seen from all steps is chosen.</li>
+                                      <li>Specific step: the property value seen at that specific step is chosen.</li>
+                                      <li>All steps: the property value must be seen in all steps.</li>
+                                      <li>
+                                          Any step: the property value must be seen on at least one step of the funnel.
+                                      </li>
+                                  </ul>
+                              </div>
+                          ),
+                          component: AttributionDataExploration,
                       }
                     : null,
             ]),
