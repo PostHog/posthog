@@ -34,7 +34,6 @@ import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
-// import { FunnelInsight } from './views/Funnels/FunnelInsight'
 // import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 // import { AlertMessage } from 'lib/components/AlertMessage'
 import {
@@ -44,12 +43,13 @@ import {
     // isTrendsFilter
 } from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+import { FunnnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    // [`${InsightType.FUNNELS}`]: <FunnelInsight />,
+    [`${InsightType.FUNNELS}`]: <FunnnelInsightDataExploration />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <PathsDataExploration />,
 }

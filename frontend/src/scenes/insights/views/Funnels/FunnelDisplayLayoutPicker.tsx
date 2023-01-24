@@ -7,7 +7,7 @@ import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/components/icons'
 
 export function FunnelDisplayLayoutPicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { barGraphLayout } = useValues(funnelLogic(insightProps))
+    const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
 
     const options = [
@@ -30,7 +30,7 @@ export function FunnelDisplayLayoutPicker({ disabled }: { disabled?: boolean }):
 
     return (
         <LemonSelect
-            value={barGraphLayout || FunnelLayout.vertical}
+            value={filters.layout || FunnelLayout.vertical}
             onChange={(layout: FunnelLayout | null) => layout && setFilters({ layout })}
             dropdownMatchSelectWidth={false}
             data-attr="funnel-bar-layout-selector"
