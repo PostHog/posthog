@@ -2,7 +2,7 @@ import importlib
 
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.client import sync_execute
-from posthog.conftest import create_clickhouse_tables_quickly
+from posthog.conftest import create_clickhouse_tables
 from posthog.settings import CLICKHOUSE_DATABASE
 from posthog.test.base import BaseTest, ClickhouseDestroyTablesMixin, ClickhouseTestMixin
 
@@ -34,7 +34,7 @@ class TestMigration(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseTest)
     def recreate_database(self):
         sync_execute(f"DROP DATABASE {CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {CLICKHOUSE_DATABASE}")
-        create_clickhouse_tables_quickly()
+        create_clickhouse_tables(0)
 
     def assert_desired_state(self):
         self.assertTrue(does_column_exist(CLICKHOUSE_DATABASE, "events", "$session_id"))
