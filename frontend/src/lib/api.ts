@@ -691,6 +691,8 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            type?: 'event' | 'person' | 'group'
+            group_type_index?: number
         }): string {
             return new ApiRequest()
                 .propertyDefinitions(teamId)

@@ -15,9 +15,11 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: PropertyDefinitionsTable,
@@ -27,9 +29,11 @@ export const scene: SceneExport = {
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { propertyDefinitions, propertyDefinitionsLoading, filters } = useValues(propertyDefinitionsTableLogic)
-    const { loadPropertyDefinitions, setFilters } = useActions(propertyDefinitionsTableLogic)
+    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
+        useValues(propertyDefinitionsTableLogic)
+    const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -97,13 +101,20 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 )
             )}
             <DataManagementPageTabs tab={DataManagementTab.PropertyDefinitions} />
-            <div className="mb-4">
+            <div className="flex justify-between mb-4">
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
                 />
+                {featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] && (
+                    <LemonSelect
+                        options={propertyTypeOptions}
+                        value={`${filters.type}::${filters.group_type_index ?? ''}`}
+                        onSelect={setPropertyType}
+                    />
+                )}
             </div>
 
             <LemonTable
