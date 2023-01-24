@@ -1,8 +1,9 @@
 import { InsightModel } from '~/types'
-import { useStorybookMocks } from '~/mocks/browser'
+import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 let shortCounter = 0
 export function createInsightScene(insight: Partial<InsightModel>): () => JSX.Element {
@@ -22,6 +23,7 @@ export function createInsightScene(insight: Partial<InsightModel>): () => JSX.El
                 ],
             },
         })
+        useFeatureFlags([FEATURE_FLAGS.RETENTION_BREAKDOWN])
 
         useEffect(() => {
             router.actions.push(`/insights/${insight.short_id}${count}`)
