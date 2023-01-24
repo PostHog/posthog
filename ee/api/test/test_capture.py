@@ -3,12 +3,15 @@ import json
 from typing import Any
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.http.request import HttpRequest
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
 from rest_framework import status
 
+import posthog.settings as settings
 from posthog.api.utils import get_event_ingestion_context
+from posthog.models.instance_setting import InstanceSetting
 from posthog.settings.data_stores import KAFKA_EVENTS_PLUGIN_INGESTION
 from posthog.test.base import APIBaseTest
 
@@ -21,6 +24,12 @@ class TestCaptureAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = Client()
+        self.partition_key = f"{self.team.pk}:id1"
+        self.database_override_key = settings.CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+
+    def tearDown(self):
+        super().tearDown()
+        cache.clear()
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_produce_to_kafka(self, kafka_produce):
@@ -183,37 +192,93 @@ class TestCaptureAPI(APIBaseTest):
         )
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_partition_key_override(self, kafka_produce):
-        default_partition_key = f"{self.team.pk}:id1"
-
+    def test_partition_key_without_override(self, kafka_produce):
+        """Test event is captured with partition key with no override."""
         response = self.client.post(
             "/capture/",
             {
                 "data": json.dumps(
-                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                    [
+                        {
+                            "event": "event1",
+                            "properties": {"distinct_id": "id1", "token": self.team.api_token},
+                        }
+                    ]
                 ),
                 "api_key": self.team.api_token,
             },
         )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         # By default we use (the hash of) <team_id:distinct_id> as the partition key
         kafka_produce_call = kafka_produce.call_args_list[0].kwargs
-        self.assertEqual(kafka_produce_call["key"], hashlib.sha256(default_partition_key.encode()).hexdigest())
+        self.assertEqual(kafka_produce_call["key"], hashlib.sha256(self.partition_key.encode()).hexdigest())
 
-        # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None
-        # as the key when producing to Kafka, leading to random partitioning
-        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[default_partition_key]):
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_partition_key_with_default_value(self, kafka_produce):
+        """Test event is captured with an overriden partition key via default value.
+
+        Setting up an override via the default value of the EVENT_PARTITION_KEYS_TO_OVERRIDE
+        CONSTANCE_CONFIG should cause us to pass None as the key when producing to Kafka,
+        leading to random partitioning.
+        """
+        distinct_id = "id-defaulted1"
+        patched = {"EVENT_PARTITION_KEYS_TO_OVERRIDE": (f'["{self.team.pk}:{distinct_id}"]', "a help str", str)}
+
+        with patch.dict(settings.CONSTANCE_CONFIG, patched, clear=True):
             response = self.client.post(
                 "/capture/",
                 {
                     "data": json.dumps(
-                        [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                        [
+                            {
+                                "event": "event1",
+                                "properties": {"distinct_id": distinct_id, "token": self.team.api_token},
+                            }
+                        ]
                     ),
                     "api_key": self.team.api_token,
                 },
             )
 
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-            kafka_produce_call = kafka_produce.call_args_list[1].kwargs
-            self.assertEqual(kafka_produce_call["key"], None)
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_partition_key_with_database_value(self, kafka_produce):
+        """Test event is captured with an overriden partition key via database value.
+
+        Setting up an override via a value found in the InstanceSettings database model
+        should cause us to pass None as the key when producing to Kafka, leading to
+        random partitioning.
+        """
+        # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None
+        # as the key when producing to Kafka, leading to random partitioning
+        distinct_id = "id-override1"
+        override_key = f"{self.team.pk}:{distinct_id}"
+        InstanceSetting.objects.create(key=self.database_override_key, raw_value=f'["{override_key}"]')
+
+        patched = {"EVENT_PARTITION_KEYS_TO_OVERRIDE": ("any_value", "a help str", str)}
+
+        with patch.dict(settings.CONSTANCE_CONFIG, patched, clear=True):
+            response = self.client.post(
+                "/capture/",
+                {
+                    "data": json.dumps(
+                        [
+                            {
+                                "event": "event1",
+                                "properties": {"distinct_id": distinct_id, "token": self.team.api_token},
+                            }
+                        ]
+                    ),
+                    "api_key": self.team.api_token,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], None)
