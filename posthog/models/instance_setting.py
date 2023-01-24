@@ -2,10 +2,14 @@ import json
 from contextlib import contextmanager
 from typing import Any, List
 
+import structlog
 from django.core.cache import cache
+from django.db import Error as DjangoDatabaseError
 from django.db import models
 
 from posthog.settings import CONSTANCE_CONFIG, CONSTANCE_DATABASE_PREFIX
+
+logger = structlog.get_logger(__name__)
 
 
 class InstanceSetting(models.Model):
@@ -24,11 +28,15 @@ def get_instance_setting(key: str) -> Any:
     assert key in CONSTANCE_CONFIG, f"Unknown dynamic setting: {repr(key)}"
 
     cached_setting = cache.get(key)
-
     if cached_setting:
         return json.loads(cached_setting)
 
-    saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    try:
+        saved_setting = InstanceSetting.objects.filter(key=CONSTANCE_DATABASE_PREFIX + key).first()
+    except DjangoDatabaseError as e:
+        logger.exception("Unable to get instance setting %s due to database error", key, exc=e)
+        saved_setting = None
+
     if saved_setting is not None:
         cache.set(key, saved_setting.raw_value)
         return saved_setting.value
@@ -51,9 +59,9 @@ def get_instance_settings(keys: List[str]) -> Any:
 
 
 def set_instance_setting(key: str, value: Any):
-    InstanceSetting.objects.update_or_create(
-        key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": json.dumps(value)}
-    )
+    raw_value = json.dumps(value)
+    InstanceSetting.objects.update_or_create(key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": raw_value})
+    cache.set(key, raw_value)
 
 
 @contextmanager
