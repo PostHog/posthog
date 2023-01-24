@@ -7,4 +7,15 @@
             }
         }
     }
+
+    &.LemonSnack--pill {
+        .LemonSnack__close {
+            .LemonButton {
+                &:hover {
+                    // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
+                    background: var(--mid);
+                }
+            }
+        }
+    }
 }
