@@ -58,6 +58,5 @@ module.exports = {
     features: {
         postcss: false,
         buildStoriesJson: true,
-        storyStoreV7: true,
     },
 }
