@@ -27,8 +27,7 @@ export const scene: SceneExport = {
 
 export function PropertyDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } =
-        useValues(propertyDefinitionsTableLogic)
+    const { propertyDefinitions, propertyDefinitionsLoading, filters } = useValues(propertyDefinitionsTableLogic)
     const { loadPropertyDefinitions, setFilters } = useActions(propertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
@@ -89,7 +88,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
             {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning />
             ) : (
-                eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
+                propertyDefinitions.results?.[0]?.query_usage_30_day === null && (
                     <div className="mb-4">
                         <AlertMessage type="warning">
                             We haven't been able to get usage and volume data yet. Please check back later.
@@ -111,25 +110,25 @@ export function PropertyDefinitionsTable(): JSX.Element {
                 columns={columns}
                 className="event-properties-definition-table"
                 data-attr="event-properties-definition-table"
-                loading={eventPropertyDefinitionsLoading}
+                loading={propertyDefinitionsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,
-                    currentPage: eventPropertyDefinitions?.page ?? 1,
-                    entryCount: eventPropertyDefinitions?.count ?? 0,
+                    currentPage: propertyDefinitions?.page ?? 1,
+                    entryCount: propertyDefinitions?.count ?? 0,
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                    onForward: !!eventPropertyDefinitions.next
+                    onForward: !!propertyDefinitions.next
                         ? () => {
-                              loadPropertyDefinitions(eventPropertyDefinitions.next)
+                              loadPropertyDefinitions(propertyDefinitions.next)
                           }
                         : undefined,
-                    onBackward: !!eventPropertyDefinitions.previous
+                    onBackward: !!propertyDefinitions.previous
                         ? () => {
-                              loadPropertyDefinitions(eventPropertyDefinitions.previous)
+                              loadPropertyDefinitions(propertyDefinitions.previous)
                           }
                         : undefined,
                 }}
-                dataSource={eventPropertyDefinitions.results}
+                dataSource={propertyDefinitions.results}
                 emptyState="No event property definitions"
                 nouns={['property', 'properties']}
             />

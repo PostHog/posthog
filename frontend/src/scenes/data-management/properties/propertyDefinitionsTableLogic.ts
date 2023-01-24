@@ -63,7 +63,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         ],
     }),
     loaders(({ values, cache }) => ({
-        eventPropertyDefinitions: [
+        propertyDefinitions: [
             {
                 count: 0,
                 next: undefined,
@@ -102,20 +102,20 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     return cache.apiCache[url]
                 },
                 setLocalPropertyDefinition: ({ definition }) => {
-                    if (!values.eventPropertyDefinitions.current) {
-                        return values.eventPropertyDefinitions
+                    if (!values.propertyDefinitions.current) {
+                        return values.propertyDefinitions
                     }
                     // Update cache as well
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [values.eventPropertyDefinitions.current]: {
-                            ...values.eventPropertyDefinitions,
-                            results: values.eventPropertyDefinitions.results.map((d) =>
+                        [values.propertyDefinitions.current]: {
+                            ...values.propertyDefinitions,
+                            results: values.propertyDefinitions.results.map((d) =>
                                 d.id === definition.id ? definition : d
                             ),
                         },
                     }
-                    return cache.apiCache[values.eventPropertyDefinitions.current]
+                    return cache.apiCache[values.propertyDefinitions.current]
                 },
             },
         ],
@@ -143,7 +143,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         setFilters: () => {
             actions.loadPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(
-                    values.eventPropertyDefinitions.current,
+                    values.propertyDefinitions.current,
                     {
                         search: values.filters.property,
                     },
@@ -157,7 +157,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     .findMounted()
                     ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadSucceeded(
                         performance.now() - cache.propertiesStartTime,
-                        values.eventPropertyDefinitions.results.length
+                        values.propertyDefinitions.results.length
                     )
                 cache.propertiesStartTime = undefined
             }
@@ -178,7 +178,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
         [urls.propertyDefinitions()]: (_, searchParams) => {
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
-            } else if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
+            } else if (!values.propertyDefinitions.results.length && !values.propertyDefinitionsLoading) {
                 actions.loadPropertyDefinitions()
             }
         },
