@@ -6,14 +6,13 @@ import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-m
 
 // Simple retries in our code
 const MAX_RETRIES_DEFAULT = 3
-const MAX_RETRY_INTERVAL_DEFAULT = 1 // TODO: bigger
+const MAX_RETRY_INTERVAL_DEFAULT = 100
 export async function promiseRetry<T>(
     fn: () => Promise<T>,
     retries = MAX_RETRIES_DEFAULT,
     retryIntervalMillis: number = MAX_RETRY_INTERVAL_DEFAULT,
     previousError?: Error
 ): Promise<T> {
-    console.log(`Retry ${retries}`)
     return !retries
         ? Promise.reject(previousError)
         : fn().catch(async (error) => {

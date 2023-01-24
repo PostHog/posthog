@@ -37,7 +37,12 @@ BEGIN
 END $$;
 `
 
+export async function resetRedis(hub: Hub): Promise<void> {
+    await hub.redisPool.use((r) => r.flushall())
+}
+
 export async function resetTestDatabase(
+    hub: Hub,
     code?: string,
     extraServerConfig: Partial<PluginsServerConfig> = {},
     extraRows: ExtraDatabaseRows = {},
@@ -90,6 +95,8 @@ export async function resetTestDatabase(
         }
     }
     await db.end()
+
+    await resetRedis(hub)
 }
 
 export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {

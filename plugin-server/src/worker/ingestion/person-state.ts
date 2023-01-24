@@ -126,8 +126,8 @@ export class PersonState {
 
     private async createOrGetPerson(properties: Properties, propertiesOnce: Properties): Promise<boolean> {
         const personId = await this.db.getPersonId(this.teamId, this.distinctId)
-        console.log(personId)
         if (personId) {
+            this.personContainer = this.personContainer.reset()
             return false
         }
 

@@ -32,7 +32,7 @@ describe('PersonState.update()', () => {
         teamId++
         ;[hub, closeHub] = await createHub({})
         await Promise.all([
-            resetTestDatabase(),
+            resetTestDatabase(hub),
             resetTestDatabaseClickhouse(),
             // Avoid collapsing merge tree causing race conditions in tests!
             hub.db.clickhouseQuery('SYSTEM STOP MERGES'),
