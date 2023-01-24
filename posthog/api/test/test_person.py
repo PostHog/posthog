@@ -25,7 +25,7 @@ from posthog.test.base import (
 
 @override_settings(
     PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
+)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_search(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})

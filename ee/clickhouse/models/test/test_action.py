@@ -204,7 +204,7 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
 
-    def test_hogql(self):
+    def test_filter_with_hogql(self):
         _create_event(event="insight viewed", team=self.team, distinct_id="first", properties={"filters_count": 20})
         _create_event(event="insight viewed", team=self.team, distinct_id="second", properties={"filters_count": 1})
 

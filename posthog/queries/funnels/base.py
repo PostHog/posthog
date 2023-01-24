@@ -69,7 +69,7 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
-        self._filter.hogql_context.using_persons_on_events = team.person_on_events_querying_enabled
+        self._filter.hogql_context.using_person_on_events = team.person_on_events_querying_enabled
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:

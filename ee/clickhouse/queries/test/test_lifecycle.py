@@ -12,7 +12,12 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
 from posthog.queries.test.test_lifecycle import assertLifecycleResults
 from posthog.queries.trends.trends import Trends
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    also_test_with_materialized_columns,
+    snapshot_clickhouse_queries,
+)
 from posthog.test.test_journeys import journeys_for
 
 
@@ -184,6 +189,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(result[0]["days"], ["2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01"])
 
+    @also_test_with_materialized_columns(event_properties=["int_value"])
     @snapshot_clickhouse_queries
     def test_lifecycle_hogql_event_properties(self):
         with freeze_time("2021-05-05T12:00:00Z"):
@@ -207,6 +213,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @also_test_with_materialized_columns(event_properties=[], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_lifecycle_hogql_person_properties(self):
         with freeze_time("2021-05-05T12:00:00Z"):

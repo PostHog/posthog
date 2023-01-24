@@ -141,7 +141,7 @@ class HogQLContext:
     field_access_logs: List[HogQLFieldAccess] = field(default_factory=list)
     # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
-    using_persons_on_events: bool = True
+    using_person_on_events: bool = True
 
 
 def translate_hogql(hql: str, context: HogQLContext) -> str:
@@ -330,7 +330,7 @@ def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAcc
     if len(chain) == 2:
         if chain[0] == "properties":
             if context.values is not None:
-                key = f"val_{len(context.values or {})}"
+                key = f"val_{len(context.values)}"
                 context.values[key] = chain[1]
                 escaped_key = f"%({key})s"
             else:
@@ -355,7 +355,7 @@ def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAcc
         else:
             escaped_key = escape_param(chain[2])
 
-        if context.using_persons_on_events:
+        if context.using_person_on_events:
             expression, _ = get_property_string_expr(
                 "events",
                 chain[2],

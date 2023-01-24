@@ -112,7 +112,7 @@ expected_rage_click_data_response_results: List[Dict] = [
 
 @override_settings(
     PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
+)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_element_automatic_order(self) -> None:
         elements = [
@@ -164,7 +164,12 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     def test_element_stats_can_filter_by_hogql(self) -> None:
         self._setup_events()
-        properties_filter = json.dumps([{"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"}])
+        properties_filter = json.dumps(
+            [
+                {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
+                {"type": "hogql", "key": "like(person.properties.email, '%mail.com')"},
+            ]
+        )
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
 
@@ -285,9 +290,9 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _setup_events(self):
-        _create_person(distinct_ids=["one"], team=self.team)
-        _create_person(distinct_ids=["two"], team=self.team)
-        _create_person(distinct_ids=["three"], team=self.team)
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        _create_person(distinct_ids=["two"], team=self.team, properties={"email": "two@mail.com"})
+        _create_person(distinct_ids=["three"], team=self.team, properties={"email": "three@mail.com"})
         _create_event(
             team=self.team,
             elements=[

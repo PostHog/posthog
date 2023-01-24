@@ -21,7 +21,7 @@ from posthog.utils import generate_cache_key
 
 @override_settings(
     PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
+)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()

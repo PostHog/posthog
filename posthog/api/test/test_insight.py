@@ -44,7 +44,7 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(
     PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries that may be cached instance-wide
+)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
 
