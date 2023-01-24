@@ -156,7 +156,7 @@ class Plugin(models.Model):
     icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
-    config_schema: models.JSONField = models.JSONField(default=dict)
+    config_schema: models.JSONField = models.JSONField(default=dict, blank=True)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
