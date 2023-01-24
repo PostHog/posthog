@@ -9,11 +9,10 @@ from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.middleware.security import SecurityMiddleware
 from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
-from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware
-from django_statsd.middleware import StatsdMiddleware, StatsdMiddlewareTimer
+from django_prometheus.middleware import PrometheusAfterMiddleware
+from django_statsd.middleware import StatsdMiddlewareTimer
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
@@ -295,8 +294,6 @@ class CaptureMiddleware:
         # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
         # reconciles the old style middleware with the new style middleware.
         for middleware_class in (
-            PrometheusBeforeMiddleware,
-            SecurityMiddleware,
             CorsMiddleware,
             PrometheusAfterMiddleware,
         ):
@@ -308,10 +305,10 @@ class CaptureMiddleware:
             except MiddlewareNotUsed:
                 pass
 
+        # List of middlewares we want to run, that would've been shortcircuited otherwise
         self.CAPTURE_MIDDLEWARE = middlewares
 
         if STATSD_HOST is not None:
-            self.CAPTURE_MIDDLEWARE.insert(0, StatsdMiddleware())
             self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
 
     def __call__(self, request: HttpRequest):
