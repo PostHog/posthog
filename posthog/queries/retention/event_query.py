@@ -14,7 +14,7 @@ from posthog.models.property.util import get_single_or_multi_property_string_exp
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
-from posthog.queries.util import get_trunc_func_ch, start_of_week_fix
+from posthog.queries.util import get_trunc_func_ch
 
 
 class RetentionEventsQuery(EventQuery):
@@ -88,15 +88,14 @@ class RetentionEventsQuery(EventQuery):
             # lives easier when zero filling the response. We could however
             # handle this WITH FILL within the query.
 
-            start_of_week_day = start_of_week_fix(self._filter.period)
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [
                     f"""
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
-                            {self._trunc_func}(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s)) {start_of_week_day})
+                            {self._trunc_func}(toDateTime(%(start_date)s, %(timezone)s)),
+                            {self._trunc_func}(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s)))
                         )
                     ] as breakdown_values
                     """
@@ -107,8 +106,8 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
-                            {self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s) {start_of_week_day})
+                            {self._trunc_func}(toDateTime(%(start_date)s, %(timezone)s)),
+                            {self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s))
                         )
                     ] as breakdown_values
                     """
@@ -169,13 +168,12 @@ class RetentionEventsQuery(EventQuery):
             )
 
     def get_timestamp_field(self) -> str:
-        start_of_week_day = start_of_week_fix(self._filter.period)
         if self._event_query_type == RetentionQueryType.TARGET:
-            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
+            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp), %(timezone)s) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s) {start_of_week_day})) as event_date"
+            return f"min({self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s))) as event_date"
         else:
-            return f"{self._trunc_func}(toTimeZone(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, 'UTC'), %(timezone)s) {start_of_week_day}) AS event_date"
+            return f"{self._trunc_func}(toTimeZone(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, 'UTC'), %(timezone)s)) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         if (
