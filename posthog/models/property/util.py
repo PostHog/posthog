@@ -770,14 +770,14 @@ def build_selector_regex(selector: Selector) -> str:
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     counters: List[tuple] = []
     for prop in props:
-        #
         if prop.type == "hogql":
             context = HogQLContext()
             translate_hogql(prop.key, context)
-            if context.found_event_property_access:
-                counters.append(("properties", "event", None))
-            if context.found_person_property_access:
-                counters.append(("properties", "person", None))
+            for field_access in context.field_access_logs:
+                if field_access.type == "event.properties":
+                    counters.append((field_access.field, "event", None))
+                elif field_access.type == "person.properties":
+                    counters.append((field_access.field, "person", None))
         else:
             counters.append((prop.key, prop.type, prop.group_type_index))
     return Counter(cast(Iterable, counters))
