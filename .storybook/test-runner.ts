@@ -48,7 +48,12 @@ module.exports = {
     },
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
-        // TODO: Remove disableSnapshot condition to test every single story
+
+        await page.evaluate(() => {
+            document.body.classList.add('dangerously-stop-all-animations')
+        })
+
+        // TODO: Make snapshots the default behavior, not opt-in, once all the stories pass
         if (storyContext.parameters?.chromatic?.disableSnapshot === false) {
             if (storyContext.parameters?.layout === 'fullscreen') {
                 if (storyContext.parameters.testRunner?.includeNavigation) {

@@ -667,3 +667,14 @@ body {
         max-width: 350px;
     }
 }
+
+.dangerously-stop-all-animations {
+    // Only use this class to achieve consistent snapshots by stopping all animations
+    *,
+    *::before,
+    *::after {
+        animation-fill-mode: forwards !important;
+        animation-duration: 0ms !important;
+        animation-iteration-count: 1 !important;
+    }
+}

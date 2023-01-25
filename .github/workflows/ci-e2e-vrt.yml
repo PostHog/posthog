@@ -15,7 +15,7 @@ jobs:
         env:
             CYPRESS_INSTALL_BINARY: '0'
         steps:
-            - name: Install git-lfs
+            - name: Install git-lfs # LFS isn't included in the mcr.microsoft.com/playwright image
               run: apt-get update && apt-get install -y git-lfs && git lfs install
 
             - uses: actions/checkout@v3

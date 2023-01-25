@@ -13,7 +13,7 @@ COPY package.json pnpm-lock.yaml ./
 
 RUN CYPRESS_INSTALL_BINARY=0 pnpm install
 
-COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
+COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json test-runner-jest.config.js ./
 
 COPY .storybook/ .storybook/
 
