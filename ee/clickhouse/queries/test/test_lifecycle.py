@@ -189,7 +189,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(result[0]["days"], ["2021-02-01", "2021-03-01", "2021-04-01", "2021-05-01"])
 
-    @also_test_with_materialized_columns(event_properties=["int_value"])
+    @also_test_with_materialized_columns(event_properties=["$current_url"])
     @snapshot_clickhouse_queries
     def test_lifecycle_hogql_event_properties(self):
         with freeze_time("2021-05-05T12:00:00Z"):
@@ -199,7 +199,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
                     "date_from": "-7d",
                     "interval": "day",
                     "properties": [
-                        {"key": "toInt(properties.int_value) > 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                        {"key": "like(properties.$current_url, '%example%') and 'bla' != 'a%sd'", "type": "hogql"},
                     ],
                 }
             )
@@ -209,7 +209,7 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
                 {"status": "dormant", "data": [0] * 8},
                 {"status": "new", "data": [0] * 8},
                 {"status": "resurrecting", "data": [0] * 8},
-                {"status": "returning", "data": [0] * 8},
+                {"status": "returning", "data": [1] * 8},
             ],
         )
 
@@ -247,7 +247,11 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, APIBaseTest):
         journeys_for(
             {
                 "person1": [
-                    {"event": "$pageview", "timestamp": (now() - timedelta(days=n)).strftime("%Y-%m-%d %H:%M:%S.%f")}
+                    {
+                        "event": "$pageview",
+                        "timestamp": (now() - timedelta(days=n)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+                        "properties": {"$current_url": "http://example.com"},
+                    }
                     for n in range(days)
                 ]
             },
