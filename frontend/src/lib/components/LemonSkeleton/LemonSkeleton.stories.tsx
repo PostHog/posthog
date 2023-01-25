@@ -21,12 +21,7 @@ Skeleton screens are used to indicate that a screen is loading, are perceived as
 } as ComponentMeta<typeof LemonSkeleton>
 
 export function Default(): JSX.Element {
-    return (
-        <div className="space-y-2 mb-2">
-            <LemonSkeleton />
-            <LemonLabel>Custom classNames</LemonLabel>
-        </div>
-    )
+    return <LemonSkeleton />
 }
 
 export function Presets(): JSX.Element {
