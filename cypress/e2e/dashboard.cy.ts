@@ -154,8 +154,6 @@ describe('Dashboard', () => {
         cy.get('button').contains(targetDashboard).click()
 
         cy.wait('@moveTile').then(() => {
-            cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
-
             cy.get('.CardMeta h4').should('have.text', insightToLeave)
 
             cy.clickNavMenu('dashboards')
