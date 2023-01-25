@@ -1,4 +1,4 @@
-import './EventPropertyDefinitionsTable.scss'
+import './PropertyDefinitionsTable.scss'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { PropertyDefinition } from '~/types'
@@ -9,29 +9,31 @@ import { PropertyDefinitionHeader } from 'scenes/data-management/events/Definiti
 import { humanFriendlyNumber } from 'lib/utils'
 import {
     EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-    eventPropertyDefinitionsTableLogic,
-} from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+    propertyDefinitionsTableLogic,
+} from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { ThirtyDayQueryCountTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
-    component: EventPropertyDefinitionsTable,
-    logic: eventPropertyDefinitionsTableLogic,
+    component: PropertyDefinitionsTable,
+    logic: propertyDefinitionsTableLogic,
     paramsToProps: () => ({ syncWithUrl: true }),
 }
 
-export function EventPropertyDefinitionsTable(): JSX.Element {
+export function PropertyDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } = useValues(
-        eventPropertyDefinitionsTableLogic
-    )
-    const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
+    const { propertyDefinitions, propertyDefinitionsLoading, filters, propertyTypeOptions } =
+        useValues(propertyDefinitionsTableLogic)
+    const { loadPropertyDefinitions, setFilters, setPropertyType } = useActions(propertyDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -61,7 +63,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                   } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
-        ...(hasIngestionTaxonomy
+        ...(hasIngestionTaxonomy && filters.type === 'event'
             ? [
                   {
                       title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
@@ -90,7 +92,9 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning />
             ) : (
-                eventPropertyDefinitions.results?.[0]?.query_usage_30_day === null && (
+                propertyDefinitions.results?.[0]?.query_usage_30_day === null &&
+                filters.type === 'event' &&
+                !propertyDefinitionsLoading && (
                     <div className="mb-4">
                         <AlertMessage type="warning">
                             We haven't been able to get usage and volume data yet. Please check back later.
@@ -98,40 +102,47 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                     </div>
                 )
             )}
-            <DataManagementPageTabs tab={DataManagementTab.EventPropertyDefinitions} />
-            <div className="mb-4">
+            <DataManagementPageTabs tab={DataManagementTab.PropertyDefinitions} />
+            <div className="flex justify-between mb-4">
                 <LemonInput
                     type="search"
                     placeholder="Search for properties"
                     onChange={(e) => setFilters({ property: e || '' })}
                     value={filters.property}
                 />
+                {featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] && (
+                    <LemonSelect
+                        options={propertyTypeOptions}
+                        value={`${filters.type}::${filters.group_type_index ?? ''}`}
+                        onSelect={setPropertyType}
+                    />
+                )}
             </div>
 
             <LemonTable
                 columns={columns}
                 className="event-properties-definition-table"
                 data-attr="event-properties-definition-table"
-                loading={eventPropertyDefinitionsLoading}
+                loading={propertyDefinitionsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,
-                    currentPage: eventPropertyDefinitions?.page ?? 1,
-                    entryCount: eventPropertyDefinitions?.count ?? 0,
+                    currentPage: propertyDefinitions?.page ?? 1,
+                    entryCount: propertyDefinitions?.count ?? 0,
                     pageSize: EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
-                    onForward: !!eventPropertyDefinitions.next
+                    onForward: !!propertyDefinitions.next
                         ? () => {
-                              loadEventPropertyDefinitions(eventPropertyDefinitions.next)
+                              loadPropertyDefinitions(propertyDefinitions.next)
                           }
                         : undefined,
-                    onBackward: !!eventPropertyDefinitions.previous
+                    onBackward: !!propertyDefinitions.previous
                         ? () => {
-                              loadEventPropertyDefinitions(eventPropertyDefinitions.previous)
+                              loadPropertyDefinitions(propertyDefinitions.previous)
                           }
                         : undefined,
                 }}
-                dataSource={eventPropertyDefinitions.results}
-                emptyState="No event property definitions"
+                dataSource={propertyDefinitions.results}
+                emptyState="No property definitions"
                 nouns={['property', 'properties']}
             />
         </div>
