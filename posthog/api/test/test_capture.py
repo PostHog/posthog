@@ -29,15 +29,10 @@ from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.instance_setting import InstanceSetting
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.settings import (
-    CONSTANCE_CONFIG,
-    CONSTANCE_DATABASE_PREFIX,
-    DATA_UPLOAD_MAX_MEMORY_SIZE,
-    KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC,
-)
+from posthog.settings import CONSTANCE_CONFIG, DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
 
 
@@ -203,9 +198,8 @@ class TestCapture(BaseTest):
         """
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
-        key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
-
-        InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+        set_instance_setting(key, [expected_key])
         # Assume no cache for this test
         cache.clear()
 
@@ -255,9 +249,8 @@ class TestCapture(BaseTest):
         """
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
-        key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
-
-        InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+        set_instance_setting(key, [expected_key])
         # Assume no cache for this test
         cache.clear()
 
@@ -305,8 +298,8 @@ class TestCapture(BaseTest):
         """
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
-        key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
-        InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+        set_instance_setting(key, [expected_key])
         # Assume no caching for this test
         cache.clear()
 

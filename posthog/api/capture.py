@@ -33,7 +33,7 @@ from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import CONSTANCE_CONFIG, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -426,7 +426,11 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     else:
         candidate_partition_key = f"{team_id}:{distinct_id}"
 
-        keys_to_override = get_instance_setting("EVENT_PARTITION_KEYS_TO_OVERRIDE")
+        try:
+            keys_to_override = get_instance_setting("EVENT_PARTITION_KEYS_TO_OVERRIDE")
+        except Exception as e:
+            logger.exception("Error while fetching instance setting, falling back to default", exc=e)
+            keys_to_override = CONSTANCE_CONFIG["EVENT_PARTITION_KEYS_TO_OVERRIDE"][0]
 
         if candidate_partition_key not in keys_to_override:
             kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
