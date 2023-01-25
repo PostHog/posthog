@@ -215,7 +215,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         if is_csv_request and not filter.limit:
             filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
+            filter = filter.shallow_clone({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
 

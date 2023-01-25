@@ -4783,7 +4783,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         result = Trends().run(filter2, self.team)
         self.assertEqual(result[0]["count"], 2)
-        result = Trends().run(filter.with_data({"breakdown": "key"}), self.team)
+        result = Trends().run(filter.shallow_clone({"breakdown": "key"}), self.team)
         self.assertEqual(result[0]["count"], 1)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -5802,7 +5802,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
         )
         entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
@@ -5863,7 +5863,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02"}
             )
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
@@ -6104,7 +6104,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["count"], 1)
             self.assertEqual(response[0]["data"], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-            filter = filter.with_data({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
+            filter = filter.shallow_clone({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
             res = self._get_trend_people(filter, entity)
 

@@ -59,11 +59,11 @@ class Paths:
             raise ValidationError("Cannot include all custom events and specific custom events in the same query")
 
         if not self._filter.limit:
-            self._filter = self._filter.with_data({LIMIT: 100})
+            self._filter = self._filter.shallow_clone({LIMIT: 100})
 
         if self._filter.edge_limit is None and not (self._filter.start_point and self._filter.end_point):
             # no edge restriction when both start and end points are defined
-            self._filter = self._filter.with_data({PATH_EDGE_LIMIT: EDGE_LIMIT_DEFAULT})
+            self._filter = self._filter.shallow_clone({PATH_EDGE_LIMIT: EDGE_LIMIT_DEFAULT})
 
     def run(self, *args, **kwargs):
         results = self._exec_query()

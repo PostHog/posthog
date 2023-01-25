@@ -45,7 +45,7 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
     def toJSON(self):
         return json.dumps(self.to_dict(), default=lambda o: o.__dict__, sort_keys=True, indent=4)
 
-    def with_data(self, overrides: Dict[str, Any]):
+    def shallow_clone(self, overrides: Dict[str, Any]):
         "Allow making copy of filter whilst preserving the class"
         return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
 
