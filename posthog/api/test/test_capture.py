@@ -76,6 +76,7 @@ class TestCapture(BaseTest):
         super().setUp()
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
+        self.database_override_key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
 
     def _to_json(self, data: Union[Dict, List]) -> str:
         return json.dumps(data)
@@ -198,8 +199,7 @@ class TestCapture(BaseTest):
         """
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
-        key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
-        set_instance_setting(key, [expected_key])
+        set_instance_setting(self.database_override_key, [expected_key])
         # Assume no cache for this test
         cache.clear()
 
@@ -249,8 +249,7 @@ class TestCapture(BaseTest):
         """
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
-        key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
-        set_instance_setting(key, [expected_key])
+        set_instance_setting(self.database_override_key, [expected_key])
         # Assume no cache for this test
         cache.clear()
 
@@ -1537,3 +1536,132 @@ class TestCapture(BaseTest):
             },
             event_data,
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_without_override(self, kafka_produce):
+        """Test event is captured with partition key with no override."""
+        distinct_id = "id1"
+        partition_key = f"{self.team.pk}:id1"
+        response = self.client.post(
+            "/capture/",
+            {
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "event1",
+                            "properties": {"distinct_id": distinct_id, "token": self.team.api_token},
+                        }
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # By default we use (the hash of) <team_id:distinct_id> as the partition key
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], hashlib.sha256(partition_key.encode()).hexdigest())
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_with_override_set_to_default_value(self, kafka_produce):
+        """Test event is captured with an overriden partition key via default value.
+
+        Setting up an override via the default value of the EVENT_PARTITION_KEYS_TO_OVERRIDE
+        CONSTANCE_CONFIG should cause us to pass None as the key when producing to Kafka,
+        leading to random partitioning.
+        """
+        distinct_id = "id-defaulted1"
+        patched = {self.database_override_key: (f'["{self.team.pk}:{distinct_id}"]', "a help str", str)}
+
+        with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
+            response = self.client.post(
+                "/capture/",
+                {
+                    "data": json.dumps(
+                        [
+                            {
+                                "event": "event1",
+                                "properties": {"distinct_id": distinct_id, "token": self.team.api_token},
+                            }
+                        ]
+                    ),
+                    "api_key": self.team.api_token,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_partition_key_with_database_value(self, kafka_produce):
+        """Test event is captured with an overriden partition key via database value.
+
+        Setting up an override via a value found in the InstanceSettings database model
+        should cause us to pass None as the key when producing to Kafka, leading to
+        random partitioning.
+        """
+        distinct_id = "id-override1"
+        override_key = f"{self.team.pk}:{distinct_id}"
+        set_instance_setting(self.database_override_key, [override_key])
+        patched = {self.database_override_key: ("any_value", "a help str", str)}
+
+        with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
+            response = self.client.post(
+                "/capture/",
+                {
+                    "data": json.dumps(
+                        [
+                            {
+                                "event": "event1",
+                                "properties": {"distinct_id": distinct_id, "token": self.team.api_token},
+                            }
+                        ]
+                    ),
+                    "api_key": self.team.api_token,
+                },
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_partition_key_with_cache_failure(self, kafka_produce):
+        """Test event is captured with an overriden partition key via default value.
+
+        In the event of an exception in the cache we should fallback to the setting's
+        default value for "EVENT_PARTITION_KEYS_TO_OVERRIDE".
+        """
+        distinct_id = "id-override1"
+        override_key = f"{self.team.pk}:{distinct_id}"
+        set_instance_setting(self.database_override_key, [override_key])
+        patched = {self.database_override_key: (f'["{override_key}"]', "a help str", str)}
+
+        with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
+            with patch("posthog.models.instance_setting.cache") as mock_cache:
+                mock_cache.get.side_effect = Exception("Terrible cache error")
+
+                response = self.client.post(
+                    "/capture/",
+                    {
+                        "data": json.dumps(
+                            [
+                                {
+                                    "event": "event1",
+                                    "properties": {"distinct_id": distinct_id, "token": self.team.api_token},
+                                }
+                            ]
+                        ),
+                        "api_key": self.team.api_token,
+                    },
+                )
+
+                mock_cache.get.assert_called_once_with("EVENT_PARTITION_KEYS_TO_OVERRIDE")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], None)
