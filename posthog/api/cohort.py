@@ -213,7 +213,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
         if is_csv_request and not filter.limit:
-            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
 
