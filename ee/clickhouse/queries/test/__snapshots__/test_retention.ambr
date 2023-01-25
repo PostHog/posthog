@@ -5,7 +5,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -22,7 +22,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -68,7 +68,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -85,7 +85,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -124,7 +124,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_1" as target
         FROM events e
         WHERE team_id = 2
@@ -141,7 +141,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -184,7 +184,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -201,7 +201,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -247,7 +247,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -264,7 +264,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -303,7 +303,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_1" as target
         FROM events e
         WHERE team_id = 2
@@ -320,7 +320,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -363,7 +363,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -394,7 +394,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -451,7 +451,7 @@
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -482,7 +482,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -666,7 +666,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -684,7 +684,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -727,7 +727,7 @@
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -745,7 +745,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e

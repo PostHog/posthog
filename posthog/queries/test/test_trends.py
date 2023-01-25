@@ -5401,7 +5401,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
     def test_trends_count_per_user_average_weekly(self):
-        # Weekly aggregation uses "start_of_week_fix"
         self._create_event_count_per_actor_events()
 
         weekly_response = Trends().run(
