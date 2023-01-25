@@ -63,7 +63,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                   } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
-        ...(hasIngestionTaxonomy
+        ...(hasIngestionTaxonomy && filters.type === 'event'
             ? [
                   {
                       title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
@@ -92,7 +92,9 @@ export function PropertyDefinitionsTable(): JSX.Element {
             {preflight && !preflight?.is_event_property_usage_enabled ? (
                 <UsageDisabledWarning />
             ) : (
-                propertyDefinitions.results?.[0]?.query_usage_30_day === null && (
+                propertyDefinitions.results?.[0]?.query_usage_30_day === null &&
+                filters.type === 'event' &&
+                !propertyDefinitionsLoading && (
                     <div className="mb-4">
                         <AlertMessage type="warning">
                             We haven't been able to get usage and volume data yet. Please check back later.
@@ -140,7 +142,7 @@ export function PropertyDefinitionsTable(): JSX.Element {
                         : undefined,
                 }}
                 dataSource={propertyDefinitions.results}
-                emptyState="No event property definitions"
+                emptyState="No property definitions"
                 nouns={['property', 'properties']}
             />
         </div>

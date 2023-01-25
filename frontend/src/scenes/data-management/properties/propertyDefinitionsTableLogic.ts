@@ -30,6 +30,14 @@ function cleanFilters(filter: Partial<Filters>): Filters {
     }
 }
 
+function removeDefaults(filter: Filters): Partial<Filters> {
+    return {
+        property: filter.property !== '' ? filter.property : undefined,
+        type: filter.type !== 'event' ? filter.type : undefined,
+        group_type_index: filter.group_type_index !== null ? filter.group_type_index : undefined,
+    }
+}
+
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
 export interface PropertyDefinitionsTableLogicProps {
@@ -224,7 +232,7 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return [router.values.location.pathname, nextValues]
+                return [router.values.location.pathname, removeDefaults(nextValues)]
             }
         },
     })),
