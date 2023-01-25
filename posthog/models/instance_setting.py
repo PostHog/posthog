@@ -24,12 +24,12 @@ class InstanceSetting(models.Model):
         return json.loads(self.raw_value)
 
     def delete(self, *args, **kwargs):
-        cache.delete(self.key.replace(CONSTANCE_DATABASE_PREFIX, ""))
         super().delete(*args, **kwargs)
+        cache.delete(self.key.replace(CONSTANCE_DATABASE_PREFIX, ""))
 
     def save(self, *args, **kwargs):
-        cache.set(self.key.replace(CONSTANCE_DATABASE_PREFIX, ""), self.raw_value)
         super().save(*args, **kwargs)
+        cache.set(self.key.replace(CONSTANCE_DATABASE_PREFIX, ""), self.raw_value)
 
 
 def get_instance_setting(key: str) -> Any:
