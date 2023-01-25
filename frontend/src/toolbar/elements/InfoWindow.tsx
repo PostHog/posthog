@@ -24,7 +24,7 @@ export function InfoWindow(): JSX.Element | null {
     const { rect } = activeMeta
 
     const windowWidth = Math.min(document.body.clientWidth, window.innerWidth)
-    const windowHeight = Math.min(document.body.clientHeight, window.innerHeight)
+    const windowHeight = Math.max(document.body.clientHeight, window.innerHeight)
 
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
