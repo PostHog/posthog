@@ -17,7 +17,7 @@ specifiers:
   '@hot-loader/react-dom': ^16.14.0
   '@lottiefiles/react-lottie-player': ^3.4.7
   '@monaco-editor/react': ^4.1.3
-  '@playwright/test': ^1.28.1
+  '@playwright/test': 1.28.1
   '@posthog/plugin-scaffold': ^1.3.2
   '@posthog/simmerjs': ^0.7.7
   '@react-hook/size': ^2.1.2
@@ -136,7 +136,7 @@ specifiers:
   msw: ^0.47.3
   path-browserify: ^1.0.1
   pixelmatch: ^5.3.0
-  playwright-core: ^1.28.1
+  playwright-core: 1.28.1
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
@@ -363,7 +363,7 @@ devDependencies:
   msw: 0.47.4_typescript@4.8.4
   path-browserify: 1.0.1
   pixelmatch: 5.3.0
-  playwright-core: 1.29.2
+  playwright-core: 1.28.1
   pngjs: 6.0.0
   postcss: 8.4.18
   postcss-loader: 4.3.0_dhonik3q6ff6ozbzdscnovq2ka
@@ -12483,11 +12483,6 @@ packages:
       '@sideway/pinpoint': 2.0.0
     dev: true
 
-  /joycon/3.1.1:
-    resolution: {integrity: sha512-34wB/Y7MW7bzjKRjUKTa46I2Z7eV62Rkhva+KkopW7Qvv/OSWBqvkSY7vusOPrNuZcUG3tApvdVgNB8POj3SPw==}
-    engines: {node: '>=10'}
-    dev: true
-
   /js-cookie/2.2.1:
     resolution: {integrity: sha512-HvdH2LzI/EAZcUwA8+0nKNtWHqS+ZmijLA30RwZA0bo7ToCckjK5MkGhjED9KoRcXO6BaGI3I9UIzSA1FKFPOQ==}
     dev: false
@@ -14457,7 +14452,6 @@ packages:
     resolution: {integrity: sha512-3PixLnGPno0E8rSBJjtwqTwJe3Yw72QwBBBxNoukIj3lEeBNXwbNiKrNuB1oyQgTBw5QHUhNO3SteEtHaMK6ag==}
     engines: {node: '>=14'}
     hasBin: true
-    dev: false
 
   /playwright-core/1.29.2:
     resolution: {integrity: sha512-94QXm4PMgFoHAhlCuoWyaBYKb92yOcGVHdQLoxQ7Wjlc7Flg4aC/jbFW7xMR52OfXMVkWicue4WXE7QEegbIRA==}
