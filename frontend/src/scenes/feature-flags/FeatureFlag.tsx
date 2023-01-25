@@ -1166,20 +1166,29 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 {isPropertyFilterWithOperator(property) ? (
                                                     <span>{allOperatorsToHumanName(property.operator)} </span>
                                                 ) : null}
-                                                {[
-                                                    ...(Array.isArray(property.value)
-                                                        ? property.value
-                                                        : [property.value]),
-                                                ].map((val, idx) => (
-                                                    <span
-                                                        key={idx}
+
+                                                {property.type === 'cohort' ? (
+                                                    <a
+                                                        href={`/cohorts/${property.value}`}
                                                         className="simple-tag tag-light-blue text-primary-alt display-value"
                                                     >
-                                                        {property.type === 'cohort'
-                                                            ? (val && cohortsById[val]?.name) || `ID ${val}`
-                                                            : val}
-                                                    </span>
-                                                ))}
+                                                        {(property.value && cohortsById[property.value]?.name) ||
+                                                            `ID ${property.value}`}
+                                                    </a>
+                                                ) : (
+                                                    [
+                                                        ...(Array.isArray(property.value)
+                                                            ? property.value
+                                                            : [property.value]),
+                                                    ].map((val, idx) => (
+                                                        <span
+                                                            key={idx}
+                                                            className="simple-tag tag-light-blue text-primary-alt display-value"
+                                                        >
+                                                            {val}
+                                                        </span>
+                                                    ))
+                                                )}
                                             </div>
                                         </>
                                     ))}
