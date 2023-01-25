@@ -17,7 +17,7 @@ import { Noun } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 export function FunnelsAdvancedDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { insightFilter, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { insightFilter, aggregationTargetLabel, advancedOptionsUsedCount } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
     // TODO: Replicate command logic
     // useMountedLogic(funnelCommandLogic)
@@ -25,8 +25,7 @@ export function FunnelsAdvancedDataExploration({ insightProps }: QueryEditorFilt
     return (
         <FunnelsAdvancedComponent
             aggregationTargetLabel={aggregationTargetLabel}
-            // TODO: implement
-            advancedOptionsUsedCount={0}
+            advancedOptionsUsedCount={advancedOptionsUsedCount}
             setFilters={updateInsightFilter}
             {...insightFilter}
         />
@@ -86,12 +85,10 @@ export function FunnelsAdvancedComponent({
                     <LemonButton
                         status="danger"
                         onClick={() => {
-                            // TODO: check that this works, try setting to undefined
-                            // setStepReference(FunnelStepReference.total)
                             setFilters({
-                                funnel_order_type: StepOrderValue.ORDERED,
-                                funnel_step_reference: FunnelStepReference.total, // new - why not undefined?
-                                exclusions: [],
+                                funnel_order_type: undefined,
+                                funnel_step_reference: undefined,
+                                exclusions: undefined,
                             })
                         }}
                     >
