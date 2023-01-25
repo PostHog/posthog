@@ -3,7 +3,7 @@
 # We do this to ensure our reference images for visual regression tests are the same during development and in CI.
 #
 
-FROM mcr.microsoft.com/playwright:v1.28.1-focal
+FROM mcr.microsoft.com/playwright:v1.29.2-focal
 
 WORKDIR /work
 

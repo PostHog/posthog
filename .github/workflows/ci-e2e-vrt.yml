@@ -11,7 +11,7 @@ jobs:
         name: Visual Regression Tests
         runs-on: ubuntu-20.04
         container:
-            image: mcr.microsoft.com/playwright:v1.28.1-focal
+            image: mcr.microsoft.com/playwright:v1.29.2-focal
         env:
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max_old_space_size=4096
