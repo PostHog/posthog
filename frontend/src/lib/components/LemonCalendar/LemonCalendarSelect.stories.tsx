@@ -9,6 +9,9 @@ import { formatDate } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select',
     component: LemonCalendarSelect,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonCalendarSelect>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonCalendarSelectProps) => {

@@ -11,6 +11,9 @@ export default {
     argTypes: {
         value: { defaultValue: 'Foo' },
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonInput>
 
 const Template: ComponentStory<typeof LemonInput> = (props) => {

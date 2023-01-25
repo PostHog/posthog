@@ -12,6 +12,9 @@ export default {
             defaultValue: 'Switch this!',
         },
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonSwitch>
 
 const LemonSwitch = ({ checked, ...props }: Partial<LemonSwitchProps>): JSX.Element => {

@@ -8,6 +8,7 @@ export default {
     title: 'Lemon UI/Lemon Skeleton',
     component: LemonSkeleton,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `
@@ -20,7 +21,12 @@ Skeleton screens are used to indicate that a screen is loading, are perceived as
 } as ComponentMeta<typeof LemonSkeleton>
 
 export function Default(): JSX.Element {
-    return <LemonSkeleton />
+    return (
+        <div className="space-y-2 mb-2">
+            <LemonSkeleton />
+            <LemonLabel>Custom classNames</LemonLabel>
+        </div>
+    )
 }
 
 export function Presets(): JSX.Element {

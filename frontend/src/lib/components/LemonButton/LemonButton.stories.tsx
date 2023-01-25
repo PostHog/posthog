@@ -30,6 +30,9 @@ export default {
             defaultValue: 'Click me',
         },
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonButton>
 
 const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonProps) => {

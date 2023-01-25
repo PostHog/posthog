@@ -17,6 +17,9 @@ Lemon Labels provide common styling and options for labeling form elements. They
 `,
         },
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonLabel>
 
 const Template: ComponentStory<typeof LemonLabel> = (props: LemonLabelProps) => {

@@ -6,7 +6,9 @@ import { IconPlusMini } from '../icons'
 export default {
     title: 'Lemon UI/Lemon Badge/Lemon Badge',
     component: LemonBadge,
-    parameters: {},
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonBadge>
 
 const Template: ComponentStory<typeof LemonBadge> = (props) => (

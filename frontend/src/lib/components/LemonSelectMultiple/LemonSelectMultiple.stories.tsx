@@ -28,6 +28,9 @@ export default {
             ),
         },
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonSelectMultiple>
 
 const Template: ComponentStory<typeof LemonSelectMultiple> = (props: LemonSelectMultipleProps) => {

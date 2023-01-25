@@ -12,6 +12,9 @@ export default {
             },
         },
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonCalendar>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendar> = (props: LemonCalendarProps) => {
