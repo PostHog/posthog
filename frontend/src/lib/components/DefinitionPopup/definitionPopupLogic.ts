@@ -151,8 +151,9 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                     featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] &&
                     (type === TaxonomicFilterGroupType.PersonProperties ||
                         type.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
-                )
-                    {return true}
+                ) {
+                    return true
+                }
 
                 return [
                     TaxonomicFilterGroupType.Actions,

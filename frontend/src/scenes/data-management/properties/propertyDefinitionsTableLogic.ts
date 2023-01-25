@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { Breadcrumb, GroupType, PropertyDefinition } from '~/types'
+import { Breadcrumb, PropertyDefinition } from '~/types'
 import api from 'lib/api'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import {
@@ -12,7 +12,7 @@ import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
 
 import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
-import { groupsModel, Noun } from '../../../models/groupsModel'
+import { groupsModel } from '../../../models/groupsModel'
 import { LemonSelectOption } from '../../../lib/components/LemonSelect'
 
 export interface Filters {
@@ -81,6 +81,36 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
             },
         ],
     }),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        name: `Data Management`,
+                        path: urls.eventDefinitions(),
+                    },
+                    {
+                        name: 'Properties',
+                        path: urls.propertyDefinitions(),
+                    },
+                ]
+            },
+        ],
+        propertyTypeOptions: [
+            (s) => [s.groupTypes, s.aggregationLabel],
+            (groupTypes, aggregationLabel) => {
+                const groupChoices: Array<LemonSelectOption<string>> = groupTypes.map((type) => ({
+                    label: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
+                    value: `group::${type.group_type_index}`,
+                }))
+                return [
+                    { label: 'Event properties', value: 'event::' } as LemonSelectOption<string>,
+                    { label: 'Person properties', value: 'person::' } as LemonSelectOption<string>,
+                ].concat(groupChoices)
+            },
+        ],
+    }),
     loaders(({ values, cache }) => ({
         propertyDefinitions: [
             {
@@ -136,41 +166,6 @@ export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicTy
                     }
                     return cache.apiCache[values.propertyDefinitions.current]
                 },
-            },
-        ],
-    })),
-    selectors(({ cache }) => ({
-        // Expose for testing
-        apiCache: [() => [], () => cache.apiCache],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        name: `Data Management`,
-                        path: urls.eventDefinitions(),
-                    },
-                    {
-                        name: 'Properties',
-                        path: urls.propertyDefinitions(),
-                    },
-                ]
-            },
-        ],
-        propertyTypeOptions: [
-            (s) => [s.groupTypes, s.aggregationLabel],
-            (
-                groupTypes: Array<GroupType>,
-                aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
-            ) => {
-                const groupChoices: Array<LemonSelectOption<string>> = groupTypes.map((type) => ({
-                    label: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
-                    value: `group::${type.group_type_index}`,
-                }))
-                return [
-                    { label: 'Event properties', value: 'event::' } as LemonSelectOption<string>,
-                    { label: 'Person properties', value: 'person::' } as LemonSelectOption<string>,
-                ].concat(groupChoices)
             },
         ],
     })),
