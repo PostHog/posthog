@@ -75,6 +75,7 @@ class TestCapture(BaseTest):
 
     def setUp(self):
         super().setUp()
+        cache.clear()
         # it is really important to know that /capture is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
         self.database_override_key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"

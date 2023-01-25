@@ -4,6 +4,7 @@ from unittest.mock import ANY, patch
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
+from django.core.cache import cache
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -158,6 +159,10 @@ class TestLoginAPI(APIBaseTest):
 
 class TestPasswordResetAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
 
     # Password reset request
 

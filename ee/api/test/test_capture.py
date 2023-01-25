@@ -2,7 +2,6 @@ import json
 from typing import Any
 from unittest.mock import patch
 
-from django.core.cache import cache
 from django.http.request import HttpRequest
 from django.test.client import Client
 from kafka.errors import NoBrokersAvailable
@@ -21,10 +20,6 @@ class TestCaptureAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.client = Client(enforce_csrf_checks=True)
-
-    def tearDown(self):
-        super().tearDown()
-        cache.clear()
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_produce_to_kafka(self, kafka_produce):

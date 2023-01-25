@@ -2,6 +2,7 @@ from typing import cast
 from unittest.mock import patch
 
 import pytest
+from django.core.cache import cache
 from django.utils import timezone
 from rest_framework import status
 
@@ -13,6 +14,10 @@ from posthog.version import VERSION
 
 class TestPreflight(APIBaseTest, QueryMatchingTest):
     maxDiff = 2000
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
 
     def instance_preferences(self, **kwargs):
         return {"debug_queries": False, "disable_paid_fs": False, **kwargs}
