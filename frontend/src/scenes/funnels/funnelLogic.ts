@@ -833,7 +833,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     const lastStep = steps[steps.length - 1]
                     const hasBaseline =
                         !baseStep.breakdown ||
-                        (filters.layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
+                        ((filters.layout || FunnelLayout.vertical) === FunnelLayout.vertical &&
+                            (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline && !disableBaseline) {
                         flattenedStepsByBreakdown.push({
