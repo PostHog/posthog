@@ -121,12 +121,6 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam, currentOrganization): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
-        pathCleaningFiltersWithNew: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam): Record<string, any>[] => {
-                return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
-            },
-        ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): CorrelationConfigType => {

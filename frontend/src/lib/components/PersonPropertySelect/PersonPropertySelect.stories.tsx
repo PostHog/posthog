@@ -1,12 +1,13 @@
-import { Meta } from '@storybook/react'
+import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
-import { PersonPropertySelect } from './PersonPropertySelect'
+import { PersonPropertySelect, PersonPropertySelectProps } from './PersonPropertySelect'
 
 export default {
-    title: 'Filters',
+    title: 'Filters/Person Property Select',
+    component: PersonPropertySelect,
     decorators: [
         mswDecorator({
             get: {
@@ -26,9 +27,9 @@ export default {
             },
         }),
     ],
-} as Meta
+} as ComponentMeta<typeof PersonPropertySelect>
 
-export function PersonPropertySelect_(): JSX.Element {
+const Template: ComponentStory<typeof PersonPropertySelect> = (props: Partial<PersonPropertySelectProps>) => {
     useMountedLogic(personPropertiesModel)
     const [selectedProperties, setSelectProperties] = useState<string[]>([
         '$initial_geoip_postal_code',
@@ -52,6 +53,19 @@ export function PersonPropertySelect_(): JSX.Element {
     ])
 
     return (
-        <PersonPropertySelect selectedProperties={selectedProperties} onChange={setSelectProperties} addText={'Add'} />
+        <PersonPropertySelect
+            selectedProperties={selectedProperties}
+            onChange={setSelectProperties}
+            addText="Add"
+            {...props}
+        />
     )
+}
+
+export const Default = Template.bind({})
+Default.args = {}
+
+export const Sortable = Template.bind({})
+Sortable.args = {
+    sortable: true,
 }

@@ -97,6 +97,23 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert response.json() == expected_listing
 
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_validation_that_names_have_to_match(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        assert DashboardTemplate.objects.count() == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "this is never going to match", "url": "a github url"},
+        )
+        response_json = response.json()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response_json)
+        assert (
+            response_json["detail"]
+            == 'The requested template "this is never going to match" does not match the requested template URL which loaded the template "Website traffic"'
+        )
+
     @staticmethod
     def _patch_request_get(patched_requests, json_response):
         mock_response = Mock()

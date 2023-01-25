@@ -434,6 +434,10 @@ class EntitiesMixin(BaseParamMixin):
             entity.index = index
         return processed_entities
 
+    @include_query_tags
+    def query_tags_entities(self):
+        return {"number_of_entities": len(self.entities)}
+
     @cached_property
     def actions(self) -> List[Entity]:
         return [entity for entity in self.entities if entity.type == TREND_FILTER_TYPE_ACTIONS]
