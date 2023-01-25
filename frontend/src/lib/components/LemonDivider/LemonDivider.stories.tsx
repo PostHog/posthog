@@ -8,7 +8,6 @@ import { ProfileBubbles } from '../ProfilePicture'
 export default {
     title: 'Lemon UI/Lemon Divider',
     component: LemonDivider,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonDivider>
 
 const HorizontalTemplate: ComponentStory<typeof LemonDivider> = (props: LemonDividerProps) => {

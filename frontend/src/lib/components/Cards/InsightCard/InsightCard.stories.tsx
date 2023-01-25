@@ -283,9 +283,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
 export default {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
+    parameters: {},
     argTypes: {
         insightName: {
             control: { type: 'text' },

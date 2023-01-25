@@ -5,7 +5,6 @@ import { NotFound } from './index'
 export default {
     title: 'Components/Not Found',
     component: NotFound,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof NotFound>
 
 const Template: ComponentStory<typeof NotFound> = (args) => <NotFound {...args} />

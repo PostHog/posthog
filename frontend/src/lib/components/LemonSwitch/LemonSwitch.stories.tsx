@@ -7,7 +7,6 @@ import { IconGlobeLock } from '../icons'
 export default {
     title: 'Lemon UI/Lemon Switch',
     component: RawLemonSwitch,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         label: {
             defaultValue: 'Switch this!',

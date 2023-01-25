@@ -6,7 +6,6 @@ import { SurprisedHog, BlushingHog } from 'lib/components/hedgehogs'
 export default {
     title: 'Lemon UI/Lemon Select',
     component: LemonSelect,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         options: {
             defaultValue: [

@@ -7,7 +7,6 @@ import { PersonPropertySelect } from './PersonPropertySelect'
 
 export default {
     title: 'Filters',
-    parameters: { chromatic: { disableSnapshot: false } },
     decorators: [
         mswDecorator({
             get: {

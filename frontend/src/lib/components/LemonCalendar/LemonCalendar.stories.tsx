@@ -5,7 +5,6 @@ import { dayjs } from 'lib/dayjs'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
     component: LemonCalendar,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         onClick: {
             defaultValue: (date: dayjs.Dayjs) => {
