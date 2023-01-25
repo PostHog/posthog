@@ -23,13 +23,14 @@ from freezegun import freeze_time
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
+from redis.exceptions import TimeoutError
 from rest_framework import status
 
 from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.instance_setting import set_instance_setting
+from posthog.models.instance_setting import get_instance_setting, set_instance_setting
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.settings import CONSTANCE_CONFIG, DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
@@ -200,7 +201,8 @@ class TestCapture(BaseTest):
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
         set_instance_setting(self.database_override_key, [expected_key])
-        # Assume no cache for this test
+        # Assume cached value has expired since set.
+        # This is to simulate we are unable to read a value from the DB or the cache.
         cache.clear()
 
         data = {
@@ -214,7 +216,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        patched_config = {"EVENT_PARTITION_KEYS_TO_OVERRIDE": ("not_current_expected_key", "a help str", str)}
+        patched_config = {self.database_override_key: ("not_current_expected_key", "a help str", str)}
         with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
             with simulate_postgres_error("posthog_instancesetting"):
                 with self.assertNumQueries(2):
@@ -250,7 +252,7 @@ class TestCapture(BaseTest):
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
         set_instance_setting(self.database_override_key, [expected_key])
-        # Assume no cache for this test
+        # Assume cache has expired since we set the value.
         cache.clear()
 
         data = {
@@ -264,7 +266,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        patched_config = {"EVENT_PARTITION_KEYS_TO_OVERRIDE": (f'["{expected_key}"]', "a help str", str)}
+        patched_config = {self.database_override_key: (f'["{expected_key}"]', "a help str", str)}
         with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
             with simulate_postgres_error("posthog_instancesetting"):
                 with self.assertNumQueries(2):
@@ -297,9 +299,8 @@ class TestCapture(BaseTest):
         """
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
-        key = "EVENT_PARTITION_KEYS_TO_OVERRIDE"
-        set_instance_setting(key, [expected_key])
-        # Assume no caching for this test
+        set_instance_setting(self.database_override_key, [expected_key])
+        # Assume we start with no caching for this test to assert initial 2 queries.
         cache.clear()
 
         data = {
@@ -1574,6 +1575,11 @@ class TestCapture(BaseTest):
         patched = {self.database_override_key: (f'["{self.team.pk}:{distinct_id}"]', "a help str", str)}
 
         with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
+            # Sanity check: nothing should be set on the DB or the cache.
+            # Config value should be returned.
+            config_val = get_instance_setting(self.database_override_key)
+            self.assertEqual(config_val, f'["{self.team.pk}:{distinct_id}"]')
+
             response = self.client.post(
                 "/capture/",
                 {
@@ -1595,7 +1601,7 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce_call["key"], None)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_partition_key_with_database_value(self, kafka_produce):
+    def test_capture_event_with_override_set_in_database_value(self, kafka_produce):
         """Test event is captured with an overriden partition key via database value.
 
         Setting up an override via a value found in the InstanceSettings database model
@@ -1605,6 +1611,8 @@ class TestCapture(BaseTest):
         distinct_id = "id-override1"
         override_key = f"{self.team.pk}:{distinct_id}"
         set_instance_setting(self.database_override_key, [override_key])
+        # For the sake of testing we are reading from the DB, let's clear the cache
+        cache.clear()
         patched = {self.database_override_key: ("any_value", "a help str", str)}
 
         with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
@@ -1629,11 +1637,11 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce_call["key"], None)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_partition_key_with_cache_failure(self, kafka_produce):
+    def test_capture_event_override_on_cache_timeout(self, kafka_produce):
         """Test event is captured with an overriden partition key via default value.
 
         In the event of an exception in the cache we should fallback to the setting's
-        default value for "EVENT_PARTITION_KEYS_TO_OVERRIDE".
+        default value for our override key.
         """
         distinct_id = "id-override1"
         override_key = f"{self.team.pk}:{distinct_id}"
@@ -1642,7 +1650,7 @@ class TestCapture(BaseTest):
 
         with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
             with patch("posthog.models.instance_setting.cache") as mock_cache:
-                mock_cache.get.side_effect = Exception("Terrible cache error")
+                mock_cache.get.side_effect = TimeoutError("Terrible cache error")
 
                 response = self.client.post(
                     "/capture/",
@@ -1659,7 +1667,7 @@ class TestCapture(BaseTest):
                     },
                 )
 
-                mock_cache.get.assert_called_once_with("EVENT_PARTITION_KEYS_TO_OVERRIDE")
+                mock_cache.get.assert_called_once_with(self.database_override_key)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
