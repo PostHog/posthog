@@ -175,7 +175,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(2):
             response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
         self.assertDictContainsSubset(
