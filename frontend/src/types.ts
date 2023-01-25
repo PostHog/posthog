@@ -1121,6 +1121,12 @@ export interface DashboardTile extends Tileable, Cacheable {
     is_cached?: boolean
 }
 
+export interface DashboardTileBasicType {
+    id: number
+    dashboard_id: number
+    deleted?: boolean
+}
+
 export interface TextModel {
     body: string
     created_by?: UserBasicType
@@ -1144,7 +1150,9 @@ export interface InsightModel extends Cacheable {
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
+    /** @deprecated Use `dashboard_tiles instead */
     dashboards: number[] | null
+    dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
     tags?: string[]
     last_modified_at: string

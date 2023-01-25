@@ -215,6 +215,7 @@ const insightActionsMapping: Record<
     effective_restriction_level: () => null, // read from dashboards
     effective_privilege_level: () => null, // read from dashboards
     disable_baseline: () => null,
+    dashboard_tiles: () => null, // changes are sent as dashboards
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
