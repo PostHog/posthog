@@ -4,8 +4,6 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, cast
 
-from clickhouse_driver.util.escape import escape_param
-
 # fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 # "person.*" fields you can select from in the events query
@@ -136,7 +134,7 @@ class HogQLContext:
     """Context given to a HogQL expression parser"""
 
     # If set, will save string constants to this dict. Inlines strings into the query if None.
-    values: Optional[Dict] = field(default_factory=dict)
+    values: Dict = field(default_factory=dict)
     # List of field and property accesses found in the expression
     field_access_logs: List[HogQLFieldAccess] = field(default_factory=list)
     # Did the last calls to translate_hogql since setting these to False contain any of the following
@@ -223,15 +221,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"val_{len(context.values or {})}"
+        key = f"hogql_val_{len(context.values)}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str):
-            if context.values is not None:
-                context.values[key] = node.value
-                response = f"%({key})s"
-            else:
-                response = escape_param(node.value)
+            context.values[key] = node.value
+            response = f"%({key})s"
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
     elif isinstance(node, ast.Attribute) or isinstance(node, ast.Subscript):
@@ -329,12 +324,9 @@ def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAcc
     """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
     if len(chain) == 2:
         if chain[0] == "properties":
-            if context.values is not None:
-                key = f"val_{len(context.values)}"
-                context.values[key] = chain[1]
-                escaped_key = f"%({key})s"
-            else:
-                escaped_key = escape_param(chain[1])
+            key = f"hogql_val_{len(context.values)}"
+            context.values[key] = chain[1]
+            escaped_key = f"%({key})s"
             expression, _ = get_property_string_expr(
                 "events",
                 chain[1],
@@ -348,12 +340,9 @@ def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAcc
             else:
                 raise ValueError(f"Unknown person field '{chain[1]}'")
     elif len(chain) == 3 and chain[0] == "person" and chain[1] == "properties":
-        if context.values is not None:
-            key = f"val_{len(context.values or {})}"
-            context.values[key] = chain[2]
-            escaped_key = f"%({key})s"
-        else:
-            escaped_key = escape_param(chain[2])
+        key = f"hogql_val_{len(context.values or {})}"
+        context.values[key] = chain[2]
+        escaped_key = f"%({key})s"
 
         if context.using_person_on_events:
             expression, _ = get_property_string_expr(

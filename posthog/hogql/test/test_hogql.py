@@ -13,29 +13,27 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(self._translate("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
         self.assertEqual(self._translate("1.0 * 2.66"), "multiply(1.0, 2.66)")
         self.assertEqual(self._translate("1.0 % 2.66"), "modulo(1.0, 2.66)")
-        self.assertEqual(translate_hogql("'string'", HogQLContext(values=None)), "'string'")
-        self.assertEqual(translate_hogql('"string"', HogQLContext(values=None)), "'string'")
-        self.assertEqual(self._translate("'string'"), "%(val_0)s")
-        self.assertEqual(self._translate('"string"'), "%(val_0)s")
+        self.assertEqual(self._translate("'string'"), "%(hogql_val_0)s")
+        self.assertEqual(self._translate('"string"'), "%(hogql_val_0)s")
 
     def test_hogql_fields_and_properties(self):
         self.assertEqual(
             self._translate("properties.bla"),
-            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._translate("properties['bla']"),
-            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             self._translate('properties["bla"]'),
-            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
         context = HogQLContext()
         self.assertEqual(
             translate_hogql("properties.$bla", context),
-            "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -44,7 +42,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "$bla"],
                     "event.properties",
                     "$bla",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
@@ -52,7 +50,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         context = HogQLContext()
         self.assertEqual(
             translate_hogql("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(person_properties, %(val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -61,7 +59,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["person", "properties", "bla"],
                     "person.properties",
                     "bla",
-                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
@@ -117,11 +115,11 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(self._translate("sumIf(1, 1 == 2)"), "sumIf(1, equals(1, 2))")
 
     def test_hogql_functions(self):
-        context = HogQLContext(values=None)  # inline values
+        context = HogQLContext()  # inline values
         self.assertEqual(self._translate("abs(1)"), "abs(1)")
         self.assertEqual(self._translate("max2(1,2)"), "max2(1, 2)")
-        self.assertEqual(translate_hogql("toInt('1')", context), "toInt64OrNull('1')")
-        self.assertEqual(translate_hogql("toFloat('1.3')", context), "toFloat64OrNull('1.3')")
+        self.assertEqual(translate_hogql("toInt('1')", context), "toInt64OrNull(%(hogql_val_0)s)")
+        self.assertEqual(translate_hogql("toFloat('1.3')", context), "toFloat64OrNull(%(hogql_val_1)s)")
 
     def test_hogql_expr_parse_errors(self):
         self._assert_value_error("", "Module body must contain only one 'Expr'")
@@ -159,7 +157,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "prop"],
                     "event.properties",
                     "prop",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 ),
                 HogQLFieldAccess(["uuid"], "event", "uuid", "uuid"),
                 HogQLFieldAccess(["event"], "event", "event", "event"),
@@ -177,7 +175,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "event"],
                     "event.properties",
                     "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 ),
             ],
         )
@@ -201,14 +199,14 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
                     ["properties", "event"],
                     "event.properties",
                     "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 ),
                 HogQLFieldAccess(["event"], "event", "event", "event"),
                 HogQLFieldAccess(
                     ["properties", "event"],
                     "event.properties",
                     "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(val_1)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_1)s), '^\"|\"$', '')",
                 ),
             ],
         )
@@ -221,7 +219,7 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(
             self._translate("properties.bla and properties.bla2"),
-            "and(replaceRegexpAll(JSONExtractRaw(properties, %(val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(properties, %(val_1)s), '^\"|\"$', ''))",
+            "and(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_1)s), '^\"|\"$', ''))",
         )
         self.assertEqual(
             self._translate("event or timestamp or true or count()"),
@@ -233,13 +231,13 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         )
 
     def test_hogql_comparisons(self):
-        context = HogQLContext(values=None)  # inline values
-        self.assertEqual(translate_hogql("event == 'E'", context), "equals(event, 'E')")
-        self.assertEqual(translate_hogql("event != 'E'", context), "notEquals(event, 'E')")
-        self.assertEqual(translate_hogql("event > 'E'", context), "greater(event, 'E')")
-        self.assertEqual(translate_hogql("event >= 'E'", context), "greaterOrEquals(event, 'E')")
-        self.assertEqual(translate_hogql("event < 'E'", context), "less(event, 'E')")
-        self.assertEqual(translate_hogql("event <= 'E'", context), "lessOrEquals(event, 'E')")
+        context = HogQLContext()
+        self.assertEqual(translate_hogql("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
+        self.assertEqual(translate_hogql("event != 'E'", context), "notEquals(event, %(hogql_val_1)s)")
+        self.assertEqual(translate_hogql("event > 'E'", context), "greater(event, %(hogql_val_2)s)")
+        self.assertEqual(translate_hogql("event >= 'E'", context), "greaterOrEquals(event, %(hogql_val_3)s)")
+        self.assertEqual(translate_hogql("event < 'E'", context), "less(event, %(hogql_val_4)s)")
+        self.assertEqual(translate_hogql("event <= 'E'", context), "lessOrEquals(event, %(hogql_val_5)s)")
 
     def test_hogql_special_root_properties(self):
         self.assertEqual(
@@ -249,19 +247,20 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         context = HogQLContext()
         self.assertEqual(
             translate_hogql("person", context),
-            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(val_1)s), '^\"|\"$', ''))",
+            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_1)s), '^\"|\"$', ''))",
         )
-        self.assertEqual(context.values, {"val_0": "name", "val_1": "email"})
+        self.assertEqual(context.values, {"hogql_val_0": "name", "hogql_val_1": "email"})
         self._assert_value_error("person + 1", 'Can not use the field "person" in an expression')
 
     def test_hogql_values(self):
         context = HogQLContext()
-        self.assertEqual(translate_hogql("event == 'E'", context), "equals(event, %(val_0)s)")
-        self.assertEqual(context.values, {"val_0": "E"})
+        self.assertEqual(translate_hogql("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
+        self.assertEqual(context.values, {"hogql_val_0": "E"})
         self.assertEqual(
-            translate_hogql("coalesce(4.2, 5, 'lol', 'hoo')", context), "coalesce(4.2, 5, %(val_1)s, %(val_2)s)"
+            translate_hogql("coalesce(4.2, 5, 'lol', 'hoo')", context),
+            "coalesce(4.2, 5, %(hogql_val_1)s, %(hogql_val_2)s)",
         )
-        self.assertEqual(context.values, {"val_0": "E", "val_1": "lol", "val_2": "hoo"})
+        self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
