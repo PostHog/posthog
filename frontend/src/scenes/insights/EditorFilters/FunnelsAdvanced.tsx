@@ -3,7 +3,10 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { EditorFilterProps, QueryEditorFilterProps, FunnelsFilterType } from '~/types'
 import { FunnelStepOrderPicker, FunnelStepOrderPickerDataExploration } from '../views/Funnels/FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter'
-import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
+import {
+    FunnelStepReferencePicker,
+    FunnelStepReferencePickerDataExploration,
+} from '../filters/FunnelStepReferencePicker'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { PureField } from 'lib/forms/Field'
@@ -63,7 +66,7 @@ export function FunnelsAdvancedComponent({
                 {dataExploration ? <FunnelStepOrderPickerDataExploration /> : <FunnelStepOrderPicker />}
             </PureField>
             <PureField label="Conversion rate calculation">
-                <FunnelStepReferencePicker />
+                {dataExploration ? <FunnelStepReferencePickerDataExploration /> : <FunnelStepReferencePicker />}
             </PureField>
 
             <PureField
