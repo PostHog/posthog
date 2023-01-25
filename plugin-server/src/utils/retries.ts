@@ -2,11 +2,14 @@ import { RetryError } from '@posthog/plugin-scaffold'
 
 import { runInTransaction } from '../sentry'
 import { Hub } from '../types'
-import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-metrics'
+import { AppMetricIdentifier, ErrorWithContext } from '../worker/ingestion/app-metrics' // Simple retries in our code
 
 // Simple retries in our code
 const MAX_RETRIES_DEFAULT = 3
 const MAX_RETRY_INTERVAL_DEFAULT = 100
+
+/** Retry an async function a given number of times before rejecting the promise.
+ * If the promise is rejected, it returns the error from the last attempt. */
 export async function promiseRetry<T>(
     fn: () => Promise<T>,
     retries = MAX_RETRIES_DEFAULT,

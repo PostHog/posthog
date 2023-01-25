@@ -1,7 +1,7 @@
 import { ProcessedPluginEvent, RetryError } from '@posthog/plugin-scaffold'
 
 import { Hub } from '../../src/types'
-import { getNextRetryMs, runRetriableFunction } from '../../src/utils/retries'
+import { getNextRetryMs, promiseRetry, runRetriableFunction } from '../../src/utils/retries'
 import { UUID } from '../../src/utils/utils'
 import { AppMetricIdentifier } from '../../src/worker/ingestion/app-metrics'
 import { PromiseManager } from '../../src/worker/vm/promise-manager'
@@ -34,6 +34,37 @@ const appMetric: AppMetricIdentifier = {
     pluginConfigId: 3,
     category: 'processEvent',
 }
+
+describe('promiseRetry', () => {
+    it('it propagates value on success', async () => {
+        const succeeds = jest.fn(() => Promise.resolve(true))
+        expect(await promiseRetry(succeeds)).toEqual(true)
+        expect(succeeds).toHaveBeenCalledTimes(1)
+        jest.runAllTimers()
+    })
+
+    it('it aborts after 5 retries', async () => {
+        let tries = 1
+        const fails = jest.fn(() => Promise.reject(new TypeError(`nope${tries++}`)))
+        await expect(promiseRetry(fails, 5, 12)).rejects.toThrow(new TypeError('nope5'))
+        expect(fails).toHaveBeenCalledTimes(5)
+        jest.runAllTimers()
+    })
+
+    it('it returns as soon as it can', async () => {
+        let tries = 1
+        const flaky = jest.fn(() => {
+            if (tries < 2) {
+                tries += 1
+                return Promise.reject(new TypeError(`nope${tries++}`))
+            }
+            return Promise.resolve(14)
+        })
+        expect(await promiseRetry(flaky)).toEqual(14)
+        expect(flaky).toHaveBeenCalledTimes(2)
+        jest.runAllTimers()
+    })
+})
 
 describe('getNextRetryMs', () => {
     it('returns the correct number of milliseconds with a multiplier of 1', () => {
