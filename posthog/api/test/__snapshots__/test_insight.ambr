@@ -62,8 +62,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['user did things', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-17 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-24 23:59:59', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-18 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-25 23:59:59', 'UTC')
                       AND ((and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
                            AND (like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%'))) ) events
                  WHERE (step_0 = 1
@@ -142,8 +142,8 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['user did things', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-17 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-24 23:59:59', 'UTC') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-18 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-25 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
