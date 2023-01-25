@@ -135,41 +135,24 @@ export const eachBatch =
 
             let teamId: number | null = null
 
+            teamId =
+                messagePayload.team_id ?? (event.token ? (await teamManager.getTeamByToken(event.token))?.id : null)
+
+            if (!teamId) {
+                status.warn('⚠️', 'invalid_message', {
+                    reason: 'team_not_found',
+                    partition: batch.partition,
+                    offset: message.offset,
+                })
+                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                continue
+            }
+
             try {
-                teamId =
-                    messagePayload.team_id ?? (event.token ? (await teamManager.getTeamByToken(event.token))?.id : null)
-
-                if (!teamId) {
-                    status.warn('⚠️', 'invalid_message', {
-                        reason: 'team_not_found',
-                        partition: batch.partition,
-                        offset: message.offset,
-                    })
-                    await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
-                    continue
-                }
-
-                if (event.event === '$snapshot') {
-                    await createSessionRecordingEvent(
-                        messagePayload.uuid,
-                        teamId,
-                        messagePayload.distinct_id,
-                        parseEventTimestamp(event as PluginEvent),
-                        event.ip,
-                        event.properties || {},
-                        producer
-                    )
-                } else if (event.event === '$performance_event') {
-                    await createPerformanceEvent(
-                        messagePayload.uuid,
-                        teamId,
-                        messagePayload.distinct_id,
-                        event.properties || {},
-                        event.ip,
-                        parseEventTimestamp(event as PluginEvent),
-                        producer
-                    )
-                }
+                await processEvent(
+                    { ...event, team_id: teamId, distinct_id: messagePayload.distinct_id, uuid: messagePayload.uuid },
+                    producer
+                )
             } catch (error) {
                 status.error('⚠️', 'processing_error', {
                     eventId: event.uuid,
@@ -232,6 +215,30 @@ export const eachBatch =
 
         status.debug('✅', 'Processed batch', { size: batch.messages.length })
     }
+
+export const processEvent = async (event: PluginEvent, producer: KafkaProducerWrapper) => {
+    if (event.event === '$snapshot') {
+        await createSessionRecordingEvent(
+            event.uuid,
+            event.team_id,
+            event.distinct_id,
+            parseEventTimestamp(event),
+            event.ip,
+            event.properties || {},
+            producer
+        )
+    } else if (event.event === '$performance_event') {
+        await createPerformanceEvent(
+            event.uuid,
+            event.team_id,
+            event.distinct_id,
+            event.properties || {},
+            event.ip,
+            parseEventTimestamp(event),
+            producer
+        )
+    }
+}
 
 const consumerBatchSize = new Histogram({
     name: 'consumed_batch_size',

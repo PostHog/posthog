@@ -12,17 +12,13 @@ export async function pluginsProcessEventStep(
 ): Promise<StepResult> {
     let processedEvent: PluginEvent | null = event
 
-    // run processEvent on all events that are not meta-events like $snapshot or $performance_event
-    // NOTE: These are technically filtered out in step 2, but we still need to check here just to be sure
-    if (!['$snapshot', '$performance_event'].includes(event.event)) {
-        processedEvent = await runInstrumentedFunction({
-            server: runner.hub,
-            event,
-            func: (event) => runProcessEvent(runner.hub, event),
-            statsKey: 'kafka_queue.single_event',
-            timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
-        })
-    }
+    processedEvent = await runInstrumentedFunction({
+        server: runner.hub,
+        event,
+        func: (event) => runProcessEvent(runner.hub, event),
+        statsKey: 'kafka_queue.single_event',
+        timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
+    })
 
     if (processedEvent) {
         return runner.nextStep('processPersonsStep', processedEvent, personContainer)

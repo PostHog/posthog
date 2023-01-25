@@ -5,6 +5,7 @@ import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
+import { processEvent } from '../session-recordings-consumer'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
@@ -56,7 +57,14 @@ export async function ingestEvent(
             team_id: event.team_id.toString(),
         })
         // we've confirmed team_id exists so can assert event as PluginEvent
-        await workerMethods.runEventPipeline(event as PluginEvent)
+
+        if (['$snapshot', '$performance_event'].includes(event.event)) {
+            // TODO: handle error handling, e.g. catch and log on anything other
+            // then a `DependencyUnavailableError`
+            await processEvent(event as PluginEvent, server.kafkaProducer)
+        } else {
+            await workerMethods.runEventPipeline(event as PluginEvent)
+        }
     } else {
         server.statsd?.increment('kafka_queue_ingest_event_hit', {
             pipeline: 'runLightweightCaptureEndpointEventPipeline',
