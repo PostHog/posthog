@@ -81,7 +81,6 @@ export enum AvailableFeature {
 }
 
 export enum LicensePlan {
-    Starter = 'starter',
     Scale = 'scale',
     Enterprise = 'enterprise',
 }

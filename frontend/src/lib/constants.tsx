@@ -146,7 +146,7 @@ export const FEATURE_FLAGS = {
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
 export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
-export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
+export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
     [AvailableFeature.ZAPIER]: LicensePlan.Scale,
     [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
     [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,
@@ -170,28 +170,6 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
     [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
-    [AvailableFeature.EVENTS]: LicensePlan.Starter,
-    [AvailableFeature.TRACKED_USERS]: LicensePlan.Starter,
-    [AvailableFeature.DATA_RETENTION]: LicensePlan.Starter,
-    [AvailableFeature.SESSION_RECORDINGS]: LicensePlan.Starter,
-    [AvailableFeature.BOOLEAN_FLAGS]: LicensePlan.Starter,
-    [AvailableFeature.APPS]: LicensePlan.Starter,
-    [AvailableFeature.SLACK_INTEGRATION]: LicensePlan.Starter,
-    [AvailableFeature.MICROSOFT_TEAMS_INTEGRATION]: LicensePlan.Starter,
-    [AvailableFeature.DISCORD_INTEGRATION]: LicensePlan.Starter,
-    [AvailableFeature.TEAM_MEMBERS]: LicensePlan.Starter,
-    [AvailableFeature.API_ACCESS]: LicensePlan.Starter,
-    [AvailableFeature.COMMUNITY_SUPPORT]: LicensePlan.Starter,
-    [AvailableFeature.DEDICATED_SUPPORT]: LicensePlan.Starter,
-    [AvailableFeature.EMAIL_SUPPORT]: LicensePlan.Starter,
-    [AvailableFeature.ACCOUNT_MANAGER]: LicensePlan.Starter,
-    [AvailableFeature.TRAINING]: LicensePlan.Starter,
-    [AvailableFeature.CONFIGURATION_SUPPORT]: LicensePlan.Starter,
-    [AvailableFeature.TERMS_AND_CONDITIONS]: LicensePlan.Starter,
-    [AvailableFeature.SECURITY_ASSESSMENT]: LicensePlan.Starter,
-    [AvailableFeature.BESPOKE_PRICING]: LicensePlan.Starter,
-    [AvailableFeature.INVOICE_PAYMENTS]: LicensePlan.Starter,
-    [AvailableFeature.SUPPORT_SLAS]: LicensePlan.Starter,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

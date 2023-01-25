@@ -12,7 +12,6 @@ export function isLicenseExpired(license: LicenseType): boolean {
 
 /** The higher the plan, the higher its sorting value - sync with back-end License model */
 const PLAN_TO_SORTING_VALUE: Record<LicensePlan, number> = {
-    [LicensePlan.Starter]: 0,
     [LicensePlan.Scale]: 10,
     [LicensePlan.Enterprise]: 20,
 }
