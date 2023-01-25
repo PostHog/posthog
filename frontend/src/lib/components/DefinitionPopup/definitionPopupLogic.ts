@@ -13,6 +13,8 @@ import equal from 'fast-deep-equal'
 import { userLogic } from 'scenes/userLogic'
 import { lemonToast } from '../lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -37,7 +39,7 @@ export interface DefinitionPopupLogicProps {
 export const definitionPopupLogic = kea<definitionPopupLogicType>({
     props: {} as DefinitionPopupLogicProps,
     connect: {
-        values: [userLogic, ['hasAvailableFeature']],
+        values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     },
     path: ['lib', 'components', 'DefinitionPanel', 'definitionPopupLogic'],
     actions: {
@@ -143,16 +145,24 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                 hasAvailableFeature(AvailableFeature.TAGGING),
         ],
         isViewable: [
-            (s) => [s.type],
-            (type) =>
-                [
+            (s) => [s.featureFlags, s.type],
+            (featureFlags, type) => {
+                if (
+                    featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS] &&
+                    (type === TaxonomicFilterGroupType.PersonProperties ||
+                        type.startsWith(TaxonomicFilterGroupType.GroupsPrefix))
+                )
+                    {return true}
+
+                return [
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.CustomEvents,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.EventProperties,
                     TaxonomicFilterGroupType.EventFeatureFlags,
-                ].includes(type),
+                ].includes(type)
+            },
         ],
         isAction: [(s) => [s.type], (type) => type === TaxonomicFilterGroupType.Actions],
         isEvent: [
