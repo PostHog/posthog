@@ -101,9 +101,10 @@ const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2T
                         </span>
                         <span className="font-bold">
                             {i === 0 && parseFloat(tier.unit_amount_usd) === 0
-                                ? plan.name === 'Scale'
-                                    ? 'Free'
-                                    : 'Included'
+                                ? // if the base product has a price, then the first tier is included, otherwise it's free
+                                  plan.products.filter((p) => p.type === 'base')?.[0]?.unit_amount_usd
+                                    ? 'Included'
+                                    : 'Free'
                                 : `$${parseFloat(tier.unit_amount_usd).toFixed(6)}`}
                         </span>
                     </div>
