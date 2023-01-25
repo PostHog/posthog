@@ -47,7 +47,7 @@ const getPlanBasePrice = (plan: BillingV2PlanType): number | string => {
     if (basePlan?.unit_amount_usd) {
         return `$${parseInt(basePlan.unit_amount_usd)}/mo`
     }
-    if (plan.name === 'Starter') {
+    if (plan.is_free) {
         return 'Free forever'
     }
     return '$0/mo'
@@ -261,6 +261,19 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                                   </th>
                                                   {billing?.available_plans?.map((plan) => (
                                                       <td key={`${plan.name}-${feature.name}`}>
+                                                          {feature.key === 'boolean_flags' &&
+                                                              console.log(
+                                                                  feature.key,
+                                                                  plan.name,
+                                                                  product.type,
+                                                                  feature_group.name,
+                                                                  plan?.products
+                                                                      ?.find((p) => p.type === product.type)
+                                                                      ?.feature_groups?.find(
+                                                                          (fg) => fg.name === feature_group.name
+                                                                      )
+                                                                      ?.features?.find((f) => f.key === feature.key)
+                                                              )}
                                                           <PlanIcon
                                                               feature={plan?.products
                                                                   ?.find((p) => p.type === product.type)

@@ -1113,6 +1113,7 @@ export interface BillingV2PlanType {
     key: string
     name: string
     description: string
+    is_free?: boolean
     products: BillingProductV2Type[]
 }
 
