@@ -24,7 +24,8 @@ export function InfoWindow(): JSX.Element | null {
     const { rect } = activeMeta
 
     const windowWidth = Math.min(document.body.clientWidth, window.innerWidth)
-    const windowHeight = Math.max(document.body.clientHeight, window.innerHeight)
+    const positioningHeight = document.body.clientHeight
+    const windowHeight = window.innerHeight
 
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
@@ -46,7 +47,7 @@ export function InfoWindow(): JSX.Element | null {
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = windowHeight - rect.top + 10 - window.pageYOffset
+        bottom = positioningHeight - rect.top + 10 - window.pageYOffset
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow
