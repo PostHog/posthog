@@ -181,8 +181,8 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                         ))}
                     </tr>
                     {billing?.available_plans
-                        ? billing?.available_plans[0].products
-                              .filter((product) => product.type !== 'base' && product.type !== 'enterprise')
+                        ? billing?.available_plans[billing?.available_plans.length - 1].products
+                              .filter((product) => product.type !== 'base')
                               .map((product, i) => (
                                   <tr
                                       key={product.type}
@@ -194,7 +194,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                       }
                                   >
                                       <th scope="row">
-                                          {product.type === 'events' ? 'Product analytics' : 'Session recording'}
+                                          {product.name}
                                           <p className="ml-0 text-xs text-muted mt-1">
                                               Priced per {product.type === 'events' ? 'event' : 'recording'}
                                           </p>
