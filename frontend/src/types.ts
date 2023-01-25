@@ -1064,7 +1064,7 @@ export interface BillingV2TierType {
 }
 
 export interface BillingProductV2Type {
-    type: 'EVENTS' | 'RECORDINGS' | 'ENTERPRISE' | 'BASE' | 'events' | 'recordings' | 'enterprise' | 'base'
+    type: 'events' | 'recordings' | 'enterprise' | 'base'
     name: string
     description?: string
     price_description?: string
