@@ -131,18 +131,18 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
         <td key={`${plan.name}-cta`}>
             <LemonButton
                 to={`/api/billing-v2/activation?plan=${plan.key}&redirect_path=${redirectPath}`}
-                type={plan.name === 'Starter' ? 'secondary' : 'primary'}
+                type={plan.is_free ? 'secondary' : 'primary'}
                 fullWidth
                 center
                 disableClientSideRouting
-                disabled={plan.name === 'Starter' && !billing?.billing_period}
+                disabled={plan.is_free && !billing?.billing_period}
                 onClick={() => {
-                    if (plan.name != 'Starter') {
+                    if (!plan.is_free) {
                         reportBillingUpgradeClicked(plan.name)
                     }
                 }}
             >
-                {!billing?.billing_period && plan.name === 'Starter' ? 'Current plan' : 'Upgrade'}
+                {!billing?.billing_period && plan.is_free ? 'Current plan' : 'Upgrade'}
             </LemonButton>
         </td>
     ))
@@ -262,19 +262,6 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                                   </th>
                                                   {billing?.available_plans?.map((plan) => (
                                                       <td key={`${plan.name}-${feature.name}`}>
-                                                          {feature.key === 'boolean_flags' &&
-                                                              console.log(
-                                                                  feature.key,
-                                                                  plan.name,
-                                                                  product.type,
-                                                                  feature_group.name,
-                                                                  plan?.products
-                                                                      ?.find((p) => p.type === product.type)
-                                                                      ?.feature_groups?.find(
-                                                                          (fg) => fg.name === feature_group.name
-                                                                      )
-                                                                      ?.features?.find((f) => f.key === feature.key)
-                                                              )}
                                                           <PlanIcon
                                                               feature={plan?.products
                                                                   ?.find((p) => p.type === product.type)
