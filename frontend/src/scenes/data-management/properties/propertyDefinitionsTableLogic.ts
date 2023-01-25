@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { Breadcrumb, PropertyDefinition } from '~/types'
 import api from 'lib/api'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
@@ -6,46 +6,66 @@ import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
-import { objectsEqual } from 'lib/utils'
+import { capitalizeFirstLetter, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
 
+import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
+import { groupsModel } from '../../../models/groupsModel'
+import { LemonSelectOption } from '../../../lib/components/LemonSelect'
+
 export interface Filters {
     property: string
+    type: 'event' | 'person' | 'group'
+    group_type_index: number | null
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
     return {
         property: '',
+        type: 'event',
+        group_type_index: null,
         ...filter,
+    }
+}
+
+function removeDefaults(filter: Filters): Partial<Filters> {
+    return {
+        property: filter.property !== '' ? filter.property : undefined,
+        type: filter.type !== 'event' ? filter.type : undefined,
+        group_type_index: filter.group_type_index !== null ? filter.group_type_index : undefined,
     }
 }
 
 export const EVENT_PROPERTY_DEFINITIONS_PER_PAGE = 50
 
-export interface EventPropertyDefinitionsTableLogicProps {
+export interface PropertyDefinitionsTableLogicProps {
     key: string
 }
 
-export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTableLogicType>([
-    path(['scenes', 'data-management', 'event-properties', 'eventPropertyDefinitionsTableLogic']),
-    props({} as EventPropertyDefinitionsTableLogicProps),
+export const propertyDefinitionsTableLogic = kea<propertyDefinitionsTableLogicType>([
+    path(['scenes', 'data-management', 'properties', 'propertyDefinitionsTableLogic']),
+    props({} as PropertyDefinitionsTableLogicProps),
     key((props) => props.key || 'scene'),
+    connect({
+        values: [groupsModel, ['groupTypes', 'aggregationLabel']],
+    }),
     actions({
-        loadEventPropertyDefinitions: (url: string | null = '') => ({
+        loadPropertyDefinitions: (url: string | null = '') => ({
             url,
         }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
         setHoveredDefinition: (definitionKey: string | null) => ({ definitionKey }),
         setOpenedDefinition: (id: string | null) => ({ id }),
-        setLocalEventPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
+        setLocalPropertyDefinition: (definition: PropertyDefinition) => ({ definition }),
+        setPropertyType: (propertyType: string) => ({ propertyType }),
     }),
     reducers({
         filters: [
             {
                 property: '',
+                type: 'event',
             } as Filters,
             {
                 setFilters: (state, { filters }) => ({
@@ -61,8 +81,38 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
             },
         ],
     }),
+    selectors({
+        breadcrumbs: [
+            () => [],
+            (): Breadcrumb[] => {
+                return [
+                    {
+                        name: `Data Management`,
+                        path: urls.eventDefinitions(),
+                    },
+                    {
+                        name: 'Properties',
+                        path: urls.propertyDefinitions(),
+                    },
+                ]
+            },
+        ],
+        propertyTypeOptions: [
+            (s) => [s.groupTypes, s.aggregationLabel],
+            (groupTypes, aggregationLabel) => {
+                const groupChoices: Array<LemonSelectOption<string>> = groupTypes.map((type) => ({
+                    label: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
+                    value: `group::${type.group_type_index}`,
+                }))
+                return [
+                    { label: 'Event properties', value: 'event::' } as LemonSelectOption<string>,
+                    { label: 'Person properties', value: 'person::' } as LemonSelectOption<string>,
+                ].concat(groupChoices)
+            },
+        ],
+    }),
     loaders(({ values, cache }) => ({
-        eventPropertyDefinitions: [
+        propertyDefinitions: [
             {
                 count: 0,
                 next: undefined,
@@ -71,7 +121,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 results: [],
             } as PropertyDefinitionsPaginatedResponse,
             {
-                loadEventPropertyDefinitions: async ({ url }, breakpoint) => {
+                loadPropertyDefinitions: async ({ url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
@@ -100,68 +150,51 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                     }
                     return cache.apiCache[url]
                 },
-                setLocalEventPropertyDefinition: ({ definition }) => {
-                    if (!values.eventPropertyDefinitions.current) {
-                        return values.eventPropertyDefinitions
+                setLocalPropertyDefinition: ({ definition }) => {
+                    if (!values.propertyDefinitions.current) {
+                        return values.propertyDefinitions
                     }
                     // Update cache as well
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
-                        [values.eventPropertyDefinitions.current]: {
-                            ...values.eventPropertyDefinitions,
-                            results: values.eventPropertyDefinitions.results.map((d) =>
+                        [values.propertyDefinitions.current]: {
+                            ...values.propertyDefinitions,
+                            results: values.propertyDefinitions.results.map((d) =>
                                 d.id === definition.id ? definition : d
                             ),
                         },
                     }
-                    return cache.apiCache[values.eventPropertyDefinitions.current]
+                    return cache.apiCache[values.propertyDefinitions.current]
                 },
-            },
-        ],
-    })),
-    selectors(({ cache }) => ({
-        // Expose for testing
-        apiCache: [() => [], () => cache.apiCache],
-        breadcrumbs: [
-            () => [],
-            (): Breadcrumb[] => {
-                return [
-                    {
-                        name: `Data Management`,
-                        path: urls.eventDefinitions(),
-                    },
-                    {
-                        name: 'Event Properties',
-                        path: urls.eventPropertyDefinitions(),
-                    },
-                ]
             },
         ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
-            actions.loadEventPropertyDefinitions(
+            actions.loadPropertyDefinitions(
                 normalizePropertyDefinitionEndpointUrl(
-                    values.eventPropertyDefinitions.current,
+                    values.propertyDefinitions.current,
                     {
                         search: values.filters.property,
+                        type: values.filters.type,
+                        group_type_index: values.filters.group_type_index,
                     },
                     true
                 )
             )
         },
-        loadEventPropertyDefinitionsSuccess: () => {
+        loadPropertyDefinitionsSuccess: () => {
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
                     ?.actions.reportDataManagementEventPropertyDefinitionsPageLoadSucceeded(
                         performance.now() - cache.propertiesStartTime,
-                        values.eventPropertyDefinitions.results.length
+                        values.propertyDefinitions.results.length
                     )
                 cache.propertiesStartTime = undefined
             }
         },
-        loadEventPropertyDefinitionsFailure: ({ error }) => {
+        loadPropertyDefinitionsFailure: ({ error }) => {
             if (cache.propertiesStartTime !== undefined) {
                 eventUsageLogic
                     .findMounted()
@@ -172,13 +205,20 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 cache.propertiesStartTime = undefined
             }
         },
+        setPropertyType: ({ propertyType }) => {
+            const [type, index] = propertyType.split('::')
+            actions.setFilters({
+                type: type as 'event' | 'person' | 'group',
+                group_type_index: index ? +index : null,
+            })
+        },
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-management/event-properties': (_, searchParams) => {
+        [urls.propertyDefinitions()]: (_, searchParams) => {
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
-            } else if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
-                actions.loadEventPropertyDefinitions()
+            } else if (!values.propertyDefinitions.results.length && !values.propertyDefinitionsLoading) {
+                actions.loadPropertyDefinitions()
             }
         },
     })),
@@ -187,7 +227,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
             const nextValues = cleanFilters(values.filters)
             const urlValues = cleanFilters(router.values.searchParams)
             if (!objectsEqual(nextValues, urlValues)) {
-                return [router.values.location.pathname, nextValues]
+                return [router.values.location.pathname, removeDefaults(nextValues)]
             }
         },
     })),

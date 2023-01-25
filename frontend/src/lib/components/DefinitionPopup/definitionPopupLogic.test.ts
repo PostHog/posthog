@@ -254,19 +254,19 @@ describe('definitionPopupLogic', () => {
                 },
                 {
                     type: TaxonomicFilterGroupType.PersonProperties,
-                    url: urls.eventPropertyDefinition(mockDefinitionId),
+                    url: urls.propertyDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.EventProperties,
-                    url: urls.eventPropertyDefinition(mockDefinitionId),
+                    url: urls.propertyDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.NumericalEventProperties,
-                    url: urls.eventPropertyDefinition(mockDefinitionId),
+                    url: urls.propertyDefinition(mockDefinitionId),
                 },
                 {
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_0`,
-                    url: urls.eventPropertyDefinition(mockDefinitionId),
+                    url: urls.propertyDefinition(mockDefinitionId),
                 },
                 {
                     type: TaxonomicFilterGroupType.Cohorts,
