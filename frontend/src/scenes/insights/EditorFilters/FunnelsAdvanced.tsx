@@ -2,7 +2,7 @@ import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { EditorFilterProps, QueryEditorFilterProps, FunnelsFilterType } from '~/types'
 import { FunnelStepOrderPicker, FunnelStepOrderPickerDataExploration } from '../views/Funnels/FunnelStepOrderPicker'
-import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter'
+import { FunnelExclusionsFilter, FunnelExclusionsFilterDataExploration } from '../filters/FunnelExclusionsFilter'
 import {
     FunnelStepReferencePicker,
     FunnelStepReferencePickerDataExploration,
@@ -78,7 +78,7 @@ export function FunnelsAdvancedComponent({
                     />
                 }
             >
-                <FunnelExclusionsFilter />
+                {dataExploration ? <FunnelExclusionsFilterDataExploration /> : <FunnelExclusionsFilter />}
             </PureField>
 
             {!!advancedOptionsUsedCount && (

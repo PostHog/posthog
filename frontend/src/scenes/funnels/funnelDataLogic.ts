@@ -1,5 +1,12 @@
 import { kea } from 'kea'
-import { FunnelsFilterType, FunnelStepReference, InsightLogicProps, StepOrderValue } from '~/types'
+import {
+    FilterType,
+    FunnelsFilterType,
+    FunnelStepRangeEntityFilter,
+    FunnelStepReference,
+    InsightLogicProps,
+    StepOrderValue,
+} from '~/types'
 import { FunnelsQuery } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -30,24 +37,42 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 ) => Noun
             ): Noun => aggregationLabel(querySource.aggregation_group_type_index),
         ],
+        /*
+         * Advanced options: funnel_order_type, funnel_step_reference, exclusions
+         */
         advancedOptionsUsedCount: [
             (s) => [s.insightFilter],
-            (insightFilter: FunnelsFilterType): number => {
+            (insightFilter: FunnelsFilterType | undefined): number => {
                 let count = 0
-                if (insightFilter.funnel_order_type && insightFilter.funnel_order_type !== StepOrderValue.ORDERED) {
+                if (insightFilter?.funnel_order_type && insightFilter?.funnel_order_type !== StepOrderValue.ORDERED) {
                     count = count + 1
                 }
                 if (
-                    insightFilter.funnel_step_reference &&
-                    insightFilter.funnel_step_reference !== FunnelStepReference.total
+                    insightFilter?.funnel_step_reference &&
+                    insightFilter?.funnel_step_reference !== FunnelStepReference.total
                 ) {
                     count = count + 1
                 }
-                if (insightFilter.exclusions?.length) {
+                if (insightFilter?.exclusions?.length) {
                     count = count + 1
                 }
                 return count
             },
+        ],
+
+        // Exclusion filters
+        exclusionDefaultStepRange: [
+            (s) => [s.querySource],
+            (querySource: FunnelsQuery): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
+                funnel_from_step: 0,
+                funnel_to_step: querySource.series.length > 1 ? querySource.series.length - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            (s) => [s.insightFilter],
+            (insightFilter: FunnelsFilterType | undefined): FilterType => ({
+                events: insightFilter?.exclusions,
+            }),
         ],
     },
 })
