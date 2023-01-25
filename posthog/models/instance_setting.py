@@ -69,7 +69,6 @@ def get_instance_settings(keys: List[str]) -> Any:
 def set_instance_setting(key: str, value: Any):
     raw_value = json.dumps(value)
     InstanceSetting.objects.update_or_create(key=CONSTANCE_DATABASE_PREFIX + key, defaults={"raw_value": raw_value})
-    cache.set(key, raw_value)
 
 
 @contextmanager

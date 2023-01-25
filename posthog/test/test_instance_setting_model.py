@@ -99,10 +99,10 @@ def test_get_instance_setting_sets_cache(db, cache, raw_value):
     key = "my_key"
     patched = {key: ("default_value", "a help str", str)}
 
-    InstanceSetting.objects.create(key=settings.CONSTANCE_DATABASE_PREFIX + key, raw_value=raw_value)
-
     with patch.dict(settings.CONSTANCE_CONFIG, patched, clear=True):
         assert cache.get(key) is None
+
+        InstanceSetting.objects.create(key=settings.CONSTANCE_DATABASE_PREFIX + key, raw_value=raw_value)
 
         first_value = get_instance_setting(key)
         assert first_value == json.loads(raw_value)

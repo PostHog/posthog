@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
 
 import lzstring
+from django.core.cache import cache
 from django.db import Error as DjangoDatabaseError
 from django.db import connection
 from django.test.client import Client
@@ -203,7 +204,11 @@ class TestCapture(BaseTest):
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
         key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+
         InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        # Assume no cache for this test
+        cache.clear()
+
         data = {
             "event": "$autocapture",
             "properties": {
@@ -251,7 +256,11 @@ class TestCapture(BaseTest):
         distinct_id = "999"
         expected_key = f"{self.team.pk}:{distinct_id}"
         key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
+
         InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        # Assume no cache for this test
+        cache.clear()
+
         data = {
             "event": "$autocapture",
             "properties": {
@@ -298,6 +307,9 @@ class TestCapture(BaseTest):
         expected_key = f"{self.team.pk}:{distinct_id}"
         key = CONSTANCE_DATABASE_PREFIX + "EVENT_PARTITION_KEYS_TO_OVERRIDE"
         InstanceSetting.objects.create(key=key, raw_value=f'["{expected_key}"]')
+        # Assume no caching for this test
+        cache.clear()
+
         data = {
             "event": "$autocapture",
             "properties": {
