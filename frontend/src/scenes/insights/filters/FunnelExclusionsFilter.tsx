@@ -66,8 +66,7 @@ export function FunnelExclusionsFilterComponent({
 }: FunnelExclusionsFilterComponentProps): JSX.Element {
     const ref = useRef(null)
     const [width] = useSize(ref)
-    // const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
-    const isVerticalLayout = true
+    const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
 
     return (
         <ActionFilter

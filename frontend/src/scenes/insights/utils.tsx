@@ -39,14 +39,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import {
-    ActionsNode,
-    BreakdownFilter,
-    EventsNode,
-    InsightQueryNode,
-    StickinessQuery,
-    TrendsQuery,
-} from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
 import {
     isEventsNode,
     isFunnelsQuery,

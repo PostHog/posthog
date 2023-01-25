@@ -11,14 +11,14 @@ import {
     IconPublic,
 } from 'lib/components/icons'
 
-import { ChartDisplayType, FilterType, FunnelVizType } from '~/types'
+import { ChartDisplayType, FilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface ChartFilterProps {
     filters: FilterType
-    onChange?: (chartFilter: ChartDisplayType | FunnelVizType) => void
+    onChange?: (chartFilter: ChartDisplayType) => void
     disabled?: boolean
 }
 
@@ -33,7 +33,7 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
         ? "This type isn't available, because there are multiple trend series."
         : undefined
 
-    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> = [
+    const options: LemonSelectOptions<ChartDisplayType> = [
         {
             title: 'Time Series',
             options: [
@@ -116,8 +116,8 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
             key="2"
             value={chartFilter || ChartDisplayType.ActionsLineGraph}
             onChange={(value) => {
-                setChartFilter(value as ChartDisplayType | FunnelVizType)
-                onChange?.(value as ChartDisplayType | FunnelVizType)
+                setChartFilter(value as ChartDisplayType)
+                onChange?.(value as ChartDisplayType)
             }}
             dropdownPlacement="bottom-end"
             optionTooltipPlacement="left"
