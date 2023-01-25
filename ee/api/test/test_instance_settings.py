@@ -50,4 +50,4 @@ class TestInstanceSettings(ClickhouseTestMixin, APILicensedTest):
             "SELECT engine_full FROM system.tables WHERE database = %(database)s AND name = %(table)s",
             {"database": CLICKHOUSE_DATABASE, "table": PERFORMANCE_EVENT_DATA_TABLE()},
         )
-        self.assertIn("TTL toDate(created_at) + toIntervalWeek(5)", table_engine[0][0])
+        self.assertIn("TTL toDate(timestamp) + toIntervalWeek(5)", table_engine[0][0])
