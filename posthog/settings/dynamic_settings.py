@@ -1,4 +1,6 @@
-from posthog.settings.utils import get_from_env, str_to_bool
+import os
+
+from posthog.settings.utils import get_from_env, get_list, str_to_bool
 
 CONSTANCE_DATABASE_PREFIX = "constance:posthog:"
 
@@ -124,11 +126,11 @@ CONSTANCE_CONFIG = {
         str,
     ),
     "EVENT_PARTITION_KEYS_TO_OVERRIDE": (
-        get_from_env("EVENT_PARTITION_KEYS_TO_OVERRIDE", default=""),
+        get_list(os.getenv("EVENT_PARTITION_KEYS_TO_OVERRIDE", "")),
         "A list of <team_id:distinct_id> pairs (in the format 2:myLovelyId) that we should use"
         "random partitioning for when producing events to the Kafka topic consumed by the plugin server"
         "This is a measure to handle hot partitions in ad-hoc cases.",
-        str,
+        list,
     ),
     "ASYNC_MIGRATIONS_OPT_OUT_EMAILS": (
         get_from_env("ASYNC_MIGRATIONS_OPT_OUT_EMAILS", False, type_cast=str_to_bool),
