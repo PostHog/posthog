@@ -1148,7 +1148,7 @@ export interface InsightModel extends Cacheable {
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
-    // deprecated: use dashboard_tiles instead
+     /** @deprecated Use `dashboard_tiles instead */
     dashboards: number[] | null
     dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
