@@ -45,6 +45,7 @@ import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/Path
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -246,6 +247,10 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                             <PathsAdvancedDataExploration {...props} />
                         </PayGateMini>
                     ),
+                },
+                isFunnels && {
+                    key: 'funnels-advanced',
+                    component: FunnelsAdvancedDataExploration,
                 },
             ]),
         },
