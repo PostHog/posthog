@@ -63,4 +63,5 @@ jobs:
                   path: |
                       playwright-report/
                       test-results/
+                      frontend/__snapshots__/__diff_output__/
                   retention-days: 7
