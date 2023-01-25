@@ -249,8 +249,11 @@
         "fsevents": "^2.1.2"
     },
     "lint-staged": {
-        "*.{js,jsx,mjs,ts,tsx,json,yaml,yml,css,scss}": "prettier --write",
-        "((frontend|cypress)/**).{js,jsx,mjs,ts,tsx}": "eslint -c .eslintrc.js --fix",
+        "*.{json,yaml,yml,css,scss}": "prettier --write",
+        "((frontend|cypress)/**).{js,jsx,mjs,ts,tsx}": [
+            "eslint -c .eslintrc.js --fix",
+            "prettier --write"
+        ],
         "(plugin-server/**).{js,jsx,mjs,ts,tsx}": [
             "eslint -c plugin-server/.eslintrc.js --fix",
             "prettier --write"
@@ -259,6 +262,9 @@
             "black",
             "flake8",
             "isort"
+        ],
+        "*.png": [
+            "optipng -clobber -o4 -strip all"
         ]
     },
     "browserslist": {
