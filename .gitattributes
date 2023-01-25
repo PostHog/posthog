@@ -4,4 +4,3 @@
 .github/ export-ignore
 CONTRIBUTING.md export-ignore
 CODE_OF_CONDUCT.md export-ignore
-frontend/__snapshots__/*.png filter=lfs diff=lfs merge=lfs -text
