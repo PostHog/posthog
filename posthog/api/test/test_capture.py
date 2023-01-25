@@ -217,7 +217,10 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        patched_config = {self.database_override_key: ("not_current_expected_key", "a help str", str)}
+
+        # Using a similar override key to ensure this is not matching even when similar.
+        patched_config = {self.database_override_key: ([f"{self.team.pk}:{distinct_id}9"], "a help str", list)}
+
         with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
             with simulate_postgres_error("posthog_instancesetting"):
                 with self.assertNumQueries(2):
@@ -267,7 +270,7 @@ class TestCapture(BaseTest):
                 ],
             },
         }
-        patched_config = {self.database_override_key: (f'["{expected_key}"]', "a help str", str)}
+        patched_config = {self.database_override_key: ([expected_key], "a help str", list)}
         with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
             with simulate_postgres_error("posthog_instancesetting"):
                 with self.assertNumQueries(2):
@@ -1573,13 +1576,13 @@ class TestCapture(BaseTest):
         leading to random partitioning.
         """
         distinct_id = "id-defaulted1"
-        patched = {self.database_override_key: (f'["{self.team.pk}:{distinct_id}"]', "a help str", str)}
+        patched = {self.database_override_key: ([f"{self.team.pk}:{distinct_id}"], "a help str", list)}
 
         with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
             # Sanity check: nothing should be set on the DB or the cache.
             # Config value should be returned.
             config_val = get_instance_setting(self.database_override_key)
-            self.assertEqual(config_val, f'["{self.team.pk}:{distinct_id}"]')
+            self.assertEqual(config_val, [f"{self.team.pk}:{distinct_id}"])
 
             response = self.client.post(
                 "/capture/",
@@ -1614,7 +1617,7 @@ class TestCapture(BaseTest):
         set_instance_setting(self.database_override_key, [override_key])
         # For the sake of testing we are reading from the DB, let's clear the cache
         cache.clear()
-        patched = {self.database_override_key: ("any_value", "a help str", str)}
+        patched = {self.database_override_key: (["any_value"], "a help str", list)}
 
         with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
             response = self.client.post(
@@ -1647,7 +1650,7 @@ class TestCapture(BaseTest):
         distinct_id = "id-override1"
         override_key = f"{self.team.pk}:{distinct_id}"
         set_instance_setting(self.database_override_key, [override_key])
-        patched = {self.database_override_key: (f'["{override_key}"]', "a help str", str)}
+        patched = {self.database_override_key: ([override_key], "a help str", list)}
 
         with patch.dict(CONSTANCE_CONFIG, patched, clear=True):
             with patch("posthog.models.instance_setting.cache") as mock_cache:
