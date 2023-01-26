@@ -21,6 +21,18 @@ import {
     LifecycleToggle,
 } from '~/types'
 
+/**
+ * PostHog Query Schema definition.
+ *
+ * This file acts as the source of truth for:
+ *
+ * - frontend/src/queries/schema.json
+ *   - generated from typescript via "pnpm run generate:schema:json"
+ *
+ * - posthog/schema.py
+ *   - generated from json the above json via "pnpm run generate:schema:python"
+ * */
+
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',

@@ -6,14 +6,13 @@ from drf_spectacular.utils import OpenApiParameter
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
-from warlock import model_factory
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import RequestParsingError
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
+from posthog.schema import EventsQuery
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -30,25 +29,13 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         ]
     )
     def list(self, request: Request, **kw) -> HttpResponse:
-        query = self._query_from_request(request)
-
-        if query.kind == "EventsQuery":
-            return JsonResponse({"success": "Query is valid!", "query": query})
-        else:
-            raise RequestParsingError("Invalid query kind: %s" % query.kind)
-
-    def _query_from_request(self, request: Request):
         query_json = self._query_json_from_request(request)
-        return self._query_from_json(query_json)
-
-    @cached_property
-    def _json_schema(self):
-        with open("frontend/src/queries/schema.json") as f:
-            return json.load(f)
-
-    @cached_property
-    def _query_from_json(self):
-        return model_factory(self._json_schema)
+        query_kind = query_json.get("kind")
+        if query_kind == "EventsQuery":
+            query = EventsQuery.parse_obj(query_json)
+            return JsonResponse({"success": "Query is valid!", "query": query.dict()})
+        else:
+            raise RequestParsingError("Invalid query kind: %s" % query_kind)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
