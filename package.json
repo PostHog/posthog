@@ -23,7 +23,7 @@
         "test": "pnpm test:unit && pnpm test:visual-regression",
         "test:unit": "jest --testPathPattern=frontend/",
         "test:visual-regression": "playwright test -u && test-storybook -u --no-index-json --url $STORYBOOK_URL",
-        "test:visual-regression:ci": "playwright test && test-storybook --ci --no-index-json",
+        "test:visual-regression:ci": "playwright test && test-storybook --ci --no-index-json --maxWorkers=2",
         "start": "concurrently -n ESBUILD,TYPEGEN -c yellow,green \"pnpm start-http\" \"pnpm run typegen:watch\"",
         "start-http": "pnpm clean && pnpm copy-scripts && node frontend/build.mjs --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
