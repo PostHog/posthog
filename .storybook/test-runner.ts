@@ -47,11 +47,14 @@ module.exports = {
         expect.extend({ toMatchImageSnapshot })
     },
     async postRender(page, context) {
-        const storyContext = await getStoryContext(page, context)
-
-        await page.evaluate(() => {
-            document.body.classList.add('dangerously-stop-all-animations')
-        })
+        const [storyContext] = await Promise.all([
+            getStoryContext(page, context),
+            page.evaluate(() => {
+                // Stop all animations for consistent snapshots
+                document.body.classList.add('dangerously-stop-all-animations')
+            }),
+            new Promise((resolve) => setTimeout(resolve, 400)), // Ensure there's a delay to allow everything to settle
+        ])
 
         // TODO: Make snapshots the default behavior, not opt-in, once all the stories pass
         if (storyContext.parameters?.chromatic?.disableSnapshot === false) {
