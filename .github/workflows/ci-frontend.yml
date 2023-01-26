@@ -150,9 +150,9 @@ jobs:
                   pnpm exec playwright test
                   pnpm exec test-storybook --ci
 
-            - name: Upload diffs
+            - name: Upload Playwright report and diffs
               uses: actions/upload-artifact@v3
-              if: always()
+              if: always() # We want the report even if there's no failure
               with:
                   name: playwright-report
                   path: |
