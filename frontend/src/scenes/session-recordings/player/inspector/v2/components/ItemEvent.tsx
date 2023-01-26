@@ -27,6 +27,9 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                             {item.data.properties.$pathname || item.data.properties.$current_url}
                         </span>
                     ) : null}
+                    {item.data.event === '$screen' ? (
+                        <span className="text-muted-alt">{item.data.properties.$screen_name}</span>
+                    ) : null}
                 </div>
             </LemonButton>
 
