@@ -12,6 +12,7 @@ import {
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
+import { FunnelsFilter, FunnelsQuery } from '~/queries/schema'
 
 const EMPTY_BREAKDOWN_KEY = '__empty_string__'
 const EMPTY_BREAKDOWN_VALUE = '(empty string)'
@@ -241,6 +242,33 @@ export const getClampedStepRangeFilter = ({
 
     let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, filters.funnel_from_step])
     let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, filters.funnel_to_step])
+
+    const funnelFromStepIsSet = typeof funnel_from_step === 'number'
+    const funnelToStepIsSet = typeof funnel_to_step === 'number'
+
+    if (funnelFromStepIsSet && funnelToStepIsSet) {
+        funnel_from_step = clamp(funnel_from_step ?? 0, 0, maxStepIndex)
+        funnel_to_step = clamp(funnel_to_step ?? maxStepIndex, funnel_from_step + 1, maxStepIndex)
+    }
+
+    return {
+        ...(stepRange || {}),
+        funnel_from_step,
+        funnel_to_step,
+    }
+}
+
+export const getClampedStepRangeFilterDataExploration = ({
+    stepRange,
+    query,
+}: {
+    stepRange?: FunnelStepRangeEntityFilter
+    query: FunnelsQuery
+}): FunnelStepRangeEntityFilter => {
+    const maxStepIndex = Math.max(query.series.length || 0 - 1, 1)
+
+    let funnel_from_step = findFirstNumber([stepRange?.funnel_from_step, query.funnelsFilter?.funnel_from_step])
+    let funnel_to_step = findFirstNumber([stepRange?.funnel_to_step, query.funnelsFilter?.funnel_to_step])
 
     const funnelFromStepIsSet = typeof funnel_from_step === 'number'
     const funnelToStepIsSet = typeof funnel_to_step === 'number'
