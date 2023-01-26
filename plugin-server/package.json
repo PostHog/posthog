@@ -62,7 +62,7 @@
         "graphile-worker": "0.13.0",
         "hot-shots": "^9.2.0",
         "ioredis": "^4.27.6",
-        "jsonwebtoken": "^8.5.1",
+        "jsonwebtoken": "^9.0.0",
         "kafkajs": "^2.2.0",
         "kafkajs-snappy": "^1.1.0",
         "lru-cache": "^6.0.0",
