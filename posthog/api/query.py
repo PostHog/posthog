@@ -1,4 +1,5 @@
 import json
+from typing import Dict
 
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
@@ -25,12 +26,21 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             OpenApiParameter(
                 "query",
                 OpenApiTypes.STR,
-                description="Query node JSON object",
+                description="Query node JSON string",
             ),
         ]
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         query_json = self._query_json_from_request(request)
+        query_result = self.process_query(query_json)
+        return JsonResponse(query_result)
+
+    def post(self, request, *args, **kwargs):
+        query_json = request.data
+        query_result = self.process_query(query_json)
+        return JsonResponse(query_result)
+
+    def process_query(self, query_json: Dict) -> Dict:
         query_kind = query_json.get("kind")
         if query_kind == "EventsQuery":
             query = EventsQuery.parse_obj(query_json)
@@ -38,9 +48,15 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 team=self.team,
                 query=query,
             )
-            return JsonResponse(query_result)
+            # :KLUDGE: Calling `query_result.dict()` without the following deconstruction fails with a cryptic error
+            return {
+                "columns": query_result.columns,
+                "types": query_result.types,
+                "results": query_result.results,
+                "hasMore": query_result.hasMore,
+            }
         else:
-            raise RequestParsingError("Invalid query kind: %s" % query_kind)
+            raise RequestParsingError("Unsupported query kind: %s" % query_kind)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":

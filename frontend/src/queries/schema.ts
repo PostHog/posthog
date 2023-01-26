@@ -140,9 +140,9 @@ export interface NewEntityNode extends EntityNode {
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
-    select: HogQLExpression[]
+    select: string[]
     /** HogQL filters to apply on returned data */
-    where?: HogQLExpression[]
+    where?: string[]
     /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
@@ -193,9 +193,9 @@ export interface DataTableNode extends Node {
     /** Source of the events */
     source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode
     /** Columns shown in the table, unless the `source` provides them. */
-    columns?: HogQLExpression[]
+    columns?: string[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
-    hiddenColumns?: HogQLExpression[]
+    hiddenColumns?: string[]
     /** Show with most visual options enabled. Used in scenes. */
     full?: boolean
     /** Include an event filter above the table (EventsNode only) */
@@ -368,8 +368,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
     numberOfDays?: number // defaults to 7
 }
-
-export type HogQLExpression = string
 
 // Legacy queries
 

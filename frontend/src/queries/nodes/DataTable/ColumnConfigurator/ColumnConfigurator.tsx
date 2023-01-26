@@ -16,7 +16,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableColumns, extractExpressionComment } from '../utils'
+import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
 import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
@@ -42,10 +42,16 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         columns: columnsInQuery,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
+                const oldOrderBy = query.source.orderBy
+                const firstOldOrderBy = oldOrderBy?.length == 1 ? removeExpressionComment(oldOrderBy?.[0]) : undefined
                 setQuery?.({
                     ...query,
                     source: {
                         ...query.source,
+                        orderBy:
+                            firstOldOrderBy && columns.find((c) => removeExpressionComment(c) === firstOldOrderBy)
+                                ? oldOrderBy
+                                : undefined,
                         select: columns,
                     },
                 })

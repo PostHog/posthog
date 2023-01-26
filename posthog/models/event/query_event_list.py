@@ -1,10 +1,10 @@
-import dataclasses
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
+from pydantic import BaseModel
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
@@ -28,13 +28,12 @@ QUERY_DEFAULT_LIMIT = 100
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 QUERY_MAXIMUM_LIMIT = 100_000
 
-# sync with "schema.ts"
-@dataclasses.dataclass
-class EventsQueryResponse:
-    columns: List[str] = dataclasses.field(default_factory=list)
-    types: List[str] = dataclasses.field(default_factory=list)
-    results: List[List[Any]] = dataclasses.field(default_factory=list)
-    has_more: bool = False
+
+class EventsQueryResponse(BaseModel):
+    columns: List[str]
+    types: List[str]
+    results: List[List]
+    hasMore: bool
 
 
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
@@ -142,8 +141,8 @@ def query_events_list_v2(
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext()
 
-    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
-    offset = 0 if query.offset is None else query.offset
+    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else int(query.limit)) + 1
+    offset = 0 if query.offset is None else int(query.offset)
     action_id = query.actionId
     person_id = query.personId
     order_by = query.orderBy
@@ -266,7 +265,7 @@ def query_events_list_v2(
         results=results[: limit - 1] if received_extra_row else results,
         columns=select,
         types=[type for _, type in types],
-        has_more=received_extra_row,
+        hasMore=received_extra_row,
     )
 
 

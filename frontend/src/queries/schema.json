@@ -1339,7 +1339,7 @@
                 "columns": {
                     "description": "Columns shown in the table, unless the `source` provides them.",
                     "items": {
-                        "$ref": "#/definitions/HogQLExpression"
+                        "type": "string"
                     },
                     "type": "array"
                 },
@@ -1354,7 +1354,7 @@
                 "hiddenColumns": {
                     "description": "Columns that aren't shown in the table, even if in columns or returned data",
                     "items": {
-                        "$ref": "#/definitions/HogQLExpression"
+                        "type": "string"
                     },
                     "type": "array"
                 },
@@ -1714,14 +1714,14 @@
                 "select": {
                     "description": "Return a limited set of data. Required.",
                     "items": {
-                        "$ref": "#/definitions/HogQLExpression"
+                        "type": "string"
                     },
                     "type": "array"
                 },
                 "where": {
                     "description": "HogQL filters to apply on returned data",
                     "items": {
-                        "$ref": "#/definitions/HogQLExpression"
+                        "type": "string"
                     },
                     "type": "array"
                 }
@@ -1928,9 +1928,6 @@
         },
         "GroupMathType": {
             "const": "unique_group",
-            "type": "string"
-        },
-        "HogQLExpression": {
             "type": "string"
         },
         "InsightQueryNode": {
