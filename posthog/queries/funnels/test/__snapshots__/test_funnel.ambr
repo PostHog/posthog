@@ -30,9 +30,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         pdi.person_id as person_id,
@@ -142,9 +140,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         pdi.person_id as person_id,
@@ -250,9 +246,7 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
+                      (SELECT e.team_id as team_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e."properties" as "properties",
@@ -363,9 +357,7 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
+                      (SELECT e.team_id as team_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e."properties" as "properties",
@@ -480,9 +472,7 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
+                      (SELECT e.team_id as team_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e."properties" as "properties",
@@ -597,9 +587,7 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
+                      (SELECT e.team_id as team_id,
                               e.timestamp as timestamp,
                               pdi.person_id as aggregation_target,
                               e."properties" as "properties",
@@ -687,9 +675,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         pdi.person_id as person_id,
@@ -760,9 +746,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         pdi.person_id as person_id,
@@ -850,9 +834,7 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
+                   (SELECT e.team_id as team_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
                            e."properties" as "properties",
@@ -948,9 +930,7 @@
                 (SELECT *,
                         prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
+                   (SELECT e.team_id as team_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
                            e."properties" as "properties",
@@ -1049,9 +1029,7 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop
                  FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
+                   (SELECT e.team_id as team_id,
                            e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
                            e."properties" as "properties",
