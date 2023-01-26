@@ -7,8 +7,8 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from ee.api.billing import build_billing_token
 from ee.api.test.base import LicensedTestMixin
+from ee.billing.billing_utils import build_billing_token
 from ee.models.license import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.models import Organization, Plugin, Team

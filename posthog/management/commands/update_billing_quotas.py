@@ -2,7 +2,7 @@ import pprint
 
 from django.core.management.base import BaseCommand
 
-from posthog.tasks.billing_rate_limit import update_all_org_billing_rate_limiting
+from ee.billing.quota_limiting import update_all_org_billing_quotas
 
 
 class Command(BaseCommand):
@@ -19,7 +19,7 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         organization_id = options["organization_id"]
 
-        results = update_all_org_billing_rate_limiting(dry_run, only_organization_id=organization_id)
+        results = update_all_org_billing_quotas(dry_run, only_organization_id=organization_id)
 
         if options["print_reports"]:
             print("")  # noqa T201

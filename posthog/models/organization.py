@@ -37,9 +37,17 @@ logger = structlog.get_logger(__name__)
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
-class OrganizationUsageInfo(TypedDict):
+class OrganizationUsageResource(TypedDict):
     usage: Optional[int]
     limit: Optional[int]
+
+
+# The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
+# as well as for enforcing limits.
+class OrganizationUsageInfo(TypedDict):
+    events: Optional[OrganizationUsageResource]
+    recordings: Optional[OrganizationUsageResource]
+    period: Optional[List[str]]
 
 
 class OrganizationManager(models.Manager):
@@ -186,15 +194,12 @@ class Organization(UUIDModel):
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
 
-    def get_usage_for_feature(self, feature: str) -> Optional[int]:
-        if not self.usage:
-            return None
-        return self.usage.get(feature, {}).get("usage", None)
+    def get_usage(self) -> Optional[OrganizationUsageInfo]:
+        return self.usage
 
-    def get_limit_for_feature(self, feature: str) -> Optional[int]:
-        if not self.usage:
-            return None
-        return self.usage.get(feature, {}).get("limit", None)
+    def set_usage(self, usage: OrganizationUsageInfo) -> Optional[OrganizationUsageInfo]:
+        self.usage = usage
+        return self.usage
 
     @property
     def has_billing_v2_setup(self):

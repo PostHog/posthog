@@ -220,7 +220,7 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     if not settings.EE_AVAILABLE:
         return
 
-    from ee.api.billing import build_billing_token
+    from ee.billing.billing_utils import build_billing_token
     from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
@@ -238,6 +238,9 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
         raise Exception(
             f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
         )
+
+    # TODO: Use response to update saved usage info
+    # NOTE: Returns empty if there is no subscription
 
 
 def capture_event(

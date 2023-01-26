@@ -6,7 +6,7 @@ from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
-from posthog.tasks.billing_rate_limit import RATE_LIMITER_CACHE_KEY, update_all_org_billing_rate_limiting
+from posthog.tasks.billing_quota_throttling import RATE_LIMITER_CACHE_KEY, update_all_org_billing_quotas
 from posthog.test.base import BaseTest, _create_event
 
 
@@ -35,7 +35,7 @@ class TestBillingRateLimit(BaseTest):
                     team=self.team,
                 )
 
-        result = update_all_org_billing_rate_limiting()
+        result = update_all_org_billing_quotas()
         assert result["events"] == {}
         assert result["recordings"] == {}
 
@@ -62,7 +62,7 @@ class TestBillingRateLimit(BaseTest):
                     team=self.team,
                 )
 
-        result = update_all_org_billing_rate_limiting()
+        result = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
         assert result["events"] == {org_id: now().timestamp()}
         assert result["recordings"] == {}
