@@ -3,7 +3,7 @@ import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
-        const emptyProperty: AnyPropertyFilter = {}
+        const emptyProperty: AnyPropertyFilter = {} as AnyPropertyFilter
         const realProperty: CohortPropertyFilter = {
             key: 'id',
             value: 33,
@@ -14,7 +14,7 @@ describe('isValidPropertyFilter()', () => {
         expect(isValidPropertyFilter(undefined as any)).toEqual(false)
         expect(isValidPropertyFilter(null as any)).toEqual(false)
         expect(isValidPropertyFilter({ bla: 'true' } as any)).toEqual(false)
-        expect(isValidPropertyFilter({ key: undefined })).toEqual(false)
-        expect(isValidPropertyFilter({ key: 'cohort', value: 123 })).toEqual(true)
+        expect(isValidPropertyFilter({ key: undefined } as any)).toEqual(false)
+        expect(isValidPropertyFilter({ key: 'cohort', value: 123 } as any)).toEqual(true)
     })
 })

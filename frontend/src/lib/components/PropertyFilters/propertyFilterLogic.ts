@@ -33,7 +33,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                         return [{} as AnyPropertyFilter]
                     }
                     if (Object.keys(newState[newState.length - 1]).length !== 0) {
-                        return [...newState, {}]
+                        return [...newState, {} as AnyPropertyFilter]
                     }
                     return newState
                 },
@@ -61,7 +61,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
             (s) => [s.filters],
             (filters) => {
                 if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
-                    return [...filters, {}]
+                    return [...filters, {} as AnyPropertyFilter]
                 } else {
                     return filters
                 }

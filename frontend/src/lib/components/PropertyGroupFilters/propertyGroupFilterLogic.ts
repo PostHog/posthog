@@ -1,6 +1,6 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
-import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
+import { PropertyGroupFilter, FilterLogicalOperator, AnyPropertyFilter } from '~/types'
 import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
@@ -41,12 +41,15 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
                             values: [
                                 {
                                     type: FilterLogicalOperator.And,
-                                    values: [{}],
+                                    values: [{} as AnyPropertyFilter],
                                 },
                             ],
                         }
                     }
-                    const filterGroups = [...state.values, { type: FilterLogicalOperator.And, values: [{}] }]
+                    const filterGroups = [
+                        ...state.values,
+                        { type: FilterLogicalOperator.And, values: [{} as AnyPropertyFilter] },
+                    ]
 
                     return { ...state, values: filterGroups }
                 },

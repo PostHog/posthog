@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
-    PropertyFilter,
+    AnyPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RecordingFilters,
@@ -80,7 +80,8 @@ export const defaultPageviewPropertyEntityFilter = (
                     ? {
                           ...eventFilter,
                           properties: [
-                              ...(eventFilter.properties?.filter(({ key }: PropertyFilter) => key !== property) ?? []),
+                              ...(eventFilter.properties?.filter(({ key }: AnyPropertyFilter) => key !== property) ??
+                                  []),
                               propToAdd,
                           ],
                       }
