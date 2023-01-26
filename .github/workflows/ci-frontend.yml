@@ -106,10 +106,11 @@ jobs:
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs pnpm test:unit -- --maxWorkers=2
+              run: pnpm test:unit --maxWorkers=2 $(echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text')
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
+
     visual-regression:
         name: Visual regression tests
         runs-on: ubuntu-20.04
@@ -146,9 +147,8 @@ jobs:
 
             - name: Compare current Storybook to the baseline
               run: |
-                  pnpm exec wait-on http://127.0.0.1:6006 --timeout 60
-                  pnpm exec playwright test
-                  pnpm exec test-storybook --ci
+                  pnpm wait-on http://127.0.0.1:6006 --timeout 60
+                  pnpm test:visual-regression:ci
 
             - name: Upload Playwright report and diffs
               uses: actions/upload-artifact@v3
