@@ -33,23 +33,15 @@ jobs:
               run: pnpm install --frozen-lockfile
 
             - name: Install CI utilities with pnpm
-              run: pnpm install concurrently http-server wait-on
+              run: pnpm install http-server wait-on
 
             - name: Build Storybook
               run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
 
-            # - name: Serve Storybook and run tests
-            #   run: |
-            #       pnpm exec concurrently -k -s first -n "SRVR,TEST" -c "magenta,blue" \
-            #         "pnpm exec http-server storybook-static --port 6006 --silent " \
-            #         "pnpm exec wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test && pnpm exec test-storybook --ci"
-
-            # Split the above command into two steps to optimize it memory-wise
-
-            - name: Serve Storybook
+            - name: Serve Storybook in the background
               run: pnpm exec http-server storybook-static --port 6006 --silent &
 
-            - name: Run tests
+            - name: Compare current Storybook to the baseline
               run: |
                   pnpm exec wait-on http://127.0.0.1:6006 --timeout 60
                   pnpm exec playwright test
