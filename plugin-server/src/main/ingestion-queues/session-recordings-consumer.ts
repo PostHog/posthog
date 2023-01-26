@@ -123,7 +123,7 @@ export const eachBatch =
                 })
                 .observe(message.value.length)
 
-            if (!messagePayload.team_id && !event.token) {
+            if (messagePayload.team_id == null && !messagePayload.token) {
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'no_token',
                     partition: batch.partition,
@@ -137,7 +137,8 @@ export const eachBatch =
 
             try {
                 teamId =
-                    messagePayload.team_id ?? (event.token ? (await teamManager.getTeamByToken(event.token))?.id : null)
+                    messagePayload.team_id ??
+                    (messagePayload.token ? (await teamManager.getTeamByToken(messagePayload.token))?.id : null)
 
                 if (!teamId) {
                     status.warn('⚠️', 'invalid_message', {

@@ -10,9 +10,7 @@ export async function pluginsProcessEventStep(
     event: PluginEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
-    let processedEvent: PluginEvent | null = event
-
-    processedEvent = await runInstrumentedFunction({
+    const processedEvent = await runInstrumentedFunction({
         server: runner.hub,
         event,
         func: (event) => runProcessEvent(runner.hub, event),

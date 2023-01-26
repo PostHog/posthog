@@ -496,6 +496,9 @@ export interface RawEventMessage extends BaseEventMessage {
     sent_at: string
     /** JSON-encoded number. */
     kafka_offset: string
+    /** Messages may have a token instead of a team_id, to be used e.g. to
+     * resolve to a team_id */
+    token?: string
 }
 
 /** Usable event message. */

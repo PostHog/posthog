@@ -84,6 +84,10 @@ test.concurrent(
         // pushing to `session_recording_events`. There will still be session
         // recording events in the `events_plugin_ingestion` topic for a while
         // so we need to still handle these events with the current consumer.
+        // TODO: we push recording events that we get from
+        // `events_plugin_ingestion` to `session_recording_events`. We should be
+        // able to remove this push and this test once we know there are no more
+        // recording events in `events_plugin_ingestion`.
         const teamId = await createTeam(postgres, organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
@@ -126,7 +130,11 @@ test.concurrent(
                 $session_id: '1234abc',
                 $snapshot_data: 'yes way',
             },
-            token
+            token,
+            new Date(),
+            new Date(),
+            new Date(),
+            'session_recording_events'
         )
 
         await waitForExpect(async () => {
@@ -203,6 +211,10 @@ test.concurrent(
         // `$performance_event` events in the `events_plugin_ingestion` topic
         // for a while so we need to still handle these events with the current
         // consumer.
+        // TODO: we push recording events that we get from
+        // `events_plugin_ingestion` to `session_recording_events`. We should be
+        // able to remove this push and this test once we know there are no more
+        // recording events in `events_plugin_ingestion`.
         const teamId = await createTeam(postgres, organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
