@@ -5,113 +5,116 @@
     PLEASE READ BEFORE MODIFYING THIS FILE
 
     We don't use Tailwind in PostHog but we do use a lot of helpful Utility classes to make straightforward CSS easy.
-    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible. 
+    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible.
     As such, if something is missing here, please go to Tailwind's docs and copy their implementation rather than creating your own
     custom naming conventions 🙌
 */
 
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
-@each $space in $spaces {
-    .space-y-#{$space} {
+@each $space in $tiny_spaces {
+    .space-y-#{escape-number($space)} {
         & > * + * {
             margin-top: #{$space * 0.25}rem;
         }
     }
 
-    .space-x-#{$space} {
+    .space-x-#{escape-number($space)} {
         & > * + * {
             margin-left: #{$space * 0.25}rem;
         }
     }
 
-    .gap-#{$space} {
+    .gap-#{escape-number($space)} {
         gap: #{$space * 0.25}rem;
     }
 
-    .gap-x-#{$space} {
+    .gap-x-#{escape-number($space)} {
         column-gap: #{$space * 0.25}rem;
     }
 
-    .gap-y-#{$space} {
+    .gap-y-#{escape-number($space)} {
         row-gap: #{$space * 0.25}rem;
     }
 
-    .w-#{$space} {
-        width: #{$space * 0.25}rem;
-    }
-
-    .h-#{$space} {
-        height: #{$space * 0.25}rem;
-    }
-
-    .max-w-#{$space} {
-        max-width: #{$space * 0.25}rem;
-    }
-    .max-h-#{$space} {
-        max-height: #{$space * 0.25}rem;
-    }
-
-    .min-w-#{$space} {
-        min-width: #{$space * 0.25}rem;
-    }
-    .min-h-#{$space} {
-        min-height: #{$space * 0.25}rem;
-    }
-
-    .m-#{$space} {
+    .m-#{escape-number($space)} {
         margin: #{$space * 0.25}rem;
     }
 
-    .-m-#{$space} {
+    .-m-#{escape-number($space)} {
         margin: #{-$space * 0.25}rem;
     }
 
-    .mx-#{$space} {
+    .mx-#{escape-number($space)} {
         margin-left: #{$space * 0.25}rem;
         margin-right: #{$space * 0.25}rem;
     }
 
-    .-mx-#{$space} {
+    .-mx-#{escape-number($space)} {
         margin-left: #{-$space * 0.25}rem;
         margin-right: #{-$space * 0.25}rem;
     }
 
-    .my-#{$space} {
+    .my-#{escape-number($space)} {
         margin-top: #{$space * 0.25}rem;
         margin-bottom: #{$space * 0.25}rem;
     }
 
-    .-my-#{$space} {
+    .-my-#{escape-number($space)} {
         margin-top: #{-$space * 0.25}rem;
         margin-bottom: #{-$space * 0.25}rem;
     }
 
-    .px-#{$space} {
+    .px-#{escape-number($space)} {
         padding-left: #{$space * 0.25}rem;
         padding-right: #{$space * 0.25}rem;
     }
 
-    .py-#{$space} {
+    .py-#{escape-number($space)} {
         padding-top: #{$space * 0.25}rem;
         padding-bottom: #{$space * 0.25}rem;
     }
 
-    .p-#{$space} {
+    .p-#{escape-number($space)} {
         padding: #{$space * 0.25}rem;
     }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-#{$space} {
+        .m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{$space * 0.25}rem;
         }
 
-        .-m#{str-slice($side, 0, 1)}-#{$space} {
+        .-m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{-$space * 0.25}rem;
         }
 
-        .p#{str-slice($side, 0, 1)}-#{$space} {
+        .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             padding-#{$side}: #{$space * 0.25}rem;
         }
+    }
+}
+
+// TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
+@each $space in $all_spaces {
+    .w-#{escape-number($space)} {
+        width: #{$space * 0.25}rem;
+    }
+
+    .h-#{escape-number($space)} {
+        height: #{$space * 0.25}rem;
+    }
+
+    .max-w-#{escape-number($space)} {
+        max-width: #{$space * 0.25}rem;
+    }
+    .max-h-#{escape-number($space)} {
+        max-height: #{$space * 0.25}rem;
+    }
+
+    .min-w-#{escape-number($space)} {
+        min-width: #{$space * 0.25}rem;
+    }
+    .min-h-#{escape-number($space)} {
+        min-height: #{$space * 0.25}rem;
     }
 }
 
@@ -276,6 +279,18 @@
     }
 }
 
+@each $name, $hex in $colors {
+    .hover\:text-#{$name}:hover {
+        color: $hex;
+    }
+    .hover\:bg-#{$name}:hover {
+        background-color: $hex;
+    }
+    .hover\:border-#{$name}:hover {
+        border-color: $hex;
+    }
+}
+
 // Widths / heights
 
 @each $kind in ('width', 'height') {
@@ -313,35 +328,46 @@
         max-#{$kind}: unquote('100v' + $char);
     }
 
-    .#{$char}-1\/2 {
-        #{$kind}: 50%;
-    }
-    .#{$char}-1\/3 {
-        #{$kind}: 33.333333%;
-    }
-    .#{$char}-2\/3 {
-        #{$kind}: 66.666667%;
-    }
-    .#{$char}-1\/4 {
-        #{$kind}: 25%;
-    }
-    .#{$char}-2\/4 {
-        #{$kind}: 50%;
-    }
-    .#{$char}-3\/4 {
-        #{$kind}: 75%;
-    }
-    .#{$char}-1\/5 {
-        #{$kind}: 20%;
-    }
-    .#{$char}-2\/5 {
-        #{$kind}: 40%;
-    }
-    .#{$char}-3\/5 {
-        #{$kind}: 60%;
-    }
-    .#{$char}-4\/5 {
-        #{$kind}: 80%;
+    @each $variant in ('', 'max-', 'min-') {
+        .#{$variant}#{$char}-1\/2 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-1\/3 {
+            #{$variant}#{$kind}: 33.333333%;
+        }
+
+        .#{$variant}#{$char}-2\/3 {
+            #{$variant}#{$kind}: 66.666667%;
+        }
+
+        .#{$variant}#{$char}-1\/4 {
+            #{$variant}#{$kind}: 25%;
+        }
+
+        .#{$variant}#{$char}-2\/4 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-3\/4 {
+            #{$variant}#{$kind}: 75%;
+        }
+
+        .#{$variant}#{$char}-1\/5 {
+            #{$variant}#{$kind}: 20%;
+        }
+
+        .#{$variant}#{$char}-2\/5 {
+            #{$variant}#{$kind}: 40%;
+        }
+
+        .#{$variant}#{$char}-3\/5 {
+            #{$variant}#{$kind}: 60%;
+        }
+
+        .#{$variant}#{$char}-4\/5 {
+            #{$variant}#{$kind}: 80%;
+        }
     }
 }
 
@@ -378,6 +404,24 @@
 
 .absolute {
     position: absolute;
+}
+
+// Display
+
+.block {
+    display: block;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.inline {
+    display: inline;
+}
+
+.hidden {
+    display: none;
 }
 
 // Flex
@@ -580,7 +624,7 @@
 }
 
 .text-xxs {
-    font-size: 0.5rem; /* 8px */
+    font-size: 0.625rem; /* 10px */
     line-height: 0.75rem; /* 12px */
 }
 .text-xs {
@@ -636,12 +680,8 @@
     line-height: 1;
 }
 
-.text-ellipsis {
-    @extend %mixin-text-ellipsis;
-}
-
-@each $space in $spaces {
-    .leading-#{$space} {
+@each $space in $tiny_spaces {
+    .leading-#{escape-number($space)} {
         line-height: #{$space * 0.25}rem;
     }
 }
@@ -687,6 +727,9 @@
 .rounded-3xl {
     border-radius: calc(var(--radius) * 6); /* 24px */
 }
+.rounded-4xl {
+    border-radius: calc(var(--radius) * 8); /* 32px */
+}
 .rounded-full {
     border-radius: 1000rem;
 }
@@ -726,8 +769,9 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
 }
+
 .font-mono {
-    font-family: monospace;
+    font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
 .opacity-0 {
@@ -888,10 +932,6 @@
 
 .invisible {
     visibility: hidden;
-}
-
-.hidden {
-    display: none;
 }
 
 .resize-y {

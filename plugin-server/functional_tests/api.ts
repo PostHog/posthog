@@ -4,7 +4,14 @@ import { Producer } from 'kafkajs'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
 
-import { ActionStep, PluginLogEntry, RawAction, RawClickHouseEvent, RawSessionRecordingEvent } from '../src/types'
+import {
+    ActionStep,
+    PluginLogEntry,
+    RawAction,
+    RawClickHouseEvent,
+    RawPerformanceEvent,
+    RawSessionRecordingEvent,
+} from '../src/types'
 import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
@@ -17,10 +24,17 @@ export const capture = async (
     uuid: string,
     event: string,
     properties: object = {},
-    token: string | null = null
+    token: string | null = null,
+    sentAt: Date = new Date(),
+    eventTime: Date = new Date(),
+    now: Date = new Date(),
+    topic = 'events_plugin_ingestion'
 ) => {
+    // WARNING: this capture method is meant to simulate the ingestion of events
+    // from the capture endpoint, but there is no guarantee that is is 100%
+    // accurate.
     await producer.send({
-        topic: 'events_plugin_ingestion',
+        topic: topic,
         messages: [
             {
                 key: teamId ? teamId.toString() : '',
@@ -30,15 +44,14 @@ export const capture = async (
                     ip: '',
                     site_url: '',
                     team_id: teamId,
-                    now: new Date(),
-                    sent_at: new Date(),
+                    now: now,
+                    sent_at: sentAt,
                     uuid: uuid,
                     data: JSON.stringify({
                         event,
                         properties: { ...properties, uuid },
-                        distinct_id: distinctId,
                         team_id: teamId,
-                        timestamp: new Date(),
+                        timestamp: eventTime,
                     }),
                 }),
             },
@@ -106,6 +119,11 @@ export const fetchPersons = async (clickHouseClient: ClickHouse, teamId: number)
     return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
 }
 
+export const fetchPostgresPersons = async (pgClient: Pool, teamId: number) => {
+    const { rows } = await pgClient.query(`SELECT * FROM posthog_person WHERE team_id = $1`, [teamId])
+    return rows
+}
+
 export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
@@ -116,6 +134,13 @@ export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse,
             snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
         }
     })
+}
+
+export const fetchPerformanceEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(
+        `SELECT * FROM performance_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawPerformanceEvent>
+    return queryResult.data
 }
 
 export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigId: number) => {

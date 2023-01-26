@@ -12,8 +12,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/annotations': annotations,
-                '/api/projects/:projectId/annotations/:annotationId/': (req) => [
+                '/api/projects/:team_id/annotations/': annotations,
+                '/api/projects/:team_id/annotations/:annotationId/': (req) => [
                     200,
                     annotations.results.find((r) => r.id === Number(req.params['annotationId'])),
                 ],

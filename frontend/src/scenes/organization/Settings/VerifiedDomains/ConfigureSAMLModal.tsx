@@ -7,10 +7,14 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
+import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function ConfigureSAMLModal(): JSX.Element {
     const { configureSAMLModalId, isSamlConfigSubmitting, samlConfig } = useValues(verifiedDomainsLogic)
     const { setConfigureSAMLModalId } = useActions(verifiedDomainsLogic)
+    const { preflight } = useValues(preflightLogic)
+    const siteUrl = preflight?.site_url ?? window.location.origin
 
     const samlReady = samlConfig.saml_acs_url && samlConfig.saml_entity_id && samlConfig.saml_x509_cert
 
@@ -26,14 +30,18 @@ export function ConfigureSAMLModal(): JSX.Element {
                     <h3>Configure SAML authentication and provisioning</h3>
                 </LemonModal.Header>
                 <LemonModal.Content className="space-y-2">
+                    <Field label="ACS Consumer URL" name="_ACSConsumerUrl">
+                        <CopyToClipboardInline>{`${siteUrl}/complete/saml`}</CopyToClipboardInline>
+                    </Field>
+                    <Field label="RelayState" name="_RelayState">
+                        <CopyToClipboardInline>{configureSAMLModalId ?? undefined}</CopyToClipboardInline>
+                    </Field>
                     <Field name="saml_acs_url" label="SAML ACS URL">
                         <LemonInput className="ph-ignore-input" placeholder="Your IdP's ACS or single sign-on URL." />
                     </Field>
-
                     <Field name="saml_entity_id" label="SAML Entity ID">
                         <LemonInput className="ph-ignore-input" placeholder="Entity ID provided by your IdP." />
                     </Field>
-
                     <Field name="saml_x509_cert" label="SAML X.509 Certificate">
                         <LemonTextArea
                             className="ph-ignore-input"

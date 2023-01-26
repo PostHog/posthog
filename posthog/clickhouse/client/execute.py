@@ -1,12 +1,13 @@
 import json
+import threading
 import types
+from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
@@ -19,6 +20,8 @@ from posthog.utils import generate_short_id, patchable
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
+
+thread_local_storage = threading.local()
 
 
 @lru_cache(maxsize=1)
@@ -69,9 +72,7 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
-
         try:
             result = client.execute(
                 prepared_sql,
@@ -89,6 +90,9 @@ def sync_execute(
             execution_time = perf_counter() - start_time
 
             statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
+
+            if query_counter := getattr(thread_local_storage, "query_counter", None):
+                query_counter.total_query_time += execution_time
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print("Execution time: %.6fs" % (execution_time,))  # noqa T201
@@ -120,25 +124,6 @@ def query_with_columns(
         rows.append(result)
 
     return rows
-
-
-def substitute_params(query, params):
-    """
-    Helper method to ease rendering of sql clickhouse queries progressively.
-    For example, there are many places where we construct queries to be used
-    as subqueries of others. Each time we generate a subquery we also pass
-    up the "bound" parameters to be used to render the query, which
-    otherwise only happens at the point of calling clickhouse via the
-    clickhouse_driver `Client`.
-
-    This results in sometimes large lists of parameters with no relevance to
-    the containing query being passed up. Rather than do this, we can
-    instead "render" the subqueries prior to using as a subquery, so our
-    containing code is only responsible for it's parameters, and we can
-    avoid any potential param collisions.
-    """
-    escaped = escape_params(params)
-    return query % escaped
 
 
 @patchable
@@ -220,3 +205,10 @@ def format_sql(rendered_sql, colorize=True):
             pass
 
     return formatted_sql
+
+
+@contextmanager
+def clickhouse_query_counter(query_counter):
+    thread_local_storage.query_counter = query_counter
+    yield
+    thread_local_storage.query_counter = None

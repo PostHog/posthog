@@ -6,9 +6,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { Breakdown, ChartDisplayType, FilterType, InsightType, TrendsFilterType } from '~/types'
 import { BreakdownTag } from './BreakdownTag'
 import './TaxonomicBreakdownFilter.scss'
-import { onFilterChange } from './taxonomicBreakdownFilterUtils'
+import { onFilterChange, isURLNormalizeable } from './taxonomicBreakdownFilterUtils'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/index'
 
 export interface TaxonomicBreakdownFilterProps {
     filters: Partial<FilterType>
@@ -24,7 +23,7 @@ export const isCohortBreakdown = (t: number | string): t is number | string => i
 
 export const isPersonEventOrGroup = (t: number | string): t is string => typeof t === 'string' && t !== 'all'
 
-export function BreakdownFilter({
+export function TaxonomicBreakdownFilter({
     filters,
     setFilters,
     useMultiBreakdown = false,

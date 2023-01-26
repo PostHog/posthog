@@ -3,20 +3,10 @@
 .Breadcrumbs {
     display: flex;
     align-items: center;
-    // Make the container full width to aid horizontal scroll while automatically retaining proper padding
-    width: 100vw;
-    padding: 0 calc((100vw - 100%) / 2);
-    margin-left: calc((100vw - 100%) / -2);
+    width: 100%;
     margin-top: 1rem;
     cursor: default;
     overflow-x: auto;
-    @include screen($md) {
-        // Disable fullwidth hacks for viewport widths where the sidebar affects layout
-        width: auto;
-        padding: 0;
-        margin-left: 0;
-        margin-top: 1.5rem;
-    }
 }
 
 .Breadcrumbs__breadcrumb {

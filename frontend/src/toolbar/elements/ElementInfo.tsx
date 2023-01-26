@@ -2,12 +2,34 @@ import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
 import { CalendarOutlined, PlusOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
-import { Button, Statistic, Row, Col } from 'antd'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
+import { LemonButton } from '@posthog/lemon-ui'
+
+function ElementStatistic({
+    prefix,
+    suffix,
+    title,
+    value,
+}: {
+    title: string
+    value: string | number
+    prefix?: string
+    suffix?: string
+}): JSX.Element {
+    return (
+        <div className={'flex flex-col'}>
+            <div>{title}</div>
+            <div className={'text-2xl'}>
+                {prefix}
+                {value} {suffix}
+            </div>
+        </div>
+    )
+}
 
 export function ElementInfo(): JSX.Element | null {
-    const { clickCount } = useValues(heatmapLogic)
+    const { clickCount: totalClickCount } = useValues(heatmapLogic)
 
     const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
@@ -18,7 +40,7 @@ export function ElementInfo(): JSX.Element | null {
         return null
     }
 
-    const { element, position, count, actionStep } = activeMeta
+    const { element, position, count, clickCount, rageclickCount, actionStep } = activeMeta
 
     return (
         <>
@@ -33,20 +55,26 @@ export function ElementInfo(): JSX.Element | null {
                     <p>
                         <CalendarOutlined /> <u>Last 7 days</u>
                     </p>
-                    <Row gutter={16}>
-                        <Col span={16}>
-                            <Statistic
+                    <div className={'flex flex-row gap-4'}>
+                        <div className={'w-2/3'}>
+                            <ElementStatistic
                                 title="Clicks"
                                 value={count || 0}
-                                suffix={`/ ${clickCount} (${
-                                    clickCount === 0 ? '-' : Math.round(((count || 0) / clickCount) * 10000) / 100
+                                suffix={`/ ${totalClickCount} (${
+                                    totalClickCount === 0
+                                        ? '-'
+                                        : Math.round(((count || 0) / totalClickCount) * 10000) / 100
                                 }%)`}
                             />
-                        </Col>
-                        <Col span={8}>
-                            <Statistic title="Ranking" prefix="#" value={position || 0} />
-                        </Col>
-                    </Row>
+                        </div>
+                        <div className={'w-1/3'}>
+                            <ElementStatistic title="Ranking" prefix="#" value={position || 0} />
+                        </div>
+                    </div>
+                    <div className={'flex flex-row gap-4 mt-2'}>
+                        <ElementStatistic title={'Autocapture clicks'} value={clickCount || 0} />
+                        <ElementStatistic title={'Rageclicks'} value={rageclickCount || 0} />
+                    </div>
                 </div>
             ) : null}
 
@@ -59,9 +87,15 @@ export function ElementInfo(): JSX.Element | null {
                     <ActionsListView actions={activeMeta.actions.map((a) => a.action)} />
                 )}
 
-                <Button size="small" onClick={() => createAction(element)}>
-                    <PlusOutlined /> Create a new action
-                </Button>
+                <LemonButton
+                    size="small"
+                    type={'secondary'}
+                    status={'primary-alt'}
+                    onClick={() => createAction(element)}
+                    icon={<PlusOutlined />}
+                >
+                    Create a new action
+                </LemonButton>
             </div>
         </>
     )

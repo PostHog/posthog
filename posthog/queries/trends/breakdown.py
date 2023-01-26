@@ -62,7 +62,6 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import start_of_week_fix
 from posthog.utils import encode_get_request_params
 
 
@@ -172,7 +171,7 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND e.person_id != toUUIDOrZero('')" if self.using_person_on_events else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)" if self.using_person_on_events else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -302,7 +301,6 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
             elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
@@ -316,7 +314,6 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
                     **breakdown_filter_params,
                 )
@@ -330,7 +327,6 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
             else:
@@ -342,7 +338,6 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
 

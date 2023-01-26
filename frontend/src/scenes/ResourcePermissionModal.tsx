@@ -1,12 +1,13 @@
-import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useValues } from 'kea'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete, IconSettings } from 'lib/components/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/components/LemonTable'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import {
     FormattedResourceLevel,
@@ -24,7 +25,6 @@ interface ResourcePermissionProps {
     onAdd: () => void
     roles: RoleType[]
     deleteAssociatedRole: (id: RoleType['id']) => void
-    isNewResource: boolean
     resourceType: Resource
     canEdit: boolean
 }
@@ -58,7 +58,6 @@ export function ResourcePermissionModal({
     onAdd,
     roles,
     deleteAssociatedRole,
-    isNewResource,
     canEdit,
 }: ResourcePermissionModalProps): JSX.Element {
     return (
@@ -66,7 +65,6 @@ export function ResourcePermissionModal({
             <LemonModal title={title} isOpen={visible} onClose={onClose}>
                 <ResourcePermission
                     resourceType={Resource.FEATURE_FLAGS}
-                    isNewResource={isNewResource}
                     onChange={onChange}
                     rolesToAdd={rolesToAdd}
                     addableRoles={addableRoles}
@@ -89,7 +87,6 @@ export function ResourcePermission({
     onAdd,
     roles,
     deleteAssociatedRole,
-    isNewResource,
     resourceType,
     canEdit,
 }: ResourcePermissionProps): JSX.Element {
@@ -113,7 +110,22 @@ export function ResourcePermission({
                 return (
                     <>
                         {role.name === 'Organization default' ? (
-                            <Link to={`${urls.organizationSettings()}?tab=role_access`}>{role.name}</Link>
+                            <TitleWithIcon
+                                icon={
+                                    <LemonButton
+                                        icon={<IconSettings />}
+                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                                        status="stealth"
+                                        targetBlank
+                                        size="small"
+                                        noPadding
+                                        tooltip="Organization-wide permissions for roles can be managed in the organization settings."
+                                        className="ml-1"
+                                    />
+                                }
+                            >
+                                All users by default
+                            </TitleWithIcon>
                         ) : (
                             role.name
                         )}
@@ -134,6 +146,7 @@ export function ResourcePermission({
                                 icon={<IconDelete />}
                                 onClick={() => deleteAssociatedRole(role.id)}
                                 tooltip={'Remove custom role from feature flag'}
+                                tooltipPlacement="bottomLeft"
                                 status="primary-alt"
                                 type="tertiary"
                                 size="small"
@@ -164,37 +177,8 @@ export function ResourcePermission({
                     {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
                 </>
             )}
-            {(isNewResource || canEdit) && (
-                <>
-                    <h5 className="mt-4">Custom edit roles</h5>
-                    <div className="flex gap-2">
-                        <div className="flex-1">
-                            <LemonSelectMultiple
-                                placeholder="Search for roles to add…"
-                                loading={addableRolesLoading}
-                                onChange={onChange}
-                                value={rolesToAdd}
-                                filterOption={true}
-                                mode="multiple"
-                                data-attr="resource-permissioning-select"
-                                options={roleLemonSelectOptions(addableRoles)}
-                            />
-                        </div>
-                        {!isNewResource && (
-                            <LemonButton
-                                type="primary"
-                                loading={false}
-                                disabled={rolesToAdd.length === 0}
-                                onClick={onAdd}
-                            >
-                                Add
-                            </LemonButton>
-                        )}
-                    </div>
-                </>
-            )}
             {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
-            {!shouldShowPermissionsTable && !isNewResource && (
+            {!shouldShowPermissionsTable && (
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
@@ -219,6 +203,35 @@ export function ResourcePermission({
                     )}
                 </>
             )}
+            {canEdit && (
+                <>
+                    <h5 className="mt-4">Custom edit roles</h5>
+                    <div className="flex gap-2">
+                        <div className="flex-1">
+                            <LemonSelectMultiple
+                                placeholder="Search for roles to add…"
+                                loading={addableRolesLoading}
+                                onChange={onChange}
+                                value={rolesToAdd}
+                                filterOption={true}
+                                mode="multiple"
+                                data-attr="resource-permissioning-select"
+                                options={roleLemonSelectOptions(addableRoles)}
+                            />
+                        </div>
+                        {
+                            <LemonButton
+                                type="primary"
+                                loading={false}
+                                disabled={rolesToAdd.length === 0}
+                                onClick={onAdd}
+                            >
+                                Add
+                            </LemonButton>
+                        }
+                    </div>
+                </>
+            )}
         </>
     )
 }
@@ -230,10 +243,22 @@ function OrganizationResourcePermissionLabel({
 }): JSX.Element {
     return (
         <>
-            <h5>Organization Default</h5>
-            <Link to={`${urls.organizationSettings()}?tab=role_access`}>
-                <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
-            </Link>
+            <TitleWithIcon
+                icon={
+                    <LemonButton
+                        icon={<IconSettings />}
+                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                        status="stealth"
+                        targetBlank
+                        size="small"
+                        noPadding
+                        className="ml-1"
+                    />
+                }
+            >
+                <h5>Organization default</h5>
+            </TitleWithIcon>
+            <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
         </>
     )
 }
@@ -262,6 +287,7 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
                     icon={<IconDelete />}
                     onClick={() => deleteRole(role.id)}
                     tooltip={'Remove role from permission'}
+                    tooltipPlacement="bottomLeft"
                     status="primary-alt"
                     type="tertiary"
                     size="small"

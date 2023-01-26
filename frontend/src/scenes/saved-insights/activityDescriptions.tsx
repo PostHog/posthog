@@ -202,8 +202,6 @@ const insightActionsMapping: Record<
     id: () => null,
     created_at: () => null,
     created_by: () => null,
-    filters_hash: () => null,
-    refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
     order: () => null,
@@ -217,6 +215,7 @@ const insightActionsMapping: Record<
     effective_restriction_level: () => null, // read from dashboards
     effective_privilege_level: () => null, // read from dashboards
     disable_baseline: () => null,
+    dashboard_tiles: () => null, // changes are sent as dashboards
 }
 
 export function insightActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -256,7 +255,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         )
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
+            if (!change?.field || !insightActionsMapping[change.field]) {
                 continue // insight updates have to have a "field" to be described
             }
 

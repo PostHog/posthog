@@ -79,7 +79,7 @@ function InsightLegendRow({
 }): JSX.Element {
     const highlightStyle: Record<string, any> = highlighted
         ? {
-              style: { backgroundColor: getSeriesColor(item.id, false, true) },
+              style: { backgroundColor: getSeriesColor(item.seriesIndex, false, true) },
           }
         : {}
 
@@ -97,14 +97,14 @@ function InsightLegendRow({
             <div className="grow">
                 <LemonCheckbox
                     className="text-xs mr-4"
-                    color={getSeriesColor(item.id, compare)}
+                    color={getSeriesColor(item.seriesIndex, compare)}
                     checked={!hiddenLegendKeys[rowIndex]}
                     onChange={() => toggleVisibility(rowIndex)}
                     fullWidth
                     label={
                         <InsightLabel
                             key={item.id}
-                            seriesColor={getSeriesColor(item.id, compare)}
+                            seriesColor={getSeriesColor(item.seriesIndex, compare)}
                             action={item.action}
                             fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                             hasMultipleSeries={hasMultipleSeries}

@@ -1,18 +1,25 @@
+import time
 from ipaddress import ip_address, ip_network
-from typing import List, Optional, cast
+from typing import Any, List, Optional, cast
 
+from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
+from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.urls.base import resolve
+from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
+from django_prometheus.middleware import PrometheusAfterMiddleware
 from statshog.defaults.django import statsd
 
+from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.client.execute import clickhouse_query_counter
+from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.settings.statsd import STATSD_HOST
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -208,6 +215,36 @@ class CHQueries:
         return None
 
 
+class QueryTimeCountingMiddleware:
+    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties"]
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not (
+            settings.CAPTURE_TIME_TO_SEE_DATA
+            and "api" in request.path
+            and any(key in request.path for key in self.ALLOW_LIST_ROUTES)
+        ):
+            return self.get_response(request)
+
+        pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
+        start_time = time.perf_counter()
+        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+            response: HttpResponse = self.get_response(request)
+
+        response.headers["Server-Timing"] = self._construct_header(
+            django=time.perf_counter() - start_time,
+            pg=pg_query_counter.query_time_ms,
+            ch=ch_query_counter.query_time_ms,
+        )
+        return response
+
+    def _construct_header(self, **kwargs):
+        return ", ".join(f"{key};dur={round(duration)}" for key, duration in kwargs.items())
+
+
 def shortcircuitmiddleware(f):
     """view decorator, the sole purpose to is 'rename' the function
     '_shortcircuitmiddleware'"""
@@ -236,4 +273,90 @@ class ShortCircuitMiddleware:
             finally:
                 reset_query_tags()
         response: HttpResponse = self.get_response(request)
+        return response
+
+
+class CaptureMiddleware:
+    """
+    Middleware to serve up capture responses. We specifically want to avoid
+    doing any unnecessary work in these endpoints as they are hit very
+    frequently, and we want to provide the best availability possible, which
+    translates to keeping dependencies to a minimum.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+        middlewares: List[Any] = []
+        # based on how we're using these middlewares, only middlewares that
+        # have a process_request and process_response attribute can be valid here.
+        # Or, middlewares that inherit from `middleware.util.deprecation.MiddlewareMixin` which
+        # reconciles the old style middleware with the new style middleware.
+        for middleware_class in (
+            CorsMiddleware,
+            PrometheusAfterMiddleware,
+        ):
+            try:
+                # Some middlewares raise MiddlewareNotUsed if they are not
+                # needed. In this case we want to avoid the default middlewares
+                # being used.
+                middlewares.append(middleware_class(get_response=None))
+            except MiddlewareNotUsed:
+                pass
+
+        # List of middlewares we want to run, that would've been shortcircuited otherwise
+        self.CAPTURE_MIDDLEWARE = middlewares
+
+        if STATSD_HOST is not None:
+            # import here to avoid log-spew about failure to connect to statsd,
+            # as this connection is created on import
+            from django_statsd.middleware import StatsdMiddlewareTimer
+
+            self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
+
+    def __call__(self, request: HttpRequest):
+
+        if request.path in (
+            "/e",
+            "/e/",
+            "/s",
+            "/s/",
+            "/track",
+            "/track/",
+            "/capture",
+            "/capture/",
+            "/batch",
+            "/batch/",
+            "/engage/",
+            "/engage",
+        ):
+            try:
+                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
+                tag_queries(
+                    kind="request",
+                    id=request.path,
+                    route_id=resolve(request.path).route,
+                    container_hostname=settings.CONTAINER_HOSTNAME,
+                )
+
+                for middleware in self.CAPTURE_MIDDLEWARE:
+                    middleware.process_request(request)
+
+                # call process_view for PrometheusAfterMiddleware to get the right metrics in place
+                # simulate how django prepares the url
+                resolver_match = resolve(request.path)
+                request.resolver_match = resolver_match
+                for middleware in self.CAPTURE_MIDDLEWARE:
+                    middleware.process_view(request, resolver_match.func, resolver_match.args, resolver_match.kwargs)
+
+                response: HttpResponse = get_event(request)
+
+                for middleware in self.CAPTURE_MIDDLEWARE[::-1]:
+                    middleware.process_response(request, response)
+
+                return response
+            finally:
+                reset_query_tags()
+
+        response = self.get_response(request)
         return response

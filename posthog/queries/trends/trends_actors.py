@@ -1,11 +1,8 @@
+import datetime
 import json
-from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
-from dateutil.relativedelta import relativedelta
-from django.utils import timezone
-
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -15,22 +12,12 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
-
-
-def _handle_date_interval(filter: Filter) -> Filter:
-    # adhoc date handling. parsed differently with django orm
-    date_from = filter.date_from or timezone.now()
-    data: Dict = {}
-    if filter.interval == "month":
-        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
-    elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
-    elif filter.interval == "day":
-        data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
-    elif filter.interval == "hour":
-        data.update({"date_to": (date_from + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")})
-    return filter.with_data(data)
+from posthog.queries.trends.util import (
+    PROPERTY_MATH_FUNCTIONS,
+    is_series_group_based,
+    offset_time_series_date_by_interval,
+    process_math,
+)
 
 
 class TrendsActors(ActorBaseQuery):
@@ -43,10 +30,20 @@ class TrendsActors(ActorBaseQuery):
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
-
-        if filter.display != TRENDS_CUMULATIVE and filter.display not in NON_TIME_SERIES_DISPLAY_TYPES:
-            filter = _handle_date_interval(filter)
-
+        if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
+            # Before 2023, actors modal URLs for non-cumulative time-series insight data points had `date_to`
+            # (`filter._date_to`) equal to `date_from` (`filter._date_from`). To obtain the actual `date_to`,
+            # we always had to calculate it here by adding a `filter.interval` unit to `date_from`.
+            # This was annoying and only made it harder to reason about the API, so it's no longer how actors modal
+            # URLs behave. Now we only do this handling at this level for backwards compatibility (cached results)
+            # via the `date_from == date_to` check - all new requests have a "fully qualified" date range.
+            filter = filter.with_data(
+                {
+                    "date_to": offset_time_series_date_by_interval(
+                        cast(datetime.datetime, filter.date_from), filter=filter, team=team
+                    )
+                }
+            )
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property

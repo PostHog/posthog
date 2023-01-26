@@ -5,7 +5,7 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, getMetric } from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
 import { waitForExpect } from './expectations'
 
 let producer: Producer
@@ -107,9 +107,8 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
 test.concurrent(`event ingestion: can $set and update person properties`, async () => {
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()
-    const personEventUuid = new UUIDT().toString()
 
-    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), '$identify', {
         distinct_id: distinctId,
         $set: { prop: 'value' },
     })
@@ -120,15 +119,14 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
         const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
         expect(event).toEqual(
             expect.objectContaining({
-                person_properties: {
-                    $creator_event_uuid: personEventUuid,
+                person_properties: expect.objectContaining({
                     prop: 'value',
-                },
+                }),
             })
         )
     })
 
-    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), '$identify', {
         distinct_id: distinctId,
         $set: { prop: 'updated value' },
     })
@@ -139,10 +137,40 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
         const [event] = await fetchEvents(clickHouseClient, teamId, secondUuid)
         expect(event).toEqual(
             expect.objectContaining({
-                person_properties: {
-                    $creator_event_uuid: personEventUuid,
+                person_properties: expect.objectContaining({
                     prop: 'updated value',
-                },
+                }),
+            })
+        )
+    })
+})
+
+test.concurrent(`event ingestion: person properties are point in event time`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: distinctId,
+        $set: { prop: 'value' },
+    })
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', {
+        distinct_id: distinctId,
+        $set: {
+            prop: 'updated value', // This value should not be reflected in the first event
+            new_prop: 'new value', // This new value should be reflected in the first event
+        },
+    })
+
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'value',
+                }),
             })
         )
     })
@@ -287,4 +315,265 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
         expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
     }, 10_000)
+})
+
+// We only want to run these test if we are running with the delay all events
+// feature enabled. See https://github.com/PostHog/product-internal/pull/405 for
+// details.
+const testIfDelayEnabled = process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
+testIfDelayEnabled(
+    `anonymous event recieves same person_id if $identify happenes shortly after, and there's already an anonymous person`,
+    async () => {
+        const teamId = await createTeam(postgres, organizationId)
+        const initialDistinctId = new UUIDT().toString()
+        const secondDistinctId = new UUIDT().toString()
+        const personIdentifier = new UUIDT().toString()
+
+        // First we emit an anoymous event and wait for the person to be
+        // created.
+        const initialEventId = new UUIDT().toString()
+        await capture(producer, teamId, initialDistinctId, initialEventId, 'custom event')
+        await waitForExpect(async () => {
+            const persons = await fetchPersons(clickHouseClient, teamId)
+            expect(persons).toContainEqual(
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $creator_event_uuid: initialEventId }),
+                })
+            )
+        }, 10000)
+
+        // We then have the user identify themselves, but on e.g. a different
+        // device and hence a different anonymous id.
+        const initialIdentifyEventId = new UUIDT().toString()
+        await capture(producer, teamId, personIdentifier, initialIdentifyEventId, '$identify', {
+            $anon_distinct_id: secondDistinctId,
+            distinct_id: personIdentifier,
+        })
+        await waitForExpect(async () => {
+            const persons = await fetchPersons(clickHouseClient, teamId)
+            expect(persons).toContainEqual(
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $creator_event_uuid: initialIdentifyEventId }),
+                })
+            )
+        }, 10000)
+
+        // Then we create another event with the initial anonymous distinct id,
+        // shortly followed by another identify event but this time with the
+        // initial anonymous distinct id
+        const uuidOfEventThatShouldBeIdentified = new UUIDT().toString()
+        await capture(producer, teamId, initialDistinctId, uuidOfEventThatShouldBeIdentified, 'custom event')
+
+        const uuidOfIdentifyEvent = new UUIDT().toString()
+        await capture(producer, teamId, personIdentifier, uuidOfIdentifyEvent, '$identify', {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: initialDistinctId,
+        })
+
+        await waitForExpect(async () => {
+            const [anonymousEvent] = await fetchEvents(clickHouseClient, teamId, uuidOfEventThatShouldBeIdentified)
+            const [identifyEvent] = await fetchEvents(clickHouseClient, teamId, uuidOfIdentifyEvent)
+            expect(anonymousEvent?.person_id).toBeDefined()
+            expect(identifyEvent?.person_id).toBeDefined()
+            expect(anonymousEvent.person_id).toEqual(identifyEvent.person_id)
+        }, 10000)
+    }
+)
+
+testIfDelayEnabled(`events reference same person_id if two people merged shortly after`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const firstDistinctId = new UUIDT().toString()
+    const secondDistinctId = new UUIDT().toString()
+    const firstPersonIdentity = new UUIDT().toString()
+    const secondPersonIdentity = new UUIDT().toString()
+
+    const initialEventId = new UUIDT().toString()
+    await capture(producer, teamId, firstDistinctId, initialEventId, 'custom event')
+
+    const secondEventId = new UUIDT().toString()
+    await capture(producer, teamId, secondDistinctId, secondEventId, 'custom event')
+
+    // First create two people with nothing in common
+    await capture(producer, teamId, firstPersonIdentity, new UUIDT().toString(), '$identify', {
+        $anon_distinct_id: firstDistinctId,
+        distinct_id: firstPersonIdentity,
+    })
+
+    await capture(producer, teamId, secondPersonIdentity, new UUIDT().toString(), '$identify', {
+        $anon_distinct_id: secondDistinctId,
+        distinct_id: firstPersonIdentity,
+    })
+
+    // Then merge them together immediately such that this event is within the
+    // delay window.
+    await capture(producer, teamId, firstPersonIdentity, new UUIDT().toString(), '$create_alias', {
+        alias: secondPersonIdentity,
+    })
+
+    await waitForExpect(async () => {
+        const [secondEvent] = await fetchEvents(clickHouseClient, teamId, secondEventId)
+        const [initialEvent] = await fetchEvents(clickHouseClient, teamId, initialEventId)
+        expect(secondEvent?.person_id).toBeDefined()
+        expect(secondEvent.person_id).toEqual(initialEvent.person_id)
+    }, 10000)
+})
+
+testIfDelayEnabled(`person properties don't see properties from descendents`, async () => {
+    // The only thing that should propagate to an ancestor is the person_id.
+    // Person properties should not propagate to ancestors within a branch.
+    //
+    //         P(k: v, set_once_property: value)
+    //                        |
+    //                        |
+    //      P'(k: v, j: w, set_once_property: value)
+    //
+    // The person properties of P' should not be assiciated with events tied to
+    // P.
+
+    const teamId = await createTeam(postgres, organizationId)
+    const firstDistinctId = new UUIDT().toString()
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, firstDistinctId, firstUuid, 'custom event', {
+        $set: {
+            k: 'v',
+        },
+        $set_once: {
+            set_once_property: 'value',
+        },
+    })
+
+    const secondUuid = new UUIDT().toString()
+    await capture(producer, teamId, firstDistinctId, secondUuid, 'custom event', {
+        $set: {
+            j: 'w',
+        },
+        $set_once: {
+            set_once_property: 'second value',
+        },
+    })
+
+    await waitForExpect(async () => {
+        const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+
+        expect(first).toEqual(
+            expect.objectContaining({
+                person_id: second.person_id,
+                person_properties: {
+                    $creator_event_uuid: expect.any(String),
+                    k: 'v',
+                    set_once_property: 'value',
+                },
+            })
+        )
+
+        expect(second).toEqual(
+            expect.objectContaining({
+                person_properties: {
+                    $creator_event_uuid: expect.any(String),
+                    k: 'v',
+                    j: 'w',
+                    set_once_property: 'value',
+                },
+            })
+        )
+    })
+})
+
+// Skipping this test as without ording of events across distinct_id we don't
+// know which event will be processed first, and hence this test is flaky. We
+// are at any rate looking at alternatives to the implementation to speed up
+// queries which may make this test obsolete.
+test.skip(`person properties can't see properties from merge descendants`, async () => {
+    // This is specifically to test that the merge event doesn't result in
+    // properties being picked up on events from it's parents.
+    //
+    //             Alice(k: v)
+    //                   \
+    //                    \    Bob(j: w)
+    //                     \   /
+    //                      \ /
+    //         AliceAndBob(k: v, j: w, l: x)
+    //
+    // NOTE: a stronger guarantee would be to ensure that events only pick up
+    // properties from their relatives. Instead, if event e1 has a common
+    // descendant with e2, they will pick up properties from which ever was
+    // _processed_ first.
+    // TODO: change the guarantee to be that unrelated branches properties are
+    // isolated from each other.
+
+    const teamId = await createTeam(postgres, organizationId)
+    const aliceAnonId = new UUIDT().toString()
+    const bobAnonId = new UUIDT().toString()
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, aliceAnonId, firstUuid, 'custom event', {
+        $set: {
+            k: 'v',
+        },
+    })
+
+    const secondUuid = new UUIDT().toString()
+    await capture(producer, teamId, bobAnonId, secondUuid, 'custom event', {
+        $set: {
+            j: 'w',
+        },
+    })
+
+    const thirdUuid = new UUIDT().toString()
+    // NOTE: $create_alias is not symmetric, so we will currently get different
+    // results according to the order of `bobAnonId` and `aliceAnonId`.
+    // TODO: make $create_alias symmetric.
+    await capture(producer, teamId, bobAnonId, thirdUuid, '$create_alias', {
+        alias: aliceAnonId,
+        $set: {
+            l: 'x',
+        },
+    })
+
+    // Now we wait to ensure that these events have been ingested.
+    const [first, second, third] = await waitForExpect(async () => {
+        const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
+
+        expect(first).toBeDefined()
+        expect(second).toBeDefined()
+        expect(third).toBeDefined()
+
+        return [first, second, third]
+    })
+
+    expect(first).toEqual(
+        expect.objectContaining({
+            person_id: third.person_id,
+            person_properties: {
+                $creator_event_uuid: expect.any(String),
+                k: 'v',
+            },
+        })
+    )
+
+    expect(second).toEqual(
+        expect.objectContaining({
+            person_id: third.person_id,
+            person_properties: {
+                $creator_event_uuid: expect.any(String),
+                k: 'v',
+                j: 'w',
+            },
+        })
+    )
+
+    expect(third).toEqual(
+        expect.objectContaining({
+            person_properties: {
+                $creator_event_uuid: expect.any(String),
+                k: 'v',
+                j: 'w',
+                l: 'x',
+            },
+        })
+    )
 })

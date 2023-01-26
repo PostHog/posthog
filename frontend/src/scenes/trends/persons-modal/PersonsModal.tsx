@@ -22,8 +22,7 @@ import { Noun } from '~/models/groupsModel'
 import { LemonModalProps } from '@posthog/lemon-ui'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
@@ -64,7 +63,7 @@ export function PersonsModal({
     } = useValues(logic)
     const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
 
@@ -76,7 +75,7 @@ export function PersonsModal({
                 onClose={closeModal}
                 onAfterClose={onAfterClose}
                 simple
-                width={600}
+                width={560}
                 inline={inline}
             >
                 <LemonModal.Header>
@@ -129,15 +128,15 @@ export function PersonsModal({
                     <div className="relative min-h-20 p-2 space-y-2 rounded bg-border-light overflow-y-auto mb-2">
                         {actors && actors.length > 0 ? (
                             <>
-                                {actors.map((x) => (
+                                {actors.map((actor) => (
                                     <ActorRow
-                                        key={x.id}
-                                        actor={x}
+                                        key={actor.id}
+                                        actor={actor}
                                         onOpenRecording={(sessionRecording) => {
                                             openSessionPlayer(sessionRecording)
                                         }}
                                         propertiesTimelineFilter={
-                                            featureFlags[FEATURE_FLAGS.ACTOR_PROPERTIES_TIMELINE]
+                                            actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
                                                 ? propertiesTimelineFilterFromUrl
                                                 : undefined
                                         }

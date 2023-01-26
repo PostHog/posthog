@@ -17,9 +17,13 @@ export const scene: SceneExport = {
 export function Events(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
     return (
         <>
-            <PageHeader title="Live events" caption="Event history limited to the last twelve months." />
+            <PageHeader
+                title={featureDataExploration ? 'Event Explorer' : 'Live events'}
+                caption="Event history limited to the last twelve months."
+            />
             <div className="pt-4 border-t" />
             {featureDataExploration ? <EventsScene /> : <EventsTable pageKey={'EventsTable'} />}
         </>

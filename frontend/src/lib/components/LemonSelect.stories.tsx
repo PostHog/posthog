@@ -1,6 +1,7 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { SurprisedHog, BlushingHog } from 'lib/components/hedgehogs'
 
 export default {
     title: 'Lemon UI/Lemon Select',
@@ -110,13 +111,37 @@ LongOptions.args = {
     options: [...Array(100)].map((_, x) => ({ value: `${x}`, label: `${x}` })),
 }
 
-export const _FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
+export const CustomElement = Template.bind({})
+CustomElement.args = {
+    value: 1,
+    options: [
+        {
+            value: 1,
+            element: (
+                <div>
+                    <SurprisedHog className="w-10 h-10 mr-4" />
+                    Surprised
+                </div>
+            ),
+            label: 'Wow',
+        },
+        {
+            value: 2,
+            element: (
+                <div>
+                    <BlushingHog className="w-10 h-10 mr-4" />
+                    Blushing
+                </div>
+            ),
+            label: 'Ohh',
+        },
+    ],
+}
+
+export const FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {
     return (
         <div className="items-center w-full border p-4 gap-2">
             <LemonSelect {...props} fullWidth={true} allowClear={true} value={'poodle'} />
         </div>
     )
 }
-
-export const FullWidth = _FullWidth.bind({})
-FullWidth.args = {}

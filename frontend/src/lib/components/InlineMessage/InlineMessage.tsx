@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import './InlineMessage.scss'
-import { ExclamationCircleFilled, CloseOutlined } from '@ant-design/icons'
 import clsx from 'clsx'
+import { IconClose, IconInfo } from '../icons'
 
 interface InlineMessageProps {
     children: string | JSX.Element
@@ -15,8 +15,7 @@ interface InlineMessageProps {
 // New UI for inline inline messages (e.g. info/warning/error)
 export function InlineMessage({
     children,
-    style,
-    icon = <ExclamationCircleFilled />,
+    icon = <IconInfo />,
     type = 'info',
     closable,
     onClose,
@@ -29,12 +28,12 @@ export function InlineMessage({
     }
 
     return (
-        <div className={clsx('inline-message', type, closable && 'closable', !shown && 'hidden')} style={style}>
+        <div className={clsx('inline-message', type, closable && 'closable', !shown && 'hidden')}>
             <div className="inline-icon">{icon}</div>
             <div className="inline-main">{children}</div>
             {closable && (
                 <div className="closable" onClick={handleClose}>
-                    <CloseOutlined />
+                    <IconClose />
                 </div>
             )}
         </div>

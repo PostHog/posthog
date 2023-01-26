@@ -1,5 +1,4 @@
 import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
-import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
 import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -143,10 +142,10 @@ function AppScene(): JSX.Element | null {
 
     if (!user) {
         return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
-            <Layout style={{ minHeight: '100vh' }}>
+            <>
                 {protectedBoundActiveScene}
                 {toastContainer}
-            </Layout>
+            </>
         ) : null
     }
 

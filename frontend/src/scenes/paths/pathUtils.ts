@@ -121,11 +121,3 @@ export const isSelectedPathStartOrEnd = (filter: Partial<PathsFilterType>, pathI
                 (cardName === filter.funnel_filter?.events[filter.funnel_filter.funnel_step - 2].name && isPathStart)))
     )
 }
-
-export const getDropOffValue = (pathItemCard: PathNodeData): number => {
-    return pathItemCard.value - pathItemCard.sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
-}
-
-export const getContinuingValue = (sourceLinks: PathTargetLink[]): number => {
-    return sourceLinks.reduce((prev, curr) => prev + curr.value, 0)
-}

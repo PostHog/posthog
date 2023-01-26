@@ -15,7 +15,7 @@ interface SaveToDashboardProps {
 export function AddToDashboard({ insight, canEditInsight }: SaveToDashboardProps): JSX.Element {
     const [openModal, setOpenModal] = useState<boolean>(false)
     const { rawDashboards } = useValues(dashboardsModel)
-    const dashboards = insight.dashboards?.map((dashboard) => rawDashboards[dashboard]).filter((d) => !!d) || []
+    const dashboards = insight.dashboard_tiles?.map((tile) => rawDashboards[tile.dashboard_id]).filter((d) => !!d) || []
 
     return (
         <span className="save-to-dashboard" data-attr="save-to-dashboard-button">

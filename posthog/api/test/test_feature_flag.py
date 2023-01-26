@@ -3,18 +3,34 @@ import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
+from django.core.cache import cache
+from django.db import connection
+from django.db.utils import OperationalError
+from django.test import TestCase
+from django.test.client import RequestFactory
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.feature_flag import get_all_feature_flags, get_feature_flags_for_team_in_cache
 from posthog.models.group.util import create_group
+from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_person,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
+)
 from posthog.test.db_context_capturing import capture_db_queries
 
 
@@ -22,6 +38,10 @@ class TestFeatureFlag(APIBaseTest):
     feature_flag: FeatureFlag = None  # type: ignore
 
     maxDiff = None
+
+    def setUp(self):
+        cache.clear()
+        return super().setUp()
 
     @classmethod
     def setUpTestData(cls):
@@ -895,7 +915,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -906,7 +926,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(7):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1282,19 +1302,6 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
 
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Group feature",
-                "key": "group-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 61}],
-                },
-            },
-            format="json",
-        )
-
         # old style feature flags
         FeatureFlag.objects.create(
             name="Beta feature",
@@ -1313,6 +1320,19 @@ class TestFeatureFlag(APIBaseTest):
             rollout_percentage=100,
             filters={"properties": []},
             created_by=self.user,
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 61}],
+                },
+            },
+            format="json",
         )
 
         # general test
@@ -1507,6 +1527,83 @@ class TestFeatureFlag(APIBaseTest):
             },
             cohort_request.json(),
         )
+
+    def test_validation_payloads(self):
+        self._create_flag_with_properties(
+            "person-flag",
+            [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+            payloads={"true": 300},
+            expected_status=status.HTTP_201_CREATED,
+        )
+        self._create_flag_with_properties(
+            "person-flag",
+            [{"key": "email", "type": "person", "value": "@posthog.com", "operator": "icontains"}],
+            payloads={"some-fake-key": 300},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                    "payloads": {"first-variant": {"some": "payload"}},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                    "payloads": {"first-variant": {"some": "payload"}, "fourth-variant": {"some": "payload"}},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                    "payloads": {"first-variant": {"some": "payload"}, "true": 2500},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_creating_feature_flag_with_behavioral_cohort(self):
 
@@ -1745,6 +1842,53 @@ class TestFeatureFlag(APIBaseTest):
         res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
         self.assertEqual(res.json()["results"][0]["can_edit"], True)
         self.assertEqual(res.json()["results"][1]["can_edit"], True)
+
+    def test_flag_is_cached_on_create_and_update(self):
+        # Ensure empty feature flag list
+        FeatureFlag.objects.all().delete()
+
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+            },
+            format="json",
+        ).json()
+
+        flags = get_feature_flags_for_team_in_cache(self.team.id)
+
+        assert flags is not None
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].id, feature_flag["id"])
+        self.assertEqual(flags[0].key, "beta-feature")
+        self.assertEqual(flags[0].name, "Beta feature")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag['id']}",
+            {"name": "XYZ", "key": "red_button"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = get_feature_flags_for_team_in_cache(self.team.id)
+
+        assert flags is not None
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].id, feature_flag["id"])
+        self.assertEqual(flags[0].key, "red_button")
+        self.assertEqual(flags[0].name, "XYZ")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag['id']}",
+            {"deleted": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = get_feature_flags_for_team_in_cache(self.team.id)
+
+        assert flags is not None
+        self.assertEqual(len(flags), 0)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
@@ -2185,3 +2329,184 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
             response_json,
         )
+
+
+class QueryTimeoutWrapper:
+    def __call__(self, execute, *args, **kwargs):
+
+        raise OperationalError("I am a timeout error")
+        # return execute(*args, **kwargs)
+
+
+class TestResiliency(TestCase, QueryMatchingTest):
+    def test_feature_flags_v3_with_group_properties(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": f"finance"})
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "group-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ],
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone, if groups are given
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(2):
+            # one query to get group type mappings, another to get group properties
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            self.assertTrue(all_flags["group-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            self.assertFalse(errors)
+
+        # now db is down
+        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+
+            self.assertTrue("group-flag" not in all_flags)
+            # can't be true unless we cache group type mappings as well
+            self.assertTrue("default-flag" not in all_flags)
+            self.assertTrue(errors)
+
+            # # now db is down, but decide was sent correct group property overrides
+            with self.assertNumQueries(2):
+                # these 2 queries are "None", not executed
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id,
+                    "random",
+                    groups={"organization": "org:1"},
+                    group_property_value_overrides={"organization": {"industry": "finance"}},
+                )
+                self.assertTrue("group-flag" not in all_flags)
+                # can't be true unless we cache group type mappings as well
+                self.assertTrue("default-flag" not in all_flags)
+                self.assertTrue(errors)
+
+            # # now db is down, but decide was sent different group property overrides
+            with self.assertNumQueries(2):
+                # these 2 queries are "None", not executed
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id,
+                    "exam",
+                    groups={"organization": "org:1"},
+                    group_property_value_overrides={"organization": {"industry": "finna"}},
+                )
+                self.assertTrue("group-flag" not in all_flags)
+                # can't be true unless we cache group type mappings as well
+                self.assertTrue("default-flag" not in all_flags)
+                self.assertTrue(errors)
+
+    def test_feature_flags_v3_with_person_properties(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "property-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(1):
+            # 1 query to get person properties
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue(all_flags["property-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            self.assertFalse(errors)
+
+        # now db is down
+        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+
+            # # now db is down, but decide was sent email parameter with correct email
+            with self.assertNumQueries(0):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
+                )
+                self.assertTrue(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                self.assertFalse(errors)
+
+            # # now db is down, but decide was sent email parameter with different email
+            with self.assertNumQueries(0):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id, "example_id", property_value_overrides={"email": "tom@posthog.com"}
+                )
+                self.assertFalse(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                self.assertFalse(errors)

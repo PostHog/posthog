@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
 import { AlertMessage } from '../AlertMessage'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import clsx from 'clsx'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
@@ -39,12 +40,16 @@ const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonPro
 export const Default = BasicTemplate.bind({})
 Default.args = {}
 
-const StatusesTemplate = ({ ...props }: LemonButtonProps & { noText?: boolean }): JSX.Element => {
+const StatusesTemplate = ({
+    noText,
+    accommodateTooltip,
+    ...props
+}: LemonButtonProps & { noText?: boolean; accommodateTooltip?: boolean }): JSX.Element => {
     return (
-        <div className="flex gap-2 border rounded-lg p-2 flex-wrap">
+        <div className={clsx('flex gap-2 border rounded-lg p-2 flex-wrap', accommodateTooltip && 'pt-12')}>
             {statuses.map((status, j) => (
                 <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
-                    {!(props as any).noText ? capitalizeFirstLetter(status || 'default') : undefined}
+                    {!noText ? capitalizeFirstLetter(status || 'default') : undefined}
                 </LemonButton>
             ))}
         </div>
@@ -113,8 +118,8 @@ export const SizesIconOnly = (): JSX.Element => {
     )
 }
 
-export const Disabled = (): JSX.Element => {
-    return <StatusesTemplate disabled />
+export const DisabledWithReason = (): JSX.Element => {
+    return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
 }
 
 export const Loading = (): JSX.Element => {

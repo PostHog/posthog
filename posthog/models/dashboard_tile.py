@@ -3,12 +3,10 @@ from typing import List
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q, QuerySet, UniqueConstraint
-from django.db.models.signals import post_save
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
-from posthog.models.insight import Insight, generate_insight_cache_key
-from posthog.models.signals import mutable_receiver
+from posthog.models.insight import generate_insight_cache_key
 from posthog.models.tagged_item import build_check
 
 
@@ -24,7 +22,15 @@ class Text(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
+class DashboardTileManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True).exclude(dashboard__deleted=True)
+
+
 class DashboardTile(models.Model):
+    objects = DashboardTileManager()
+    objects_including_soft_deleted = models.Manager()
+
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
@@ -101,41 +107,10 @@ class DashboardTile(models.Model):
                 "insight__last_modified_by",
                 "insight__team",
             )
-            .exclude(deleted=True)
+            .exclude(dashboard__deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )
-
-
-@mutable_receiver(post_save, sender=Insight)
-def on_insight_saved(sender, instance: Insight, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"})]:
-        # Don't always update the filters_hash
-        return
-
-    tile_update_candidates = DashboardTile.objects.select_related("insight", "dashboard").filter(insight=instance)
-    update_filters_hashes(tile_update_candidates)
-
-
-@mutable_receiver(post_save, sender=Dashboard)
-def on_dashboard_saved(sender, instance: Dashboard, **kwargs):
-    tile_update_candidates = DashboardTile.objects.select_related("insight", "dashboard").filter(dashboard=instance)
-    update_filters_hashes(tile_update_candidates)
-
-
-def update_filters_hashes(tile_update_candidates):
-    tiles_to_update = []
-
-    for tile in tile_update_candidates:
-        if tile.insight and tile.insight.filters and tile.insight.filters != {}:
-            candidate_filters_hash = generate_insight_cache_key(tile.insight, tile.dashboard)
-            if tile.filters_hash != candidate_filters_hash:
-                tile.filters_hash = candidate_filters_hash
-                tiles_to_update.append(tile)
-
-    if len(tiles_to_update):
-        DashboardTile.objects.bulk_update(tiles_to_update, ["filters_hash"])
 
 
 def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:

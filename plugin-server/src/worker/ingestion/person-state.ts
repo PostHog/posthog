@@ -4,7 +4,7 @@ import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { DatabaseError, PoolClient } from 'pg'
+import { PoolClient } from 'pg'
 
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -90,6 +90,26 @@ export class PersonState {
         return this.personContainer
     }
 
+    async updateExceptProperties(): Promise<LazyPersonContainer> {
+        // Update everything but the person properties. This is used such that
+        // we can separate the person_id distinct_id associations from the
+        // update of properties. This allows us to achieve:
+        //
+        //  1. time delayed denormalization of person_id onto events.
+        //  2. point in time denormalization of person properties onto events.
+        //
+        // See https://github.com/PostHog/product-internal/pull/405 for details
+        // of the implementation.
+        //
+        // TODO: when we have switched to only using the new implementation, we
+        // can more safely refactor this to make the separaation less coupled.
+        // For now we try to change as little as possible from the previous
+        // behaviour.
+        await this.handleIdentifyOrAlias({ excludeProperties: true })
+        await this.createPersonIfDistinctIdIsNew({ excludeProperties: true })
+        return this.personContainer
+    }
+
     async updateProperties(): Promise<LazyPersonContainer> {
         const personCreated = await this.createPersonIfDistinctIdIsNew()
         if (
@@ -107,7 +127,11 @@ export class PersonState {
         return this.personContainer
     }
 
-    private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
+    private async createPersonIfDistinctIdIsNew({
+        excludeProperties,
+    }: {
+        excludeProperties?: boolean
+    } = {}): Promise<boolean> {
         // :TRICKY: Short-circuit if person container already has loaded person and it exists
         if (this.personContainer.loaded) {
             return false
@@ -115,8 +139,8 @@ export class PersonState {
 
         const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
-            const properties = this.eventProperties['$set'] || {}
-            const propertiesOnce = this.eventProperties['$set_once'] || {}
+            const properties = excludeProperties ? {} : this.eventProperties['$set'] || {}
+            const propertiesOnce = excludeProperties ? {} : this.eventProperties['$set_once'] || {}
             // Catch race condition where in between getting and creating, another request already created this user
             try {
                 const person = await this.createPerson(
@@ -216,7 +240,7 @@ export class PersonState {
         }
 
         const update: Partial<Person> = {}
-        const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
+        const updatedProperties = this.applyEventPropertyUpdates(personFound.properties || {})
 
         if (!equal(personFound.properties, updatedProperties)) {
             update.properties = updatedProperties
@@ -233,7 +257,7 @@ export class PersonState {
         }
     }
 
-    private updatedPersonProperties(personProperties: Properties): Properties {
+    private applyEventPropertyUpdates(personProperties: Properties): Properties {
         const updatedProperties = { ...personProperties }
 
         const properties: Properties = this.eventProperties['$set'] || {}
@@ -261,7 +285,7 @@ export class PersonState {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(): Promise<void> {
+    async handleIdentifyOrAlias({ excludeProperties }: { excludeProperties?: boolean } = {}): Promise<void> {
         /**
          * strategy:
          *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
@@ -281,7 +305,8 @@ export class PersonState {
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
-                    false
+                    false,
+                    excludeProperties
                 )
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
@@ -289,7 +314,8 @@ export class PersonState {
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
-                    true
+                    true,
+                    excludeProperties
                 )
             }
         } catch (e) {
@@ -299,12 +325,13 @@ export class PersonState {
         }
     }
 
-    private async merge(
+    public async merge(
         previousDistinctId: string,
         distinctId: string,
         teamId: number,
         timestamp: DateTime,
-        isIdentifyCall: boolean
+        isIdentifyCall: boolean,
+        excludeProperties = false
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
@@ -326,17 +353,25 @@ export class PersonState {
             })
             return
         }
-        await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
+        await this.mergeWithoutValidation(
+            previousDistinctId,
+            distinctId,
+            teamId,
+            timestamp,
+            isIdentifyCall,
+            0,
+            excludeProperties
+        )
     }
 
-    private async aliasDeprecated(
+    private async mergeWithoutValidation(
         previousDistinctId: string,
         distinctId: string,
         teamId: number,
         timestamp: DateTime,
         isIdentifyCall = true,
-        retryIfFailed = true,
-        totalMergeAttempts = 0
+        totalMergeAttempts = 0,
+        excludeProperties = false
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (previousDistinctId === distinctId) {
@@ -349,31 +384,13 @@ export class PersonState {
         // :TRICKY: Reduce needless lookups for person
         const newPerson = await this.personContainer.get()
 
-        if (oldPerson && !newPerson) {
-            try {
+        try {
+            if (oldPerson && !newPerson) {
                 await this.db.addDistinctId(oldPerson, distinctId)
                 this.personContainer = this.personContainer.with(oldPerson)
-                // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
-            } catch {
-                // integrity error
-                if (retryIfFailed) {
-                    // run everything again to merge the users if needed
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
-                }
-            }
-        } else if (!oldPerson && newPerson) {
-            try {
+            } else if (!oldPerson && newPerson) {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
-            } catch {
-                // integrity error
-                if (retryIfFailed) {
-                    // run everything again to merge the users if needed
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
-                }
-            }
-        } else if (!oldPerson && !newPerson) {
-            try {
+            } else if (!oldPerson && !newPerson) {
                 const person = await this.createPerson(
                     timestamp,
                     this.eventProperties['$set'] || {},
@@ -387,41 +404,41 @@ export class PersonState {
                 )
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()
                 this.personContainer = this.personContainer.with(person)
-            } catch {
-                // Catch race condition where in between getting and creating,
-                // another request already created this person
-                if (retryIfFailed) {
-                    // Try once more, probably one of the two persons exists now
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
-                }
-            }
-        } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
-            // $create_alias and $identify will not merge a user who's already identified into anyone else
-            const isCallToMergeAnIdentifiedUser = oldPerson.is_identified
-
-            this.statsd?.increment('merge_users', {
-                call: isIdentifyCall ? 'identify' : 'alias',
-                teamId: newPerson.team_id.toString(),
-                oldPersonIdentified: String(oldPerson.is_identified),
-                newPersonIdentified: String(newPerson.is_identified),
-            })
-            if (isCallToMergeAnIdentifiedUser) {
-                captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
-                    sourcePersonDistinctId: previousDistinctId,
-                    targetPersonDistinctId: distinctId,
-                })
-                status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-            } else {
+            } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
                 await this.mergePeople({
-                    totalMergeAttempts,
                     shouldIdentifyPerson: isIdentifyCall,
                     mergeInto: newPerson,
                     mergeIntoDistinctId: distinctId,
                     otherPerson: oldPerson,
                     otherPersonDistinctId: previousDistinctId,
-                    timestamp: timestamp,
                 })
             }
+        } catch (error) {
+            // Retrying merging up to `MAX_FAILED_PERSON_MERGE_ATTEMPTS` times, in case race conditions occur.
+            // E.g. Catch race case when somebody already added this distinct_id between .get and .addDistinctId
+            // E.g. Catch race condition where in between getting and creating, another request already created this person
+            // An example is a distinct ID being aliased in another plugin server instance,
+            // between `moveDistinctId` and `deletePerson` being called here
+            // – in such a case a distinct ID may be assigned to the person in the database
+            // AFTER `otherPersonDistinctIds` was fetched, so this function is not aware of it and doesn't merge it.
+            // That then causes `deletePerson` to fail, because of foreign key constraints –
+            // the dangling distinct ID added elsewhere prevents the person from being deleted!
+            // This is low-probability so likely won't occur on second retry of this block.
+            // In the rare case of the person changing VERY often however, it may happen even a few times,
+            // in which case we'll bail and rethrow the error.
+            totalMergeAttempts++
+            if (totalMergeAttempts >= MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
+                throw error // Very much not OK, failed repeatedly so rethrowing the error
+            }
+            await this.mergeWithoutValidation(
+                previousDistinctId,
+                distinctId,
+                teamId,
+                timestamp,
+                isIdentifyCall,
+                totalMergeAttempts,
+                excludeProperties
+            )
         }
     }
 
@@ -430,89 +447,103 @@ export class PersonState {
         mergeIntoDistinctId,
         otherPerson,
         otherPersonDistinctId,
-        timestamp,
-        totalMergeAttempts = 0,
         shouldIdentifyPerson = true,
     }: {
         mergeInto: Person
         mergeIntoDistinctId: string
         otherPerson: Person
         otherPersonDistinctId: string
-        timestamp: DateTime
-        totalMergeAttempts: number
         shouldIdentifyPerson?: boolean
     }): Promise<void> {
-        const teamId = mergeInto.team_id
+        const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
+        const newerCreatedAt = DateTime.max(mergeInto.created_at, otherPerson.created_at)
 
-        let firstSeen = mergeInto.created_at
+        const mergeAllowed = this.isMergeAllowed(otherPerson)
 
-        // Merge properties
-        mergeInto.properties = { ...otherPerson.properties, ...mergeInto.properties }
-        if (otherPerson.created_at < firstSeen) {
-            // Keep the oldest created_at (i.e. the first time we've seen this person)
-            firstSeen = otherPerson.created_at
-        }
-
-        let kafkaMessages: ProducerRecord[] = []
-
-        let failedAttempts = totalMergeAttempts
-
-        // Retrying merging up to `MAX_FAILED_PERSON_MERGE_ATTEMPTS` times, in case race conditions occur.
-        // An example is a distinct ID being aliased in another plugin server instance,
-        // between `moveDistinctId` and `deletePerson` being called here
-        // – in such a case a distinct ID may be assigned to the person in the database
-        // AFTER `otherPersonDistinctIds` was fetched, so this function is not aware of it and doesn't merge it.
-        // That then causes `deletePerson` to fail, because of foreign key constraints –
-        // the dangling distinct ID added elsewhere prevents the person from being deleted!
-        // This is low-probability so likely won't occur on second retry of this block.
-        // In the rare case of the person changing VERY often however, it may happen even a few times,
-        // in which case we'll bail and rethrow the error.
-        await this.db.postgresTransaction('mergePeople', async (client) => {
-            try {
-                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                    mergeInto,
-                    {
-                        created_at: firstSeen,
-                        properties: this.updatedPersonProperties(mergeInto.properties),
-                        is_identified: true,
-                    },
-                    client
-                )
-
-                // :KLUDGE: Avoid unneeded fetches in updateProperties()
-                this.personContainer = this.personContainer.with(person)
-
-                // Merge the distinct IDs
-                await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
-
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
-
-                const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
-
-                kafkaMessages = [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]
-            } catch (error) {
-                if (!(error instanceof DatabaseError)) {
-                    throw error // Very much not OK, this is some completely unexpected error
-                }
-
-                failedAttempts++
-                if (failedAttempts === MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
-                    throw error // Very much not OK, failed repeatedly so rethrowing the error
-                }
-
-                await this.aliasDeprecated(
-                    otherPersonDistinctId,
-                    mergeIntoDistinctId,
-                    teamId,
-                    timestamp,
-                    shouldIdentifyPerson,
-                    false,
-                    failedAttempts
-                )
-            }
+        this.statsd?.increment('merge_users', {
+            call: shouldIdentifyPerson ? 'identify' : 'alias',
+            teamId: this.teamId.toString(),
+            oldPersonIdentified: String(otherPerson.is_identified),
+            newPersonIdentified: String(mergeInto.is_identified),
+            // For analyzing impact of merges we need to know how old data would need to get updated
+            // If we are smart we merge the newer person into the older one,
+            // so we need to know the newer person's age
+            newerPersonAgeInMonths: String(ageInMonthsLowCardinality(newerCreatedAt)),
         })
 
+        // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
+        if (!mergeAllowed) {
+            // TODO: add event UUID to the ingestion warning
+            captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
+                sourcePersonDistinctId: otherPersonDistinctId,
+                targetPersonDistinctId: mergeIntoDistinctId,
+            })
+            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            return
+        }
+
+        // How the merge works:
+        // Merging properties:
+        //   on key conflict we use the properties from the person provided as the first argument in identify or alias calls (mergeInto person),
+        //   Note it's important for us to compute this before potentially swapping the persons for personID merging purposes in PoEEmbraceJoin mode
+        // In case of PoE Embrace the join mode:
+        //   we want to keep using the older person to reduce the number of partitions that need to be updated during squash
+        //   to do that we'll swap otherPerson and mergeInto person (after properties merge computation!)
+        //   additionally update person overrides table in postgres and clickhouse
+        //   TODO: ^
+        // If the merge fails:
+        //   we'll roll back the transaction and then try from scratch in the origial order of persons provided for property merges
+        //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
+        //   we're calling aliasDeprecated as we need to refresh the persons info completely first
+
+        let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        properties = this.applyEventPropertyUpdates(properties)
+
+        // Keep the oldest created_at (i.e. the first time we've seen this person)
+        const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
+            mergeInto,
+            otherPerson,
+            olderCreatedAt,
+            properties
+        )
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
+
+        // :KLUDGE: Avoid unneeded fetches in updateProperties()
+        this.personContainer = this.personContainer.with(mergedPerson)
+    }
+
+    private isMergeAllowed(mergeFrom: Person): boolean {
+        // $create_alias and $identify will not merge a user who's already identified into anyone else
+        return !mergeFrom.is_identified
+    }
+
+    private async handleMergeTransaction(
+        mergeInto: Person,
+        otherPerson: Person,
+        createdAt: DateTime,
+        properties: Properties
+    ): Promise<[ProducerRecord[], Person]> {
+        return await this.db.postgresTransaction('mergePeople', async (client) => {
+            const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
+                mergeInto,
+                {
+                    created_at: createdAt,
+                    properties: properties,
+                    is_identified: true,
+                },
+                client
+            )
+
+            // Merge the distinct IDs
+            // TODO: Doesn't this table need to add updates to CH too?
+            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
+
+            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
+
+            const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
+
+            return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+        })
     }
 
     private async handleTablesDependingOnPersonID(
@@ -540,8 +571,20 @@ export function updatePersonState(...params: ConstructorParameters<typeof Person
     return new PersonState(...params).update()
 }
 
-export function updatePropertiesPersonState(
+export function updatePersonStateExceptProperties(
     ...params: ConstructorParameters<typeof PersonState>
 ): Promise<LazyPersonContainer> {
-    return new PersonState(...params).updateProperties()
+    // To enable the timelapsed denormalization of person_id onto events, we
+    // need a way to separate the person_id and distinct_id associations from
+    // the `person_properties` operations, such that we can update associations
+    // by some delay period before finally creating the event we will push into
+    // ClickHouse.
+    return new PersonState(...params).updateExceptProperties()
+}
+
+export function ageInMonthsLowCardinality(timestamp: DateTime): number {
+    const ageInMonths = Math.max(-Math.floor(timestamp.diffNow('months').months), 0)
+    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
+    const ageLowCardinality = Math.min(ageInMonths, 50)
+    return ageLowCardinality
 }

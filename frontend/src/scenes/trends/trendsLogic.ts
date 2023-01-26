@@ -121,6 +121,7 @@ export const trendsLogic = kea<trendsLogicType>([
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
+                results = results.map((result, index) => ({ ...result, seriesIndex: index }))
                 if (
                     isFilterWithDisplay(filters) &&
                     (filters.display === ChartDisplayType.ActionsBarValue ||
@@ -130,7 +131,7 @@ export const trendsLogic = kea<trendsLogicType>([
                 } else if (isLifecycleFilter(filters)) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
-                return results.map((result, index) => ({ ...result, id: index }))
+                return results.map((result, index) => ({ ...result, id: index } as IndexedTrendResult))
             },
         ],
         aggregationTargetLabel: [

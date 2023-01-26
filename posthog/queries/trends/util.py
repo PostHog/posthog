@@ -1,9 +1,11 @@
 import datetime
 from datetime import timedelta
 from math import isinf, isnan
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
+import pytz
 import structlog
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception, push_scope
 
@@ -11,10 +13,11 @@ from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNI
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.queries.util import get_earliest_timestamp
+from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp
 
 logger = structlog.get_logger(__name__)
 
@@ -104,11 +107,20 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
             raise ValidationError("Active User queries require a lower date bound")
     date_to = filter.date_to
 
+    # When calculating the buckets an event would fall in on an hourly interval,
+    # we round with toStartOfHour and look at the correct range into the future (i.e. 7 or 30 days)
+    # However, for daily, weekly, and monthly, we round with toStartOfDay and thus count a fewer day
+    # into the future (i.e. 6 or 29 days), since we are already counting the entire first day
+    prev_interval = "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY"
+    if filter.interval == "hour":
+        prev_interval = "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 DAY"
+
     format_params = {
-        # Not 7 and 30 because the day of the date marker is included already in the query (`+ INTERVAL 1 DAY`)
-        "prev_interval": "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY",
+        "rounding_func": "toStartOfHour" if filter.interval == "hour" else "toStartOfDay",
+        "prev_interval": prev_interval,
         "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)",
     }
+
     # For time-series display types, we need to adjust date_from to be 7/30 days earlier.
     # This is because each data point effectively has its own range, which starts 6/29 days before its date marker,
     # and ends on that particular date marker.
@@ -116,7 +128,12 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
     # global range – and is basically distinct persons who have an event in the 7/30 days before date_to.
     # Why use date_to in this case? We don't have thorough research to back this, but it felt a bit more intuitive.
     relevant_start_date = date_from if filter.display not in NON_TIME_SERIES_DISPLAY_TYPES else date_to
-    query_params = {"date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S")}
+
+    query_params = {
+        "date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S"),
+        "bucket_increment_seconds": TIME_IN_SECONDS[filter.interval],
+        "grouping_increment_seconds": TIME_IN_SECONDS["hour"] if filter.interval == "hour" else TIME_IN_SECONDS["day"],
+    }
 
     return format_params, query_params
 
@@ -166,3 +183,23 @@ def is_series_group_based(entity: Entity) -> bool:
     return entity.math == UNIQUE_GROUPS or (
         entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is not None
     )
+
+
+F = TypeVar("F", Filter, PropertiesTimelineFilter)
+
+
+def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, team: Team) -> datetime.datetime:
+    """If the insight is time-series, offset date according to the interval of the filter."""
+    if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+        return date
+    if filter.interval == "month":
+        date = (date + relativedelta(months=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter.interval == "week":
+        date = (date + timedelta(weeks=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter.interval == "hour":
+        date = date + timedelta(hours=1)
+    else:  # "day" is the default interval
+        date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=pytz.timezone(team.timezone))
+    return date

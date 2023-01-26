@@ -170,8 +170,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
                 name="clickhouse mark all columns as materialized",
             )
 
-        # Hourly check for email subscriptions
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
+        sender.add_periodic_task(crontab(hour=2, minute=randrange(0, 40)), ee_persist_finished_recordings.s())
 
         sender.add_periodic_task(
             settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
@@ -442,10 +442,16 @@ def clickhouse_mutation_count():
 
 @app.task(ignore_result=True)
 def clickhouse_clear_removed_data():
-    from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
+    from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+    from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 
-    mark_deletions_done()
-    run_event_table_deletions()
+    runner = AsyncEventDeletion()
+    runner.mark_deletions_done()
+    runner.run()
+
+    cohort_runner = AsyncCohortDeletion()
+    cohort_runner.mark_deletions_done()
+    cohort_runner.run()
 
 
 @app.task(ignore_result=True)
@@ -685,3 +691,23 @@ def check_flags_to_rollback():
         check_flags_to_rollback()
     except ImportError:
         pass
+
+
+@app.task(ignore_result=True)
+def ee_persist_single_recording(id: str, team_id: int):
+    try:
+        from ee.tasks.session_recording.persistence import persist_single_recording
+
+        persist_single_recording(id, team_id)
+    except ImportError:
+        pass
+
+
+@app.task(ignore_result=True)
+def ee_persist_finished_recordings():
+    try:
+        from ee.tasks.session_recording.persistence import persist_finished_recordings
+    except ImportError:
+        pass
+    else:
+        persist_finished_recordings()

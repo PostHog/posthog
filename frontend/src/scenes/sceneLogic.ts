@@ -14,15 +14,16 @@ import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfiguratio
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { appContextLogic } from './appContextLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Action]: Scene.DataManagement,
     [Scene.Actions]: Scene.DataManagement,
     [Scene.EventDefinitions]: Scene.DataManagement,
-    [Scene.EventPropertyDefinitions]: Scene.DataManagement,
+    [Scene.PropertyDefinitions]: Scene.DataManagement,
     [Scene.EventDefinition]: Scene.DataManagement,
-    [Scene.EventPropertyDefinition]: Scene.DataManagement,
+    [Scene.PropertyDefinition]: Scene.DataManagement,
     [Scene.IngestionWarnings]: Scene.DataManagement,
     [Scene.Person]: Scene.Persons,
     [Scene.Cohort]: Scene.Cohorts,
@@ -121,8 +122,14 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     selectors: {
         sceneConfig: [
-            (s) => [s.scene],
-            (scene: Scene): SceneConfig | null => {
+            (s) => [s.scene, s.featureFlags],
+            (scene: Scene, featureFlags): SceneConfig | null => {
+                if (scene === Scene.Events && featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]) {
+                    return {
+                        ...sceneConfigurations[scene],
+                        name: 'Event Explorer',
+                    }
+                }
                 return sceneConfigurations[scene] || null
             },
         ],
@@ -172,9 +179,11 @@ export const sceneLogic = kea<sceneLogicType>({
         > = {}
 
         for (const path of Object.keys(redirects)) {
-            mapping[path] = (params) => {
+            mapping[path] = (params, searchParams, hashParams) => {
                 const redirect = redirects[path]
-                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+                )
             }
         }
         for (const [path, scene] of Object.entries(routes)) {

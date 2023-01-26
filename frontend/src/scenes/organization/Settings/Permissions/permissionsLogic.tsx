@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { rolesLogic } from './Roles/rolesLogic'
 import { lemonToast } from '@posthog/lemon-ui'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',
@@ -81,9 +82,11 @@ export const permissionsLogic = kea<permissionsLogicType>([
             } else {
                 actions.updateOrganizationResourcePermission({
                     id: resourceId,
+                    resource: resourceType,
                     access_level: accessLevel,
                 })
             }
+            eventUsageLogic.actions.reportResourceAccessLevelUpdated(resourceType, role.name, accessLevel)
         },
         updateOrganizationResourcePermissionSuccess: () => {
             lemonToast.success('Organizational edit access updated')

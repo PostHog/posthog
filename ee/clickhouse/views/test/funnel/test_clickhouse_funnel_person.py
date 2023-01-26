@@ -5,13 +5,22 @@ from django.core.cache import cache
 from rest_framework import status
 
 from posthog.constants import INSIGHT_FUNNELS
+from posthog.models.group.util import create_group
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.person import Person
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 
 
 class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
     def _create_sample_data(self, num, delete=False):
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="g0", properties={"slug": "g0", "name": "g0"})
+
         for i in range(num):
             if delete:
                 person = Person.objects.create(distinct_ids=[f"user_{i}"], team=self.team)
@@ -22,21 +31,22 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
                 distinct_id=f"user_{i}",
                 team=self.team,
                 timestamp="2021-05-01 00:00:00",
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", "$group_0": "g0"},
             )
             _create_event(
                 event="step two",
                 distinct_id=f"user_{i}",
                 team=self.team,
                 timestamp="2021-05-03 00:00:00",
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", "$group_0": "g0"},
             )
             _create_event(
                 event="step three",
                 distinct_id=f"user_{i}",
                 team=self.team,
                 timestamp="2021-05-05 00:00:00",
-                properties={"$browser": "Chrome"},
+                properties={"$browser": "Chrome", "$group_0": "g0"},
+                group0_properties={"name": "g0"},
             )
             if delete:
                 person.delete()
@@ -66,6 +76,35 @@ class TestFunnelPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(5, len(j["results"][0]["people"]))
         self.assertTrue("id" in first_person and "name" in first_person and "distinct_ids" in first_person)
         self.assertEqual(5, j["results"][0]["count"])
+
+    @snapshot_clickhouse_queries
+    def test_funnel_actors_with_groups_search(self):
+        self._create_sample_data(5)
+
+        request_data = {
+            "aggregation_group_type_index": 0,
+            "search": "g0",
+            "breakdown_attribution_type": "first_touch",
+            "insight": INSIGHT_FUNNELS,
+            "interval": "day",
+            "actions": json.dumps([]),
+            "events": json.dumps(
+                [{"id": "step one", "order": 0}, {"id": "step two", "order": 1}, {"id": "step three", "order": 2}]
+            ),
+            "properties": json.dumps([]),
+            "funnel_window_days": 14,
+            "funnel_step": 1,
+            "filter_test_accounts": "false",
+            "new_entity": json.dumps([]),
+            "date_from": "2021-05-01",
+            "date_to": "2021-05-10",
+        }
+
+        response = self.client.get("/api/person/funnel/", data=request_data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        j = response.json()
+        self.assertEqual(1, len(j["results"][0]["people"]))
+        self.assertEqual(1, j["results"][0]["count"])
 
     def test_basic_pagination(self):
         cache.clear()

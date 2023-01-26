@@ -39,8 +39,15 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, EventsNode, InsightQueryNode } from '~/queries/schema'
-import { isEventsNode, isLifecycleQuery } from '~/queries/utils'
+import {
+    ActionsNode,
+    BreakdownFilter,
+    EventsNode,
+    InsightQueryNode,
+    StickinessQuery,
+    TrendsQuery,
+} from '~/queries/schema'
+import { isEventsNode, isLifecycleQuery, isPathsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -154,19 +161,19 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): string[] {
+export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
-    if (filters.include_event_types) {
+    if (include_event_types) {
         let matchCount = 0
-        if (filters.include_event_types.includes(PathType.PageView)) {
+        if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.Screen)) {
+        if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.CustomEvent)) {
+        if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
             matchCount++
         }
@@ -178,7 +185,7 @@ export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): stri
 }
 
 export function summarizeBreakdown(
-    filters: Partial<FilterType>,
+    filters: Partial<FilterType> | BreakdownFilter,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById']
 ): string | null {
@@ -232,7 +239,7 @@ export function summarizeInsightFilters(
         )
     } else if (isPathsFilter(filters)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
+        let summary = `User paths based on ${humanizePathsEventTypes(filters.include_event_types).join(' and ')}`
         if (filters.start_point) {
             summary += ` starting at ${filters.start_point}`
         }
@@ -327,12 +334,84 @@ export function summarizeInsightFilters(
     return ''
 }
 
-export function summarizeInsightQuery(query: InsightQueryNode): string {
-    if (isLifecycleQuery(query)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    }
+export function summarizeInsightQuery(
+    query: InsightQueryNode,
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsById: cohortsModelType['values']['cohortsById'],
+    mathDefinitions: mathsLogicType['values']['mathDefinitions']
+): string {
+    if (isTrendsQuery(query)) {
+        let summary = (query as TrendsQuery).series
+            .map((s, index) => {
+                const mathType = apiValueToMathType(s.math, s.math_group_type_index)
+                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                let series: string
+                if (mathDefinition?.category === MathCategory.EventCountPerActor) {
+                    series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
+                } else if (mathDefinition?.category === MathCategory.PropertyValue) {
+                    series = `${getDisplayNameFromEntityNode(s)}'s ${
+                        keyMapping.event[s.math_property as string]?.label || s.math_property
+                    } ${
+                        mathDefinition
+                            ? mathDefinition.shortName
+                            : s.math === 'unique_group'
+                            ? 'unique groups'
+                            : mathType
+                    }`
+                } else {
+                    series = `${getDisplayNameFromEntityNode(s)} ${
+                        mathDefinition
+                            ? mathDefinition.shortName
+                            : s.math === 'unique_group'
+                            ? 'unique groups'
+                            : mathType
+                    }`
+                }
+                if (query.trendsFilter?.formula) {
+                    series = `${alphabet[index].toUpperCase()}. ${series}`
+                }
+                return series
+            })
+            .join(' & ')
 
-    return ''
+        if (query.breakdown?.breakdown_type) {
+            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(
+                query.breakdown,
+                aggregationLabel,
+                cohortsById
+            )}`
+        }
+        if (query.trendsFilter?.formula) {
+            summary = `${query.trendsFilter.formula} on ${summary}`
+        }
+
+        return summary
+    } else if (isPathsQuery(query)) {
+        // Sync format with PathsSummary in InsightDetails
+        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
+            ' and '
+        )}`
+        if (query.pathsFilter?.start_point) {
+            summary += ` starting at ${query.pathsFilter?.start_point}`
+        }
+        if (query.pathsFilter?.end_point) {
+            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
+        }
+        return summary
+    } else if (isStickinessQuery(query)) {
+        return capitalizeFirstLetter(
+            (query as StickinessQuery).series
+                .map((s) => {
+                    const actor = aggregationLabel(s.math_group_type_index, true).singular
+                    return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
+                })
+                .join(' & ')
+        )
+    } else if (isLifecycleQuery(query)) {
+        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+    } else {
+        return ''
+    }
 }
 
 export function formatAggregationValue(

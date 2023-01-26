@@ -1,16 +1,115 @@
 import json
 from datetime import timedelta
+from typing import Dict, List
 
-from dateutil.relativedelta import relativedelta
-from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.models import Element, ElementGroup, Organization
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    _create_person,
+    snapshot_postgres_queries,
+)
+
+expected_all_data_response_results: List[Dict] = [
+    {
+        "count": 2,
+        "hash": None,
+        "type": "$autocapture",
+        "elements": [
+            {
+                "text": "event 1",
+                "tag_name": "a",
+                "attr_class": None,
+                "href": "https://posthog.com/event-1",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 0,
+            },
+            {
+                "text": "event 1",
+                "tag_name": "div",
+                "attr_class": None,
+                "href": "https://posthog.com/event-1",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 1,
+            },
+        ],
+    },
+    {
+        "count": 2,
+        "hash": None,
+        "type": "$autocapture",
+        "elements": [
+            {
+                "text": "event 2",
+                "tag_name": "a",
+                "attr_class": None,
+                "href": "https://posthog.com/event-2",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 0,
+            },
+            {
+                "text": "event 2",
+                "tag_name": "div",
+                "attr_class": None,
+                "href": "https://posthog.com/event-2",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 1,
+            },
+        ],
+    },
+]
+
+expected_rage_click_data_response_results: List[Dict] = [
+    {
+        "count": 1,
+        "hash": None,
+        "type": "$rageclick",
+        "elements": [
+            {
+                "text": "event 1",
+                "tag_name": "a",
+                "attr_class": None,
+                "href": "https://posthog.com/event-1",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 0,
+            },
+            {
+                "text": "event 1",
+                "tag_name": "div",
+                "attr_class": None,
+                "href": "https://posthog.com/event-1",
+                "attr_id": None,
+                "nth_child": 0,
+                "nth_of_type": 0,
+                "attributes": {},
+                "order": 1,
+            },
+        ],
+    },
+]
 
 
-class TestElement(ClickhouseTestMixin, APIBaseTest):
+class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_element_automatic_order(self) -> None:
         elements = [
             Element(tag_name="a", href="https://posthog.com/about", text="click here"),
@@ -41,59 +140,31 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["name"], "click here")
         self.assertEqual(len(response), 1)
 
-    def test_element_stats(self) -> None:
-        elements = [
-            Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0),
-            Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1),
-        ]
-
-        _create_person(team=self.team, distinct_ids=["test"])
-        _create_event(
-            team=self.team,
-            elements=elements,
-            event="$autocapture",
-            distinct_id="test",
-            properties={"$current_url": "http://example.com/demo"},
-        )
-        _create_event(
-            team=self.team,
-            elements=elements,
-            event="$autocapture",
-            distinct_id="test",
-            properties={"$current_url": "http://example.com/demo"},
-        )
-
-        # make sure we only load last 7 days by default
-        _create_event(
-            timestamp=now() - relativedelta(days=8),
-            team=self.team,
-            elements=elements,
-            event="$autocapture",
-            distinct_id="test",
-            properties={"$current_url": "http://example.com/demo"},
-        )
-
-        _create_event(
-            team=self.team,
-            event="$autocapture",
-            distinct_id="test",
-            properties={"$current_url": "http://example.com/something_else"},
-            elements=[Element(tag_name="img")],
-        )
+    @snapshot_postgres_queries
+    def test_element_stats_postgres_queries_are_as_expected(self) -> None:
+        self._setup_events()
 
         with self.assertNumQueries(6):
-            # Django session, PostHog user, PostHog team, PostHog org membership
-            # then 2 for inserting person in test setup
-            response = self.client.get("/api/element/stats/").json()
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["elements"][0]["tag_name"], "a")
-        self.assertEqual(response[1]["count"], 1)
+            """django session, posthog_user, team, organization_membership, then two person inserts 🤷"""
+            self.client.get("/api/element/stats/?paginate_response=true").json()
 
-        response = self.client.get(
-            "/api/element/stats/?properties=%s"
-            % json.dumps([{"key": "$current_url", "value": "http://example.com/demo"}])
-        ).json()
-        self.assertEqual(len(response), 1)
+    def test_element_stats_can_filter_by_properties(self) -> None:
+        self._setup_events()
+
+        response = self.client.get("/api/element/stats/?paginate_response=true").json()
+        assert len(response["results"]) == 2
+
+        properties_filter = json.dumps([{"key": "$current_url", "value": "http://example.com/another_page"}])
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
+        self.assertEqual(len(response["results"]), 1)
+
+    def test_element_stats_without_pagination(self) -> None:
+        """Can be removed once we can default to returning paginated responses"""
+        self._setup_events()
+
+        response = self.client.get("/api/element/stats").json()
+        # not nested into a results property
+        assert response == expected_all_data_response_results
 
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"
@@ -127,14 +198,86 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(query_time):
             # the UI doesn't allow you to choose time, so query should always be from start of day
-            response = self.client.get(f"/api/element/stats/?date_from={query_time}")
+            response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertEqual(response_json[0]["count"], 2)
-            self.assertEqual(response_json[0]["elements"][0]["tag_name"], "a")
+            self.assertEqual(response_json["results"][0]["count"], 2)
+            self.assertEqual(response_json["results"][0]["elements"][0]["tag_name"], "a")
+
+    def test_element_stats_can_load_all_the_data(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_all_data_response_results
+
+    def test_element_stats_can_load_only_rageclick_data(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclick")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_rage_click_data_response_results
+
+    def test_element_stats_can_load_rageclick_and_autocapture_data(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(
+            f"/api/element/stats/?paginate_response=true&include=$rageclick&include=$autocapture"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_all_data_response_results + expected_rage_click_data_response_results
 
     def test_element_stats_obeys_limit_parameter(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] == "http://testserver/api/element/stats/?paginate_response=true&limit=1&offset=1"
+        limit_to_one_results = response_json["results"]
+        assert limit_to_one_results == [expected_all_data_response_results[0]]
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1&offset=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None
+        limit_to_one_results = response_json["results"]
+        assert limit_to_one_results == [expected_all_data_response_results[1]]
+
+    def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
+        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_element_stats_does_not_allow_non_numeric_offset(self) -> None:
+        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_element_stats_does_not_allow_unexepcted_include(self) -> None:
+        response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def _setup_events(self):
+        _create_person(distinct_ids=["one"], team=self.team)
+        _create_person(distinct_ids=["two"], team=self.team)
+        _create_person(distinct_ids=["three"], team=self.team)
         _create_event(
             team=self.team,
             elements=[
@@ -142,10 +285,19 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
                 Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
             ],
             event="$autocapture",
-            distinct_id="test",
+            distinct_id="one",
             properties={"$current_url": "http://example.com/demo"},
         )
-
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
+                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+            ],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
         _create_event(
             team=self.team,
             elements=[
@@ -153,26 +305,26 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
                 Element(tag_name="div", href="https://posthog.com/event-2", text="event 2", order=1),
             ],
             event="$autocapture",
-            distinct_id="test",
+            distinct_id="two",
             properties={"$current_url": "http://example.com/demo"},
         )
-
-        response = self.client.get(f"/api/element/stats/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_json = response.json()
-        assert len(response_json) == 2  # there are 2 events
-        assert [e["count"] for e in response_json] == [1, 1]  # each of 1 click
-        assert [len(e["elements"]) for e in response_json] == [2, 2]  # each click has a chain of 2 selectors
-
-        response = self.client.get(f"/api/element/stats/?limit=1")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        response_json = response.json()
-        assert len(response_json) == 1  # there is now 1 events
-        assert [e["count"] for e in response_json] == [1]  # of 1 click
-        assert [len(e["elements"]) for e in response_json] == [2]  # with a chain of 2 selectors
-
-    def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
-        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="https://posthog.com/event-2", text="event 2", order=0),
+                Element(tag_name="div", href="https://posthog.com/event-2", text="event 2", order=1),
+            ],
+            event="$autocapture",
+            distinct_id="three",
+            properties={"$current_url": "http://example.com/another_page"},
+        )
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(tag_name="a", href="https://posthog.com/event-1", text="event 1", order=0),
+                Element(tag_name="div", href="https://posthog.com/event-1", text="event 1", order=1),
+            ],
+            event="$rageclick",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )

@@ -1,4 +1,11 @@
-import { AnyPartialFilterType, DashboardType, FilterType, InsightShortId, SessionRecordingsTabs } from '~/types'
+import {
+    AnyPartialFilterType,
+    DashboardType,
+    FilterType,
+    InsightShortId,
+    PerformancePageView,
+    SessionRecordingsTabs,
+} from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
 import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
@@ -31,8 +38,8 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
-    eventPropertyDefinitions: (): string => '/data-management/event-properties',
-    eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
+    propertyDefinitions: (): string => '/data-management/properties',
+    propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
@@ -45,7 +52,14 @@ export const urls = {
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
+    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
+        // KLUDGE: only allow no pageview param for urlToAction in the logic
+        const queryParams = !!pageview
+            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
+            : ''
+        return `/web-performance/waterfall${queryParams}`
+    },
+
     sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
     sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>

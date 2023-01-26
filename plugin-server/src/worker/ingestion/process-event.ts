@@ -1,17 +1,20 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
+import { KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, KAFKA_PERFORMANCE_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     GroupTypeIndex,
     Hub,
     IngestionPersonData,
     ISOTimestamp,
+    PerformanceEventReverseMapping,
     PostIngestionEvent,
     PreIngestionEvent,
     RawClickHouseEvent,
+    RawPerformanceEvent,
     RawSessionRecordingEvent,
     Team,
     TimestampFormat,
@@ -20,11 +23,13 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
 import { LazyPersonContainer } from './lazy-person-container'
 import { upsertGroup } from './properties-updater'
+import { PropertyDefinitionsManager } from './property-definitions-manager'
 import { TeamManager } from './team-manager'
 import { captureIngestionWarning } from './utils'
 
@@ -35,6 +40,7 @@ export class EventsProcessor {
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
+    propertyDefinitionsManager: PropertyDefinitionsManager
 
     constructor(pluginsServer: Hub) {
         this.pluginsServer = pluginsServer
@@ -43,6 +49,13 @@ export class EventsProcessor {
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
+        this.propertyDefinitionsManager = new PropertyDefinitionsManager(
+            this.teamManager,
+            this.groupTypeManager,
+            pluginsServer.db,
+            pluginsServer,
+            pluginsServer.statsd
+        )
     }
 
     public async processEvent(
@@ -76,7 +89,7 @@ export class EventsProcessor {
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
-                    const timeout2 = timeoutGuard(
+                    const snapshotEventTimeout = timeoutGuard(
                         'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
                         { eventUuid }
                     )
@@ -92,20 +105,38 @@ export class EventsProcessor {
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
                         })
-                        // No return value in case of snapshot events as we don't do action matching on them
                     } finally {
-                        clearTimeout(timeout2)
+                        clearTimeout(snapshotEventTimeout)
                     }
                 }
+            } else if (data['event'] === '$performance_event') {
+                const performanceEventTimeout = timeoutGuard(
+                    'Still running "createPerformanceEvent". Timeout warning after 30 sec!',
+                    {
+                        eventUuid,
+                    }
+                )
+                try {
+                    await this.createPerformanceEvent(eventUuid, teamId, distinctId, timestamp, ip, properties)
+                    // No return value in case of performance events as we don't do further processing on them
+
+                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.performance', singleSaveTimer, {
+                        team_id: teamId.toString(),
+                    })
+                } finally {
+                    clearTimeout(performanceEventTimeout)
+                }
             } else {
-                const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
+                const captureTimeout = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', {
+                    eventUuid,
+                })
                 try {
                     result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
                 } finally {
-                    clearTimeout(timeout3)
+                    clearTimeout(captureTimeout)
                 }
             }
         } finally {
@@ -136,7 +167,16 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        await this.teamManager.updateEventNamesAndProperties(team.id, event, properties)
+        try {
+            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+        } catch (err) {
+            Sentry.captureException(err)
+            status.warn('⚠️', 'Failed to update property definitions for an event', {
+                event,
+                properties,
+                err,
+            })
+        }
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
@@ -244,31 +284,26 @@ export class EventsProcessor {
         ip: string | null,
         properties: Properties
     ): Promise<PostIngestionEvent> {
-        const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
-
-        const data: Partial<RawSessionRecordingEvent> = {
+        return await createSessionRecordingEvent(
             uuid,
-            team_id: team_id,
-            distinct_id: distinct_id,
-            session_id: properties['$session_id'],
-            window_id: properties['$window_id'],
-            snapshot_data: JSON.stringify(properties['$snapshot_data']),
-            timestamp: timestampString,
-            created_at: timestampString,
-        }
-
-        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_SESSION_RECORDING_EVENTS, uuid, data)
-
-        return {
-            eventUuid: uuid,
-            event: '$snapshot',
+            team_id,
+            distinct_id,
+            timestamp,
             ip,
-            distinctId: distinct_id,
             properties,
-            timestamp: timestamp.toISO() as ISOTimestamp,
-            elementsList: [],
-            teamId: team_id,
-        }
+            this.kafkaProducer
+        )
+    }
+
+    private async createPerformanceEvent(
+        uuid: string,
+        team_id: number,
+        distinct_id: string,
+        timestamp: DateTime,
+        ip: string | null,
+        properties: Properties
+    ): Promise<PostIngestionEvent> {
+        return await createPerformanceEvent(uuid, team_id, distinct_id, properties, ip, timestamp, this.kafkaProducer)
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
@@ -289,5 +324,79 @@ export class EventsProcessor {
                 timestamp
             )
         }
+    }
+}
+
+export const createSessionRecordingEvent = async (
+    uuid: string,
+    team_id: number,
+    distinct_id: string,
+    timestamp: DateTime,
+    ip: string | null,
+    properties: Properties,
+    kafkaProducer: KafkaProducerWrapper
+): Promise<PostIngestionEvent> => {
+    const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
+
+    const data: Partial<RawSessionRecordingEvent> = {
+        uuid,
+        team_id: team_id,
+        distinct_id: distinct_id,
+        session_id: properties['$session_id'],
+        window_id: properties['$window_id'],
+        snapshot_data: JSON.stringify(properties['$snapshot_data']),
+        timestamp: timestampString,
+        created_at: timestampString,
+    }
+
+    await kafkaProducer.queueSingleJsonMessage(KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, uuid, data)
+
+    return {
+        eventUuid: uuid,
+        event: '$snapshot',
+        ip,
+        distinctId: distinct_id,
+        properties,
+        timestamp: timestamp.toISO() as ISOTimestamp,
+        elementsList: [],
+        teamId: team_id,
+    }
+}
+export async function createPerformanceEvent(
+    uuid: string,
+    team_id: number,
+    distinct_id: string,
+    properties: Properties,
+    ip: string | null,
+    timestamp: DateTime,
+    kafkaProducer: KafkaProducerWrapper
+): Promise<PostIngestionEvent> {
+    const data: Partial<RawPerformanceEvent> = {
+        uuid,
+        team_id: team_id,
+        distinct_id: distinct_id,
+        session_id: properties['$session_id'],
+        window_id: properties['$window_id'],
+        pageview_id: properties['$pageview_id'],
+        current_url: properties['$current_url'],
+    }
+
+    Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
+        if (key in properties) {
+            data[value] = properties[key]
+        }
+    })
+
+    await kafkaProducer.queueSingleJsonMessage(KAFKA_PERFORMANCE_EVENTS, uuid, data)
+
+    return {
+        eventUuid: uuid,
+        event: '$performance_event',
+        ip,
+        distinctId: distinct_id,
+        properties,
+        timestamp: timestamp.toISO() as ISOTimestamp,
+        elementsList: [],
+        teamId: team_id,
     }
 }

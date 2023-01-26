@@ -15,12 +15,12 @@ import {
     IconLive,
     IconOpenInApp,
     IconPerson,
-    IconPin,
+    IconPinOutline,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
-    UnverifiedEvent,
+    IconUnverifiedEvent,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -127,7 +127,7 @@ function Pages(): JSX.Element {
                                         ) : (
                                             <>
                                                 <div className="flex items-center gap-2">
-                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <IconPinOutline className="text-2xl text-muted-alt" />
                                                     <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
@@ -177,9 +177,16 @@ function Pages(): JSX.Element {
                     )}
                     <div className="SideBar__heading">Data</div>
 
-                    <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
-                        icon={<UnverifiedEvent />}
+                        icon={<IconLive />}
+                        identifier={Scene.Events}
+                        to={urls.events()}
+                        title={
+                            featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS] ? 'Event Explorer' : 'Live Events'
+                        }
+                    />
+                    <PageButton
+                        icon={<IconUnverifiedEvent />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
                     />

@@ -86,7 +86,7 @@ class SessionRecordingList(EventQuery):
         HAVING full_snapshots > 0
         {recording_start_time_clause}
         {duration_clause}
-        {static_recordings_clause}
+        {session_ids_clause}
     """
 
     _session_recordings_query_with_events: str = """
@@ -202,14 +202,11 @@ class SessionRecordingList(EventQuery):
             start_time_params["end_time"] = self._filter.date_to
         return start_time_clause, start_time_params
 
-    def _get_static_recordings_clause(self) -> Tuple[str, Dict[str, Any]]:
-
-        if self._filter.static_recordings is None:
+    def session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
+        if self._filter.session_ids is None:
             return "", {}
 
-        static_session_ids = [session["id"] for session in self._filter.static_recordings]
-
-        return "AND session_id in %(static_session_ids)s", {"static_session_ids": static_session_ids}
+        return "AND session_id in %(session_ids)s", {"session_ids": self._filter.session_ids}
 
     def _get_duration_clause(self) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
@@ -303,7 +300,7 @@ class SessionRecordingList(EventQuery):
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
-        static_recordings_clause, static_recordings_params = self._get_static_recordings_clause()
+        session_ids_clause, session_ids_params = self.session_ids_clause()
         person_id_clause, person_id_params = self._get_person_id_clause()
         duration_clause, duration_params = self._get_duration_clause()
         properties_select_clause = self._get_properties_select_clause()
@@ -312,7 +309,7 @@ class SessionRecordingList(EventQuery):
             recording_start_time_clause=recording_start_time_clause,
             duration_clause=duration_clause,
             events_timestamp_clause=events_timestamp_clause,
-            static_recordings_clause=static_recordings_clause,
+            session_ids_clause=session_ids_clause,
         )
 
         if not self._determine_should_join_events():
@@ -331,7 +328,7 @@ class SessionRecordingList(EventQuery):
                     **events_timestamp_params,
                     **duration_params,
                     **recording_start_time_params,
-                    **static_recordings_params,
+                    **session_ids_params,
                 },
             )
 
@@ -363,7 +360,7 @@ class SessionRecordingList(EventQuery):
                 **duration_params,
                 **recording_start_time_params,
                 **event_filters.params,
-                **static_recordings_params,
+                **session_ids_params,
             },
         )
 
