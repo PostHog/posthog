@@ -1,7 +1,7 @@
-import { DataNode, DataTableNode, NodeKind } from '~/queries/schema'
+import { DataNode, DataTableNode, HogQLExpression, NodeKind } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
 
-export const defaultDataTableEventColumns: string[] = [
+export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
     'person',
@@ -10,9 +10,9 @@ export const defaultDataTableEventColumns: string[] = [
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: string[] = ['person', 'id', 'created_at', 'person.$delete']
+export const defaultDataTablePersonColumns: HogQLExpression[] = ['person', 'id', 'created_at', 'person.$delete']
 
-export function defaultDataTableColumns(kind: NodeKind): string[] {
+export function defaultDataTableColumns(kind: NodeKind): HogQLExpression[] {
     return kind === NodeKind.PersonsNode
         ? defaultDataTablePersonColumns
         : kind === NodeKind.EventsQuery
@@ -22,14 +22,14 @@ export function defaultDataTableColumns(kind: NodeKind): string[] {
         : []
 }
 
-export function getDataNodeDefaultColumns(source: DataNode): string[] {
+export function getDataNodeDefaultColumns(source: DataNode): HogQLExpression[] {
     return (
         (isEventsQuery(source) && Array.isArray(source.select) && source.select.length > 0 ? source.select : null) ??
         defaultDataTableColumns(source.kind)
     )
 }
 
-export function getColumnsForQuery(query: DataTableNode): string[] {
+export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
     return query.columns ?? getDataNodeDefaultColumns(query.source)
 }
 

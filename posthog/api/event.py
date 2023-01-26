@@ -121,11 +121,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
             team = self.team
             filter = Filter(request=request, team=self.team)
-
-            order_by: List[str] = list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else []
-
-            if len(order_by) == 0:
-                order_by = ["-timestamp"]
+            order_by = ["-timestamp"]
 
             query_result = query_events_list(
                 filter=filter,
