@@ -43,23 +43,33 @@ export function denyAllAttributesExceptAllowlist(selector: string, dataAttribute
     return false
 }
 
-export function elementToQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
+export function elementToQuery(
+    element: HTMLElement,
+    dataAttributes: string[],
+    desiredSelectorsLength: number = 5
+): string | undefined {
     if (!element) {
         return
     }
 
+    console.log('seeking with selectors length', desiredSelectorsLength)
     return finder(element, {
-        attr: (name) => {
+        attr: (name: string): boolean => {
             // return true if we want to include the attribute
             // by default we want to exclude all attributes to avoid leaking PII
             return denyAllAttributesExceptAllowlist(name, dataAttributes)
         },
-        seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+        seedMinLength: desiredSelectorsLength, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
     })
 }
 
-export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
-    const query = elementToQuery(element, dataAttributes)
+export function elementToActionStep(
+    element: HTMLElement,
+    dataAttributes: string[],
+    desiredSelectorsLength: number = 5
+): ActionStepType {
+    console.log('seeking with selectors length', desiredSelectorsLength)
+    const query = elementToQuery(element, dataAttributes, desiredSelectorsLength)
     const tagName = element.tagName.toLowerCase()
 
     return {

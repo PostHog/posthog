@@ -28,9 +28,28 @@ export const elementsLogic = kea<elementsLogicType>({
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         setHighlightElement: (element: HTMLElement | null) => ({ element }),
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
+
+        incrementDesiredSelectorsLength: true,
+        decrementDesiredSelectorsLength: true,
     },
 
     reducers: () => ({
+        desiredSelectorsLength: [
+            5,
+            {
+                incrementDesiredSelectorsLength: (state) => {
+                    const newLocal = state + 1
+                    console.log('incrementing to ', newLocal)
+                    return newLocal
+                },
+                decrementDesiredSelectorsLength: (state) => {
+                    const newLocal = Math.max(state - 1, 0)
+                    console.log('decrementing to ', newLocal)
+                    return newLocal
+                },
+                selectElement: () => 0,
+            },
+        ],
         inspectEnabledRaw: [
             false,
             {
@@ -86,6 +105,10 @@ export const elementsLogic = kea<elementsLogicType>({
     }),
 
     selectors: {
+        canDecrementSelectorsLength: [
+            (s) => [s.desiredSelectorsLength],
+            (desiredSelectorsLength) => desiredSelectorsLength > 0,
+        ],
         inspectEnabled: [
             (s) => [
                 s.inspectEnabledRaw,
@@ -260,15 +283,22 @@ export const elementsLogic = kea<elementsLogicType>({
         ],
 
         selectedElementMeta: [
-            (s) => [s.selectedElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
-            (selectedElement, elementMap, actionsForElementMap, dataAttributes) => {
+            (s) => [
+                s.selectedElement,
+                s.elementMap,
+                s.actionsForElementMap,
+                toolbarLogic.selectors.dataAttributes,
+                s.desiredSelectorsLength,
+            ],
+            (selectedElement, elementMap, actionsForElementMap, dataAttributes, desiredSelectorsLength) => {
+                console.log('seeking with seletors length', desiredSelectorsLength)
                 if (selectedElement) {
                     const meta = elementMap.get(selectedElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
+                            actionStep: elementToActionStep(meta.element, dataAttributes, desiredSelectorsLength),
                             actions: actions || [],
                         }
                     }
@@ -278,15 +308,22 @@ export const elementsLogic = kea<elementsLogicType>({
         ],
 
         hoverElementMeta: [
-            (s) => [s.hoverElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
-            (hoverElement, elementMap, actionsForElementMap, dataAttributes) => {
+            (s) => [
+                s.hoverElement,
+                s.elementMap,
+                s.actionsForElementMap,
+                toolbarLogic.selectors.dataAttributes,
+                s.desiredSelectorsLength,
+            ],
+            (hoverElement, elementMap, actionsForElementMap, dataAttributes, desiredSelectorsLength) => {
+                console.log('seeking with seletors length', desiredSelectorsLength)
                 if (hoverElement) {
                     const meta = elementMap.get(hoverElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(hoverElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
+                            actionStep: elementToActionStep(meta.element, dataAttributes, desiredSelectorsLength),
                             actions: actions || [],
                         }
                     }
@@ -296,15 +333,22 @@ export const elementsLogic = kea<elementsLogicType>({
         ],
 
         highlightElementMeta: [
-            (s) => [s.highlightElement, s.elementMap, s.actionsForElementMap, toolbarLogic.selectors.dataAttributes],
-            (highlightElement, elementMap, actionsForElementMap, dataAttributes) => {
+            (s) => [
+                s.highlightElement,
+                s.elementMap,
+                s.actionsForElementMap,
+                toolbarLogic.selectors.dataAttributes,
+                s.desiredSelectorsLength,
+            ],
+            (highlightElement, elementMap, actionsForElementMap, dataAttributes, desiredSelectorsLength) => {
+                console.log('seeking with seletors length', desiredSelectorsLength)
                 if (highlightElement) {
                     const meta = elementMap.get(highlightElement)
                     if (meta) {
                         const actions = actionsForElementMap.get(highlightElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
+                            actionStep: elementToActionStep(meta.element, dataAttributes, desiredSelectorsLength),
                             actions: actions || [],
                         }
                     }
