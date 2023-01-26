@@ -266,6 +266,8 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     if entity and isinstance(entity, Entity):
         props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
+    props_to_filter = props_to_filter.filter_out_keys(["$session_duration"])
+
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events"
     )
