@@ -43,6 +43,16 @@ class PluginAdmin(admin.ModelAdmin):
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
     search_fields = ("name", "organization__id", "organization__name")
+    readonly_fields = ["primary_dashboard", "test_account_filters"]
+    exclude = [
+        "event_names",
+        "event_names_with_usage",
+        "plugins_opt_in",
+        "event_properties",
+        "event_properties_with_usage",
+        "event_properties_numerical",
+        "session_recording_retention_period_days",
+    ]
 
     def organization_link(self, team: Team):
         return format_html(
