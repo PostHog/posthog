@@ -1343,8 +1343,13 @@ def test_prop_filter_out_keys():
     property_group = PropertyGroup(
         PropertyOperatorType.AND,
         [
-            Property(key="a", operator="exact", value=["a"]),
-            Property(key="b", operator="exact", value=["b"]),
+            PropertyGroup(
+                PropertyOperatorType.AND,
+                [
+                    Property(key="a", operator="exact", value=["a"]),
+                    Property(key="b", operator="exact", value=["b"]),
+                ]
+            ),
             PropertyGroup(
                 PropertyOperatorType.OR,
                 [
@@ -1359,7 +1364,12 @@ def test_prop_filter_out_keys():
     assert property_group.to_dict() == {
         "type": "AND",
         "values": [
-            {"key": "b", "operator": "exact", "value": ["b"], "type": "event"},
+            {
+                "type": "AND",
+                "values": [
+                    {"key": "b", "operator": "exact", "value": ["b"], "type": "event"},
+                ],
+            },
             {
                 "type": "OR",
                 "values": [
