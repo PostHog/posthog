@@ -136,23 +136,45 @@
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
@@ -357,23 +379,45 @@
 ---
 # name: TestDecide.test_web_app_queries.5
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDecide.test_web_app_queries.6
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
