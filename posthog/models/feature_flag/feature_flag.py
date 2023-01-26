@@ -38,6 +38,14 @@ class FeatureFlag(models.Model):
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        set_feature_flags_for_team_in_cache(self.team_id)
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        set_feature_flags_for_team_in_cache(self.team_id)
+
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
