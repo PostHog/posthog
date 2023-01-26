@@ -9,12 +9,14 @@ import {
     AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
+    ChartDisplayType,
     CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
     EventType,
     FilterLogicalOperator,
     GroupActorType,
+    InsightType,
     IntervalType,
     PropertyFilter,
     PropertyFilterValue,
@@ -23,6 +25,7 @@ import {
     PropertyOperator,
     PropertyType,
     TimeUnitType,
+    TrendsFilterType,
 } from '~/types'
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
@@ -41,6 +44,7 @@ import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { urls } from 'scenes/urls'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1572,4 +1576,49 @@ export function downloadFile(file: File): void {
         URL.revokeObjectURL(link.href)
         link?.parentNode?.removeChild(link)
     }, 0)
+}
+
+export function insightUrlForEvent(event: EventType): string | undefined {
+    let insightParams: Partial<TrendsFilterType> | undefined
+    if (event.event === '$pageview') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: event.properties.$current_url,
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        }
+    } else if (event.event !== '$autocapture') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: event.event,
+                    name: event.event,
+                    type: 'events',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+    }
+
+    return insightParams ? urls.insightNew(insightParams) : undefined
 }
