@@ -1,7 +1,7 @@
 import { CSSProperties, useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EmptyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -32,7 +32,7 @@ export function PathItemFilters({
 
     useEffect(() => {
         if (propertyFilters && !objectsEqual(propertyFilters, filtersWithNew)) {
-            setFilters([...propertyFilters, {} as AnyPropertyFilter])
+            setFilters([...propertyFilters, {} as EmptyPropertyFilter])
         }
     }, [propertyFilters])
 

@@ -4,7 +4,14 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import type { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
-import { AnyPropertyFilter, EventsTableRowItem, EventType, ExporterFormat, PropertyGroupFilter } from '~/types'
+import {
+    AnyPropertyFilter,
+    EmptyPropertyFilter,
+    EventsTableRowItem,
+    EventType,
+    ExporterFormat,
+    PropertyGroupFilter,
+} from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -87,12 +94,12 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             // this action normalises them
             if (Array.isArray(properties)) {
                 if (properties.length === 0) {
-                    return { properties: [{} as AnyPropertyFilter] }
+                    return { properties: [{} as EmptyPropertyFilter] }
                 } else {
                     return { properties }
                 }
             } else {
-                return { properties: [properties as AnyPropertyFilter] }
+                return { properties: [properties as EmptyPropertyFilter] }
             }
         },
         fetchEvents: (

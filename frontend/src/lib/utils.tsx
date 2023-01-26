@@ -13,6 +13,7 @@ import {
     CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
+    EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
     GroupActorType,
@@ -1440,7 +1441,7 @@ export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
     propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
 ): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {} as AnyPropertyFilter
+    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
     Object.keys(propertyGroup).forEach(function (k) {
         obj[k] = propertyGroup[k]
     })

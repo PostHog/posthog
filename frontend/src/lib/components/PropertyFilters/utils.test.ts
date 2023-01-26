@@ -1,9 +1,9 @@
-import { AnyPropertyFilter, CohortPropertyFilter, PropertyFilterType } from '../../../types'
+import { AnyPropertyFilter, CohortPropertyFilter, EmptyPropertyFilter, PropertyFilterType } from '../../../types'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
-        const emptyProperty: AnyPropertyFilter = {} as AnyPropertyFilter
+        const emptyProperty: AnyPropertyFilter = {} as EmptyPropertyFilter
         const realProperty: CohortPropertyFilter = {
             key: 'id',
             value: 33,
