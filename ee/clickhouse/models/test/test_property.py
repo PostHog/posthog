@@ -1338,15 +1338,22 @@ def test_session_property_validation():
     )
     parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
 
+
 def test_prop_filter_out_keys():
-    property_group = PropertyGroup(PropertyOperatorType.AND, [
-        Property(key="a", operator="exact", value=["a"]),
-        Property(key="b", operator="exact", value=["b"]),
-        PropertyGroup(PropertyOperatorType.OR, [
-            Property(key="c", operator="exact", value=["c"]),
-            Property(key="d", operator="exact", value=["d"]),
-        ])
-    ])
+    property_group = PropertyGroup(
+        PropertyOperatorType.AND,
+        [
+            Property(key="a", operator="exact", value=["a"]),
+            Property(key="b", operator="exact", value=["b"]),
+            PropertyGroup(
+                PropertyOperatorType.OR,
+                [
+                    Property(key="c", operator="exact", value=["c"]),
+                    Property(key="d", operator="exact", value=["d"]),
+                ],
+            ),
+        ],
+    )
 
     prop_filter_out_keys(property_group, ["a", "d", "e"])
     assert property_group.to_dict() == {
@@ -1357,7 +1364,7 @@ def test_prop_filter_out_keys():
                 "type": "OR",
                 "values": [
                     {"key": "c", "operator": "exact", "value": ["c"], "type": "event"},
-                ]
-            }
+                ],
+            },
         ],
     }
