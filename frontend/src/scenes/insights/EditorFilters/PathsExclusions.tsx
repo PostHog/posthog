@@ -3,7 +3,14 @@ import { useActions, useValues } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { EditorFilterProps, PathsFilterType, PropertyFilterType, QueryEditorFilterProps } from '~/types'
+import {
+    EditorFilterProps,
+    EventPropertyFilter,
+    PathsFilterType,
+    PropertyFilterType,
+    PropertyOperator,
+    QueryEditorFilterProps,
+} from '~/types'
 import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -44,12 +51,14 @@ export function PathsExclusionsComponent({
             pageKey="exclusion"
             propertyFilters={
                 exclude_events &&
-                exclude_events.map((name) => ({
-                    key: name,
-                    value: name,
-                    operator: undefined,
-                    type: PropertyFilterType.Event,
-                }))
+                exclude_events.map(
+                    (name): EventPropertyFilter => ({
+                        key: name,
+                        value: name,
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Event,
+                    })
+                )
             }
             onChange={(values) => {
                 setFilter({ exclude_events: values.map((v) => v.value as string) })

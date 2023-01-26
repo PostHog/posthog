@@ -153,7 +153,7 @@ class Team(UUIDClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
-        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
+        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
     )  # Dashboard shown on project homepage
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
@@ -178,14 +178,22 @@ class Team(UUIDClassicModel):
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED: in favor of `EventDefinition` model
-    event_names: models.JSONField = models.JSONField(default=list)
-    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    event_names: models.JSONField = models.JSONField(default=list, blank=True)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     # DEPRECATED: in favor of `PropertyDefinition` model
-    event_properties: models.JSONField = models.JSONField(default=list)
-    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
-    event_properties_numerical: models.JSONField = models.JSONField(default=list)
+    event_properties: models.JSONField = models.JSONField(default=list, blank=True)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
 
     objects: TeamManager = TeamManager()
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        set_team_in_cache(self.api_token, self)
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        set_team_in_cache(self.api_token, None)
 
     def get_effective_membership_level_for_parent_membership(
         self, requesting_parent_membership: "OrganizationMembership"
