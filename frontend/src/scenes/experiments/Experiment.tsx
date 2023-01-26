@@ -242,7 +242,7 @@ export function Experiment(): JSX.Element {
                                             <div className="text-muted">
                                                 Participants are divided into variant groups evenly. All experiments
                                                 must consist of a control group and at least one test group. Experiments
-                                                may have at most 3 test groups. Variant names can only contain letters,
+                                                may have at most 9 test groups. Variant names can only contain letters,
                                                 numbers, hyphens, and underscores.
                                             </div>
                                             <Col className="variants">

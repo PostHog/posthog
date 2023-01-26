@@ -37,7 +37,7 @@ class ClickhouseFunnelExperimentResult:
     1. A Funnel Breakdown based on Feature Flag values
     2. Probability that Feature Flag value 1 has better conversion rate then FeatureFlag value 2
 
-    Currently, we support a maximum of 4 feature flag values: control and 3 test variants
+    Currently, we support a maximum of 10 feature flag values: control and 9 test variants
 
     The passed in Filter determines which funnel to create, along with the experiment start & end date values
 
