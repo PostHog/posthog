@@ -235,36 +235,6 @@ export class EventsProcessor {
         return preIngestionEvent
     }
 
-    private async createSessionRecordingEvent(
-        uuid: string,
-        team_id: number,
-        distinct_id: string,
-        timestamp: DateTime,
-        ip: string | null,
-        properties: Properties
-    ): Promise<PostIngestionEvent> {
-        return await createSessionRecordingEvent(
-            uuid,
-            team_id,
-            distinct_id,
-            timestamp,
-            ip,
-            properties,
-            this.kafkaProducer
-        )
-    }
-
-    private async createPerformanceEvent(
-        uuid: string,
-        team_id: number,
-        distinct_id: string,
-        timestamp: DateTime,
-        ip: string | null,
-        properties: Properties
-    ): Promise<PostIngestionEvent> {
-        return await createPerformanceEvent(uuid, team_id, distinct_id, properties, ip, timestamp, this.kafkaProducer)
-    }
-
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
         if (!properties['$group_type'] || !properties['$group_key']) {
             return
