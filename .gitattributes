@@ -1,4 +1,5 @@
 * text=auto
+
 .gitattributes export-ignore
 .gitignore export-ignore
 .github/ export-ignore
