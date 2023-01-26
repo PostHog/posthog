@@ -1,8 +1,9 @@
 import { useValues, useActions, useMountedLogic } from 'kea'
 
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 
 import { EditorFilterProps, FilterType, FunnelsFilterType, QueryEditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
@@ -16,7 +17,6 @@ import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeT
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
 import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
@@ -41,6 +41,7 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
             setActionFilters={setActionFilters}
             filterSteps={(querySource as FunnelsQuery).series}
             aggregationTargetLabel={aggregationTargetLabel}
+            showSeriesIndicator={(querySource as FunnelsQuery).series.length > 0}
         />
     )
 }
@@ -60,6 +61,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             setActionFilters={setFilters}
             filterSteps={filterSteps}
             aggregationTargetLabel={aggregationTargetLabel}
+            showSeriesIndicator={!isStepsEmpty(filters)}
         />
     )
 }
@@ -73,6 +75,7 @@ type FunnelsQueryStepsComponentProps = {
     setActionFilters: (filters: Partial<FunnelsFilterType>) => void
     filterSteps: Record<string, any>[]
     aggregationTargetLabel: Noun
+    showSeriesIndicator: boolean
 }
 
 export function FunnelsQueryStepsComponent({
@@ -84,6 +87,7 @@ export function FunnelsQueryStepsComponent({
     setActionFilters,
     filterSteps,
     aggregationTargetLabel,
+    showSeriesIndicator,
 }: FunnelsQueryStepsComponentProps): JSX.Element {
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
 
@@ -112,7 +116,7 @@ export function FunnelsQueryStepsComponent({
                 mathAvailability={MathAvailability.None}
                 hideDeleteBtn={filterSteps.length === 1}
                 buttonCopy="Add step"
-                showSeriesIndicator={!isStepsEmpty(filters)}
+                showSeriesIndicator={showSeriesIndicator}
                 seriesIndicatorType="numeric"
                 entitiesLimit={FUNNEL_STEP_COUNT_LIMIT}
                 sortable
