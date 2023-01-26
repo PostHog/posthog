@@ -5,14 +5,17 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 
-import { EditorFilterProps, FilterType, FunnelsFilterType, QueryEditorFilterProps } from '~/types'
+import { EditorFilterProps, FilterType, FunnelsFilterType, InsightLogicProps, QueryEditorFilterProps } from '~/types'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { FunnelVizType } from '../views/Funnels/FunnelVizType'
+import { FunnelVizType, FunnelVizTypeDataExploration } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelect } from '../filters/AggregationSelect'
-import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
+import {
+    FunnelConversionWindowFilter,
+    FunnelConversionWindowFilterDataExploration,
+} from '../views/Funnels/FunnelConversionWindowFilter'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { FunnelsQuery } from '~/queries/schema'
@@ -43,6 +46,7 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
             aggregationTargetLabel={aggregationTargetLabel}
             showSeriesIndicator={(querySource as FunnelsQuery).series.length > 0}
             isDataExploration
+            insightProps={insightProps}
         />
     )
 }
@@ -63,6 +67,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             filterSteps={filterSteps}
             aggregationTargetLabel={aggregationTargetLabel}
             showSeriesIndicator={!isStepsEmpty(filters)}
+            insightProps={insightProps}
         />
     )
 }
@@ -78,6 +83,7 @@ type FunnelsQueryStepsComponentProps = {
     aggregationTargetLabel: Noun
     showSeriesIndicator: boolean
     isDataExploration?: boolean
+    insightProps: InsightLogicProps
 }
 
 export function FunnelsQueryStepsComponent({
@@ -91,6 +97,7 @@ export function FunnelsQueryStepsComponent({
     aggregationTargetLabel,
     showSeriesIndicator,
     isDataExploration,
+    insightProps,
 }: FunnelsQueryStepsComponentProps): JSX.Element {
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
 
@@ -102,12 +109,11 @@ export function FunnelsQueryStepsComponent({
 
                 <div className="flex items-center gap-2">
                     <span className="text-muted">Graph type</span>
-
-                    <FunnelVizType
-                        aggregationTargetLabel={aggregationTargetLabel}
-                        setFilter={setFilters}
-                        {...filters}
-                    />
+                    {isDataExploration ? (
+                        <FunnelVizTypeDataExploration insightProps={insightProps} />
+                    ) : (
+                        <FunnelVizType insightProps={insightProps} />
+                    )}
                 </div>
             </div>
 
@@ -144,11 +150,11 @@ export function FunnelsQueryStepsComponent({
                     </div>
                 )}
 
-                <FunnelConversionWindowFilter
-                    aggregationTargetLabel={aggregationTargetLabel}
-                    setFilter={setFilters}
-                    {...filters}
-                />
+                {isDataExploration ? (
+                    <FunnelConversionWindowFilterDataExploration insightProps={insightProps} />
+                ) : (
+                    <FunnelConversionWindowFilter insightProps={insightProps} />
+                )}
             </div>
         </>
     )

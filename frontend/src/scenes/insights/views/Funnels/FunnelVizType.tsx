@@ -1,18 +1,49 @@
+import { useActions, useValues } from 'kea'
 import { ClockCircleOutlined, LineChartOutlined, FunnelPlotOutlined } from '@ant-design/icons'
-import { FunnelsFilterType, FunnelVizType as VizType } from '~/types'
-import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
-import { Noun } from '~/models/groupsModel'
 
-type FunnelVizTypeProps = {
+import { Noun } from '~/models/groupsModel'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+import { EditorFilterProps, FunnelsFilterType, FunnelVizType as VizType, QueryEditorFilterProps } from '~/types'
+import { DropdownSelector } from 'lib/components/DropdownSelector/DropdownSelector'
+
+export function FunnelVizTypeDataExploration({
+    insightProps,
+}: Pick<QueryEditorFilterProps, 'insightProps'>): JSX.Element | null {
+    const { aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
+    const { insightFilter } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    return (
+        <FunnelVizTypeComponent
+            aggregationTargetLabel={aggregationTargetLabel}
+            setFilter={updateInsightFilter}
+            {...insightFilter}
+        />
+    )
+}
+
+export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element | null {
+    const { aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { filters } = useValues(funnelLogic(insightProps))
+    const { setFilters } = useActions(funnelLogic(insightProps))
+
+    return (
+        <FunnelVizTypeComponent aggregationTargetLabel={aggregationTargetLabel} setFilter={setFilters} {...filters} />
+    )
+}
+
+type FunnelVizTypeComponentProps = {
     setFilter: (filter: FunnelsFilterType) => void
     aggregationTargetLabel: Noun
 } & FunnelsFilterType
 
-export function FunnelVizType({
+function FunnelVizTypeComponent({
     funnel_viz_type,
     setFilter,
     aggregationTargetLabel,
-}: FunnelVizTypeProps): JSX.Element | null {
+}: FunnelVizTypeComponentProps): JSX.Element | null {
     const options = [
         {
             key: VizType.Steps,
