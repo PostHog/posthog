@@ -8,7 +8,7 @@ import { LemonSnack } from '../LemonSnack/LemonSnack'
 import clsx from 'clsx'
 import { useState } from 'react'
 
-interface PersonPropertySelectProps {
+export interface PersonPropertySelectProps {
     addText: string
     onChange: (names: string[]) => void
     selectedProperties: string[]

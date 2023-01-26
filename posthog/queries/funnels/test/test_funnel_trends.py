@@ -233,6 +233,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual([person["distinct_ids"] for person in persons], [["user_one"]])
 
+    @snapshot_clickhouse_queries
     def test_week_interval(self):
         filter = Filter(
             data={

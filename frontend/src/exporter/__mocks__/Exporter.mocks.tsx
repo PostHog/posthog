@@ -23,6 +23,7 @@ export const insight: InsightModel = {
     order: null,
     deleted: false,
     dashboards: [1],
+    dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
     last_refresh: '2022-07-01T10:29:05.135Z',
     result: [
         {
@@ -237,7 +238,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
-
+                dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
                 result: [
                     {
                         action: {
@@ -446,7 +447,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
-
+                dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
                 result: [
                     {
                         action: {
@@ -596,7 +597,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
-
+                dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
                 result: [
                     {
                         action: {
@@ -772,6 +773,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
+                dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
                 last_refresh: '2022-07-01T13:33:14.001864Z',
                 result: [
                     {
@@ -912,6 +914,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
+                dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
                 last_refresh: '2022-07-01T13:33:14.399653Z',
                 result: [
                     {
@@ -1351,6 +1354,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
+                dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
                 result: [
                     [
                         {

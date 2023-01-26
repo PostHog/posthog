@@ -292,7 +292,7 @@ export interface TeamType extends TeamBasicType {
     capture_performance_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
-    path_cleaning_filters: Record<string, any>[]
+    path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
@@ -386,6 +386,8 @@ export interface ToolbarProps extends ToolbarParams {
     posthog?: PostHog
     disableExternalStyles?: boolean
 }
+
+export type PathCleaningFilter = { alias?: string; regex?: string }
 
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
@@ -1167,6 +1169,12 @@ export interface DashboardTile extends Tileable, Cacheable {
     is_cached?: boolean
 }
 
+export interface DashboardTileBasicType {
+    id: number
+    dashboard_id: number
+    deleted?: boolean
+}
+
 export interface TextModel {
     body: string
     created_by?: UserBasicType
@@ -1190,7 +1198,9 @@ export interface InsightModel extends Cacheable {
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
+    /** @deprecated Use `dashboard_tiles instead */
     dashboards: number[] | null
+    dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
     tags?: string[]
     last_modified_at: string
@@ -1533,7 +1543,7 @@ export interface PathsFilterType extends FilterType {
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
     path_replacements?: boolean
-    local_path_cleaning_filters?: Record<string, any>[]
+    local_path_cleaning_filters?: PathCleaningFilter[]
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths

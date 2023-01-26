@@ -110,11 +110,18 @@ def log_insight_activity(
         )
 
 
+class DashboardTileBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardTile
+        fields = ["id", "dashboard_id", "deleted"]
+
+
 class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
 
+    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -126,6 +133,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "derived_name",
             "filters",
             "dashboards",
+            "dashboard_tiles",
             "description",
             "last_refresh",
             "refreshing",
@@ -144,6 +152,8 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+
+        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         filters = instance.dashboard_filters()
 
@@ -174,10 +184,20 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        help_text="""
+        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+        A dashboard ID for each of the dashboards that this insight is displayed on.
+        """,
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
+    )
+    dashboard_tiles = DashboardTileBasicSerializer(
+        many=True,
+        read_only=True,
+        help_text="""
+    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+    """,
     )
 
     class Meta:
@@ -191,6 +211,7 @@ class InsightSerializer(InsightBasicSerializer):
             "order",
             "deleted",
             "dashboards",
+            "dashboard_tiles",
             "last_refresh",
             "result",
             "created_at",
@@ -394,6 +415,8 @@ class InsightSerializer(InsightBasicSerializer):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
+        else:
+            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
@@ -479,13 +502,13 @@ class InsightViewSet(
 
         queryset = queryset.prefetch_related(
             Prefetch(
+                # TODO deprecate this field entirely
                 "dashboards",
-                queryset=Dashboard.objects.filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)),
+                queryset=Dashboard.objects.all().select_related("team__organization"),
             ),
-            "dashboards__team__organization",
             Prefetch(
                 "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard"),
+                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
             ),
         )
 
@@ -559,7 +582,12 @@ class InsightViewSet(
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
                     for dashboard_id in dashboards_ids:
-                        queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
+                        # filter by dashboards one at a time so the filter is AND not OR
+                        queryset = queryset.filter(
+                            id__in=DashboardTile.objects.filter(dashboard__id=dashboard_id)
+                            .values_list("insight__id", flat=True)
+                            .all()
+                        )
 
         return queryset
 

@@ -408,6 +408,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                             id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
                         ).select_related("team__organization"),
                     ),
+                    "insight__dashboard_tiles__dashboard",
                 )
             )
             try:
