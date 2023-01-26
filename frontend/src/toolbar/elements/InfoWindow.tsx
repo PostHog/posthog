@@ -25,6 +25,15 @@ export function InfoWindow(): JSX.Element | null {
 
     const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
     const windowHeight = Math.min(document.documentElement.clientHeight, window.innerHeight)
+    let positioningHeight = windowHeight
+    if (getComputedStyle(document.body).position === 'relative') {
+        // we have seen at least one client with position relative on the body
+        // this breaks assumptions the info window makes about how to calculate
+        // distance relative to the bottom of the window.
+        // Always using document.body.clientHeight broke other sites, so we
+        // only use it when we know it's necessary.
+        positioningHeight = document.body.clientHeight
+    }
 
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
@@ -46,7 +55,7 @@ export function InfoWindow(): JSX.Element | null {
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = windowHeight - rect.top + 10 - window.pageYOffset
+        bottom = positioningHeight - rect.top + 10 - window.pageYOffset
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow
