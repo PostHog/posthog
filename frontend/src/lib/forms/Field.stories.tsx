@@ -10,6 +10,7 @@ export default {
     title: 'Lemon UI/Forms and Fields',
     component: PureField,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `

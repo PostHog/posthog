@@ -18,6 +18,9 @@ export default {
     args: {
         value: FilterLogicalOperator.And,
     },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof AndOrFilterSelect>
 
 const Template: ComponentStory<typeof AndOrFilterSelect> = (args) => {

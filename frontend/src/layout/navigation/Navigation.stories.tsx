@@ -14,6 +14,7 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         testRunner: { includeNavigation: true },
+        chromatic: { disableSnapshot: false },
     },
 } as Meta
 

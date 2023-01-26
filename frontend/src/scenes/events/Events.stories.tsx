@@ -14,7 +14,12 @@ export default {
             get: { '/api/projects/:team_id/events': { next: null, results: eventList } },
         }),
     ],
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: false },
+    },
 } as Meta
 
 export const LiveEvents = (): JSX.Element => {

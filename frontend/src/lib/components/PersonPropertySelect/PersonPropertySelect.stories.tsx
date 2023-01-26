@@ -27,6 +27,9 @@ export default {
             },
         }),
     ],
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof PersonPropertySelect>
 
 const Template: ComponentStory<typeof PersonPropertySelect> = (props: Partial<PersonPropertySelectProps>) => {

@@ -6,6 +6,9 @@ import { IconArrowDropDown } from '../icons'
 export default {
     title: 'Lemon UI/Popup',
     component: Popup,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof Popup>
 
 const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />
