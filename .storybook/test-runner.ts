@@ -3,6 +3,7 @@ import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-
 import { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
+const updateSnapshot = expect.getState().snapshotState._updateSnapshot === 'all'
 
 async function expectStoryToMatchFullPageSnapshot(page: Page, context: TestContext): Promise<void> {
     await expectLocatorToMatchStorySnapshot(page, context)
@@ -54,19 +55,29 @@ module.exports = {
             document.body.classList.add('dangerously-stop-all-animations')
         })
 
-        // Wait for the network to be idle for up to 500 ms, to allow assets like images to load. This is suboptimal,
-        // because `networkidle` is not resolved reliably here, so we might wait for the full timeout - but it works.
-        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(500)])
-
         if (!storyContext.parameters?.chromatic?.disableSnapshot) {
+            let expectStoryToMatchSnapshot: (page: Page, context: TestContext) => Promise<void>
             if (storyContext.parameters?.layout === 'fullscreen') {
                 if (storyContext.parameters.testRunner?.includeNavigation) {
-                    await expectStoryToMatchFullPageSnapshot(page, context)
+                    expectStoryToMatchSnapshot = expectStoryToMatchFullPageSnapshot
                 } else {
-                    await expectStoryToMatchSceneSnapshot(page, context)
+                    expectStoryToMatchSnapshot = expectStoryToMatchSceneSnapshot
                 }
             } else {
-                await expectStoryToMatchComponentSnapshot(page, context)
+                expectStoryToMatchSnapshot = expectStoryToMatchComponentSnapshot
+            }
+
+            if (updateSnapshot) {
+                await page.waitForTimeout(1000) // Make sure the story gets time to load before a new snapshot is taken
+                await expectStoryToMatchSnapshot(page, context)
+            } else {
+                try {
+                    await expectStoryToMatchSnapshot(page, context) // Run check immediately after render
+                } catch {
+                    await page.waitForTimeout(2000) // Retry a moment later in case something failed to load in time
+                    await expectStoryToMatchSnapshot(page, context) // Run check again
+                    console.warn('Flaky test warning - this snapshot only matched after a retry')
+                }
             }
         }
     },
