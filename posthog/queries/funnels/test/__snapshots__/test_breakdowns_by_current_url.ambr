@@ -60,8 +60,11 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.team_id as team_id,
+                           e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           e."properties" as "properties",
+                           pdi.person_id as person_id,
                            if(event = 'watched movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'terminate funnel', 1, 0) as step_1,
@@ -71,27 +74,19 @@
                                                                                                                                            from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '')))) AS prop_basic,
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['terminate funnel', 'watched movie']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['terminate funnel', 'watched movie']
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -163,8 +158,11 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.team_id as team_id,
+                           e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           e."properties" as "properties",
+                           pdi.person_id as person_id,
                            if(event = 'watched movie', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'terminate funnel', 1, 0) as step_1,
@@ -174,27 +172,19 @@
                                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', '')))) AS prop_basic,
                            prop_basic as prop,
                            argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['terminate funnel', 'watched movie']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['terminate funnel', 'watched movie']
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
