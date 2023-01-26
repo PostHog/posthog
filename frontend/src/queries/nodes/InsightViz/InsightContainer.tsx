@@ -19,9 +19,9 @@ import {
 // import { InsightsTable } from 'scenes/insights/views/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
-    // FunnelInvalidExclusionState,
-    // FunnelSingleStepState,
-    // InsightEmptyState,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
@@ -44,6 +44,9 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
+import { FunnelsQuery } from '~/queries/schema'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -68,7 +71,7 @@ export function InsightContainer({
     insightMode?: ItemMode
 }): JSX.Element {
     const {
-        // insightProps,
+        insightProps,
         // canEditInsight,
         insightLoading,
         activeView,
@@ -85,6 +88,12 @@ export function InsightContainer({
     //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
+    const { querySource } = useValues(funnelDataLogic(insightProps))
+    // TODO: convert to data exploration with insightLogic
+    const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+
+    // TODO: implement in funnelDataLogic
+    const isValidFunnel = true
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -96,18 +105,18 @@ export function InsightContainer({
             )
         }
 
-        // // Insight specific empty states - note order is important here
-        // if (loadedView === InsightType.FUNNELS) {
-        //     if (!areFiltersValid) {
-        //         return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
-        //     }
-        //     if (!areExclusionFiltersValid) {
-        //         return <FunnelInvalidExclusionState />
-        //     }
-        //     if (!isValidFunnel && !insightLoading) {
-        //         return <InsightEmptyState />
-        //     }
-        // }
+        // Insight specific empty states - note order is important here
+        if (loadedView === InsightType.FUNNELS) {
+            if (((querySource as FunnelsQuery).series || []).length <= 1) {
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionState />
+            }
+            if (!isValidFunnel && !insightLoading) {
+                return <InsightEmptyState />
+            }
+        }
 
         // Insight agnostic empty states
         if (!!erroredQueryId) {
