@@ -1,6 +1,6 @@
 from freezegun import freeze_time
 
-from posthog.schema import AnyPropertyFilter, EventsQuery
+from posthog.schema import EventsQuery, HogQLPropertyFilter
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -113,14 +113,14 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 4)
 
-            query.properties = [AnyPropertyFilter.parse_obj({"type": "hogql", "key": "'a%sd' == 'foo'"})]
+            query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'foo'")]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 0)
 
-            query.properties = [AnyPropertyFilter.parse_obj({"type": "hogql", "key": "'a%sd' == 'a%sd'"})]
+            query.properties = [HogQLPropertyFilter(type="hogql", key="'a%sd' == 'a%sd'")]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 4)
 
-            query.properties = [AnyPropertyFilter.parse_obj({"type": "hogql", "key": "properties.key == 'test_val2'"})]
+            query.properties = [HogQLPropertyFilter(type="hogql", key="properties.key == 'test_val2'")]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 2)
