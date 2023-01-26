@@ -1,4 +1,3 @@
-import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ActionStepUrlMatching } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
@@ -6,8 +5,7 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
-
-let simmer: SimmerType
+import { finder } from '@medv/finder'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -27,16 +25,37 @@ export function getSafeText(el: HTMLElement): string {
     return elText
 }
 
+const dataAttrRegexes: Record<string, RegExp> = {}
+
+export function denyAllAttributesExceptAllowlist(selector: string, dataAttributes: string[]): boolean {
+    // match the data attribute by regex. data-* should match any data-*
+    for (const dataAttr of dataAttributes) {
+        if (!dataAttrRegexes[dataAttr]) {
+            dataAttrRegexes[dataAttr] = new RegExp(`^${dataAttr.replace('*', '.*')}$`)
+        }
+    }
+    for (const dataAttr of dataAttributes) {
+        if (dataAttrRegexes[dataAttr].test(selector)) {
+            return true
+        }
+    }
+    // all other attributes are forbidden
+    return false
+}
+
 export function elementToQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     if (!element) {
         return
     }
-    if (!simmer) {
-        simmer = new Simmer(window, { depth: 8, dataAttributes })
-    }
 
-    // Turn tags into lower cases
-    return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
+    return finder(element, {
+        attr: (name) => {
+            // return true if we want to include the attribute
+            // by default we want to exclude all attributes to avoid leaking PII
+            return denyAllAttributesExceptAllowlist(name, dataAttributes)
+        },
+        seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+    })
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
