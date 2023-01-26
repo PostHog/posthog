@@ -9,7 +9,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
-import { ExclusionRowSuffix } from './ExclusionRowSuffix'
+import { ExclusionRowSuffix, ExclusionRowSuffixDataExploration } from './ExclusionRowSuffix'
 import { ExclusionRow } from './ExclusionRow'
 
 export function FunnelExclusionsFilterDataExploration(): JSX.Element {
@@ -30,6 +30,7 @@ export function FunnelExclusionsFilterDataExploration(): JSX.Element {
                 }))
                 updateInsightFilter({ exclusions })
             }}
+            isDataExploration
         />
     )
 }
@@ -54,6 +55,7 @@ type FunnelExclusionsFilterComponentProps = {
     exclusionDefaultStepRange: Omit<FunnelStepRangeEntityFilter, 'id' | 'name'>
     areFiltersValid: boolean
     setFilters: (filters: Partial<FilterType>) => void
+    isDataExploration?: boolean
 }
 
 export function FunnelExclusionsFilterComponent({
@@ -61,6 +63,7 @@ export function FunnelExclusionsFilterComponent({
     exclusionDefaultStepRange,
     areFiltersValid,
     setFilters,
+    isDataExploration,
 }: FunnelExclusionsFilterComponentProps): JSX.Element {
     const ref = useRef(null)
     const [width] = useSize(ref)
@@ -87,7 +90,13 @@ export function FunnelExclusionsFilterComponent({
             hideDeleteBtn
             seriesIndicatorType="alpha"
             renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
-            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
+            customRowSuffix={(props) =>
+                isDataExploration ? (
+                    <ExclusionRowSuffixDataExploration {...props} isVertical={isVerticalLayout} />
+                ) : (
+                    <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />
+                )
+            }
         />
     )
 }
