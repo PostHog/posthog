@@ -135,7 +135,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.42.0
+  posthog-js: 1.42.1
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -233,7 +233,7 @@ dependencies:
   kea-window-values: 3.0.0_kea@3.1.0
   md5: 2.3.0
   monaco-editor: 0.23.0
-  posthog-js: 1.42.0
+  posthog-js: 1.42.1
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
@@ -13400,8 +13400,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.42.0:
-    resolution: {integrity: sha512-jWDdwz60y+XVyX4HeXkPFJEdm0/ycXKrHlcVvUDKJ8m2Rqeb7Cx/4UEM5jAWQMXoOu/YtYEkf9aCvGGe/+DxXA==}
+  /posthog-js/1.42.1:
+    resolution: {integrity: sha512-DH3y8374xMG4FxIb/0HpJ8d539COSVde8HjFAvTRcoQQS26iqb3mHNFiCIEXRGXaXpY/O0B6XDZgyDpf0fCqQA==}
     dependencies:
       '@sentry/types': 7.22.0
       fflate: 0.4.8
