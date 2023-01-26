@@ -31,9 +31,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         e."$group_0" as aggregation_target,
                         e."$group_0" as "$group_0",
@@ -65,9 +63,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         e."$group_0" as aggregation_target,
                         e."$group_0" as "$group_0",
@@ -119,9 +115,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         e."$group_0" as aggregation_target,
                         e."$group_0" as "$group_0",
@@ -154,9 +148,7 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT e.event as event,
-                        e.team_id as team_id,
-                        e.distinct_id as distinct_id,
+                (SELECT e.team_id as team_id,
                         e.timestamp as timestamp,
                         e."$group_0" as aggregation_target,
                         e."$group_0" as "$group_0",

@@ -180,16 +180,13 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
+                      (SELECT e.team_id as team_id,
                               e.timestamp as timestamp,
                               e."$group_0" as aggregation_target,
-                              e."$group_0" as "$group_0",
                               e."properties" as "properties",
+                              e."$group_0" as "$group_0",
                               pdi.person_id as person_id,
                               person.person_props as person_props,
-                              groups_0.group_properties_0 as group_properties_0,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
