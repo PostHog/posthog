@@ -10,6 +10,7 @@ from rest_framework.request import Request
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.exceptions import RequestParsingError
+from posthog.models.event.query_event_list import query_events_list_v2
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.schema import EventsQuery
@@ -33,7 +34,11 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         query_kind = query_json.get("kind")
         if query_kind == "EventsQuery":
             query = EventsQuery.parse_obj(query_json)
-            return JsonResponse({"success": "Query is valid!", "query": query.dict()})
+            query_result = query_events_list_v2(
+                team=self.team,
+                query=query,
+            )
+            return JsonResponse(query_result)
         else:
             raise RequestParsingError("Invalid query kind: %s" % query_kind)
 

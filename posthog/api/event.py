@@ -18,7 +18,12 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
-from posthog.models.event.query_event_list import EventsQueryResponse, query_events_list
+from posthog.models.event.query_event_list import (
+    QUERY_DEFAULT_EXPORT_LIMIT,
+    QUERY_DEFAULT_LIMIT,
+    QUERY_MAXIMUM_LIMIT,
+    query_events_list,
+)
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
@@ -54,10 +59,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     serializer_class = ClickhouseEventSerializer
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
-
-    # Return at most this number of events in CSV export
-    CSV_EXPORT_DEFAULT_LIMIT = 3_500
-    CSV_EXPORT_MAXIMUM_LIMIT = 100_000
 
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime, order_by: List[str]) -> str:
         params = request.GET.dict()
@@ -107,12 +108,11 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             if self.request.GET.get("limit", None):
                 limit = int(self.request.GET.get("limit"))  # type: ignore
             elif is_csv_request:
-                limit = self.CSV_EXPORT_DEFAULT_LIMIT
+                limit = QUERY_DEFAULT_EXPORT_LIMIT
             else:
-                limit = 100
+                limit = QUERY_DEFAULT_LIMIT
 
-            if is_csv_request:
-                limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
+            limit = min(limit, QUERY_MAXIMUM_LIMIT)
 
             try:
                 offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
@@ -122,15 +122,10 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             team = self.team
             filter = Filter(request=request, team=self.team)
 
-            select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
-            where: List[str] = json.loads(request.GET["where"]) if request.GET.get("where") else None
             order_by: List[str] = list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else []
 
             if len(order_by) == 0:
-                if not select or "*" in select or "timestamp" in select:
-                    order_by = ["-timestamp"]
-                elif "count()" in select:
-                    order_by = ["-count()"]
+                order_by = ["-timestamp"]
 
             query_result = query_events_list(
                 filter=filter,
@@ -140,16 +135,10 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 request_get_query_dict=request.GET.dict(),
                 order_by=order_by,
                 action_id=request.GET.get("action_id"),
-                select=select,
-                where=where,
-            )
-
-            result_count = (
-                len(query_result.results) if isinstance(query_result, EventsQueryResponse) else len(query_result)
             )
 
             # Retry the query without the 1 day optimization
-            if result_count < limit and not request.GET.get("after"):
+            if len(query_result) < limit and not request.GET.get("after"):
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
@@ -159,19 +148,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     request_get_query_dict=request.GET.dict(),
                     order_by=order_by,
                     action_id=request.GET.get("action_id"),
-                    select=select,
-                    where=where,
-                )
-
-            # Result with selected columns
-            if isinstance(query_result, EventsQueryResponse):
-                return response.Response(
-                    {
-                        "columns": select,
-                        "types": query_result.types,
-                        "results": query_result.results,
-                        "hasMore": query_result.has_more,
-                    },
                 )
 
             result = ClickhouseEventSerializer(
