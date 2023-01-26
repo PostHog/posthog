@@ -494,7 +494,7 @@ def partition_key_cache(threshold: int, cache_timeout: int):
         threshold: Number of hits a partition key should have after which is cached.
         cache_timeout: How long should a partition key remain in the cache in seconds.
     """
-    counter = defaultdict(int)
+    counter: Dict[str, int] = defaultdict(int)
     cached_keys = {}
 
     def func_wrapper(is_randomly_partitioned):
