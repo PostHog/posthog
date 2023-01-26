@@ -674,7 +674,7 @@ export function Experiment(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             )}
-                            {experiment && isExperimentRunning && !experiment.end_date && (
+                            {experiment && isExperimentRunning && (
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
                                         placement="topLeft"
@@ -692,18 +692,24 @@ export function Experiment(): JSX.Element {
                                             Reset
                                         </LemonButton>
                                     </Popconfirm>
-                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                        Stop
-                                    </LemonButton>
+                                    {!experiment.end_date && (
+                                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                            Stop
+                                        </LemonButton>
+                                    )}
+                                    {experiment?.end_date &&
+                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                        !experiment.archived && (
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                onClick={() => archiveExperiment()}
+                                            >
+                                                <b>Archive</b>
+                                            </LemonButton>
+                                        )}
                                 </div>
                             )}
-                            {experiment?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
                         </Row>
                     </Row>
                     <Row>

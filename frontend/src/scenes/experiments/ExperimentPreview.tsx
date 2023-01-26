@@ -261,7 +261,7 @@ export function ExperimentPreview({
                         {experiment?.end_date && (
                             <Col span={12}>
                                 <div className="card-secondary mt-4">Completed date</div>
-                                <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                                <TZLabel time={experiment?.end_date} />
                             </Col>
                         )}
                     </Row>
