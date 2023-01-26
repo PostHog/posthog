@@ -94,15 +94,35 @@ test.concurrent(
 
         await capture(producer, teamId, distinctId, uuid, '$snapshot', {
             $session_id: '1234abc',
+            $window_id: 'abc1234',
             $snapshot_data: 'yes way',
         })
 
-        await waitForExpect(async () => {
+        const events = await waitForExpect(async () => {
             const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
+            return events
+        })
 
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
+        expect(events[0]).toEqual({
+            _offset: expect.any(Number),
+            _timestamp: expect.any(String),
+            click_count: 0,
+            created_at: expect.any(String),
+            distinct_id: distinctId,
+            events_summary: [],
+            first_event_timestamp: null,
+            has_full_snapshot: 0,
+            keypress_count: 0,
+            last_event_timestamp: null,
+            session_id: '1234abc',
+            snapshot_data: 'yes way',
+            team_id: teamId,
+            timestamp: expect.any(String),
+            timestamps_summary: [],
+            urls: [],
+            uuid: uuid,
+            window_id: 'abc1234',
         })
     },
     20000
@@ -147,6 +167,67 @@ test.concurrent(
     },
     20000
 )
+
+test.concurrent(`recording events not ingested to ClickHouse if team is opted out`, async () => {
+    // NOTE: to have something we can assert on in the positive to ensure that
+    // we had tried to ingest the recording for the team with the opted out
+    // session recording status, we create a team that is opted in and then
+    // ingest a recording for that team. We then create a team that is opted in
+    // and ingest a recording for that team. We then assert that the recording
+    // for the team that is opted in was ingested and the recording for the team
+    // that is opted out was not ingested.
+    const tokenOptedOut = uuidv4()
+    const teamOptedInOut = await createTeam(postgres, organizationId, undefined, tokenOptedOut, false)
+    const uuidOptedOut = new UUIDT().toString()
+
+    await capture(
+        producer,
+        null,
+        new UUIDT().toString(),
+        uuidOptedOut,
+        '$snapshot',
+        {
+            $session_id: '1234abc',
+            $snapshot_data: 'yes way',
+        },
+        tokenOptedOut,
+        new Date(),
+        new Date(),
+        new Date(),
+        'session_recording_events'
+    )
+
+    const tokenOptedIn = uuidv4()
+    const teamOptedInId = await createTeam(postgres, organizationId, undefined, tokenOptedIn)
+    const uuidOptedIn = new UUIDT().toString()
+
+    await capture(
+        producer,
+        null,
+        new UUIDT().toString(),
+        uuidOptedIn,
+        '$snapshot',
+        {
+            $session_id: '1234abc',
+            $snapshot_data: 'yes way',
+        },
+        tokenOptedIn,
+        new Date(),
+        new Date(),
+        new Date(),
+        'session_recording_events'
+    )
+
+    await waitForExpect(async () => {
+        const events = await fetchSessionRecordingsEvents(clickHouseClient, teamOptedInId)
+        expect(events.length).toBe(1)
+    })
+
+    // NOTE: we're assuming that we have a single partition for the Kafka topic,
+    // and that the consumer produces messages in the order they are consumed.
+    const events = await fetchSessionRecordingsEvents(clickHouseClient, teamOptedInOut, uuidOptedOut)
+    expect(events.length).toBe(0)
+})
 
 test.concurrent(
     `snapshot captured, processed, ingested via session_recording_events topic same as events_plugin_ingestion`,
@@ -218,17 +299,100 @@ test.concurrent(
         const teamId = await createTeam(postgres, organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
+        const sessionId = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, '$performance_event', {
-            $session_id: '1234abc',
-        })
+        const properties = {
+            // Taken from a real event from the JS
+            '0': 'resource',
+            '1': 1671723295836,
+            '2': 'http://localhost:8000/api/projects/1/session_recordings',
+            '3': 10737.89999999106,
+            '4': 0,
+            '5': 0,
+            '6': 0,
+            '7': 10737.89999999106,
+            '8': 10737.89999999106,
+            '9': 10737.89999999106,
+            '10': 10737.89999999106,
+            '11': 0,
+            '12': 10737.89999999106,
+            '13': 10745.09999999404,
+            '14': 11121.70000000298,
+            '15': 11122.20000000298,
+            '16': 73374,
+            '17': 1767,
+            '18': 'fetch',
+            '19': 'http/1.1',
+            '20': 'non-blocking',
+            '22': 2067,
+            '39': 384.30000001192093,
+            '40': 1671723306573,
+            token: 'phc_234',
+            $session_id: sessionId,
+            $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
+            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            $current_url: 'http://localhost:8000/recordings/recent',
+        }
 
-        await waitForExpect(async () => {
+        await capture(producer, teamId, distinctId, uuid, '$performance_event', properties)
+
+        const events = await waitForExpect(async () => {
             const events = await fetchPerformanceEvents(clickHouseClient, teamId)
             expect(events.length).toBe(1)
+            return events
+        })
 
-            // processEvent did not modify
-            expect(events[0].session_id).toEqual('1234abc')
+        expect(events[0]).toEqual({
+            session_id: sessionId,
+            _offset: expect.any(Number),
+            _partition: expect.any(Number),
+            _timestamp: expect.any(String),
+            connect_end: 10737.89999999106,
+            connect_start: 10737.89999999106,
+            current_url: 'http://localhost:8000/recordings/recent',
+            decoded_body_size: 73374,
+            distinct_id: distinctId,
+            dom_complete: 0,
+            dom_content_loaded_event: 0,
+            dom_interactive: 0,
+            domain_lookup_end: 10737.89999999106,
+            domain_lookup_start: 10737.89999999106,
+            duration: 384.30000001192093,
+            encoded_body_size: 1767,
+            entry_type: 'resource',
+            fetch_start: 10737.89999999106,
+            initiator_type: 'fetch',
+            largest_contentful_paint_element: '',
+            largest_contentful_paint_id: '',
+            largest_contentful_paint_load_time: 0,
+            largest_contentful_paint_render_time: 0,
+            largest_contentful_paint_size: 0,
+            largest_contentful_paint_url: '',
+            load_event_end: 0,
+            load_event_start: 0,
+            name: 'http://localhost:8000/api/projects/1/session_recordings',
+            navigation_type: '',
+            next_hop_protocol: 'http/1.1',
+            pageview_id: '',
+            redirect_count: 0,
+            redirect_end: 0,
+            redirect_start: 0,
+            render_blocking_status: 'non-blocking',
+            request_start: 10745.09999999404,
+            response_end: 11122.20000000298,
+            response_start: 11121.70000000298,
+            response_status: 0,
+            secure_connection_start: 0,
+            start_time: 10737.89999999106,
+            team_id: teamId,
+            time_origin: '2022-12-22 15:34:55.836',
+            timestamp: '2022-12-22 15:35:06.573',
+            transfer_size: 2067,
+            unload_event_end: 0,
+            unload_event_start: 0,
+            uuid: uuid,
+            window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
+            worker_start: 0,
         })
     },
     20000
