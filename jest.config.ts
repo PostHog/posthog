@@ -7,7 +7,7 @@ process.env.TZ = process.env.TZ || 'UTC'
  * https://jestjs.io/docs/en/configuration.html
  */
 
-const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@mdev.*']
+const esmModules = ['query-selector-shadow-dom', 'react-syntax-highlighter', '@react-hook', '@medv']
 
 const config: Config = {
     // All imported modules in your tests should be mocked automatically
