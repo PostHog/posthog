@@ -11,7 +11,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { FunnelVizType, FunnelVizTypeDataExploration } from '../views/Funnels/FunnelVizType'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { AggregationSelect } from '../filters/AggregationSelect'
+import { AggregationSelect, AggregationSelectDataExploration } from '../filters/AggregationSelect'
 import {
     FunnelConversionWindowFilter,
     FunnelConversionWindowFilterDataExploration,
@@ -24,8 +24,8 @@ import { isStepsEmpty } from 'scenes/funnels/funnelUtils'
 const FUNNEL_STEP_COUNT_LIMIT = 20
 
 export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { insightFilter, querySource, aggregationTargetLabel } = useValues(funnelDataLogic(insightProps))
-    const { updateInsightFilter, updateQuerySource } = useActions(funnelDataLogic(insightProps))
+    const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
     // TODO: Replicate command logic
     // useMountedLogic(funnelCommandLogic)
 
@@ -36,14 +36,9 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
 
     return (
         <FunnelsQueryStepsComponent
-            querySource={querySource}
-            updateQuerySource={updateQuerySource}
-            filters={insightFilter as Partial<FunnelsFilterType>}
             actionFilters={actionFilters}
-            setFilters={updateInsightFilter}
             setActionFilters={setActionFilters}
             filterSteps={(querySource as FunnelsQuery).series}
-            aggregationTargetLabel={aggregationTargetLabel}
             showSeriesIndicator={(querySource as FunnelsQuery).series.length > 0}
             isDataExploration
             insightProps={insightProps}
@@ -52,20 +47,15 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
 }
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filterSteps, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { filterSteps, filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
     useMountedLogic(funnelCommandLogic)
 
     return (
         <FunnelsQueryStepsComponent
-            querySource={filters}
-            updateQuerySource={setFilters}
-            filters={filters}
-            setFilters={setFilters}
             actionFilters={filters}
             setActionFilters={setFilters}
             filterSteps={filterSteps}
-            aggregationTargetLabel={aggregationTargetLabel}
             showSeriesIndicator={!isStepsEmpty(filters)}
             insightProps={insightProps}
         />
@@ -73,28 +63,18 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
 }
 
 type FunnelsQueryStepsComponentProps = {
-    querySource: Pick<FunnelsQuery, 'aggregation_group_type_index'>
-    updateQuerySource: (querySource: Pick<FunnelsQuery, 'aggregation_group_type_index'>) => void
-    filters: Partial<FunnelsFilterType>
-    setFilters: (filters: Partial<FunnelsFilterType>) => void
     actionFilters: Partial<FunnelsFilterType>
     setActionFilters: (filters: Partial<FunnelsFilterType>) => void
     filterSteps: Record<string, any>[]
-    aggregationTargetLabel: Noun
     showSeriesIndicator: boolean
     isDataExploration?: boolean
     insightProps: InsightLogicProps
 }
 
 export function FunnelsQueryStepsComponent({
-    querySource,
-    updateQuerySource,
-    filters,
-    setFilters,
     actionFilters,
     setActionFilters,
     filterSteps,
-    aggregationTargetLabel,
     showSeriesIndicator,
     isDataExploration,
     insightProps,
@@ -116,7 +96,6 @@ export function FunnelsQueryStepsComponent({
                     )}
                 </div>
             </div>
-
             <ActionFilter
                 bordered
                 filters={actionFilters}
@@ -143,10 +122,11 @@ export function FunnelsQueryStepsComponent({
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2">
                         <span>Aggregating by</span>
-                        <AggregationSelect
-                            aggregationGroupTypeIndex={querySource.aggregation_group_type_index}
-                            onChange={(newValue) => updateQuerySource({ aggregation_group_type_index: newValue })}
-                        />
+                        {isDataExploration ? (
+                            <AggregationSelectDataExploration insightProps={insightProps} />
+                        ) : (
+                            <AggregationSelect insightProps={insightProps} />
+                        )}
                     </div>
                 )}
 
