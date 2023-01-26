@@ -802,4 +802,4 @@ def prop_filter_out_keys(prop: Union["PropertyGroup", "Property"], keys: List[st
             prop_filter_out_keys(value, keys)
         elif isinstance(value, Property):
             if value.key in keys:
-                prop.values.remove(value) # type: ignore
+                prop.values.remove(value)  # type: ignore

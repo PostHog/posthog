@@ -1348,7 +1348,7 @@ def test_prop_filter_out_keys():
                 [
                     Property(key="a", operator="exact", value=["a"]),
                     Property(key="b", operator="exact", value=["b"]),
-                ]
+                ],
             ),
             PropertyGroup(
                 PropertyOperatorType.OR,
