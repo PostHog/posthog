@@ -379,6 +379,18 @@ class PropertyGroup:
 
         return PropertyGroup(operator, [self, property_group])
 
+    def filter_out_keys(self, keys: List[str]) -> "PropertyGroup":
+        values = self.values
+
+        for value in values:
+            if isinstance(value, Property):
+                if value.key in keys:
+                    values.remove(value)
+            elif isinstance(value, PropertyGroup):
+                value.filter_out_keys(keys)
+
+        return PropertyGroup(self.type, values)
+
     def to_dict(self):
         if not self.values:
             return {}
