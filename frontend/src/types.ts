@@ -664,7 +664,7 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter {
+export interface FunnelStepRangeEntityFilter extends EntityFilter {
     funnel_from_step?: number
     funnel_to_step?: number
 }
