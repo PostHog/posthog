@@ -70,7 +70,6 @@ export async function ingestEvent(
             team_id: event.team_id.toString(),
         })
         // we've confirmed team_id exists so can assert event as PluginEvent
-
         await workerMethods.runEventPipeline(event as PluginEvent)
     } else {
         server.statsd?.increment('kafka_queue_ingest_event_hit', {
