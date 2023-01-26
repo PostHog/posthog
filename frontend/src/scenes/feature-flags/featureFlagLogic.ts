@@ -11,7 +11,6 @@ import {
     InsightType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
-    PropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
@@ -253,7 +252,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             if (group.properties) {
                                 return {
                                     ...group,
-                                    properties: convertPropertyGroupToProperties(group.properties) as PropertyFilter[],
+                                    properties: convertPropertyGroupToProperties(
+                                        group.properties
+                                    ) as AnyPropertyFilter[],
                                 }
                             }
                             return group

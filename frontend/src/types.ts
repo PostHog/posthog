@@ -459,7 +459,7 @@ export enum PropertyFilterType {
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
-    value: PropertyFilterValue
+    value?: PropertyFilterValue
     label?: string
     type?: PropertyFilterType
 }
@@ -512,7 +512,14 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
-export type PropertyFilter =
+export interface EmptyPropertyFilter {
+    type?: undefined
+    value?: undefined
+    operator?: undefined
+    key?: undefined
+}
+
+export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
@@ -522,17 +529,7 @@ export type PropertyFilter =
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
-
-export type AnyPropertyFilter =
-    | Partial<EventPropertyFilter>
-    | Partial<PersonPropertyFilter>
-    | Partial<ElementPropertyFilter>
-    | Partial<SessionPropertyFilter>
-    | Partial<CohortPropertyFilter>
-    | Partial<RecordingDurationFilter>
-    | Partial<GroupPropertyFilter>
-    | Partial<FeaturePropertyFilter>
-    | Partial<HogQLPropertyFilter>
+    | EmptyPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -1680,7 +1677,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
     type: EntityType
 }
 
