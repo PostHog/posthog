@@ -141,3 +141,26 @@ DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     SYNC
 """
+
+# ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
+PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
+    CREATE OR REPLACE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+        team_id INT,
+        old_person_id UUID,
+        override_person_id UUID
+    )
+    PRIMARY KEY team_id, old_person_id
+    SOURCE(CLICKHOUSE(TABLE 'person_overrides' DB '{CLICKHOUSE_DATABASE}'))
+    LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
+
+    -- The LIFETIME setting indicates to ClickHouse not to automatically update this dictionary
+    -- as we'll want to control when override_person_ids in `person_overrides` are squashed back
+    -- into the events table.
+    LIFETIME(MIN 0 MAX 0)
+"""
+
+DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
+    DROP DICTIONARY IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+"""
