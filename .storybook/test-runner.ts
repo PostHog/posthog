@@ -47,14 +47,16 @@ module.exports = {
         expect.extend({ toMatchImageSnapshot })
     },
     async postRender(page, context) {
-        const [storyContext] = await Promise.all([
-            getStoryContext(page, context),
-            page.evaluate(() => {
-                // Stop all animations for consistent snapshots
-                document.body.classList.add('dangerously-stop-all-animations')
-            }),
-            new Promise((resolve) => setTimeout(resolve, 400)), // Ensure there's a delay to allow everything to settle
-        ])
+        const storyContext = await getStoryContext(page, context)
+
+        await page.evaluate(() => {
+            // Stop all animations for consistent snapshots
+            document.body.classList.add('dangerously-stop-all-animations')
+        })
+
+        // Wait for the network to be idle for up to 2 seconds, to allow assets like images to load. This is suboptimal,
+        // because `networkidle` is not resolved reliably, so we might wait the whole 2 seconds - but it works.
+        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(2000)])
 
         // TODO: Make snapshots the default behavior, not opt-in, once all the stories pass
         if (storyContext.parameters?.chromatic?.disableSnapshot === false) {
