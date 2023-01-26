@@ -6,6 +6,7 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { finder } from '@medv/finder'
+import wildcardMatch from 'wildcard-match'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -25,35 +26,13 @@ export function getSafeText(el: HTMLElement): string {
     return elText
 }
 
-const dataAttrRegexes: Record<string, RegExp> = {}
-
-export function denyAllAttributesExceptAllowlist(selector: string, dataAttributes: string[]): boolean {
-    // match the data attribute by regex. data-* should match any data-*
-    for (const dataAttr of dataAttributes) {
-        if (!dataAttrRegexes[dataAttr]) {
-            dataAttrRegexes[dataAttr] = new RegExp(`^${dataAttr.replace('*', '.*')}$`)
-        }
-    }
-    for (const dataAttr of dataAttributes) {
-        if (dataAttrRegexes[dataAttr].test(selector)) {
-            return true
-        }
-    }
-    // all other attributes are forbidden
-    return false
-}
-
 export function elementToQuery(element: HTMLElement, dataAttributes: string[]): string | undefined {
     if (!element) {
         return
     }
 
     return finder(element, {
-        attr: (name) => {
-            // return true if we want to include the attribute
-            // by default we want to exclude all attributes to avoid leaking PII
-            return denyAllAttributesExceptAllowlist(name, dataAttributes)
-        },
+        attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
         seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
     })
 }
