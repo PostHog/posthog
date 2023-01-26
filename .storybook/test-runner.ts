@@ -58,8 +58,7 @@ module.exports = {
         // because `networkidle` is not resolved reliably, so we might wait the whole second - but it works.
         await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(1000)])
 
-        // TODO: Make snapshots the default behavior, not opt-in, once all the stories pass
-        if (storyContext.parameters?.chromatic?.disableSnapshot === false) {
+        if (!storyContext.parameters?.chromatic?.disableSnapshot) {
             if (storyContext.parameters?.layout === 'fullscreen') {
                 if (storyContext.parameters.testRunner?.includeNavigation) {
                     await expectStoryToMatchFullPageSnapshot(page, context)

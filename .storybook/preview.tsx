@@ -28,9 +28,9 @@ const setupPosthogJs = () => {
 }
 setupPosthogJs()
 
-// Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
+/** Storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters */
 export const parameters = {
-    chromatic: { disableSnapshot: true },
+    chromatic: { disableSnapshot: true }, // TODO: Make snapshots the default, instead disable them on a per-story basis
     actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
     controls: {
         matchers: {
