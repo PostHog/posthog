@@ -1,5 +1,6 @@
 import base64
 import gzip
+import importlib
 import json
 import random
 import string
@@ -26,7 +27,7 @@ from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from rest_framework import status
 
-from posthog.api.capture import get_distinct_id
+from posthog.api.capture import get_distinct_id, is_randomly_partitioned
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
@@ -116,6 +117,82 @@ class TestCapture(BaseTest):
         self.client.post(
             "/s/", data={"data": json.dumps([event for _ in range(number_of_events)]), "api_key": self.team.api_token}
         )
+
+    def test_is_randomly_parititoned(self):
+        """Test is_randomly_partitioned under different conditions of DB, cache, and local config."""
+        distinct_id = 100
+        override_key = f"{self.team.pk}:{distinct_id}"
+        patched_config = {self.database_override_key: ([override_key], "a help str", list)}
+
+        # Database query doesn't return results as DB is empty
+        # Default configuration value is returned.
+        with self.assertNumQueries(1):
+            with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
+                assert is_randomly_partitioned(override_key) is True
+
+        # Database query doesn't return results as DB is empty
+        # Default configuration is also empty.
+        with self.assertNumQueries(1):
+            assert is_randomly_partitioned(override_key) is False
+
+        set_instance_setting(self.database_override_key, [override_key])
+
+        # After setting, Redis cache is hit.
+        with self.assertNumQueries(0):
+            assert is_randomly_partitioned(override_key) is True
+
+        cache.clear()
+
+        # DB is queried as we cleared cache.
+        with self.assertNumQueries(1):
+            assert is_randomly_partitioned(override_key) is True
+
+        # Follow up requests hit the cache.
+        with self.assertNumQueries(0):
+            assert is_randomly_partitioned(override_key) is True
+
+    def test_partition_key_cache(self):
+        """Assert the behavior of the partition key cache over.
+
+        Setup for this test requires reloading the capture module as we are patching
+        the cache parameters for testing.
+        """
+        from posthog.api import capture
+
+        distinct_id = 100
+        partition_key = f"{self.team.pk}:{distinct_id}"
+        patched = {
+            "PARTITION_KEY_CACHE_THRESHOLD": "2",
+            "PARTITION_KEY_CACHE_TIMEOUT": "600",
+        }
+
+        with patch.dict("os.environ", patched):
+            importlib.reload(capture)
+
+        assert capture.PARTITION_KEY_CACHE_THRESHOLD == 2
+        assert capture.PARTITION_KEY_CACHE_TIMEOUT == 600
+
+        # First time we see this key it's passed to instance settings for querying.
+        # Since db is empty, this query shouldn't return results.
+        with self.assertNumQueries(1):
+            assert capture.is_randomly_partitioned(partition_key) is False
+
+        # The second time we see the key it should be cached locally as we have hit the THRESHOLD.
+        # Without querying the db we expect the local cache to hit.
+        with self.assertNumQueries(0):
+            assert capture.is_randomly_partitioned(partition_key) is True
+
+        # The third time we see the key it should still be cached locally.
+        with self.assertNumQueries(0):
+            assert capture.is_randomly_partitioned(partition_key) is True
+
+        cache.clear()
+
+        # After 10 minutes as given by TIMEOUT parameter, local cache should be cleared.
+        # We are back to querying the database.
+        with freeze_time(datetime.utcnow() + timedelta(seconds=600)):
+            with self.assertNumQueries(1):
+                assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event(self, kafka_produce):

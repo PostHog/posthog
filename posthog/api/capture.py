@@ -1,8 +1,10 @@
 import hashlib
 import json
+import os
 import re
 import time
-from datetime import datetime
+from collections import defaultdict
+from datetime import datetime, timedelta
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
@@ -42,6 +44,9 @@ logger = structlog.get_logger(__name__)
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+
+PARTITION_KEY_CACHE_THRESHOLD = int(os.getenv("PARTITION_KEY_CACHE_THRESHOLD", default=100))
+PARTITION_KEY_CACHE_TIMEOUT = int(os.getenv("PARTITION_KEY_CACHE_TIMEOUT", default=3600))
 
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
@@ -464,11 +469,65 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     kafka_partition_key = None
 
     if event["event"] in ("$snapshot", "$performance_event"):
-        kafka_partition_key = None
-    else:
-        candidate_partition_key = f"{team_id}:{distinct_id}"
+        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
-        if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
-            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+    candidate_partition_key = f"{team_id}:{distinct_id}"
+
+    if is_randomly_partitioned(candidate_partition_key) is False:
+        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+
+
+def partition_key_cache(threshold: int, cache_timeout: int):
+    """Cache partition keys to automatically handle a spike in traffic.
+
+    The strategy to handle spikes in traffic going to a single partition key are to
+    override the partition key with None to force random partition assignments.
+
+    This decorator provides us with a local cache to dictate a partition key should
+    be overriden with None whenever the key is seen more than threshold times. The local
+    cache stores both a counter of how many hits a partition key has had and the time
+    when it crossed the threshold.
+
+    Args:
+        threshold: Number of hits a partition key should have after which is cached.
+        cache_timeout: How long should a partition key remain in the cache in seconds.
+    """
+    counter = defaultdict(int)
+    cached_keys = {}
+
+    def func_wrapper(is_randomly_partitioned):
+        def wrapper(candidate_partition_key: str) -> bool:
+            counter[candidate_partition_key] += 1
+
+            if candidate_partition_key not in cached_keys and counter[candidate_partition_key] >= threshold:
+                cached_keys[candidate_partition_key] = datetime.utcnow()
+
+            time_cached = cached_keys.get(candidate_partition_key, None)
+
+            if time_cached is None:
+                return is_randomly_partitioned(candidate_partition_key)
+
+            if datetime.utcnow() - time_cached > timedelta(seconds=cache_timeout):
+                counter[candidate_partition_key] = 0
+                del cached_keys[candidate_partition_key]
+                return is_randomly_partitioned(candidate_partition_key)
+
+            return True
+
+        return wrapper
+
+    return func_wrapper
+
+
+@partition_key_cache(PARTITION_KEY_CACHE_THRESHOLD, PARTITION_KEY_CACHE_TIMEOUT)
+def is_randomly_partitioned(candidate_partition_key: str) -> bool:
+    """Check whether event with given partition key is to be randomly partitioned."""
+    try:
+        keys_to_override = get_instance_setting("EVENT_PARTITION_KEYS_TO_OVERRIDE")
+    except Exception as e:
+        logger.exception("Error while fetching instance setting, falling back to default", exc=e)
+        keys_to_override = CONSTANCE_CONFIG["EVENT_PARTITION_KEYS_TO_OVERRIDE"][0]
+
+    return candidate_partition_key in keys_to_override
