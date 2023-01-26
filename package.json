@@ -38,7 +38,7 @@
         "eslint": "eslint frontend/src",
         "typegen:write": "kea-typegen write",
         "typegen:check": "kea-typegen check",
-        "typegen:watch": "kea-typegen watch --show-ts-errors",
+        "typegen:watch": "kea-typegen watch --show-ts-errors  > /dev/null",
         "typegen:clean": "find frontend/src -type f -name '*Type.ts' -delete",
         "format:python": "black . && isort .",
         "format:js": "pnpm prettier && pnpm eslint --fix",

@@ -32,7 +32,6 @@ from posthog.queries.breakdown_props import (
     get_breakdown_prop_values,
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
-from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.queries.insight import insight_sync_execute
 from posthog.utils import relative_date_parse
 
@@ -398,18 +397,6 @@ class ClickhouseFunnelBase(ABC):
         for prop in self._include_properties:
             extra_fields.append(prop)
 
-        parsed_extra_fields = f", {', '.join(extra_fields)}" if extra_fields else ""
-
-        event_query, params = FunnelEventQuery(
-            filter=self._filter,
-            team=self._team,
-            extra_fields=[*self._extra_event_fields, *extra_fields],
-            extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.person_on_events_querying_enabled,
-        ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
-
-        self.params.update(params)
-
         if skip_step_filter:
             steps_conditions = "1=1"
         else:
@@ -426,30 +413,35 @@ class ClickhouseFunnelBase(ABC):
             # where i is the starting step for exclusion on that entity
             all_step_cols.extend(step_cols)
 
-        steps = ", ".join(all_step_cols)
-
         breakdown_select_prop = self._get_breakdown_select_prop()
-        if len(breakdown_select_prop) > 0:
-            select_prop = f", {breakdown_select_prop}"
-        else:
-            select_prop = ""
         extra_join = ""
 
+        all_step_cols.append(breakdown_select_prop)
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
+
             else:
                 values = self._get_breakdown_conditions()
                 self.params.update({"breakdown_values": values})
 
-        inner_query = FUNNEL_INNER_EVENT_STEPS_QUERY.format(
-            steps=steps,
-            event_query=event_query,
+        inner_query, params = FunnelEventQuery(
+            filter=self._filter,
+            team=self._team,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
+        ).get_query(
+            entities_to_use,
+            entity_name,
+            skip_entity_filter=skip_entity_filter,
             extra_join=extra_join,
-            steps_condition=steps_conditions,
-            select_prop=select_prop,
-            extra_fields=parsed_extra_fields,
+            step_filter=steps_conditions,
+            all_step_cols=all_step_cols,
         )
+
+        # Prioritize self.params to get the correct entities
+        self.params = {**params, **self.params}
 
         if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery

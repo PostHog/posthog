@@ -12,7 +12,15 @@ from posthog.queries.event_query import EventQuery
 class FunnelEventQuery(EventQuery):
     _filter: Filter
 
-    def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
+    def get_query(
+        self,
+        entities=None,
+        entity_name="events",
+        skip_entity_filter=False,
+        extra_join="",
+        step_filter="",
+        all_step_cols=[],
+    ) -> Tuple[str, Dict[str, Any]]:
 
         aggregation_target = (
             get_aggregation_target_field(
@@ -52,6 +60,8 @@ class FunnelEventQuery(EventQuery):
             f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
             for column_name in self._column_optimizer.event_columns_to_query
         )
+
+        _fields += all_step_cols
 
         if self._using_person_on_events:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
@@ -117,11 +127,13 @@ class FunnelEventQuery(EventQuery):
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
+            {extra_join}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}
             {prop_query}
             {null_person_filter}
+            AND ({step_filter})
         """
         return query, self.params
 
