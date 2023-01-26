@@ -321,9 +321,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
 
-    @override_settings(
-        PERSON_ON_EVENTS_OVERRIDE=False
-    )  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached, but are not in tests
+    # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_listing_insights_does_not_nplus1(self) -> None:
         query_counts: List[int] = []
