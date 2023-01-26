@@ -205,7 +205,7 @@
             countIf(steps_completed >= 3) AS reached_to_step_count
      FROM
        (SELECT aggregation_target,
-               toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS entrance_period_start,
+               toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT *,
@@ -284,7 +284,7 @@
                  entrance_period_start)
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
-    (SELECT toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC') + toIntervalWeek(number), 0) AS entrance_period_start
+    (SELECT toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC') + toIntervalWeek(number)) AS entrance_period_start
      FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2021-05-01 00:00:00', 'UTC')), toStartOfWeek(toDateTime('2021-05-07 00:00:00', 'UTC'))) + 1) AS period_offsets) fill USING (entrance_period_start)
   ORDER BY entrance_period_start ASC
   '
@@ -295,7 +295,7 @@
   SELECT aggregation_target AS actor_id
   FROM
     (SELECT aggregation_target,
-            toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) AS entrance_period_start,
+            toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
             max(steps) AS steps_completed
      FROM
        (SELECT *,
