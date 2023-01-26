@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { personsLogic } from './personsLogic'
 import { router } from 'kea-router'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 
@@ -47,20 +47,22 @@ describe('personsLogic', () => {
             router.actions.push('/persons')
             await expectLogic(logic, () => {
                 logic.actions.setListFilters({
-                    properties: [{ key: 'email', operator: PropertyOperator.IsSet }],
+                    properties: [{ key: 'email', operator: PropertyOperator.IsSet, type: PropertyFilterType.Person }],
                 })
                 logic.actions.loadPersons()
             })
                 .toMatchValues(logic, {
-                    listFilters: { properties: [{ key: 'email', operator: 'is_set' }] },
+                    listFilters: { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] },
                 })
                 .toDispatchActions(router, ['replace', 'locationChanged'])
-                .toMatchValues(router, { searchParams: { properties: [{ key: 'email', operator: 'is_set' }] } })
+                .toMatchValues(router, {
+                    searchParams: { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] },
+                })
         })
         it('properties from url works', async () => {
-            router.actions.push('/persons', { properties: [{ key: 'email', operator: 'is_set' }] })
+            router.actions.push('/persons', { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] })
             await expectLogic(logic, () => {}).toMatchValues(logic, {
-                listFilters: { properties: [{ key: 'email', operator: 'is_set' }] },
+                listFilters: { properties: [{ key: 'email', operator: 'is_set', type: 'person' }] },
             })
 
             // Expect a clean url (no ?properties={})

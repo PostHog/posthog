@@ -67,14 +67,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent | ProcessedPluginEvent
 
-    // See https://github.com/PostHog/product-internal/pull/405 for an overview
-    // of the implementation.
-    onlyUpdatePersonIdAssociations: boolean
+    // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
+    poEEmbraceJoin: boolean
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, onlyUpdatePersonIdAssociations = false) {
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
         this.originalEvent = originalEvent
-        this.onlyUpdatePersonIdAssociations = onlyUpdatePersonIdAssociations
+        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     // KLUDGE: This is a temporary entry point for the pipeline while we transition away from

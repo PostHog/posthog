@@ -971,12 +971,12 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
+               toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific')), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
+                         toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'), 0) as date
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -2394,13 +2394,13 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), toDateTime('2020-01-04 23:59:59', 'UTC')))
+               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
+                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
-          (SELECT toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as date,
+          (SELECT toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date,
                   any(sessions.session_duration) as session_duration
            FROM events e
            INNER JOIN
@@ -2524,7 +2524,7 @@
               FROM
                 (SELECT sessions.$session_id,
                                  session_duration,
-                                 toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as day_start,
+                                 toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                                  replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events AS e
                  INNER JOIN
@@ -2953,14 +2953,14 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))
+               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-18 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
+                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-29 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0))), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                 timestamp AS day_start
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC')))), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                              timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
                   arrayJoin(event_buckets) as timestamp

@@ -5,6 +5,7 @@ import {
     ActionType,
     ActorType,
     AnyCohortCriteriaType,
+    AnyFilterLike,
     AnyFilterType,
     AnyPropertyFilter,
     BehavioralCohortType,
@@ -12,11 +13,11 @@ import {
     CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
+    EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
     GroupActorType,
     IntervalType,
-    PropertyFilter,
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -363,7 +364,7 @@ export function formatPropertyLabel(
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
-    if (isHogQLPropertyFilter(item)) {
+    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
         return extractExpressionComment(item.key)
     }
     const { value, key, operator, type } = item
@@ -1421,7 +1422,14 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties:
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | AnyPropertyFilter[]
+        | AnyPropertyFilter
+        | Record<string, any>
+        | null
+        | undefined
 ): properties is PropertyGroupFilter {
     return (
         (properties as PropertyGroupFilter)?.type !== undefined &&
@@ -1433,7 +1441,7 @@ export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
     propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
 ): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {}
+    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
     Object.keys(propertyGroup).forEach(function (k) {
         obj[k] = propertyGroup[k]
     })
@@ -1461,7 +1469,7 @@ export function convertPropertiesToPropertyGroup(
 /** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
-): PropertyFilter[] | undefined {
+): AnyPropertyFilter[] | undefined {
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }

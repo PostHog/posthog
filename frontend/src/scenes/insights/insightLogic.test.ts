@@ -77,6 +77,7 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         result: ['result 42'],
         filters: API_FILTERS,
         dashboards: [],
+        dashboard_tiles: [],
         saved: true,
         name: 'new name',
         order: null,

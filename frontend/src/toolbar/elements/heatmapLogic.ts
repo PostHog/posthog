@@ -8,7 +8,7 @@ import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
-import { FilterType, PropertyOperator } from '~/types'
+import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
 import { loaders } from 'kea-loaders'
 
@@ -93,11 +93,17 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         const params: Partial<FilterType> = {
                             properties: [
                                 wildcardHref === href
-                                    ? { key: '$current_url', value: href, operator: PropertyOperator.Exact }
+                                    ? {
+                                          key: '$current_url',
+                                          value: href,
+                                          operator: PropertyOperator.Exact,
+                                          type: PropertyFilterType.Event,
+                                      }
                                     : {
                                           key: '$current_url',
                                           value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
                                           operator: PropertyOperator.Regex,
+                                          type: PropertyFilterType.Event,
                                       },
                             ],
                             ...values.heatmapFilter,

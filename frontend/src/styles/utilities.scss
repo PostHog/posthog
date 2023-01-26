@@ -680,10 +680,6 @@
     line-height: 1;
 }
 
-.text-ellipsis {
-    @extend %mixin-text-ellipsis;
-}
-
 @each $space in $tiny_spaces {
     .leading-#{escape-number($space)} {
         line-height: #{$space * 0.25}rem;
@@ -730,6 +726,9 @@
 }
 .rounded-3xl {
     border-radius: calc(var(--radius) * 6); /* 24px */
+}
+.rounded-4xl {
+    border-radius: calc(var(--radius) * 8); /* 32px */
 }
 .rounded-full {
     border-radius: 1000rem;

@@ -12,7 +12,6 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware
-from django_statsd.middleware import StatsdMiddlewareTimer
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
@@ -309,6 +308,10 @@ class CaptureMiddleware:
         self.CAPTURE_MIDDLEWARE = middlewares
 
         if STATSD_HOST is not None:
+            # import here to avoid log-spew about failure to connect to statsd,
+            # as this connection is created on import
+            from django_statsd.middleware import StatsdMiddlewareTimer
+
             self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
 
     def __call__(self, request: HttpRequest):
