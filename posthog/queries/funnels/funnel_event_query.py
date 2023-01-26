@@ -17,9 +17,6 @@ class FunnelEventQuery(EventQuery):
         entities=None,
         entity_name="events",
         skip_entity_filter=False,
-        extra_join="",
-        step_filter="",
-        all_step_cols=[],
     ) -> Tuple[str, Dict[str, Any]]:
 
         aggregation_target = (
@@ -60,8 +57,6 @@ class FunnelEventQuery(EventQuery):
             f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
             for column_name in self._column_optimizer.event_columns_to_query
         )
-
-        _fields += all_step_cols
 
         if self._using_person_on_events:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
@@ -122,19 +117,35 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
-        query = f"""
-            SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
+        select_fragment = (
+            f"SELECT {', '.join(_fields)}" + "{extra_select_fields}" + f" FROM events {self.EVENT_TABLE_ALIAS}"
+        )
+        joins_fragment = (
+            f"""
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
-            {extra_join}
+        """
+            + "{extra_join}"
+        )
+        where_fragment = (
+            f"""
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}
             {prop_query}
             {null_person_filter}
-            AND ({step_filter})
         """
+            + "{step_filter}"
+        )
+
+        query = f"""
+            {select_fragment}
+            {joins_fragment}
+            {where_fragment}
+        """
+
+        # print(query)
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:

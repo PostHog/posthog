@@ -397,6 +397,16 @@ class ClickhouseFunnelBase(ABC):
         for prop in self._include_properties:
             extra_fields.append(prop)
 
+        inner_query, params = FunnelEventQuery(
+            filter=self._filter,
+            team=self._team,
+            extra_fields=[*self._extra_event_fields, *extra_fields],
+            extra_event_properties=self._extra_event_properties,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
+        ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
+
+        self.params.update(params)
+
         if skip_step_filter:
             steps_conditions = "1=1"
         else:
@@ -414,9 +424,12 @@ class ClickhouseFunnelBase(ABC):
             all_step_cols.extend(step_cols)
 
         breakdown_select_prop = self._get_breakdown_select_prop()
+
+        if breakdown_select_prop:
+            all_step_cols.append(breakdown_select_prop)
+
         extra_join = ""
 
-        all_step_cols.append(breakdown_select_prop)
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
@@ -425,23 +438,13 @@ class ClickhouseFunnelBase(ABC):
                 values = self._get_breakdown_conditions()
                 self.params.update({"breakdown_values": values})
 
-        inner_query, params = FunnelEventQuery(
-            filter=self._filter,
-            team=self._team,
-            extra_fields=[*self._extra_event_fields, *extra_fields],
-            extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.person_on_events_querying_enabled,
-        ).get_query(
-            entities_to_use,
-            entity_name,
-            skip_entity_filter=skip_entity_filter,
-            extra_join=extra_join,
-            step_filter=steps_conditions,
-            all_step_cols=all_step_cols,
-        )
+        extra_select_fields = f", {', '.join(all_step_cols)}" if all_step_cols else ""
 
-        # Prioritize self.params to get the correct entities
-        self.params.update(params)
+        inner_query = inner_query.format(
+            extra_select_fields=extra_select_fields,
+            extra_join=extra_join,
+            step_filter="AND ({})".format(steps_conditions),
+        )
 
         if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery
