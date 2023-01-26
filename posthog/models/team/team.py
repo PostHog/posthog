@@ -187,6 +187,14 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        set_team_in_cache(self.api_token, self)
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        set_team_in_cache(self.api_token, None)
+
     def get_effective_membership_level_for_parent_membership(
         self, requesting_parent_membership: "OrganizationMembership"
     ) -> Optional["OrganizationMembership.Level"]:

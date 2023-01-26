@@ -23,7 +23,6 @@ from posthog.models.feature_flag import (
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
-    set_feature_flags_for_team_in_cache,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -201,8 +200,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
-        set_feature_flags_for_team_in_cache(self.context["team_id"])
-
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -215,8 +212,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         instance.update_cohorts()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
-
-        set_feature_flags_for_team_in_cache(self.context["team_id"])
 
         return instance
 
