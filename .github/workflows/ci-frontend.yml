@@ -66,10 +66,10 @@ jobs:
             - run: pnpm install --frozen-lockfile
             - id: set-test-chunks
               name: Set Chunks
-              # Looks at the output of 'pnpm test -- --listTests --json'
+              # Looks at the output of 'pnpm test:unit -- --listTests --json'
               # Take the 5th line of the output (the first two are pnpm non-sense)
               # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
-              run: echo "test-chunks=$(pnpm test -- --listTests --json | sed -n 5p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
+              run: echo "test-chunks=$(pnpm test:unit --listTests --json | sed -n 5p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
             - id: set-test-chunk-ids
               name: Set Chunk IDs
               run: echo "test-chunk-ids=$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')" >> $GITHUB_OUTPUT
@@ -106,7 +106,7 @@ jobs:
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs pnpm test -- --maxWorkers=2
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs pnpm test:unit -- --maxWorkers=2
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
