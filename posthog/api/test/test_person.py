@@ -2,7 +2,6 @@ import json
 from typing import Dict, List, Optional, cast
 from unittest import mock
 
-from django.test import override_settings
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
@@ -20,12 +19,10 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
 )
 
 
-@override_settings(
-    PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
     def test_search(self) -> None:
         _create_person(team=self.team, distinct_ids=["distinct_id"], properties={"email": "someone@gmail.com"})
@@ -158,6 +155,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
+    @snapshot_postgres_queries
     def test_filter_person_list(self):
 
         person1: Person = _create_person(
@@ -173,8 +171,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(6):
-            response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
+        response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
@@ -556,6 +553,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
+    @snapshot_postgres_queries
     def test_pagination_limit(self):
         created_ids = []
 
@@ -572,8 +570,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        with self.assertNumQueries(6):
-            response = self.client.get("/api/person/?limit=10").json()
+        response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response = self.client.get(response["next"]).json()
