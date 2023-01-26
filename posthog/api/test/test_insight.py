@@ -42,9 +42,6 @@ from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
 
 
-@override_settings(
-    PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
 
@@ -324,6 +321,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
 
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False
+    )  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached, but are not in tests
     @snapshot_postgres_queries
     def test_listing_insights_does_not_nplus1(self) -> None:
         query_counts: List[int] = []

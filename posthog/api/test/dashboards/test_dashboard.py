@@ -19,9 +19,6 @@ from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_
 from posthog.utils import generate_cache_key
 
 
-@override_settings(
-    PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
@@ -151,6 +148,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
+    @override_settings(
+        PERSON_ON_EVENTS_OVERRIDE=False
+    )  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached, but are not in tests
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():
