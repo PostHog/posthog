@@ -141,8 +141,8 @@ def query_events_list_v2(
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext()
 
-    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else int(query.limit)) + 1
-    offset = 0 if query.offset is None else int(query.offset)
+    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
+    offset = 0 if query.offset is None else query.offset
     action_id = query.actionId
     person_id = query.personId
     order_by = query.orderBy
@@ -165,8 +165,8 @@ def query_events_list_v2(
             "event": event,
         }
     )
-
-    filter = Filter(team=team, data={"properties": properties}, hogql_context=hogql_context)
+    parsedProperties = [p["__root__"] if "__root__" in p else p for p in [p.dict() for p in properties]]
+    filter = Filter(team=team, data={"properties": parsedProperties}, hogql_context=hogql_context)
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
     )
@@ -175,9 +175,9 @@ def query_events_list_v2(
         try:
             action = Action.objects.get(pk=action_id, team_id=team.pk)
         except Action.DoesNotExist:
-            return []
+            raise Exception("Action does not exist")
         if action.steps.count() == 0:
-            return []
+            raise Exception("Action does not have any steps")
 
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
         action_query, params = format_action_filter(team_id=team.pk, action=action)
@@ -216,7 +216,10 @@ def query_events_list_v2(
                 fragment = fragment[1:]
             order_by_list.append(translate_hogql(fragment, hogql_context) + " " + order_direction)
     else:
-        order_by_list.append(select_columns[0] + " ASC")
+        if "count(*)" in select_columns:
+            order_by_list.append("count() DESC")
+        else:
+            order_by_list.append(select_columns[0] + " ASC")
 
     if select_columns == group_by_columns:
         group_by_columns = []

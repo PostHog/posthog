@@ -149,11 +149,20 @@ export interface EventsQuery extends DataNode {
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
     event?: string
-    /** Number of rows to return */
+    /**
+     * Number of rows to return
+     * @asType integer
+     */
     limit?: number
-    /** Number of rows to skip before returning rows */
+    /**
+     * Number of rows to skip before returning rows
+     * @asType integer
+     */
     offset?: number
-    /** Show events matching a given action */
+    /**
+     * Show events matching a given action
+     * @asType integer
+     */
     actionId?: number
     /** Show events for a given person */
     personId?: string

@@ -1630,7 +1630,7 @@
             "properties": {
                 "actionId": {
                     "description": "Show events matching a given action",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
@@ -1657,11 +1657,11 @@
                 },
                 "limit": {
                     "description": "Number of rows to return",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
                     "description": "Number of rows to skip before returning rows",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "orderBy": {
                     "description": "Columns to order by",
