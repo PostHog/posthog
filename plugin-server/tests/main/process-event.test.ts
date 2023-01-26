@@ -1117,66 +1117,6 @@ test('capture first team event', async () => {
     expect(elements.length).toEqual(1)
 })
 
-it('snapshot event not stored if session recording disabled', async () => {
-    await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [false], 'testRecordings')
-    await eventsProcessor.processEvent(
-        'some-id',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    // capture a different event to make sure we proccessed the snapshot event already
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'other-event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
-    expect(sessionRecordingEvents.length).toBe(0)
-})
-
-test('snapshot event stored as session_recording_event', async () => {
-    await eventsProcessor.processEvent(
-        'some-id',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
-
-    const events = await hub.db.fetchEvents()
-    expect(events.length).toEqual(0)
-
-    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
-    expect(sessionRecordingEvents.length).toBe(1)
-
-    const [event] = sessionRecordingEvents
-    expect(event.session_id).toEqual('abcf-efg')
-    expect(event.distinct_id).toEqual('some-id')
-    expect(event.snapshot_data).toEqual({ timestamp: 123 })
-})
-
 test('performance event stored as performance_event', async () => {
     await eventsProcessor.processEvent(
         'some-id',

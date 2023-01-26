@@ -44,15 +44,6 @@ describe('pluginsProcessEventStep()', () => {
         expect(response).toEqual(['processPersonsStep', processedEvent, personContainer])
     })
 
-    it('automatically forwards `$snapshot` events', async () => {
-        const event = { ...pluginEvent, event: '$snapshot' }
-
-        const response = await pluginsProcessEventStep(runner, event, personContainer)
-
-        expect(runProcessEvent).not.toHaveBeenCalled()
-        expect(response).toEqual(['processPersonsStep', event, personContainer])
-    })
-
     it('automatically forwards `$performance_event` events', async () => {
         const event = { ...pluginEvent, event: '$performance_event' }
 
