@@ -54,9 +54,9 @@ module.exports = {
             document.body.classList.add('dangerously-stop-all-animations')
         })
 
-        // Wait for the network to be idle for up to 2 seconds, to allow assets like images to load. This is suboptimal,
-        // because `networkidle` is not resolved reliably, so we might wait the whole 2 seconds - but it works.
-        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(2000)])
+        // Wait for the network to be idle for up to 1000 ms, to allow assets like images to load. This is suboptimal,
+        // because `networkidle` is not resolved reliably, so we might wait the whole second - but it works.
+        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(1000)])
 
         // TODO: Make snapshots the default behavior, not opt-in, once all the stories pass
         if (storyContext.parameters?.chromatic?.disableSnapshot === false) {
