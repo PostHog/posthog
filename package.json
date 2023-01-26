@@ -161,7 +161,6 @@
         "@storybook/api": "^6.5.14",
         "@storybook/components": "^6.5.14",
         "@storybook/core-events": "^6.5.14",
-        "@storybook/jest": "^0.0.10",
         "@storybook/react": "^6.5.14",
         "@storybook/test-runner": "^0.9.2",
         "@storybook/theming": "^6.5.14",
