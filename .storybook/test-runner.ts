@@ -54,9 +54,9 @@ module.exports = {
             document.body.classList.add('dangerously-stop-all-animations')
         })
 
-        // Wait for the network to be idle for up to 1000 ms, to allow assets like images to load. This is suboptimal,
-        // because `networkidle` is not resolved reliably, so we might wait the whole second - but it works.
-        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(1000)])
+        // Wait for the network to be idle for up to 500 ms, to allow assets like images to load. This is suboptimal,
+        // because `networkidle` is not resolved reliably here, so we might wait for the full timeout - but it works.
+        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(500)])
 
         if (!storyContext.parameters?.chromatic?.disableSnapshot) {
             if (storyContext.parameters?.layout === 'fullscreen') {
