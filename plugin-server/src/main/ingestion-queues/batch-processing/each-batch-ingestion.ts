@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { KAFKA_SESSION_RECORDING_EVENTS } from 'config/kafka-topics'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
+import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
