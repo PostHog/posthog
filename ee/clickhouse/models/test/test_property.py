@@ -21,6 +21,7 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
+    prop_filter_out_keys,
 )
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
@@ -1336,3 +1337,27 @@ def test_session_property_validation():
         data={"properties": [{"type": "session", "key": "$session_duration", "value": "100", "operator": "gt"}]}
     )
     parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+
+def test_prop_filter_out_keys():
+    property_group = PropertyGroup(PropertyOperatorType.AND, [
+        Property(key="a", operator="exact", value=["a"]),
+        Property(key="b", operator="exact", value=["b"]),
+        PropertyGroup(PropertyOperatorType.OR, [
+            Property(key="c", operator="exact", value=["c"]),
+            Property(key="d", operator="exact", value=["d"]),
+        ])
+    ])
+
+    prop_filter_out_keys(property_group, ["a", "d", "e"])
+    assert property_group.to_dict() == {
+        "type": "AND",
+        "values": [
+            {"key": "b", "operator": "exact", "value": ["b"], "type": "event"},
+            {
+                "type": "OR",
+                "values": [
+                    {"key": "c", "operator": "exact", "value": ["c"], "type": "event"},
+                ]
+            }
+        ],
+    }
