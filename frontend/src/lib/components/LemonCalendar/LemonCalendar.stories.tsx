@@ -13,6 +13,7 @@ export default {
         },
     },
     parameters: {
+        mockDate: '2023-01-26',
         chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonCalendar>

@@ -9,6 +9,7 @@ export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range Inline',
     component: LemonCalendarRangeInline,
     parameters: {
+        mockDate: '2023-01-26',
         chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonCalendarRangeInline>
