@@ -1,6 +1,6 @@
 import { useValues, useActions, useMountedLogic } from 'kea'
 
-import { groupsModel, Noun } from '~/models/groupsModel'
+import { groupsModel } from '~/models/groupsModel'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'

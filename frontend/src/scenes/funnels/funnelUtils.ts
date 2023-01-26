@@ -12,7 +12,7 @@ import {
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
-import { FunnelsFilter, FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery } from '~/queries/schema'
 
 const EMPTY_BREAKDOWN_KEY = '__empty_string__'
 const EMPTY_BREAKDOWN_VALUE = '(empty string)'
