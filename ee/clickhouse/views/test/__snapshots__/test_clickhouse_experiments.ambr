@@ -58,36 +58,33 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.event as event,
+                           e.team_id as team_id,
+                           e.distinct_id as distinct_id,
+                           e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           e."properties" as "properties",
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
-                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals,
+                                                                                                         pdi.person_id as person_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['$pageleave', '$pageview']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['$pageview', '$pageleave']
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -157,36 +154,33 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.event as event,
+                           e.team_id as team_id,
+                           e.distinct_id as distinct_id,
+                           e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           e."properties" as "properties",
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
-                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals,
+                                                                                                         pdi.person_id as person_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['$pageleave', '$pageview']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['$pageview', '$pageleave']
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -256,36 +250,33 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT aggregation_target,
-                           timestamp,
+                   (SELECT e.event as event,
+                           e.team_id as team_id,
+                           e.distinct_id as distinct_id,
+                           e.timestamp as timestamp,
+                           pdi.person_id as aggregation_target,
+                           e."properties" as "properties",
                            if(event = '$pageview', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = '$pageleave', 1, 0) as step_1,
                            if(step_1 = 1, timestamp, null) as latest_1,
                            array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
                            prop_basic as prop,
-                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
-                    FROM
-                      (SELECT e.event as event,
-                              e.team_id as team_id,
-                              e.distinct_id as distinct_id,
-                              e.timestamp as timestamp,
-                              pdi.person_id as aggregation_target,
-                              e."properties" as "properties",
-                              pdi.person_id as person_id
-                       FROM events e
-                       INNER JOIN
-                         (SELECT distinct_id,
-                                 argMax(person_id, version) as person_id
-                          FROM person_distinct_id2
-                          WHERE team_id = 2
-                          GROUP BY distinct_id
-                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals,
+                                                                                                         pdi.person_id as person_id
+                    FROM events e
+                    INNER JOIN
+                      (SELECT distinct_id,
+                              argMax(person_id, version) as person_id
+                       FROM person_distinct_id2
                        WHERE team_id = 2
-                         AND event IN ['$pageleave', '$pageview']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
-                    WHERE (step_0 = 1
+                       GROUP BY distinct_id
+                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                    WHERE team_id = 2
+                      AND event IN ['$pageview', '$pageleave']
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
+                      AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
