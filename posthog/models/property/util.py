@@ -788,3 +788,14 @@ def clear_excess_levels(prop: Union["PropertyGroup", "Property"], skip=False):
             prop.values = [clear_excess_levels(p, skip=True) for p in prop.values]
 
     return prop
+
+
+def prop_filter_out_keys(prop: Union["PropertyGroup", "Property"], keys: List[str]):
+    if len(keys) == 0:
+        return prop
+
+    for value in prop.values:
+        if is_property_group(value):
+            prop_filter_out_keys(value, keys)
+        elif value.key in keys:
+            prop.values.remove(value)
