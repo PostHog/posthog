@@ -42,6 +42,7 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
             filterSteps={(querySource as FunnelsQuery).series}
             aggregationTargetLabel={aggregationTargetLabel}
             showSeriesIndicator={(querySource as FunnelsQuery).series.length > 0}
+            isDataExploration
         />
     )
 }
@@ -76,6 +77,7 @@ type FunnelsQueryStepsComponentProps = {
     filterSteps: Record<string, any>[]
     aggregationTargetLabel: Noun
     showSeriesIndicator: boolean
+    isDataExploration?: boolean
 }
 
 export function FunnelsQueryStepsComponent({
@@ -88,6 +90,7 @@ export function FunnelsQueryStepsComponent({
     filterSteps,
     aggregationTargetLabel,
     showSeriesIndicator,
+    isDataExploration,
 }: FunnelsQueryStepsComponentProps): JSX.Element {
     const { groupsTaxonomicTypes, showGroupsOptions } = useValues(groupsModel)
 

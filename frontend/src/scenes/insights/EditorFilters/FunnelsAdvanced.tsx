@@ -24,11 +24,11 @@ export function FunnelsAdvancedDataExploration({ insightProps }: QueryEditorFilt
 
     return (
         <FunnelsAdvancedComponent
-            dataExploration={true}
             aggregationTargetLabel={aggregationTargetLabel}
             advancedOptionsUsedCount={advancedOptionsUsedCount}
             setFilters={updateInsightFilter}
             {...insightFilter}
+            isDataExploration
         />
     )
 }
@@ -40,7 +40,6 @@ export function FunnelsAdvanced({ insightProps }: EditorFilterProps): JSX.Elemen
 
     return (
         <FunnelsAdvancedComponent
-            dataExploration={false}
             aggregationTargetLabel={aggregationTargetLabel}
             advancedOptionsUsedCount={advancedOptionsUsedCount}
             setFilters={setFilters}
@@ -53,7 +52,7 @@ type FunnelsAdvancedComponentProps = {
     aggregationTargetLabel: Noun
     advancedOptionsUsedCount: number
     setFilters: (filters: Partial<FunnelsFilterType>) => void
-    dataExploration: boolean
+    isDataExploration?: boolean
 } & FunnelsFilterType
 
 export function FunnelsAdvancedComponent({
@@ -61,15 +60,15 @@ export function FunnelsAdvancedComponent({
     advancedOptionsUsedCount,
     aggregation_group_type_index,
     setFilters,
-    dataExploration,
+    isDataExploration,
 }: FunnelsAdvancedComponentProps): JSX.Element {
     return (
         <div className="space-y-4">
             <PureField label="Step order" info={<StepOrderInfo />}>
-                {dataExploration ? <FunnelStepOrderPickerDataExploration /> : <FunnelStepOrderPicker />}
+                {isDataExploration ? <FunnelStepOrderPickerDataExploration /> : <FunnelStepOrderPicker />}
             </PureField>
             <PureField label="Conversion rate calculation">
-                {dataExploration ? <FunnelStepReferencePickerDataExploration /> : <FunnelStepReferencePicker />}
+                {isDataExploration ? <FunnelStepReferencePickerDataExploration /> : <FunnelStepReferencePicker />}
             </PureField>
 
             <PureField
@@ -81,7 +80,7 @@ export function FunnelsAdvancedComponent({
                     />
                 }
             >
-                {dataExploration ? <FunnelExclusionsFilterDataExploration /> : <FunnelExclusionsFilter />}
+                {isDataExploration ? <FunnelExclusionsFilterDataExploration /> : <FunnelExclusionsFilter />}
             </PureField>
 
             {!!advancedOptionsUsedCount && (
