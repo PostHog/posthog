@@ -56,5 +56,6 @@ module.exports = {
         }
     },
     features: {
-        postcss: false    },
+        postcss: false,
+    },
 }

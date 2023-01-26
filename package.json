@@ -252,7 +252,7 @@
     },
     "lint-staged": {
         "*.{json,yaml,yml,css,scss}": "prettier --write",
-        "((frontend|cypress)/**).{js,jsx,mjs,ts,tsx}": [
+        "*.{js,jsx,mjs,ts,tsx}": [
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
