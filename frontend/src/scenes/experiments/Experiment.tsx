@@ -242,7 +242,7 @@ export function Experiment(): JSX.Element {
                                             <div className="text-muted">
                                                 Participants are divided into variant groups evenly. All experiments
                                                 must consist of a control group and at least one test group. Experiments
-                                                may have at most 3 test groups. Variant names can only contain letters,
+                                                may have at most 9 test groups. Variant names can only contain letters,
                                                 numbers, hyphens, and underscores.
                                             </div>
                                             <Col className="variants">
@@ -674,7 +674,7 @@ export function Experiment(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             )}
-                            {experiment && isExperimentRunning && !experiment.end_date && (
+                            {experiment && isExperimentRunning && (
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
                                         placement="topLeft"
@@ -692,18 +692,24 @@ export function Experiment(): JSX.Element {
                                             Reset
                                         </LemonButton>
                                     </Popconfirm>
-                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                        Stop
-                                    </LemonButton>
+                                    {!experiment.end_date && (
+                                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                            Stop
+                                        </LemonButton>
+                                    )}
+                                    {experiment?.end_date &&
+                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                        !experiment.archived && (
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                onClick={() => archiveExperiment()}
+                                            >
+                                                <b>Archive</b>
+                                            </LemonButton>
+                                        )}
                                 </div>
                             )}
-                            {experiment?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
                         </Row>
                     </Row>
                     <Row>
