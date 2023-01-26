@@ -2,29 +2,92 @@ import { Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType } from '~/types'
+import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, FilterType, FunnelsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/components/icons'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { FunnelsQuery } from '~/queries/schema'
+import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
 
-export function ExclusionRowSuffix({
-    filter,
-    index,
-    onClose,
-    isVertical,
-}: {
-    filter: ActionFilterType | FunnelStepRangeEntityFilter
-    index: number
-    onClose?: () => void
-    isVertical: boolean
-}): JSX.Element | null {
+export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { querySource, insightFilter, exclusionDefaultStepRange } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    const setOneEventExclusionFilter = (eventFilter: FunnelStepRangeEntityFilter, index: number): void => {
+        const exclusions = ((insightFilter as FunnelsFilterType)?.exclusions || []).map((e, e_i) =>
+            e_i === index
+                ? getClampedStepRangeFilterDataExploration({
+                      stepRange: eventFilter,
+                      query: querySource as FunnelsQuery,
+                  })
+                : e
+        )
+
+        updateInsightFilter({
+            exclusions,
+        })
+    }
+
+    return (
+        <ExclusionRowSuffixComponent
+            exclusions={(insightFilter as FunnelsFilterType)?.exclusions}
+            areFiltersValid={(querySource as FunnelsQuery).series.length > 1}
+            numberOfSeries={(querySource as FunnelsQuery).series.length}
+            exclusionDefaultStepRange={exclusionDefaultStepRange}
+            setOneEventExclusionFilter={setOneEventExclusionFilter}
+            {...props}
+        />
+    )
+}
+
+export function ExclusionRowSuffix(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters, areFiltersValid, numberOfSeries, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
     const { setOneEventExclusionFilter } = useActions(funnelLogic(insightProps))
 
+    return (
+        <ExclusionRowSuffixComponent
+            exclusions={filters.exclusions}
+            areFiltersValid={areFiltersValid}
+            numberOfSeries={numberOfSeries}
+            exclusionDefaultStepRange={exclusionDefaultStepRange}
+            setOneEventExclusionFilter={setOneEventExclusionFilter}
+            {...props}
+        />
+    )
+}
+
+type ExclusionRowSuffixComponentBaseProps = {
+    filter: ActionFilterType | FunnelStepRangeEntityFilter
+    index: number
+    onClose?: () => void
+    isVertical: boolean
+}
+
+type ExclusionRowSuffixComponentProps = ExclusionRowSuffixComponentBaseProps & {
+    areFiltersValid: boolean
+    numberOfSeries: number
+    exclusionDefaultStepRange: Omit<FunnelStepRangeEntityFilter, 'id' | 'name'>
+    exclusions?: FunnelStepRangeEntityFilter[]
+    setOneEventExclusionFilter: (eventFilter: FunnelStepRangeEntityFilter, index: number) => void
+}
+
+export function ExclusionRowSuffixComponent({
+    filter,
+    index,
+    onClose,
+    isVertical,
+    areFiltersValid,
+    numberOfSeries,
+    exclusionDefaultStepRange,
+    exclusions,
+    setOneEventExclusionFilter,
+}: ExclusionRowSuffixComponentProps): JSX.Element | null {
     const stepRange = {
-        funnel_from_step: filters.exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
-        funnel_to_step: filters.exclusions?.[index]?.funnel_to_step ?? exclusionDefaultStepRange.funnel_to_step,
+        funnel_from_step: exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
+        funnel_to_step: exclusions?.[index]?.funnel_to_step ?? exclusionDefaultStepRange.funnel_to_step,
     }
 
     const onChange = (
@@ -43,7 +106,6 @@ export function ExclusionRowSuffix({
 
     return (
         <Row
-            justify="space-between"
             align="middle"
             wrap={false}
             style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: isVertical ? '100%' : 'auto' }}
@@ -90,7 +152,6 @@ export function ExclusionRowSuffix({
                         </Select.Option>
                     ))}
             </Select>
-            <div style={{ flex: 1 }} />
             <LemonButton
                 icon={<IconDelete />}
                 status="primary-alt"
