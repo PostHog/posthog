@@ -46,7 +46,6 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
-
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -55,11 +54,8 @@ export interface EditorFiltersProps {
 export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
-    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-    // const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
-    const advancedOptionsUsedCount = 0
 
-    const showFilters = true // TODO: implement with insightVizLogic
+    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -69,11 +65,10 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const isPaths = isPathsQuery(query)
     const isStickiness = isStickinessQuery(query)
     const isLifecycle = isLifecycleQuery(query)
-
+    const isTrendsLike = isTrends || isLifecycle || isStickiness
     const display = getDisplay(query)
     const breakdown = getBreakdown(query)
 
-    const isTrendsLike = isTrends || isLifecycle || isStickiness
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
         (isRetention &&
@@ -83,6 +78,8 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
+
+    const showFilters = true // TODO: implement with insightVizLogic
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
@@ -237,11 +234,10 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         },
         {
             title: 'Advanced Options',
-            defaultExpanded: !!advancedOptionsUsedCount,
-            count: advancedOptionsUsedCount,
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
+                    position: 'left',
                     component: (props) => (
                         <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
                             <PathsAdvancedDataExploration {...props} />
@@ -250,6 +246,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                 },
                 isFunnels && {
                     key: 'funnels-advanced',
+                    position: 'left',
                     component: FunnelsAdvancedDataExploration,
                 },
             ]),
@@ -286,7 +283,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                 })}
             >
                 <div className="EditorFilters">
-                    {editorFilterGroups.map((editorFilterGroup) => (
+                    {(isFunnels ? editorFilters : editorFilterGroups).map((editorFilterGroup) => (
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}
