@@ -6,7 +6,6 @@ from urllib.parse import unquote, urlencode
 import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
-from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -21,16 +20,15 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
+    snapshot_postgres_queries,
 )
 from posthog.test.test_journeys import journeys_for
 
 
-@override_settings(
-    PERSON_ON_EVENTS_OVERRIDE=False
-)  # :KLUDGE: avoid making a bunch of extra queries which would normally be cached
 class TestEvents(ClickhouseTestMixin, APIBaseTest):
     ENDPOINT = "event"
 
+    @snapshot_postgres_queries
     def test_filter_events(self):
         _create_person(
             properties={"email": "tim@posthog.com"},
@@ -50,8 +48,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        with self.assertNumQueries(6):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
             {"distinct_ids": ["2"], "is_identified": True, "properties": {"email": "tim@posthog.com"}},
@@ -60,20 +57,16 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response["results"][0]["elements"][0]["order"], 0)
         self.assertEqual(response["results"][0]["elements"][1]["order"], 1)
 
+    @snapshot_postgres_queries
     def test_filter_events_by_event_name(self):
         _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
-
-        expected_queries = (
-            6  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id
-        )
-
-        with self.assertNumQueries(expected_queries):
-            response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
         self.assertEqual(response["results"][0]["event"], "event_name")
 
+    @snapshot_postgres_queries
     def test_filter_events_by_properties(self):
         _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
@@ -82,13 +75,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = 8
-
-        with self.assertNumQueries(expected_queries):
-            response = self.client.get(
-                f"/api/projects/{self.team.id}/events/?properties=%s"
-                % (json.dumps([{"key": "$browser", "value": "Safari"}]))
-            ).json()
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/events/?properties=%s"
+            % (json.dumps([{"key": "$browser", "value": "Safari"}]))
+        ).json()
         self.assertEqual(response["results"][0]["id"], event2_uuid)
 
         properties = "invalid_json"
