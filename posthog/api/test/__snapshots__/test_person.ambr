@@ -114,23 +114,12 @@
 ---
 # name: TestPerson.test_filter_person_list.10
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -268,89 +257,45 @@
 ---
 # name: TestPerson.test_filter_person_list.16
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.17
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.18
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.19
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -532,89 +477,45 @@
 ---
 # name: TestPerson.test_filter_person_list.25
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.26
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.27
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.28
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -778,89 +679,45 @@
 ---
 # name: TestPerson.test_filter_person_list.34
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.35
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.36
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.37
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -1009,89 +866,45 @@
 ---
 # name: TestPerson.test_filter_person_list.41
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.42
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.43
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.44
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -1133,72 +946,39 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-01-26T23:00:06.673434+00:00'::timestamptz /*controller='person-list',route='api/person/%3F%24'*/
+  WHERE "ee_license"."valid_until" >= '2023-01-26T23:31:15.877766+00:00'::timestamptz /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.7
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.8
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_filter_person_list.9
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -1856,72 +1636,39 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-01-26T23:00:07.684232+00:00'::timestamptz /*controller='person-list',route='api/person/%3F%24'*/
+  WHERE "ee_license"."valid_until" >= '2023-01-26T23:31:17.516216+00:00'::timestamptz /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_pagination_limit.23
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_pagination_limit.24
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_pagination_limit.25
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -1934,16 +1681,16 @@
          "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 2
-         AND "posthog_person"."uuid" IN ('0185f04f-4f75-0000-146c-3a99876ac206'::uuid,
-                                         '0185f04f-4f61-0000-25a7-6a76155d661e'::uuid,
-                                         '0185f04f-4f4e-0000-13db-ea8823ff5003'::uuid,
-                                         '0185f04f-4f3b-0000-012a-af19f4bedd11'::uuid,
-                                         '0185f04f-4f27-0000-16e5-94f16cafd47f'::uuid,
-                                         '0185f04f-4f11-0000-717e-70c4d08e5b24'::uuid,
-                                         '0185f04f-4efa-0000-e1bd-ab08d5aaa782'::uuid,
-                                         '0185f04f-4ee7-0000-9ab3-dd0a3fe4bae2'::uuid,
-                                         '0185f04f-4ed4-0000-c5c4-22570a856615'::uuid,
-                                         '0185f04f-4ec1-0000-bb10-5ff9d0adbc5e'::uuid))
+         AND "posthog_person"."uuid" IN ('0185f06b-d775-0000-d61c-dfd0a299af21'::uuid,
+                                         '0185f06b-d75e-0000-5da2-4a4207a906d0'::uuid,
+                                         '0185f06b-d741-0000-09b8-0300ec960bba'::uuid,
+                                         '0185f06b-d728-0000-1831-942a75a29a74'::uuid,
+                                         '0185f06b-d70e-0000-7ca2-51b3b6db3bef'::uuid,
+                                         '0185f06b-d6ec-0000-0acc-b3b360c292a3'::uuid,
+                                         '0185f06b-d6c8-0000-a4ed-de1d1fb525ba'::uuid,
+                                         '0185f06b-d6a7-0000-638f-82f894e0de3e'::uuid,
+                                         '0185f06b-d681-0000-0a2f-b66ca591a975'::uuid,
+                                         '0185f06b-d664-0000-cc71-94e3fb2cfc2a'::uuid))
   ORDER BY "posthog_person"."created_at" DESC,
            "posthog_person"."uuid" ASC /*controller='person-list',route='api/person/%3F%24'*/
   '
@@ -2112,67 +1859,34 @@
 ---
 # name: TestPerson.test_pagination_limit.31
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_pagination_limit.32
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
 # name: TestPerson.test_pagination_limit.33
   '
-  SELECT "posthog_asyncmigration"."id",
-         "posthog_asyncmigration"."name",
-         "posthog_asyncmigration"."description",
-         "posthog_asyncmigration"."progress",
-         "posthog_asyncmigration"."status",
-         "posthog_asyncmigration"."current_operation_index",
-         "posthog_asyncmigration"."current_query_id",
-         "posthog_asyncmigration"."celery_task_id",
-         "posthog_asyncmigration"."started_at",
-         "posthog_asyncmigration"."finished_at",
-         "posthog_asyncmigration"."posthog_min_version",
-         "posthog_asyncmigration"."posthog_max_version",
-         "posthog_asyncmigration"."parameters"
-  FROM "posthog_asyncmigration"
-  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
-         AND "posthog_asyncmigration"."status" = 2)
-  ORDER BY "posthog_asyncmigration"."id" ASC
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='person-list',route='api/person/%3F%24'*/
   '
 ---
@@ -2185,16 +1899,16 @@
          "posthog_person"."uuid"
   FROM "posthog_person"
   WHERE ("posthog_person"."team_id" = 2
-         AND "posthog_person"."uuid" IN ('0185f04f-4eae-0000-081a-64efff6db79f'::uuid,
-                                         '0185f04f-4e9d-0000-a20e-aada30243678'::uuid,
-                                         '0185f04f-4e8b-0000-b29e-d9c1a3f13719'::uuid,
-                                         '0185f04f-4e78-0000-ec57-3ea0536c776e'::uuid,
-                                         '0185f04f-4e65-0000-1965-f56b1825dfdc'::uuid,
-                                         '0185f04f-4e52-0000-cd46-8aed8ef42ce2'::uuid,
-                                         '0185f04f-4e3e-0000-2209-b5680948f41b'::uuid,
-                                         '0185f04f-4e2b-0000-8341-4b1104db2925'::uuid,
-                                         '0185f04f-4e11-0000-ff6f-8f3a92c49334'::uuid,
-                                         '0185f04f-4ded-0000-f917-f0e2fc8fe514'::uuid))
+         AND "posthog_person"."uuid" IN ('0185f06b-d63f-0000-fbcb-8a289e16889d'::uuid,
+                                         '0185f06b-d624-0000-ff04-347b2ad4131b'::uuid,
+                                         '0185f06b-d606-0000-fc4d-6de3b8990b69'::uuid,
+                                         '0185f06b-d5e9-0000-f7a1-3735141da271'::uuid,
+                                         '0185f06b-d5c6-0000-41c4-1a403092b2e0'::uuid,
+                                         '0185f06b-d5aa-0000-05c1-88c81a211e07'::uuid,
+                                         '0185f06b-d58c-0000-35e3-6b2b8865e35a'::uuid,
+                                         '0185f06b-d569-0000-2bbf-8dfe34bd9b33'::uuid,
+                                         '0185f06b-d551-0000-29e1-6a48e4322d3a'::uuid,
+                                         '0185f06b-d535-0000-8fac-4c2faa8c5f19'::uuid))
   ORDER BY "posthog_person"."created_at" DESC,
            "posthog_person"."uuid" ASC /*controller='person-list',route='api/person/%3F%24'*/
   '
