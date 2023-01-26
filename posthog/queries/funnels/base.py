@@ -441,7 +441,7 @@ class ClickhouseFunnelBase(ABC):
         )
 
         # Prioritize self.params to get the correct entities
-        self.params = {**params, **self.params}
+        self.params.update(params)
 
         if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery
