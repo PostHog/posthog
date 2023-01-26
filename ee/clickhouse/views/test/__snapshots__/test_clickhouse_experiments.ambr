@@ -81,7 +81,7 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND event IN ['$pageview', '$pageleave']
+                      AND event IN ['$pageleave', '$pageview']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
                       AND (step_0 = 1
@@ -177,7 +177,7 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND event IN ['$pageview', '$pageleave']
+                      AND event IN ['$pageleave', '$pageview']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
                       AND (step_0 = 1
@@ -273,7 +273,7 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND event IN ['$pageview', '$pageleave']
+                      AND event IN ['$pageleave', '$pageview']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
                       AND (step_0 = 1
