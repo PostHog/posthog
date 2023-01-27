@@ -1,7 +1,8 @@
 import json
 from datetime import datetime, timedelta
 from time import sleep
-from uuid import uuid4
+from typing import TypedDict
+from uuid import UUID, uuid4
 
 import pytest
 import pytz
@@ -89,6 +90,18 @@ def test_can_insert_person_overrides():
         sync_execute(DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
 
 
+class PersonOverrideValues(TypedDict):
+    """A dict of values that may be inserted into person_overrides."""
+
+    team_id: int
+    old_person_id: UUID
+    override_person_id: UUID
+    merged_at: datetime
+    oldest_event: datetime
+    created_at: datetime
+    version: int
+
+
 @pytest.mark.django_db
 def test_person_overrides_dict():
     """Test behavior of person_overrides_dict with multiple versions of same key.
@@ -98,7 +111,7 @@ def test_person_overrides_dict():
     sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
     sync_execute(PERSON_OVERRIDES_CREATE_DICTIONARY_SQL)
 
-    values = {
+    values: PersonOverrideValues = {
         "team_id": 1,
         "old_person_id": uuid4(),
         "override_person_id": uuid4(),
@@ -133,7 +146,7 @@ def test_person_overrides_dict():
     assert len(results) == 1
     assert results[0][0] == values["override_person_id"]
 
-    values["version"] += 1
+    values["version"] = 2
     values["override_person_id"] = uuid4()
 
     sync_execute(
