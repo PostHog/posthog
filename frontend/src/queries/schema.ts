@@ -21,6 +21,18 @@ import {
     LifecycleToggle,
 } from '~/types'
 
+/**
+ * PostHog Query Schema definition.
+ *
+ * This file acts as the source of truth for:
+ *
+ * - frontend/src/queries/schema.json
+ *   - generated from typescript via "pnpm run generate:schema:json"
+ *
+ * - posthog/schema.py
+ *   - generated from json the above json via "pnpm run generate:schema:python"
+ * */
+
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
@@ -137,11 +149,20 @@ export interface EventsQuery extends DataNode {
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
     event?: string
-    /** Number of rows to return */
+    /**
+     * Number of rows to return
+     * @asType integer
+     */
     limit?: number
-    /** Number of rows to skip before returning rows */
+    /**
+     * Number of rows to skip before returning rows
+     * @asType integer
+     */
     offset?: number
-    /** Show events matching a given action */
+    /**
+     * Show events matching a given action
+     * @asType integer
+     */
     actionId?: number
     /** Show events for a given person */
     personId?: string
@@ -338,6 +359,8 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     teamId?: number
 }
 
+export type HogQLExpression = string
+
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
@@ -356,8 +379,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
     numberOfDays?: number // defaults to 7
 }
-
-export type HogQLExpression = string
 
 // Legacy queries
 
