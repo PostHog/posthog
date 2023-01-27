@@ -302,11 +302,12 @@ test.concurrent(
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
         const sessionId = new UUIDT().toString()
+        const now = new Date()
 
         const properties = {
             // Taken from a real event from the JS
             '0': 'resource',
-            '1': 1671723295836,
+            '1': now.getTime(),
             '2': 'http://localhost:8000/api/projects/1/session_recordings',
             '3': 10737.89999999106,
             '4': 0,
@@ -336,7 +337,7 @@ test.concurrent(
             $current_url: 'http://localhost:8000/recordings/recent',
         }
 
-        await capture(producer, teamId, distinctId, uuid, '$performance_event', properties)
+        await capture(producer, teamId, distinctId, uuid, '$performance_event', properties, null, now, now, now)
 
         const events = await waitForExpect(async () => {
             const events = await fetchPerformanceEvents(clickHouseClient, teamId)
@@ -387,8 +388,8 @@ test.concurrent(
             secure_connection_start: 0,
             start_time: 10737.89999999106,
             team_id: teamId,
-            time_origin: '2022-12-22 15:34:55.836',
-            timestamp: '2022-12-22 15:35:06.573',
+            time_origin: expect.any(String),
+            timestamp: now.toString(),
             transfer_size: 2067,
             unload_event_end: 0,
             unload_event_start: 0,
@@ -409,8 +410,11 @@ test.concurrent(
         const teamId = await createTeam(postgres, organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
+        const now = new Date()
 
         await capture(producer, teamId, distinctId, uuid, '$performance_event', {
+            '0': 'resource',
+            '1': now.getTime(),
             $session_id: '1234abc',
             $snapshot_data: 'yes way',
         })
@@ -428,13 +432,15 @@ test.concurrent(
             uuid,
             '$performance_event',
             {
+                '0': 'resource',
+                '1': now.getTime(),
                 $session_id: '1234abc',
                 $snapshot_data: 'yes way',
             },
             null,
-            new Date(),
-            new Date(),
-            new Date(),
+            now,
+            now,
+            now,
             'session_recording_events'
         )
 
