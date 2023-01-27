@@ -5,6 +5,7 @@ import {
     PluginAttachment,
     PluginConfigSchema,
     PluginEvent,
+    PluginSettings,
     ProcessedPluginEvent,
     Properties,
 } from '@posthog/plugin-scaffold'
@@ -401,6 +402,7 @@ export type WorkerMethods = {
 export type VMMethods = {
     setupPlugin?: () => Promise<void>
     teardownPlugin?: () => Promise<void>
+    getSettings?: () => PluginSettings
     onEvent?: (event: ProcessedPluginEvent) => Promise<void>
     onSnapshot?: (event: ProcessedPluginEvent) => Promise<void>
     exportEvents?: (events: PluginEvent[]) => Promise<void>
