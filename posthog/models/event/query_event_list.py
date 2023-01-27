@@ -161,7 +161,8 @@ def run_events_query(
     conditions, condition_params = determine_event_conditions(
         {
             # Don't show events that have been ingested with timestamps in the future. Would break new event polling.
-            "before": (now() + timedelta(seconds=5)).isoformat(),
+            "after": query.after,
+            "before": query.before or (now() + timedelta(seconds=5)).isoformat(),
             "person_id": person_id,
             "event": event,
         }
