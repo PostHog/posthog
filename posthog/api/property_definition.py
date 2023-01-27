@@ -98,9 +98,7 @@ class QueryContext:
     limit: int
     offset: int
 
-    type: PropertyDefinition.Type = PropertyDefinition.Type.EVENT
-
-    group_type_index_filter: str = ""
+    should_join_event_property: bool = True
     name_filter: str = ""
     numerical_filter: str = ""
     search_query: str = ""
@@ -108,11 +106,11 @@ class QueryContext:
     event_name_filter: str = ""
     is_feature_flag_filter: str = ""
 
+    event_property_join_type: str = ""
     event_property_field: str = "NULL"
 
     # the event name filter is used with and without a posthog_eventproperty_table_join_alias qualifier
     event_name_join_filter: str = ""
-    qualified_event_name_join_filter: str = ""
 
     posthog_eventproperty_table_join_alias = "check_for_matching_event_property"
 
@@ -154,15 +152,20 @@ class QueryContext:
 
     def with_type_filter(self, type: str, group_type_index: Optional[int]):
         if type == "event":
-            return dataclasses.replace(self, type=PropertyDefinition.Type.EVENT)
+            return dataclasses.replace(
+                self, params={**self.params, "type": PropertyDefinition.Type.EVENT, "group_type_index": -1}
+            )
         elif type == "person":
-            return dataclasses.replace(self, type=PropertyDefinition.Type.PERSON)
+            return dataclasses.replace(
+                self,
+                should_join_event_property=False,
+                params={**self.params, "type": PropertyDefinition.Type.PERSON, "group_type_index": -1},
+            )
         elif type == "group":
             return dataclasses.replace(
                 self,
-                type=PropertyDefinition.Type.GROUP,
-                group_type_index_filter="AND group_type_index = %(group_type_index)s",
-                params={**self.params, "group_type_index": group_type_index},
+                should_join_event_property=False,
+                params={**self.params, "type": PropertyDefinition.Type.GROUP, "group_type_index": group_type_index},
             )
 
     def with_event_property_filter(
@@ -172,38 +175,29 @@ class QueryContext:
         event_name_filter = ""
         event_property_field = "NULL"
         event_name_join_filter = ""
-        qualified_event_name_join_filter = ""
 
         # Passed as JSON instead of duplicate properties like event_names[] to work with frontend's combineUrl
         if event_names:
             event_names = json.loads(event_names)
 
-        is_filtering_by_event_names = event_names and len(event_names) > 0
-
-        if is_filtering_by_event_names:
-            event_property_field = (
-                f"case when {self.posthog_eventproperty_table_join_alias}.id is null then false else true end"
-            )
-            event_name_join_filter = " AND event in %(event_names)s"
-            qualified_event_name_join_filter = (
-                f" AND {self.posthog_eventproperty_table_join_alias}.event in %(event_names)s"
-            )
-
-            if filter_by_event_names:
-                event_property_filter = f"AND {event_property_field} = true"
+        if event_names and len(event_names) > 0:
+            event_property_field = f"{self.posthog_eventproperty_table_join_alias}.property is not null"
+            event_name_join_filter = "AND event in %(event_names)s"
 
         return dataclasses.replace(
             self,
             event_property_filter=event_property_filter,
             event_property_field=event_property_field,
             event_name_join_filter=event_name_join_filter,
-            qualified_event_name_join_filter=qualified_event_name_join_filter,
             event_name_filter=event_name_filter,
+            event_property_join_type="INNER JOIN" if filter_by_event_names else "LEFT JOIN",
             params={**self.params, "event_names": tuple(event_names or [])},
         )
 
     def with_search(self, search_query: str, search_kwargs: Dict) -> "QueryContext":
-        return dataclasses.replace(self, search_query=search_query, params={**self.params, **search_kwargs})
+        return dataclasses.replace(
+            self, search_query=search_query, params={**self.params, "team_id": self.team_id, **search_kwargs}
+        )
 
     def with_excluded_properties(self, excluded_properties: Optional[str]) -> "QueryContext":
         if excluded_properties:
@@ -219,15 +213,15 @@ class QueryContext:
 
     def as_sql(self):
         query = f"""
-            SELECT {self.property_definition_fields},{self.event_property_field} AS is_seen_on_filtered_events
+            SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = {self.team_id}
-              AND type = {self.type}
+            WHERE posthog_propertydefinition.team_id = %(team_id)s
+              AND type = %(type)s
+              AND coalesce(group_type_index, -1) = %(group_type_index)s
               AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-             {self.group_type_index_filter}
             ORDER BY is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
@@ -239,12 +233,12 @@ class QueryContext:
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = {self.team_id}
-              AND type = {self.type}
+            WHERE posthog_propertydefinition.team_id = %(team_id)s
+              AND type = %(type)s
+              AND coalesce(group_type_index, -1) = %(group_type_index)s
               AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-             {self.group_type_index_filter}
             """
 
         return query
@@ -252,15 +246,14 @@ class QueryContext:
     def _join_on_event_property(self):
         return (
             f"""
-                    left join (select min(id) as id, team_id, min(event) as event, property
-                               from posthog_eventproperty
-                               where posthog_eventproperty.team_id = {self.team_id}
-                               {self.event_name_join_filter}
-                               group by team_id, property) {self.posthog_eventproperty_table_join_alias}
-                        on {self.posthog_eventproperty_table_join_alias}.property = name
-                        {self.qualified_event_name_join_filter}
-                """
-            if self.event_property_field
+            {self.event_property_join_type} (
+                SELECT DISTINCT property
+                FROM posthog_eventproperty
+                WHERE team_id = %(team_id)s {self.event_name_join_filter}
+            ) {self.posthog_eventproperty_table_join_alias}
+            ON {self.posthog_eventproperty_table_join_alias}.property = name
+            """
+            if self.should_join_event_property
             else ""
         )
 

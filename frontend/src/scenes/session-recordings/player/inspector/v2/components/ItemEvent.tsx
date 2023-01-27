@@ -1,6 +1,7 @@
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { IconOpenInNew } from 'lib/components/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
+import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
 import { InspectorListItemEvent } from '../../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
@@ -11,6 +12,7 @@ export interface ItemEventProps {
 }
 
 export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
+    const insightUrl = insightUrlForEvent(item.data)
     return (
         <div>
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
@@ -35,6 +37,24 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
+                    {insightUrl ? (
+                        <>
+                            <div className="flex justify-end">
+                                <LemonButton
+                                    size="small"
+                                    type="secondary"
+                                    sideIcon={<IconOpenInNew />}
+                                    data-attr="recordings-event-to-insights"
+                                    to={insightUrl}
+                                    targetBlank
+                                >
+                                    Try out in Insights
+                                </LemonButton>
+                            </div>
+                            <LemonDivider dashed />
+                        </>
+                    ) : null}
+
                     <SimpleKeyValueList item={item.data.properties} />
                 </div>
             )}

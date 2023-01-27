@@ -16,10 +16,10 @@ specifiers:
   '@floating-ui/react-dom-interactions': ^0.6.6
   '@hot-loader/react-dom': ^16.14.0
   '@lottiefiles/react-lottie-player': ^3.4.7
+  '@medv/finder': ^2.1.0
   '@monaco-editor/react': ^4.1.3
   '@playwright/test': ^1.28.1
   '@posthog/plugin-scaffold': ^1.3.2
-  '@posthog/simmerjs': ^0.7.7
   '@react-hook/size': ^2.1.2
   '@sentry/react': 7.22.0
   '@sentry/types': 7.22.0
@@ -135,7 +135,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.40.2
+  posthog-js: 1.42.2
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -187,10 +187,10 @@ dependencies:
   '@ant-design/icons': 4.7.0_wcqkhtmu7mswc6yz4uyexck3ty
   '@floating-ui/react-dom-interactions': 0.6.6_aim5hlwjfste3kpjq4dvdszx7u
   '@lottiefiles/react-lottie-player': 3.4.7_react@16.14.0
+  '@medv/finder': 2.1.0
   '@monaco-editor/react': 4.4.6_vtctfwvicljpcdx2mjoqbo4tly
   '@playwright/test': 1.28.1
   '@posthog/plugin-scaffold': 1.3.4
-  '@posthog/simmerjs': 0.7.7
   '@react-hook/size': 2.1.2_react@16.14.0
   '@sentry/react': 7.22.0_react@16.14.0
   '@testing-library/dom': 8.19.0
@@ -233,7 +233,7 @@ dependencies:
   kea-window-values: 3.0.0_kea@3.1.0
   md5: 2.3.0
   monaco-editor: 0.23.0
-  posthog-js: 1.40.2
+  posthog-js: 1.42.2
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
@@ -2423,6 +2423,10 @@ packages:
     resolution: {integrity: sha512-H1rQc1ZOHANWBvPcW+JpGwr+juXSxM8Q8YCkm3GhZd8REu1fHR3z99CErO1p9pkcfcxZnMdIZdIsXkOHY0NilA==}
     dev: true
 
+  /@medv/finder/2.1.0:
+    resolution: {integrity: sha512-Egrg5XO4kLol24b1Kv50HDfi5hW0yQ6aWSsO0Hea1eJ4rogKElIN0M86FdVnGF4XIGYyA7QWx0MgbOzVPA0qkA==}
+    dev: false
+
   /@monaco-editor/loader/1.3.2_monaco-editor@0.23.0:
     resolution: {integrity: sha512-BTDbpHl3e47r3AAtpfVFTlAi7WXv4UQ/xZmz8atKl4q7epQV5e7+JbigFDViWF71VBi4IIBdcWP57Hj+OWuc9g==}
     peerDependencies:
@@ -2576,18 +2580,6 @@ packages:
     resolution: {integrity: sha512-69AC7GA3sU/z5X6SVlH7mgj+0XgolvOp9IUtvRNA4CXF/OglFM81SXbTkURxL9VBSNfdAZxRp+8x+h4rmyj4dw==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
-    dev: false
-
-  /@posthog/simmerjs/0.7.7:
-    resolution: {integrity: sha512-NZCTf5DXZGERfic2xYxxU8FCsML9uxDYsdWe1UzwA7fFBBhqDa6KEV/H/j7Y0N9mJMdnbbDF57JRb0p0nKyM6Q==}
-    dependencies:
-      '@babel/runtime': 7.20.1
-      lodash.difference: 4.5.0
-      lodash.flatmap: 4.5.0
-      lodash.isfunction: 3.0.9
-      lodash.take: 4.1.1
-      lodash.takeright: 4.1.1
-      query-selector-shadow-dom: 1.0.0
     dev: false
 
   /@react-hook/latest/1.0.3_react@16.14.0:
@@ -11609,24 +11601,12 @@ packages:
   /lodash.debounce/4.0.8:
     resolution: {integrity: sha512-FT1yDzDYEoYWhnSGnpE/4Kj1fLZkDFyqRb7fNt6FdYOSxlUWAtp42Eh6Wb0rGIv/m9Bgo7x4GhQbm5Ys4SG5ow==}
 
-  /lodash.difference/4.5.0:
-    resolution: {integrity: sha512-dS2j+W26TQ7taQBGN8Lbbq04ssV3emRw4NY58WErlTO29pIqS0HmoT5aJ9+TUQ1N3G+JOZSji4eugsWwGp9yPA==}
-    dev: false
-
-  /lodash.flatmap/4.5.0:
-    resolution: {integrity: sha512-/OcpcAGWlrZyoHGeHh3cAoa6nGdX6QYtmzNP84Jqol6UEQQ2gIaU3H+0eICcjcKGl0/XF8LWOujNn9lffsnaOg==}
-    dev: false
-
   /lodash.flow/3.5.0:
     resolution: {integrity: sha512-ff3BX/tSioo+XojX4MOsOMhJw0nZoUEF011LX8g8d3gvjVbxd89cCio4BCXronjxcTUIJUoqKEUA+n4CqvvRPw==}
     dev: false
 
   /lodash.isequal/4.5.0:
     resolution: {integrity: sha512-pDo3lu8Jhfjqls6GkMgpahsF9kCyayhgykjyLMNFTKWrpVdAQtYyB4muAMWozBB4ig/dtWAmsMxLEI8wuz+DYQ==}
-    dev: false
-
-  /lodash.isfunction/3.0.9:
-    resolution: {integrity: sha512-AirXNj15uRIMMPihnkInB4i3NHeb4iBtNg9WRWuK2o31S+ePwwNmDPaTL3o7dTJ+VXNZim7rFs4rxN4YU1oUJw==}
     dev: false
 
   /lodash.memoize/4.1.2:
@@ -11640,14 +11620,6 @@ packages:
   /lodash.once/4.1.1:
     resolution: {integrity: sha512-Sb487aTOCr9drQVL8pIxOzVhafOjZN9UU54hiN8PU3uAiSV7lx1yYNpbNmex2PK6dSJoNTSJUUswT651yww3Mg==}
     dev: true
-
-  /lodash.take/4.1.1:
-    resolution: {integrity: sha512-3T118EQjnhr9c0aBKCCMhQn0OBwRMz/O2WaRU6VH0TSKoMCmFtUpr0iUp+eWKODEiRXtYOK7R7SiBneKHdk7og==}
-    dev: false
-
-  /lodash.takeright/4.1.1:
-    resolution: {integrity: sha512-/I41i2h8VkHtv3PYD8z1P4dkLIco5Z3z35hT/FJl18AxwSdifcATaaiBOxuQOT3T/F1qfRTct3VWMFSj1xCtAw==}
-    dev: false
 
   /lodash.truncate/4.4.2:
     resolution: {integrity: sha512-jttmRe7bRse52OsWIMDLaXxWqRAmtIUccAQ3garviCqJjafXOfNMO0yMfNpdD6zbGaTU0P5Nz7e7gAT6cKmJRw==}
@@ -13400,8 +13372,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.40.2:
-    resolution: {integrity: sha512-jVq/g5J/339u2uHulfpTR57iyG8xmbSKpB9xtbEqp5gQpr/eu0P4OAdfye12tsjm8IB3+7RR/SDArQ7PI/m6Yg==}
+  /posthog-js/1.42.2:
+    resolution: {integrity: sha512-EeN46bv11B3H3YIkVuH+q7uJktMa753gq8cAsBUDiOBLvV3+VTCUt/McZj2MxPtDa0LnjGVy6KLlmQYnnh348A==}
     dependencies:
       '@sentry/types': 7.22.0
       fflate: 0.4.8
