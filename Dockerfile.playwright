@@ -15,6 +15,9 @@ ENV CYPRESS_INSTALL_BINARY=0
 
 RUN pnpm install
 
+# Replace `waitUntil: 'load'` with `waitUntil: 'networkidle'` in @storybook/test-runner, monkey-patching for the win
+RUN sed -i 's/waitUntil: '"'"'load'"'"'/waitUntil: '"'"'networkidle'"'"'/g' node_modules/@storybook/test-runner/dist/cjs/setup-page.js
+
 COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
 
 COPY .storybook/ .storybook/
