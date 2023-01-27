@@ -38,11 +38,6 @@ class FunnelEventQuery(EventQuery):
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
 
-        _fields.extend(
-            f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
-            for column_name in self._column_optimizer.event_columns_to_query
-        )
-
         if self._using_person_on_events:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
 
