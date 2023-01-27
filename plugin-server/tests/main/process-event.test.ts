@@ -28,7 +28,11 @@ import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { createPerformanceEvent, EventsProcessor } from '../../src/worker/ingestion/process-event'
+import {
+    createPerformanceEvent,
+    createSessionRecordingEvent,
+    EventsProcessor,
+} from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
@@ -1115,6 +1119,35 @@ test('capture first team event', async () => {
 
     const elements = event.elements_chain!
     expect(elements.length).toEqual(1)
+})
+
+test('snapshot event stored as session_recording_event', async () => {
+    const producer = {
+        queueSingleJsonMessage: jest.fn(),
+    }
+
+    await createSessionRecordingEvent(
+        'some-id',
+        team.id,
+        '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+        now,
+        '',
+        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties,
+        producer as any as KafkaProducerWrapper
+    )
+
+    const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
+
+    expect(data).toEqual({
+        created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
+        distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+        session_id: 'abcf-efg',
+        snapshot_data: '{"timestamp":123}',
+        team_id: 2,
+        timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
+        uuid: 'some-id',
+        window_id: undefined,
+    })
 })
 
 test('performance event stored as performance_event', async () => {
