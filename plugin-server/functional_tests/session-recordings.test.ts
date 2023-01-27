@@ -225,6 +225,8 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
 
     // NOTE: we're assuming that we have a single partition for the Kafka topic,
     // and that the consumer produces messages in the order they are consumed.
+    // TODO: add some side-effect we can assert on rather than relying on the
+    // partitioning / ordering setup e.g. an ingestion warning.
     const events = await fetchSessionRecordingsEvents(clickHouseClient, teamOptedOutId, uuidOptedOut)
     expect(events.length).toBe(0)
 })
