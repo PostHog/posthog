@@ -76,10 +76,8 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT e.team_id as team_id,
-                           e.timestamp as timestamp,
+                   (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
                            pdi.person_id as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
@@ -124,10 +122,8 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
                  FROM
-                   (SELECT e.team_id as team_id,
-                           e.timestamp as timestamp,
+                   (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
                            pdi.person_id as person_id,
                            if(event = 'buy'
                               AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', ''))), 1, 0) as step_0,
@@ -237,10 +233,8 @@
                 (SELECT *,
                         prop
                  FROM
-                   (SELECT e.team_id as team_id,
-                           e.timestamp as timestamp,
+                   (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
                            pdi.person_id as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
@@ -289,10 +283,8 @@
                 (SELECT *,
                         prop
                  FROM
-                   (SELECT e.team_id as team_id,
-                           e.timestamp as timestamp,
+                   (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
                            pdi.person_id as person_id,
                            if(event = 'buy'
                               AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(properties, '$version'), '^"|"$', ''))), 1, 0) as step_0,
@@ -406,10 +398,8 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop
                  FROM
-                   (SELECT e.team_id as team_id,
-                           e.timestamp as timestamp,
+                   (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
                            pdi.person_id as person_id,
                            if(event = 'sign up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
@@ -453,10 +443,8 @@
                 (SELECT *,
                         if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['','']) as prop
                  FROM
-                   (SELECT e.team_id as team_id,
-                           e.timestamp as timestamp,
+                   (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
                            pdi.person_id as person_id,
                            if(event = 'buy', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,

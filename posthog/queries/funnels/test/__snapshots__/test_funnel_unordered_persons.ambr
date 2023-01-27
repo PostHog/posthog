@@ -52,8 +52,7 @@
                                                                                                                                                                                                                  last_value("$window_id_2") over (PARTITION by aggregation_target
                                                                                                                                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
               FROM
-                (SELECT e.team_id as team_id,
-                        e.timestamp as timestamp,
+                (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         e.uuid AS uuid,
                         pdi.person_id as person_id,
@@ -123,8 +122,7 @@
                                                                                                                                                                                                                  last_value("$window_id_2") over (PARTITION by aggregation_target
                                                                                                                                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
               FROM
-                (SELECT e.team_id as team_id,
-                        e.timestamp as timestamp,
+                (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         e.uuid AS uuid,
                         pdi.person_id as person_id,
@@ -194,8 +192,7 @@
                                                                                                                                                                                                                  last_value("$window_id_2") over (PARTITION by aggregation_target
                                                                                                                                                                                                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
               FROM
-                (SELECT e.team_id as team_id,
-                        e.timestamp as timestamp,
+                (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
                         e.uuid AS uuid,
                         pdi.person_id as person_id,
