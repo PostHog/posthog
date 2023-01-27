@@ -44,6 +44,9 @@ jobs:
             - name: Generate logic types and run typescript with strict
               run: pnpm typegen:write && pnpm typescript:check
 
+            - name: Check if "schema.json" is up to date
+              run: pnpm schema:build:json && git diff --exit-code
+
     jest-setup:
         # Split the tests into multiple chunks
         runs-on: ubuntu-latest
