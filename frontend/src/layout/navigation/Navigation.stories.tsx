@@ -9,7 +9,12 @@ import { useEffect } from 'react'
 
 export default {
     title: 'Layout/Navigation',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        testRunner: { includeNavigation: true },
+    },
 } as Meta
 
 function BaseAppPage(): JSX.Element {

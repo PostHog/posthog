@@ -66,10 +66,10 @@ jobs:
             - run: pnpm install --frozen-lockfile
             - id: set-test-chunks
               name: Set Chunks
-              # Looks at the output of 'pnpm test -- --listTests --json'
+              # Looks at the output of 'pnpm test:unit -- --listTests --json'
               # Take the 5th line of the output (the first two are pnpm non-sense)
               # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
-              run: echo "test-chunks=$(pnpm test -- --listTests --json | sed -n 5p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
+              run: echo "test-chunks=$(pnpm test:unit --listTests --json | sed -n 5p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
             - id: set-test-chunk-ids
               name: Set Chunk IDs
               run: echo "test-chunk-ids=$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')" >> $GITHUB_OUTPUT
@@ -106,7 +106,57 @@ jobs:
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs pnpm test -- --maxWorkers=2
+              run: pnpm test:unit --maxWorkers=2 $(echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text')
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}
+
+    visual-regression:
+        name: Visual regression tests
+        runs-on: ubuntu-20.04
+        container:
+            image: mcr.microsoft.com/playwright:v1.29.2-focal
+        env:
+            CYPRESS_INSTALL_BINARY: '0'
+            NODE_OPTIONS: --max_old_space_size=4096
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
+
+            - name: Install CI utilities with pnpm
+              run: pnpm install http-server wait-on
+
+            - name: Build Storybook
+              run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
+
+            - name: Serve Storybook in the background
+              run: pnpm exec http-server storybook-static --port 6006 --silent &
+
+            - name: Compare current Storybook to the baseline
+              run: |
+                  pnpm wait-on http://127.0.0.1:6006 --timeout 60
+                  pnpm test:visual-regression:ci
+
+            - name: Upload Playwright report and diffs
+              uses: actions/upload-artifact@v3
+              if: always() # We want the report even if there's no failure
+              with:
+                  name: playwright-report
+                  path: |
+                      playwright-report/
+                      test-results/
+                      frontend/__snapshots__/__diff_output__/
+                  retention-days: 7

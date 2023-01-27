@@ -7,6 +7,7 @@ import { getStorybookAppContext } from './app-context'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
 import { defaultMocks } from '~/mocks/handlers'
+import { withSnapshotsDisabled } from './decorators/withSnapshotsDisabled'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -27,9 +28,9 @@ const setupPosthogJs = () => {
 }
 setupPosthogJs()
 
-// Setup storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters
+/** Storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters */
 export const parameters = {
-    chromatic: { disableSnapshot: true },
+    chromatic: { disableSnapshot: true }, // TODO: Make snapshots the default, instead disable them on a per-story basis
     actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
     controls: {
         matchers: {
@@ -66,6 +67,7 @@ export const parameters = {
 
 // Setup storybook global decorators. See https://storybook.js.org/docs/react/writing-stories/decorators#global-decorators
 export const decorators: Meta['decorators'] = [
+    withSnapshotsDisabled,
     // Make sure the msw service worker is started, and reset the handlers to defaults.
     withKea,
     // Allow us to time travel to ensure our stories don't change over time.

@@ -6,7 +6,6 @@ import { LemonModal } from '@posthog/lemon-ui'
 export default {
     title: 'Lemon UI/Lemon Label',
     component: LemonLabel,
-    parameters: { chromatic: { disableSnapshot: false } },
     docs: {
         description: {
             component: `
@@ -17,6 +16,9 @@ Lemon Labels provide common styling and options for labeling form elements. They
 
 `,
         },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonLabel>
 

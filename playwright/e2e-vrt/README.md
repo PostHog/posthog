@@ -1,6 +1,6 @@
 # Visual Regression Tests
 
-We're using Playwright to run visual regression tests against Storybook. To create reference images that are consistent between development and CI we run Playwright in an Ubuntu docker container.
+We're using Playwright to run visual regression tests against Storybook. To create reference images that are consistent between development and CI we run Playwright in an Ubuntu Docker container.
 
 ## Workflow
 
@@ -37,13 +37,15 @@ We're using Playwright to run visual regression tests against Storybook. To crea
         - `#root` for components and
         - `.main-app-content` for scenes
 
-3. Generate the reference images with (you need to have Storybook running locally, i.e. on the Docker host machine):
+3. Generate the reference images (you need to have Storybook running locally, i.e. on the Docker host machine):
 
-    ```
-    docker compose -f docker-compose.playwright.yml run -it -e STORYBOOK_URL=http://host.docker.internal:6006 playwright pnpm exec playwright test -u
+    ```sh
+    docker compose -f docker-compose.playwright.yml run -it --build -e STORYBOOK_URL=http://host.docker.internal:6006 playwright pnpm test:visual-regression
     ```
 
-Open the generated report locally with `pnpm dlx playwright show-report` to see test results (they are mounted local in docker volume)
+    > If your `docker compose version` is lower than 2.13, you won't be able to use the `--build` flag. Instead, first run `docker compose -f docker-compose.playwright.yml build playwright`, and then the above `run` command - without the `--build` arg.
+
+    Open the generated report locally with `pnpm dlx playwright show-report` to see test results (they are mounted local in docker volume)
 
 ### Renaming or deleting tests
 

@@ -9,7 +9,10 @@ import { formatDateRange } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range',
     component: LemonCalendarRange,
-    parameters: { chromatic: { disableSnapshot: false } },
+    parameters: {
+        mockDate: '2023-01-26',
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonCalendarRange>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCalendarRangeProps) => {
