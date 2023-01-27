@@ -64,8 +64,7 @@
                                                  min(latest_2) over (PARTITION by aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
-                         (SELECT e.team_id as team_id,
-                                 e.timestamp as timestamp,
+                         (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  pdi.person_id as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
@@ -247,8 +246,7 @@
                                                  min(latest_2) over (PARTITION by aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
-                         (SELECT e.team_id as team_id,
-                                 e.timestamp as timestamp,
+                         (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  pdi.person_id as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
@@ -425,8 +423,7 @@
                                                  min(latest_2) over (PARTITION by aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
-                         (SELECT e.team_id as team_id,
-                                 e.timestamp as timestamp,
+                         (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  pdi.person_id as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
@@ -603,8 +600,7 @@
                                                  min(latest_2) over (PARTITION by aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
-                         (SELECT e.team_id as team_id,
-                                 e.timestamp as timestamp,
+                         (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  pdi.person_id as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
@@ -781,8 +777,7 @@
                                                  min(latest_2) over (PARTITION by aggregation_target
                                                                      ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                        FROM
-                         (SELECT e.team_id as team_id,
-                                 e.timestamp as timestamp,
+                         (SELECT e.timestamp as timestamp,
                                  pdi.person_id as aggregation_target,
                                  pdi.person_id as person_id,
                                  if(event = 'step one', 1, 0) as step_0,
