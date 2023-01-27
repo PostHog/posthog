@@ -31,35 +31,22 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
         return
     }
 
-    const chosenSelector = finder(element, {
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (dataAttributes.indexOf(name) === -1) {
+            continue
+        }
+
+        const selector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        if (querySelectorAllDeep(selector).length == 1) {
+            return selector
+        }
+    }
+
+    return finder(element, {
         attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
         tagName: (name) => !TAGS_TO_IGNORE.includes(name),
         seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
     })
-    return simplifyDataAttributes(chosenSelector)
-}
-
-function simplifyDataAttributes(chosenSelector: string): string {
-    // if the chosen selector is a several part selector ending with a data attribute,
-    // check if the data attribute is unique by itself
-    // because the selector string has been through the "finder" library
-    // we can be confident of the format and content
-    const parts = chosenSelector.split(' ')
-    if (parts.length <= 1) {
-        return chosenSelector
-    }
-    const tail = parts[parts.length - 1]
-    return isAttribute(tail) && isUnique(tail) ? tail : chosenSelector
-}
-
-function isAttribute(candidate: string): boolean {
-    // the selector has already been parsed and sanitized so we can do a simple check
-    return candidate.startsWith('[') && candidate.endsWith(']')
-}
-
-function isUnique(selector: string): boolean {
-    const elements = querySelectorAllDeep(selector)
-    return elements.length === 1
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
