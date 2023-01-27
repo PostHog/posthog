@@ -160,6 +160,7 @@ def query_events_list_v2(
 
     conditions, condition_params = determine_event_conditions(
         {
+            # Don't show events that have been ingested with timestamps in the future. Would break new event polling.
             "before": (now() + timedelta(seconds=5)).isoformat(),
             "person_id": person_id,
             "event": event,
@@ -176,7 +177,7 @@ def query_events_list_v2(
         except Action.DoesNotExist:
             raise Exception("Action does not exist")
         if action.steps.count() == 0:
-            raise Exception("Action does not have any steps")
+            raise Exception("Action does not have any match groups")
 
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
         action_query, params = format_action_filter(team_id=team.pk, action=action)
