@@ -1,4 +1,4 @@
-import { ChartDisplayType, EventType, InsightType, TrendsFilterType } from '~/types'
+import { EventType } from '~/types'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { createActionFromEvent } from 'scenes/events/createActionFromEvent'
@@ -8,6 +8,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { IconPlayCircle } from 'lib/components/icons'
 import { useActions } from 'kea'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { insightUrlForEvent } from 'lib/utils'
 
 interface EventActionProps {
     event: EventType
@@ -15,47 +16,7 @@ interface EventActionProps {
 
 export function EventRowActions({ event }: EventActionProps): JSX.Element {
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-
-    let insightParams: Partial<TrendsFilterType> | undefined
-    if (event.event === '$pageview') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    type: 'events',
-                    order: 0,
-                    properties: [
-                        {
-                            key: '$current_url',
-                            value: event.properties.$current_url,
-                            type: 'event',
-                        },
-                    ],
-                },
-            ],
-        }
-    } else if (event.event !== '$autocapture') {
-        insightParams = {
-            insight: InsightType.TRENDS,
-            interval: 'day',
-            display: ChartDisplayType.ActionsLineGraph,
-            actions: [],
-            events: [
-                {
-                    id: event.event,
-                    name: event.event,
-                    type: 'events',
-                    order: 0,
-                    properties: [],
-                },
-            ],
-        }
-    }
+    const insightUrl = insightUrlForEvent(event)
 
     return (
         <More
@@ -98,13 +59,8 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             View recording
                         </LemonButton>
                     )}
-                    {insightParams && (
-                        <LemonButton
-                            status="stealth"
-                            to={urls.insightNew(insightParams)}
-                            fullWidth
-                            data-attr="events-table-usage"
-                        >
+                    {insightUrl && (
+                        <LemonButton to={insightUrl} status="stealth" fullWidth data-attr="events-table-usage">
                             Try out in Insights
                         </LemonButton>
                     )}

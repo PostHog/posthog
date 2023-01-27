@@ -1,7 +1,8 @@
 import json
 from datetime import datetime, timedelta
 from time import sleep
-from uuid import uuid4
+from typing import TypedDict
+from uuid import UUID, uuid4
 
 import pytest
 import pytz
@@ -13,7 +14,9 @@ from posthog.models.person_overrides.sql import (
     DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL,
     DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     KAFKA_PERSON_OVERRIDES_TABLE_SQL,
+    PERSON_OVERRIDES_CREATE_DICTIONARY_SQL,
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
+    PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
 from posthog.settings.data_stores import KAFKA_HOSTS
 
@@ -85,3 +88,57 @@ def test_can_insert_person_overrides():
 
         sync_execute(DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL)
         sync_execute(DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
+
+
+class PersonOverrideValues(TypedDict):
+    """A dict of values that may be inserted into person_overrides."""
+
+    team_id: int
+    old_person_id: UUID
+    override_person_id: UUID
+    merged_at: datetime
+    oldest_event: datetime
+    created_at: datetime
+    version: int
+
+
+@pytest.mark.django_db
+def test_person_overrides_dict():
+    """Test behavior of person_overrides_dict with multiple versions of same key.
+
+    The dictionary should always favor the latest version after every reload.
+    """
+    sync_execute(PERSON_OVERRIDES_CREATE_TABLE_SQL)
+    sync_execute(PERSON_OVERRIDES_CREATE_DICTIONARY_SQL)
+
+    values: PersonOverrideValues = {
+        "team_id": 1,
+        "old_person_id": uuid4(),
+        "override_person_id": uuid4(),
+        "merged_at": datetime.fromisoformat("2020-01-02T00:00:00+00:00"),
+        "oldest_event": datetime.fromisoformat("2020-01-01T00:00:00+00:00"),
+        "created_at": datetime.utcnow(),
+        "version": 1,
+    }
+
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
+    sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
+    results = sync_execute(
+        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))", values
+    )
+
+    assert len(results) == 1
+    assert results[0][0] == values["override_person_id"]
+
+    values["version"] = 2
+    values["override_person_id"] = uuid4()
+
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
+    sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
+    new_results = sync_execute(
+        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))", values
+    )
+
+    assert len(new_results) == 1
+    assert new_results[0][0] == values["override_person_id"]
+    assert new_results[0][0] != results[0][0]

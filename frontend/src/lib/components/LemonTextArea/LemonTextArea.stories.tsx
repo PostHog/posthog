@@ -6,12 +6,14 @@ import { LemonTextArea, LemonTextAreaProps, LemonTextMarkdown as _LemonTextMarkd
 export default {
     title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: {
             defaultValue:
                 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.',
         },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonTextArea>
 

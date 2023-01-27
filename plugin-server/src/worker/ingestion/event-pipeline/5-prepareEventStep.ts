@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PostIngestionEvent } from '../../../types'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
@@ -29,10 +28,8 @@ export async function prepareEventStep(
 
     await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
 
-    if (preIngestionEvent && !['$snapshot', '$performance_event'].includes(event.event)) {
+    if (preIngestionEvent) {
         return runner.nextStep('createEventStep', preIngestionEvent, personContainer)
-    } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
-        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent as PostIngestionEvent, personContainer)
     } else {
         return null
     }

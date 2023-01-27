@@ -22,7 +22,6 @@ const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 export default {
     title: 'Lemon UI/Lemon Button',
     component: LemonButton,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         icon: {
             defaultValue: <IconCalculate />,
@@ -30,6 +29,9 @@ export default {
         children: {
             defaultValue: 'Click me',
         },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonButton>
 
@@ -121,6 +123,7 @@ export const SizesIconOnly = (): JSX.Element => {
 export const DisabledWithReason = (): JSX.Element => {
     return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
 }
+// TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
 
 export const Loading = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />

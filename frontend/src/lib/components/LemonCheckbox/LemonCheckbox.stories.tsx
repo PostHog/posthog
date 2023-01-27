@@ -4,7 +4,9 @@ import { LemonCheckbox, LemonCheckboxProps } from './LemonCheckbox'
 export default {
     title: 'Lemon UI/Lemon Checkbox',
     component: LemonCheckbox,
-    parameters: { chromatic: { disableSnapshot: false } },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonCheckbox>
 
 const Template: ComponentStory<typeof LemonCheckbox> = (props: LemonCheckboxProps) => {

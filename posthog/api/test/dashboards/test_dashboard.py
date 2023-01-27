@@ -934,17 +934,3 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
-
-    def test_dashboard_items_deprecation(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "items deprecation"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-
-        default_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={})
-
-        assert len(default_dashboard_json["tiles"]) == 1
-        assert len(default_dashboard_json["items"]) == 1
-
-        no_items_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": True})
-
-        assert len(no_items_dashboard_json["tiles"]) == 1
-        assert no_items_dashboard_json["items"] is None

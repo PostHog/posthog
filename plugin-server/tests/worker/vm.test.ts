@@ -1050,22 +1050,6 @@ describe('vm tests', () => {
         expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
     })
 
-    test('onSnapshot', async () => {
-        const indexJs = `
-            async function onSnapshot (event, meta) {
-                await fetch('https://google.com/results.json?query=' + event.event)
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event: ProcessedPluginEvent = {
-            ...defaultEvent,
-            event: '$snapshot',
-        }
-        await vm.methods.onSnapshot!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=$snapshot')
-    })
-
     describe('exportEvents', () => {
         beforeEach(() => {
             jest.spyOn(hub.appMetrics, 'queueMetric')
