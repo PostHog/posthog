@@ -146,8 +146,7 @@ GET_LATEST_PERSON_OVERRIDE_ID_SQL = f"""
 SELECT
     team_id,
     old_person_id,
-    override_person_id,
-    version
+    override_person_id
 FROM
     `{CLICKHOUSE_DATABASE}`.`person_overrides` AS overrides
 JOIN (
@@ -175,11 +174,7 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
         override_person_id UUID
     )
     PRIMARY KEY team_id, old_person_id
-    SOURCE(CLICKHOUSE(
-        TABLE 'person_overrides'
-        DB '{CLICKHOUSE_DATABASE}'
-        QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'
-    ))
+    SOURCE(CLICKHOUSE(QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'))
     LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
 
     -- The LIFETIME setting indicates to ClickHouse to automatically update this dictionary
