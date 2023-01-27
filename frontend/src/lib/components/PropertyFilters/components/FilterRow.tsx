@@ -4,7 +4,6 @@ import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import clsx from 'clsx'
 import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'

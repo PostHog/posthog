@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
-import { FilterLogicalOperator, FilterType, PropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
+import { FilterLogicalOperator, FilterType, AnyPropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
 import { useMountedLogic } from 'kea'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PropertyGroupFilters } from './PropertyGroupFilters'
@@ -28,7 +28,7 @@ const propertyFilters = [
         type: 'event',
         value: 'Chrome',
     },
-] as PropertyFilter[]
+] as AnyPropertyFilter[]
 
 const taxonomicGroupTypes = [
     TaxonomicFilterGroupType.EventProperties,
