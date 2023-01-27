@@ -2295,17 +2295,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
     @snapshot_clickhouse_queries
-    def test_insight_trend_hogql_filters(self) -> None:
+    def test_insight_trend_hogql_global_filters(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
         with freeze_time("2012-01-14T03:21:34.000Z"):
             for i in range(25):
-                _create_event(
-                    team=self.team,
-                    event="$pageview",
-                    distinct_id="1",
-                    properties={"int_value": i},
-                )
-
+                _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"int_value": i})
         with freeze_time("2012-01-15T04:01:34.000Z"):
             # 25 events total
             response = self.client.get(
@@ -2331,6 +2325,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             found_data_points = response.json()["result"][0]["count"]
             self.assertEqual(found_data_points, 14)
 
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    @snapshot_clickhouse_queries
+    def test_insight_trend_hogql_local_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            for i in range(25):
+                _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"int_value": i})
+        with freeze_time("2012-01-15T04:01:34.000Z"):
             # test trends local property filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/trend/",
@@ -2356,6 +2358,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             found_data_points = response.json()["result"][0]["count"]
             self.assertEqual(found_data_points, 10)
 
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    @snapshot_clickhouse_queries
+    def test_insight_trend_hogql_breakdown(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            for i in range(25):
+                _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"int_value": i})
+        with freeze_time("2012-01-15T04:01:34.000Z"):
             # test trends breakdown
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/trend/",
@@ -2366,13 +2376,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 },
             )
             result = response.json()["result"]
-
             self.assertEqual(result[0]["count"], 15)
             self.assertEqual(result[0]["breakdown_value"], "more")
             self.assertEqual(result[1]["count"], 10)
             self.assertEqual(result[1]["breakdown_value"], "le%ss")
-
-        # Tests backwards-compatibility when we changed GET to POST | GET
 
     @snapshot_clickhouse_queries
     @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
