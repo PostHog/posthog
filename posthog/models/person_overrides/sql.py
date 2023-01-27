@@ -182,10 +182,10 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     ))
     LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
 
-    -- The LIFETIME setting indicates to ClickHouse not to automatically update this dictionary
-    -- as we'll want to control when override_person_ids in `person_overrides` are squashed back
-    -- into the events table.
-    LIFETIME(MIN 0 MAX 0)
+    -- The LIFETIME setting indicates to ClickHouse to automatically update this dictionary
+    -- when not set to 0. When using a time range ClickHouse will pick a uniformly random time in
+    -- the range. We are setting an initial update time range of 5 to 10 seconds.
+    LIFETIME(MIN 5 MAX 10)
 """
 
 DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
