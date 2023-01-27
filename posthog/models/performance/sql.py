@@ -119,7 +119,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
-    ttl_period=ttl_period(),
+    ttl_period=ttl_period(field="timestamp"),
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -155,7 +155,7 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
-        data_table="sharded_performance_events",
+        data_table=PERFORMANCE_EVENT_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
     ),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
@@ -166,7 +166,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQ
     table_name="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
-        data_table="sharded_performance_events",
+        data_table=PERFORMANCE_EVENT_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
     ),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
