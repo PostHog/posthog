@@ -266,6 +266,9 @@
             "black",
             "flake8",
             "isort"
+        ],
+        "*.png": [
+            "optipng -clobber -o4 -strip all"
         ]
     },
     "browserslist": {
