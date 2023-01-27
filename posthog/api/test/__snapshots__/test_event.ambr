@@ -306,7 +306,7 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-01-27T00:15:59.420020+00:00'::timestamptz /*controller='project_events-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/events/%3F%24'*/
+  WHERE "ee_license"."valid_until" >= '2023-01-27T00:35:24.831372+00:00'::timestamptz /*controller='project_events-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/events/%3F%24'*/
   '
 ---
 # name: TestEvents.test_filter_events.5
@@ -477,7 +477,7 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-01-27T00:16:00.453325+00:00'::timestamptz /*controller='project_events-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/events/%3F%24'*/
+  WHERE "ee_license"."valid_until" >= '2023-01-27T00:35:25.839628+00:00'::timestamptz /*controller='project_events-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/events/%3F%24'*/
   '
 ---
 # name: TestEvents.test_filter_events_by_event_name.4
@@ -755,7 +755,7 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-01-27T00:16:01.385946+00:00'::timestamptz /*controller='project_events-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/events/%3F%24'*/
+  WHERE "ee_license"."valid_until" >= '2023-01-27T00:35:26.854395+00:00'::timestamptz /*controller='project_events-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/events/%3F%24'*/
   '
 ---
 # name: TestEvents.test_filter_events_by_properties.4
