@@ -33,8 +33,6 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
 
     return finder(element, {
         attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
-        className: (name) => !name.startsWith('is-'),
-        idName: (name) => name !== 'root',
         tagName: (name) => !TAGS_TO_IGNORE.includes(name),
         seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
     })
