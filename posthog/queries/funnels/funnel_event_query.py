@@ -86,35 +86,25 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
-        select_fragment = (
-            f"SELECT {', '.join(_fields)}" + "{extra_select_fields}" + f" FROM events {self.EVENT_TABLE_ALIAS}"
-        )
-        joins_fragment = (
-            f"""
+        # KLUDGE: Ideally we wouldn't mix string variables with f-string interpolation
+        # but due to ordering requirements in functions building this query we do
+        # things like this for now but should do a larger refactor to get rid of it
+        query = f"""
+            SELECT {', '.join(_fields)}
+            {{extra_select_fields}}
+            FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
-        """
-            + "{extra_join}"
-        )
-        where_fragment = (
-            f"""
+            {{extra_join}}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}
             {prop_query}
             {null_person_filter}
-        """
-            + "{step_filter}"
-        )
-
-        query = f"""
-            {select_fragment}
-            {joins_fragment}
-            {where_fragment}
+            {{step_filter}}
         """
 
-        # print(query)
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:
