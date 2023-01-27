@@ -217,6 +217,8 @@ def run_events_query(
     else:
         if "count(*)" in select_columns or "count()" in select_columns:
             order_by_list.append("count() DESC")
+        elif "timestamp" in select_columns:
+            order_by_list.append("timestamp DESC")
         else:
             order_by_list.append(select_columns[0] + " ASC")
 
