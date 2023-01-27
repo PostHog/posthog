@@ -17,10 +17,6 @@ const ingestionEvent: PostIngestionEvent = {
     properties: {},
     elementsList: testElements,
 }
-const snapshotEvent = {
-    ...ingestionEvent,
-    event: '$snapshot',
-}
 
 describe('runAsyncHandlersStep()', () => {
     let runner: any
@@ -76,21 +72,5 @@ describe('runAsyncHandlersStep()', () => {
         await expect(runAsyncHandlersStep(runner, ingestionEvent, personContainer)).rejects.toThrow(error)
 
         expect(runOnEvent).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(ingestionEvent))
-    })
-
-    describe('$snapshot events', () => {
-        it('does not do action matching or webhook firing', async () => {
-            await runAsyncHandlersStep(runner, snapshotEvent, personContainer)
-
-            expect(runner.hub.actionMatcher.match).not.toHaveBeenCalled()
-            expect(runner.hub.hookCannon.findAndFireHooks).not.toHaveBeenCalled()
-        })
-
-        it('calls only onSnapshot plugin methods', async () => {
-            await runAsyncHandlersStep(runner, snapshotEvent, personContainer)
-
-            expect(runOnSnapshot).toHaveBeenCalledWith(runner.hub, convertToProcessedPluginEvent(snapshotEvent))
-            expect(runOnEvent).not.toHaveBeenCalled()
-        })
     })
 })

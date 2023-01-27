@@ -42,7 +42,6 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.settings import CLICKHOUSE_REPLICATION
 from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
@@ -616,10 +615,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
     def tearDown(self):
         super().tearDown()
@@ -635,10 +633,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
 
 def snapshot_clickhouse_queries(fn):
