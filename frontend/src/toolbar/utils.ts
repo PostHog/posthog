@@ -31,6 +31,17 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
         return
     }
 
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (!dataAttributes.includes(name)) {
+            continue
+        }
+
+        const selector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        if (querySelectorAllDeep(selector).length == 1) {
+            return selector
+        }
+    }
+
     return finder(element, {
         attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
         tagName: (name) => !TAGS_TO_IGNORE.includes(name),
