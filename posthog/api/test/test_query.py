@@ -1,4 +1,5 @@
 from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.schema import EventsQuery, HogQLPropertyFilter
 from posthog.test.base import (
@@ -124,3 +125,32 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query.properties = [HogQLPropertyFilter(type="hogql", key="properties.key == 'test_val2'")]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 2)
+
+    def test_json_undefined_constant_error(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/query/?query=%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%5D%2C%22limit%22%3AInfinity%7D"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Unsupported constant found in JSON: Infinity",
+                "attr": None,
+            },
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/query/?query=%7B%22kind%22%3A%22EventsQuery%22%2C%22select%22%3A%5B%22*%22%5D%2C%22limit%22%3ANaN%7D"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Unsupported constant found in JSON: NaN",
+                "attr": None,
+            },
+        )

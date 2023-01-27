@@ -5,12 +5,12 @@ from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import viewsets
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.exceptions import RequestParsingError
 from posthog.models import Team
 from posthog.models.event.query_event_list import query_events_list_v2
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -51,15 +51,18 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             query_source = request.GET.get("query")
 
         if query_source is None:
-            raise RequestParsingError("Please provide a query in the request body or as a query parameter.")
+            raise ValidationError("Please provide a query in the request body or as a query parameter.")
 
         try:
-            # parse_constant gets called in case of NaN, Infinity etc
-            # default behaviour is to put those into the DB directly
-            # but we just want it to return None
-            query = json.loads(query_source, parse_constant=lambda x: None)
+
+            def parsing_error(ex):
+                raise ValidationError(ex)
+
+            query = json.loads(
+                query_source, parse_constant=lambda x: parsing_error(f"Unsupported constant found in JSON: {x}")
+            )
         except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
-            raise RequestParsingError("Invalid JSON: %s" % (str(error_main)))
+            raise ValidationError("Invalid JSON: %s" % (str(error_main)))
         return query
 
 
@@ -79,4 +82,4 @@ def process_query(team: Team, query_json: Dict) -> Dict:
             "hasMore": query_result.hasMore,
         }
     else:
-        raise RequestParsingError("Unsupported query kind: %s" % query_kind)
+        raise ValidationError("Unsupported query kind: %s" % query_kind)
