@@ -32,7 +32,7 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     }
 
     for (const { name, value } of Array.from(element.attributes)) {
-        if (dataAttributes.indexOf(name) === -1) {
+        if (!dataAttributes.includes(name)) {
             continue
         }
 
