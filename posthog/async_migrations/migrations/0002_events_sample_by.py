@@ -13,7 +13,7 @@ from posthog.async_migrations.utils import run_optimize_table
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
 from posthog.models.instance_setting import set_instance_setting
-from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, CLICKHOUSE_REPLICATION
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 from posthog.version_requirement import ServiceVersionRequirement
 
 TEMPORARY_TABLE_NAME = f"{CLICKHOUSE_DATABASE}.temp_events_0002_events_sample_by"
@@ -170,7 +170,7 @@ class Migration(AsyncMigrationDefinition):
                 f"{FAILED_EVENTS_TABLE_NAME} already exists. We use this table as a backup if the migration fails. You can delete or rename it and restart the migration.",
             )
 
-        events_table = "sharded_events" if CLICKHOUSE_REPLICATION else "events"
+        events_table = "sharded_events"
         return analyze_enough_disk_space_free_for_table(events_table, required_ratio=1.5)
 
     def healthcheck(self):
