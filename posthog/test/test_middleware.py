@@ -1,3 +1,5 @@
+import uuid
+
 from django.conf import settings
 from rest_framework import status
 
@@ -241,3 +243,28 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_app.status_code, 200)
         self.assertEqual(response_users_api.status_code, 200)
         self.assertEqual(response_users_api_data.get("team", {}).get("id"), self.team.id)
+
+
+class TestExternalProxyMiddleware(APIBaseTest):
+    def test_cloud_proxy_redirect(self):
+        with self.settings(MULTI_TENANCY=True):
+            self.client.logout()
+
+            response = self.client.get("/", HTTP_HOST="proxy.somedomain.com")
+            self.assertRedirects(
+                response,
+                "https://app.posthog.com/",
+                status_code=301,
+                fetch_redirect_response=False,
+            )
+
+            response = self.client.get("/", HTTP_HOST="app.posthog.com")
+            self.assertRedirects(response, "/login?next=/", fetch_redirect_response=False)
+
+            response = self.client.get(f"/signup/{uuid.uuid4()}", HTTP_HOST="proxy.someotherdomain.com")
+            self.assertRedirects(
+                response,
+                "https://app.posthog.com/",
+                status_code=301,
+                fetch_redirect_response=False,
+            )

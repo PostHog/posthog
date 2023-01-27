@@ -358,11 +358,25 @@ class CaptureMiddleware:
                 return response
             finally:
                 reset_query_tags()
-        else:
-            # If we're a multi_tenancy instance, but the host is not posthog.com it's probably a proxy
-            # in which case we only want to give access to
-            if settings.MULTI_TENANCY and not request.get_host().endswith(".posthog.com"):
-                return redirect("https://app.posthog.com/", permanent=True)
 
         response = self.get_response(request)
+        return response
+
+
+class ExternalProxyMiddleware:
+    """
+    When people run a proxy against PostHog Cloud, they shouldn't be able to use that proxy to login for safety reasons.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+
+        response: HttpResponse = self.get_response(request)
+        if request.path.strip("/") in ALWAYS_ALLOWED_ENDPOINTS:
+            # In practice CaptureMiddleware has likely already circumvented this middleware, but just incase
+            return response
+        if settings.MULTI_TENANCY and not request.get_host().endswith(".posthog.com"):
+            return redirect("https://app.posthog.com/", permanent=True)
         return response
