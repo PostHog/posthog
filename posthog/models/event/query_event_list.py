@@ -140,6 +140,7 @@ def query_events_list_v2(
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext()
 
+    # adding +1 to the limit to check if there's a "next page" after the requested results
     limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
     offset = 0 if query.offset is None else query.offset
     action_id = query.actionId
