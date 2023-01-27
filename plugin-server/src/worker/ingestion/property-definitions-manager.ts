@@ -217,13 +217,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         }
 
         if (!this.propertyDefinitionsCache.has(teamId)) {
-            const eventProperties = await this.db.postgresQuery(
-                'SELECT name, property_type FROM posthog_propertydefinition WHERE team_id = $1',
-                [teamId],
-                'fetchPropertyDefinitions'
-            )
-
-            this.propertyDefinitionsCache.initialize(teamId, eventProperties.rows)
+            await this.propertyDefinitionsCache.initialize(teamId, this.db)
         }
 
         const cacheKey = JSON.stringify([teamId, event])

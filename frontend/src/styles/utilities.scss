@@ -279,6 +279,18 @@
     }
 }
 
+@each $name, $hex in $colors {
+    .hover\:text-#{$name}:hover {
+        color: $hex;
+    }
+    .hover\:bg-#{$name}:hover {
+        background-color: $hex;
+    }
+    .hover\:border-#{$name}:hover {
+        border-color: $hex;
+    }
+}
+
 // Widths / heights
 
 @each $kind in ('width', 'height') {
@@ -392,6 +404,24 @@
 
 .absolute {
     position: absolute;
+}
+
+// Display
+
+.block {
+    display: block;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.inline {
+    display: inline;
+}
+
+.hidden {
+    display: none;
 }
 
 // Flex
@@ -594,7 +624,7 @@
 }
 
 .text-xxs {
-    font-size: 0.5rem; /* 8px */
+    font-size: 0.625rem; /* 10px */
     line-height: 0.75rem; /* 12px */
 }
 .text-xs {
@@ -650,10 +680,6 @@
     line-height: 1;
 }
 
-.text-ellipsis {
-    @extend %mixin-text-ellipsis;
-}
-
 @each $space in $tiny_spaces {
     .leading-#{escape-number($space)} {
         line-height: #{$space * 0.25}rem;
@@ -700,6 +726,9 @@
 }
 .rounded-3xl {
     border-radius: calc(var(--radius) * 6); /* 24px */
+}
+.rounded-4xl {
+    border-radius: calc(var(--radius) * 8); /* 32px */
 }
 .rounded-full {
     border-radius: 1000rem;
@@ -903,10 +932,6 @@
 
 .invisible {
     visibility: hidden;
-}
-
-.hidden {
-    display: none;
 }
 
 .resize-y {

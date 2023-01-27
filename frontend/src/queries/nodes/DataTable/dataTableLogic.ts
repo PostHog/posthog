@@ -67,27 +67,30 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery],
-            (sourceKind, orderBy, response: AnyDataNode['response'], columnsInQuery): DataTableRow[] | null => {
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
+            (
+                sourceKind,
+                orderBy,
+                response: AnyDataNode['response'],
+                columnsInQuery,
+                columnsInResponse
+            ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const eventsQueryResponse = response as EventsQuery['response'] | null
                     if (eventsQueryResponse) {
-                        const { results, columns: columnsInResponse } = eventsQueryResponse
-                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
-                        const orderKeyIndex = columnsInResponse.findIndex(
-                            (column) =>
-                                removeExpressionComment(column) === orderKey ||
-                                removeExpressionComment(column) === `-${orderKey}`
-                        )
+                        // must be loading
+                        if (!equal(columnsInQuery, columnsInResponse)) {
+                            return []
+                        }
 
-                        const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
-                        const resultToDataTableRow = equal(columnsInQuery, columnsInResponse)
-                            ? (result: any[]): DataTableRow => ({ result })
-                            : (result: any[]): DataTableRow => ({
-                                  result: columnsInQuery.map((c) =>
-                                      c in columnMap ? result[columnMap[c]] : loadingColumn
-                                  ),
-                              })
+                        const { results } = eventsQueryResponse
+                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
+                        const orderKeyIndex =
+                            columnsInResponse?.findIndex(
+                                (column) =>
+                                    removeExpressionComment(column) === orderKey ||
+                                    removeExpressionComment(column) === `-${orderKey}`
+                            ) ?? -1
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
@@ -103,12 +106,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                         label: dayjs(result[orderKeyIndex]).format('LL'),
                                     })
                                 }
-                                newResults.push(resultToDataTableRow(result))
+                                newResults.push({ result })
                                 lastResult = result
                             }
                             return newResults
                         } else {
-                            return results.map((result) => resultToDataTableRow(result))
+                            return results.map((result) => ({ result }))
                         }
                     }
                 }
@@ -142,6 +145,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showReload: query.showReload ?? showIfFull,
                         showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
+                        showSavedQueries: query.showSavedQueries ?? false,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                     }),

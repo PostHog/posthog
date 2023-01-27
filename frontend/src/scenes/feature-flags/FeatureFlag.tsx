@@ -605,7 +605,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     </span>
                                                 </Col>
                                                 <Col span={9}>
-                                                    {featureFlag.filters.payloads[index] ? (
+                                                    {featureFlag.filters.payloads?.[index] ? (
                                                         <JSONEditorInput
                                                             readOnly={true}
                                                             value={featureFlag.filters.payloads[index]}
@@ -1227,11 +1227,21 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <LemonDivider className="my-3" />
                             )}
                             {readOnly ? (
-                                <div>
-                                    Rolled out to{' '}
-                                    <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                    <b>{aggregationTargetName}</b> in this set.{' '}
-                                </div>
+                                <LemonTag
+                                    type={
+                                        group.properties?.length == 0
+                                            ? group.rollout_percentage == null || group.rollout_percentage == 100
+                                                ? 'highlight'
+                                                : 'default'
+                                            : 'none'
+                                    }
+                                >
+                                    <div className="text-sm ">
+                                        Rolled out to{' '}
+                                        <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
+                                        <b>{aggregationTargetName}</b> in this set.{' '}
+                                    </div>
+                                </LemonTag>
                             ) : (
                                 <div className="feature-flag-form-row">
                                     <div className="centered">
@@ -1281,9 +1291,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             )}
                             {nonEmptyVariants.length > 0 && (
                                 <>
-                                    {(!readOnly || (readOnly && group.properties?.length > 0)) && (
-                                        <LemonDivider className="my-3" />
-                                    )}
+                                    <LemonDivider className="my-3" />
                                     {readOnly ? (
                                         <div>
                                             All <b>{aggregationTargetName}</b> in this set{' '}

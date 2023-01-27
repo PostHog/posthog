@@ -2,6 +2,8 @@ import os
 
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
+from django.db.models.expressions import F
+from django.db.models.functions import Coalesce
 
 from posthog.models.team import Team
 from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
@@ -61,6 +63,18 @@ class PropertyDefinition(UUIDModel):
     class Meta:
         indexes = (
             [
+                # This indexes the query in api/property_definition.py
+                # :KLUDGE: django ORM typing is off here
+                models.Index(  # type: ignore
+                    F("team_id"),  # type: ignore
+                    F("type"),  # type: ignore
+                    Coalesce(F("group_type_index"), -1),  # type: ignore
+                    F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
+                    F("name").asc(),  # type: ignore
+                    name="index_property_def_query",
+                )
+            ]
+            + [
                 GinIndex(
                     name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
                 )  # To speed up DB-based fuzzy searching
@@ -85,5 +99,5 @@ class PropertyDefinition(UUIDModel):
         return f"{self.name} / {self.team.name}"
 
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
-    def is_event_property(self) -> None:
+    def is_seen_on_filtered_events(self) -> None:
         return None

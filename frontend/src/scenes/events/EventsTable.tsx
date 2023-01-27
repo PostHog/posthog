@@ -4,21 +4,13 @@ import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import {
-    ActionType,
-    AnyPropertyFilter,
-    ChartDisplayType,
-    ColumnChoice,
-    EventsTableRowItem,
-    InsightType,
-    TrendsFilterType,
-} from '~/types'
+import { ActionType, AnyPropertyFilter, ColumnChoice, EventsTableRowItem } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { Tooltip } from 'lib/components/Tooltip'
@@ -337,46 +329,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
 
-                    let insightParams: Partial<TrendsFilterType> | undefined
-                    if (event.event === '$pageview') {
-                        insightParams = {
-                            insight: InsightType.TRENDS,
-                            interval: 'day',
-                            display: ChartDisplayType.ActionsLineGraph,
-                            actions: [],
-                            events: [
-                                {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: 'events',
-                                    order: 0,
-                                    properties: [
-                                        {
-                                            key: '$current_url',
-                                            value: event.properties.$current_url,
-                                            type: 'event',
-                                        },
-                                    ],
-                                },
-                            ],
-                        }
-                    } else if (event.event !== '$autocapture') {
-                        insightParams = {
-                            insight: InsightType.TRENDS,
-                            interval: 'day',
-                            display: ChartDisplayType.ActionsLineGraph,
-                            actions: [],
-                            events: [
-                                {
-                                    id: event.event,
-                                    name: event.event,
-                                    type: 'events',
-                                    order: 0,
-                                    properties: [],
-                                },
-                            ],
-                        }
-                    }
+                    const insightUrl = insightUrlForEvent(event)
 
                     return (
                         <More
@@ -415,10 +368,10 @@ export function EventsTable({
                                             View recording
                                         </LemonButton>
                                     )}
-                                    {insightParams && (
+                                    {insightUrl && (
                                         <LemonButton
+                                            to={insightUrl}
                                             status="stealth"
-                                            to={urls.insightNew(insightParams)}
                                             fullWidth
                                             data-attr="events-table-usage"
                                         >

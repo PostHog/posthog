@@ -161,15 +161,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
@@ -875,9 +875,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         insight_one_json = self.dashboard_api.get_insight(insight_id=insight_one_id)
+        assert [t["dashboard_id"] for t in insight_one_json["dashboard_tiles"]] == [other_dashboard_id]
         assert insight_one_json["dashboards"] == [other_dashboard_id]
         assert insight_one_json["deleted"] is False
         insight_two_json = self.dashboard_api.get_insight(insight_id=insight_two_id)
+        assert [t["dashboard_id"] for t in insight_two_json["dashboard_tiles"]] == []
         assert insight_two_json["dashboards"] == []
         assert insight_two_json["deleted"] is False
 
@@ -929,17 +931,3 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
-
-    def test_dashboard_items_deprecation(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "items deprecation"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-
-        default_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={})
-
-        assert len(default_dashboard_json["tiles"]) == 1
-        assert len(default_dashboard_json["items"]) == 1
-
-        no_items_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": True})
-
-        assert len(no_items_dashboard_json["tiles"]) == 1
-        assert no_items_dashboard_json["items"] is None

@@ -44,7 +44,7 @@ import { LOGS_PORTION_LIMIT } from 'scenes/plugins/plugin/pluginLogsLogic'
 import { toParams } from 'lib/utils'
 import { DashboardPrivilegeLevel } from './constants'
 import { EVENT_DEFINITIONS_PER_PAGE } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/event-properties/eventPropertyDefinitionsTableLogic'
+import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/properties/propertyDefinitionsTableLogic'
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
@@ -663,7 +663,7 @@ const api = {
             event_names?: string[]
             excluded_properties?: string[]
             properties?: string[]
-            is_event_property?: boolean
+            filter_by_event_names?: boolean
             limit?: number
             offset?: number
             teamId?: TeamType['id']
@@ -686,11 +686,13 @@ const api = {
         }: {
             event_names?: string[]
             excluded_properties?: string[]
-            is_event_property?: boolean
+            filter_by_event_names?: boolean
             is_feature_flag?: boolean
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            type?: 'event' | 'person' | 'group'
+            group_type_index?: number
         }): string {
             return new ApiRequest()
                 .propertyDefinitions(teamId)

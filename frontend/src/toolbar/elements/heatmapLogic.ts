@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
@@ -8,23 +8,22 @@ import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
-import { FilterType, PropertyOperator } from '~/types'
+import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
+import { loaders } from 'kea-loaders'
 
-export interface ElementStatsPages extends PaginatedResponse<ElementsEventType> {
-    pagesLoaded: number
-}
-
-const emptyElementsStatsPages: ElementStatsPages = {
+const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
     results: [],
-    pagesLoaded: 0,
 }
 
-export const heatmapLogic = kea<heatmapLogicType>({
-    path: ['toolbar', 'elements', 'heatmapLogic'],
-    actions: {
+export const heatmapLogic = kea<heatmapLogicType>([
+    path(['toolbar', 'elements', 'heatmapLogic']),
+    connect({
+        values: [toolbarLogic, ['apiURL']],
+    }),
+    actions({
         getElementStats: (url?: string | null) => ({
             url,
         }),
@@ -34,9 +33,10 @@ export const heatmapLogic = kea<heatmapLogicType>({
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
-    },
-
-    reducers: {
+        setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
+    }),
+    reducers({
+        matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
         canLoadMoreElementStats: [
             true,
             {
@@ -79,11 +79,11 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 setHeatmapFilter: (_, { filter }) => filter,
             },
         ],
-    },
+    }),
 
-    loaders: ({ values }) => ({
+    loaders(({ values }) => ({
         elementStats: [
-            null as ElementStatsPages | null,
+            null as PaginatedResponse<ElementsEventType> | null,
             {
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
@@ -93,19 +93,35 @@ export const heatmapLogic = kea<heatmapLogicType>({
                         const params: Partial<FilterType> = {
                             properties: [
                                 wildcardHref === href
-                                    ? { key: '$current_url', value: href, operator: PropertyOperator.Exact }
+                                    ? {
+                                          key: '$current_url',
+                                          value: href,
+                                          operator: PropertyOperator.Exact,
+                                          type: PropertyFilterType.Event,
+                                      }
                                     : {
                                           key: '$current_url',
                                           value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
                                           operator: PropertyOperator.Regex,
+                                          type: PropertyFilterType.Event,
                                       },
                             ],
                             ...values.heatmapFilter,
                         }
-                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
+                        const includeEventsParams = '&include=$autocapture&include=$rageclick'
+                        defaultUrl = `${values.apiURL}/api/element/stats/${encodeParams(
+                            { ...params, paginate_response: true },
+                            '?'
+                        )}${includeEventsParams}`
                     }
 
-                    const response = await toolbarFetch(url || defaultUrl, 'GET', undefined, !!url)
+                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
+                    const response = await toolbarFetch(
+                        url || defaultUrl,
+                        'GET',
+                        undefined,
+                        url ? 'use-as-provided' : 'only-add-token'
+                    )
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
@@ -123,31 +139,47 @@ export const heatmapLogic = kea<heatmapLogicType>({
                         results: [...(values.elementStats?.results || []), ...paginatedResults.results],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
-                        pagesLoaded: (values.elementStats?.pagesLoaded || 0) + 1,
-                    } as ElementStatsPages
+                    } as PaginatedResponse<ElementsEventType>
                 },
             },
         ],
-    }),
+    })),
 
-    selectors: {
+    selectors(({ cache }) => ({
         elements: [
-            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes],
-            (elementStats, dataAttributes) => {
-                // cache all elements in shadow roots
-                const allElements = collectAllElementsDeep('*', document)
+            (selectors) => [
+                selectors.elementStats,
+                toolbarLogic.selectors.dataAttributes,
+                currentPageLogic.selectors.href,
+                selectors.matchLinksByHref,
+            ],
+            (elementStats, dataAttributes, href, matchLinksByHref) => {
+                cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
+                cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
+
+                cache.lastHref = href
+
                 const elements: CountedHTMLElement[] = []
                 elementStats?.results.forEach((event) => {
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
+                        const element = event.elements[i]
+                        const selector =
+                            elementToSelector(
+                                matchLinksByHref ? element : { ...element, href: undefined },
+                                dataAttributes
+                            ) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            const domElements = Array.from(
-                                querySelectorAllDeep(combinedSelector, document, allElements)
-                            ) as HTMLElement[]
+                            let domElements: HTMLElement[] | undefined = cache.selectorToElements?.[combinedSelector]
+                            if (domElements === undefined) {
+                                domElements = Array.from(
+                                    querySelectorAllDeep(combinedSelector, document, cache.pageElements)
+                                ) as HTMLElement[]
+                                cache.selectorToElements[combinedSelector] = domElements
+                            }
 
                             if (domElements.length === 1) {
                                 const e = event.elements[i]
@@ -171,6 +203,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                                         count: event.count,
                                         selector: selector,
                                         hash: event.hash,
+                                        type: event.type,
                                     } as CountedHTMLElement)
                                     return null
                                 }
@@ -178,7 +211,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
 
                             if (domElements.length === 0) {
                                 if (i === event.elements.length - 1) {
-                                    console.error(
+                                    console.log(
                                         'For event: ',
                                         event,
                                         '. Found a case with 0 elements using: ',
@@ -191,11 +224,11 @@ export const heatmapLogic = kea<heatmapLogicType>({
                                     lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
                                     continue
                                 } else {
-                                    console.log('Found empty selector')
+                                    console.log('Found empty selector: ', combinedSelector)
                                 }
                             }
                         } catch (error) {
-                            console.error('Invalid selector!', combinedSelector)
+                            console.log('Invalid selector!', combinedSelector)
                             break
                         }
 
@@ -211,31 +244,32 @@ export const heatmapLogic = kea<heatmapLogicType>({
         countedElements: [
             (selectors) => [selectors.elements, toolbarLogic.selectors.dataAttributes],
             (elements, dataAttributes) => {
-                const elementCounter = new Map<HTMLElement, number>()
-                const elementSelector = new Map<HTMLElement, string>()
+                const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
+                ;(elements || []).forEach((countedElement) => {
+                    const trimmedElement = trimElement(countedElement.element)
+                    if (!trimmedElement) {
+                        return
+                    }
 
-                ;(elements || []).forEach(({ element, selector, count }) => {
-                    const trimmedElement = trimElement(element)
-                    if (trimmedElement) {
-                        const oldCount = elementCounter.get(trimmedElement) || 0
-                        elementCounter.set(trimmedElement, oldCount + count)
-                        if (oldCount === 0) {
-                            elementSelector.set(trimmedElement, selector)
+                    if (normalisedElements.has(trimmedElement)) {
+                        const existing = normalisedElements.get(trimmedElement)
+                        if (existing) {
+                            existing.count += countedElement.count
+                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                            existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
                         }
+                    } else {
+                        normalisedElements.set(trimmedElement, {
+                            ...countedElement,
+                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                            rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
+                            element: trimmedElement,
+                            actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                        })
                     }
                 })
 
-                const countedElements = [] as CountedHTMLElement[]
-                elementCounter.forEach((count, element) => {
-                    const selector = elementSelector.get(element)
-                    countedElements.push({
-                        count,
-                        element,
-                        selector,
-                        actionStep: elementToActionStep(element, dataAttributes),
-                    } as CountedHTMLElement)
-                })
-
+                const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
 
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
@@ -251,33 +285,32 @@ export const heatmapLogic = kea<heatmapLogicType>({
             (countedElements) =>
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
-    },
+    })),
 
-    events: ({ actions, values, cache }) => ({
-        afterMount() {
-            if (values.heatmapEnabled) {
-                actions.getElementStats()
+    afterMount(({ actions, values, cache }) => {
+        if (values.heatmapEnabled) {
+            actions.getElementStats()
+        }
+        cache.keyDownListener = (event: KeyboardEvent) => {
+            if (event.shiftKey && !values.shiftPressed) {
+                actions.setShiftPressed(true)
             }
-            cache.keyDownListener = (event: KeyboardEvent) => {
-                if (event.shiftKey && !values.shiftPressed) {
-                    actions.setShiftPressed(true)
-                }
+        }
+        cache.keyUpListener = (event: KeyboardEvent) => {
+            if (!event.shiftKey && values.shiftPressed) {
+                actions.setShiftPressed(false)
             }
-            cache.keyUpListener = (event: KeyboardEvent) => {
-                if (!event.shiftKey && values.shiftPressed) {
-                    actions.setShiftPressed(false)
-                }
-            }
-            window.addEventListener('keydown', cache.keyDownListener)
-            window.addEventListener('keyup', cache.keyUpListener)
-        },
-        beforeUnmount() {
-            window.removeEventListener('keydown', cache.keyDownListener)
-            window.removeEventListener('keyup', cache.keyUpListener)
-        },
+        }
+        window.addEventListener('keydown', cache.keyDownListener)
+        window.addEventListener('keyup', cache.keyUpListener)
     }),
 
-    listeners: ({ actions, values }) => ({
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.keyDownListener)
+        window.removeEventListener('keyup', cache.keyUpListener)
+    }),
+
+    listeners(({ actions, values }) => ({
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
@@ -317,5 +350,5 @@ export const heatmapLogic = kea<heatmapLogicType>({
         setHeatmapFilter: () => {
             actions.getElementStats()
         },
-    }),
-})
+    })),
+])

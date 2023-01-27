@@ -33,29 +33,51 @@ export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K 
 
 // Keep this in sync with backend constants (constants.py)
 export enum AvailableFeature {
-    ZAPIER = 'zapier',
-    ORGANIZATIONS_PROJECTS = 'organizations_projects',
-    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
-    GOOGLE_LOGIN = 'google_login',
-    SAML = 'saml',
-    SSO_ENFORCEMENT = 'sso_enforcement',
+    EVENTS = 'events',
+    TRACKED_USERS = 'tracked_users',
+    DATA_RETENTION = 'data_retention',
+    SUBSCRIPTIONS = 'subscriptions',
     DASHBOARD_COLLABORATION = 'dashboard_collaboration',
     DASHBOARD_PERMISSIONING = 'dashboard_permissioning',
     INGESTION_TAXONOMY = 'ingestion_taxonomy',
     PATHS_ADVANCED = 'paths_advanced',
     CORRELATION_ANALYSIS = 'correlation_analysis',
     GROUP_ANALYTICS = 'group_analytics',
-    MULTIVARIATE_FLAGS = 'multivariate_flags',
-    EXPERIMENTATION = 'experimentation',
     TAGGING = 'tagging',
     BEHAVIORAL_COHORT_FILTERING = 'behavioral_cohort_filtering',
-    WHITE_LABELLING = 'white_labelling',
-    SUBSCRIPTIONS = 'subscriptions',
-    APP_METRICS = 'app_metrics',
+    SESSION_RECORDINGS = 'session_recordings',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
-    ROLE_BASED_ACCESS = 'role_based_access',
-    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
     RECORDINGS_PERFORMANCE = 'recordings_performance',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
+    BOOLEAN_FLAGS = 'boolean_flags',
+    MULTIVARIATE_FLAGS = 'multivariate_flags',
+    EXPERIMENTATION = 'experimentation',
+    APPS = 'apps',
+    SLACK_INTEGRATION = 'slack_integration',
+    MICROSOFT_TEAMS_INTEGRATION = 'microsoft_teams_integration',
+    DISCORD_INTEGRATION = 'discord_integration',
+    ZAPIER = 'zapier',
+    APP_METRICS = 'app_metrics',
+    TEAM_MEMBERS = 'team_members',
+    API_ACCESS = 'api_access',
+    ORGANIZATIONS_PROJECTS = 'organizations_projects',
+    PROJECT_BASED_PERMISSIONING = 'project_based_permissioning',
+    ROLE_BASED_ACCESS = 'role_based_access',
+    GOOGLE_LOGIN = 'google_login',
+    SAML = 'saml',
+    SSO_ENFORCEMENT = 'sso_enforcement',
+    WHITE_LABELLING = 'white_labelling',
+    COMMUNITY_SUPPORT = 'community_support',
+    DEDICATED_SUPPORT = 'dedicated_support',
+    EMAIL_SUPPORT = 'email_support',
+    ACCOUNT_MANAGER = 'account_manager',
+    TRAINING = 'training',
+    CONFIGURATION_SUPPORT = 'configuration_support',
+    TERMS_AND_CONDITIONS = 'terms_and_conditions',
+    SECURITY_ASSESSMENT = 'security_assessment',
+    BESPOKE_PRICING = 'bespoke_pricing',
+    INVOICE_PAYMENTS = 'invoice_payments',
+    SUPPORT_SLAS = 'support_slas',
 }
 
 export enum LicensePlan {
@@ -270,7 +292,7 @@ export interface TeamType extends TeamBasicType {
     capture_performance_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
-    path_cleaning_filters: Record<string, any>[]
+    path_cleaning_filters: PathCleaningFilter[]
     data_attributes: string[]
     person_display_name_properties: string[]
     has_group_types: boolean
@@ -365,6 +387,8 @@ export interface ToolbarProps extends ToolbarParams {
     disableExternalStyles?: boolean
 }
 
+export type PathCleaningFilter = { alias?: string; regex?: string }
+
 export type PropertyFilterValue = string | number | (string | number)[] | null
 
 /** Sync with plugin-server/src/types.ts */
@@ -435,7 +459,7 @@ export enum PropertyFilterType {
 /** Sync with plugin-server/src/types.ts */
 interface BasePropertyFilter {
     key: string
-    value: PropertyFilterValue
+    value?: PropertyFilterValue
     label?: string
     type?: PropertyFilterType
 }
@@ -488,7 +512,14 @@ export interface HogQLPropertyFilter extends BasePropertyFilter {
     key: string
 }
 
-export type PropertyFilter =
+export interface EmptyPropertyFilter {
+    type?: undefined
+    value?: undefined
+    operator?: undefined
+    key?: undefined
+}
+
+export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
     | ElementPropertyFilter
@@ -498,17 +529,7 @@ export type PropertyFilter =
     | GroupPropertyFilter
     | FeaturePropertyFilter
     | HogQLPropertyFilter
-
-export type AnyPropertyFilter =
-    | Partial<EventPropertyFilter>
-    | Partial<PersonPropertyFilter>
-    | Partial<ElementPropertyFilter>
-    | Partial<SessionPropertyFilter>
-    | Partial<CohortPropertyFilter>
-    | Partial<RecordingDurationFilter>
-    | Partial<GroupPropertyFilter>
-    | Partial<FeaturePropertyFilter>
-    | Partial<HogQLPropertyFilter>
+    | EmptyPropertyFilter
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -1025,25 +1046,42 @@ export interface BillingType {
 
 export type BillingVersion = 'v1' | 'v2'
 
-export interface BillingProductV2Type {
-    type: 'EVENTS' | 'RECORDINGS'
+export interface BillingV2FeatureType {
+    key: string
     name: string
-    description: string
-    price_description: string
+    description?: string
+    unit?: string
+    limit?: number
+    note?: string
+    group?: AvailableFeature
+}
+
+export interface BillingV2TierType {
+    unit_amount_usd: string
+    current_amount_usd?: string | null
+    up_to: number | null
+}
+
+export interface BillingProductV2Type {
+    type: 'events' | 'recordings' | 'enterprise' | 'base'
+    name: string
+    description?: string
+    price_description?: string
     image_url?: string
     free_allocation?: number
-    tiers: {
-        unit_amount_usd: string
-        current_amount_usd?: string | null
-        up_to: number | null
-    }[]
-    tiered: boolean
+    tiers?: BillingV2TierType[]
+    tiered?: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
     current_amount_usd?: string
     usage_limit?: number
     unit_amount_usd: string | null
+    feature_groups: {
+        group: string
+        name: string
+        features: BillingV2FeatureType[]
+    }[]
 }
 
 export interface BillingV2Type {
@@ -1066,6 +1104,15 @@ export interface BillingV2Type {
     license?: {
         plan: LicensePlan
     }
+    available_plans?: BillingV2PlanType[]
+}
+
+export interface BillingV2PlanType {
+    key: string
+    name: string
+    description: string
+    is_free?: boolean
+    products: BillingProductV2Type[]
 }
 
 export interface BillingTierType {
@@ -1119,6 +1166,12 @@ export interface DashboardTile extends Tileable, Cacheable {
     is_cached?: boolean
 }
 
+export interface DashboardTileBasicType {
+    id: number
+    dashboard_id: number
+    deleted?: boolean
+}
+
 export interface TextModel {
     body: string
     created_by?: UserBasicType
@@ -1142,7 +1195,9 @@ export interface InsightModel extends Cacheable {
     created_at: string
     created_by: UserBasicType | null
     is_sample: boolean
+    /** @deprecated Use `dashboard_tiles instead */
     dashboards: number[] | null
+    dashboard_tiles: DashboardTileBasicType[] | null
     updated_at: string
     tags?: string[]
     last_modified_at: string
@@ -1485,7 +1540,7 @@ export interface PathsFilterType extends FilterType {
     path_end_key?: string // Paths People End Key
     path_dropoff_key?: string // Paths People Dropoff Key
     path_replacements?: boolean
-    local_path_cleaning_filters?: Record<string, any>[]
+    local_path_cleaning_filters?: PathCleaningFilter[]
     edge_limit?: number | undefined // Paths edge limit
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
@@ -1622,7 +1677,7 @@ export interface ActionFilter extends EntityFilter {
     math?: string
     math_property?: string
     math_group_type_index?: number | null
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
     type: EntityType
 }
 
@@ -1874,9 +1929,10 @@ export interface PrevalidatedInvite {
 }
 
 interface InstancePreferencesInterface {
-    debug_queries: boolean
     /** Whether debug queries option should be shown on the command palette. */
-    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+    debug_queries: boolean
+    /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+    disable_paid_fs: boolean
 }
 
 export interface PreflightStatus {
@@ -2018,7 +2074,7 @@ export interface PropertyDefinition {
     updated_at?: string
     updated_by?: UserBasicType | null
     is_numerical?: boolean // Marked as optional to allow merge of EventDefinition & PropertyDefinition
-    is_event_property?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
+    is_seen_on_filtered_events?: boolean // Indicates whether this property has been seen for a particular set of events (when `eventNames` query string is sent); calculated at query time, not stored in the db
     property_type?: PropertyType
     created_at?: string // TODO: Implement
     last_seen_at?: string // TODO: Implement
@@ -2171,8 +2227,6 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** First day of the week (0 = Sun, 1 = Mon, ...) */
     week_start: number
-
-    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

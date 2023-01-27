@@ -14,6 +14,7 @@ import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonModal } from '../LemonModal'
+import { CSSProperties } from 'react'
 
 interface SaveToDashboardModalProps {
     isOpen: boolean
@@ -28,7 +29,7 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
-    style: React.CSSProperties
+    style: CSSProperties
 }
 
 const DashboardRelationRow = ({
@@ -51,6 +52,7 @@ const DashboardRelationRow = ({
     return (
         <div
             data-attr="dashboard-list-item"
+            /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
             className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
         >
@@ -64,7 +66,13 @@ const DashboardRelationRow = ({
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
-                disabled={!!dashboardWithActiveAPICall || !canEditInsight}
+                disabledReason={
+                    !canEditInsight
+                        ? "You don't have permission to edit this dashboard"
+                        : !!dashboardWithActiveAPICall
+                        ? 'Loading...'
+                        : ''
+                }
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
@@ -117,7 +125,15 @@ export function AddToDashboardModal({
             footer={
                 <>
                     <div className="flex-1">
-                        <LemonButton type="secondary" onClick={addNewDashboard} disabled={!canEditInsight}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={addNewDashboard}
+                            disabledReason={
+                                !canEditInsight
+                                    ? 'You do not have permission to add this Insight to dashboards'
+                                    : undefined
+                            }
+                        >
                             Add to a new dashboard
                         </LemonButton>
                     </div>
@@ -137,9 +153,11 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-muted-alt">
-                    This insight is referenced on <strong className="text-default">{insight.dashboards?.length}</strong>{' '}
-                    {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
+                    This insight is referenced on{' '}
+                    <strong className="text-default">{insight.dashboard_tiles?.length}</strong>{' '}
+                    {pluralize(insight.dashboard_tiles?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ minHeight: 420 }}>
                     <AutoSizer>
                         {({ height, width }) => (

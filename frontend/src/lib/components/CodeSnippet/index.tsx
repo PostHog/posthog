@@ -16,6 +16,7 @@ import json from 'react-syntax-highlighter/dist/esm/languages/prism/json'
 import yaml from 'react-syntax-highlighter/dist/esm/languages/prism/yaml'
 import markup from 'react-syntax-highlighter/dist/esm/languages/prism/markup'
 import http from 'react-syntax-highlighter/dist/esm/languages/prism/http'
+import sql from 'react-syntax-highlighter/dist/esm/languages/prism/sql'
 import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
@@ -43,6 +44,7 @@ export enum Language {
     XML = 'xml',
     HTTP = 'http',
     Markup = 'markup',
+    SQL = 'sql',
 }
 
 SyntaxHighlighter.registerLanguage(Language.Bash, bash)
@@ -63,6 +65,7 @@ SyntaxHighlighter.registerLanguage(Language.HTML, markup)
 SyntaxHighlighter.registerLanguage(Language.XML, markup)
 SyntaxHighlighter.registerLanguage(Language.Markup, markup)
 SyntaxHighlighter.registerLanguage(Language.HTTP, http)
+SyntaxHighlighter.registerLanguage(Language.SQL, sql)
 
 export interface Action {
     icon: React.ReactElement

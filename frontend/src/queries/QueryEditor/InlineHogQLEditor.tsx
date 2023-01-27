@@ -38,6 +38,11 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
             >
                 {value ? 'Update HogQL expression' : 'Add HogQL expression'}
             </LemonButton>
+            <div className="text-right">
+                <a href="https://github.com/PostHog/meta/issues/86" target={'_blank'}>
+                    Learn more about HogQL
+                </a>
+            </div>
         </div>
     )
 }

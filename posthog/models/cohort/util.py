@@ -188,8 +188,10 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, custom_match_field="person_id")
+def format_filter_query(
+    cohort: Cohort, index: int = 0, id_column: str = "distinct_id", custom_match_field="person_id"
+) -> Tuple[str, Dict[str, Any]]:
+    person_query, params = format_cohort_subquery(cohort, index, custom_match_field=custom_match_field)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,

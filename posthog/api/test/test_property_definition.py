@@ -2,8 +2,9 @@ from typing import Dict, List, Optional, Union
 
 from rest_framework import status
 
+from posthog.api.property_definition import PropertyDefinitionQuerySerializer
 from posthog.models import EventDefinition, EventProperty, Organization, PropertyDefinition, Team
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, BaseTest
 
 
 class TestPropertyDefinitionAPI(APIBaseTest):
@@ -143,7 +144,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=p ting")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
-        self.assertEqual(response.json()["results"][0]["is_event_property"], None)
+        self.assertEqual(response.json()["results"][0]["is_seen_on_filtered_events"], None)
         for item in response.json()["results"]:
             self.assertIn(item["name"], ["app_rating"])
 
@@ -161,9 +162,9 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 2, response.json()["results"])
         self.assertEqual(response.json()["results"][0]["name"], "$browser")
-        self.assertEqual(response.json()["results"][0]["is_event_property"], True)
+        self.assertEqual(response.json()["results"][0]["is_seen_on_filtered_events"], True)
         self.assertEqual(response.json()["results"][1]["name"], "$current_url")
-        self.assertEqual(response.json()["results"][1]["is_event_property"], False)
+        self.assertEqual(response.json()["results"][1]["is_seen_on_filtered_events"], False)
 
         # Fuzzy search 2
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=hase%20")
@@ -180,7 +181,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
 
         # specifying the event name doesn't filter the list,
         # instead it checks if the property has been seen with that event
-        # previously it was necessary to _also_ send is_event_property=(true or false) alongside the event name param
+        # previously it was necessary to _also_ send filter_by_event_names=(true or false) alongside the event name param
         response = self.client.get(
             f"/api/projects/{self.team.pk}/property_definitions/?event_names=%5B%22%24pageview%22%5D"
         )
@@ -188,7 +189,7 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         # sort a list of tuples by the first element
 
         assert sorted(
-            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], key=lambda tup: tup[0]
+            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]], key=lambda tup: tup[0]
         ) == [
             ("$browser", True),
             ("$current_url", False),
@@ -200,47 +201,86 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             ("purchase_value", False),
         ]
 
-        # get any properties that have been seen with any event
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_event_property=true")
+        # get any properties that have been seen with $pageview event
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/?event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert sorted(
-            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], key=lambda tup: tup[0]
+            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]], key=lambda tup: tup[0]
         ) == [
             ("$browser", True),
             ("first_visit", True),
-        ]
-
-        # get any properties that have not been seen with any event
-        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_event_property=false")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert sorted(
-            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], key=lambda tup: tup[0]
-        ) == [
-            ("$current_url", False),
-            ("app_rating", False),
-            ("is_first_movie", False),
-            ("plan", False),
-            ("purchase", False),
-            ("purchase_value", False),
         ]
 
         # can combine the filters
         response = self.client.get(
-            "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=true"
+            "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(
-            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], [("first_visit", True)]
+            [(r["name"], r["is_seen_on_filtered_events"]) for r in response.json()["results"]], [("first_visit", True)]
         )
 
-        # and reverse the combination
+    def test_person_property_filter(self):
+        PropertyDefinition.objects.create(
+            team=self.team, name="event property", property_type="String", type=PropertyDefinition.Type.EVENT
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, name="person property", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+        PropertyDefinition.objects.create(
+            team=self.team, name="another", property_type="String", type=PropertyDefinition.Type.PERSON
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["another", "person property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=person&search=prop")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["person property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?search=prop")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["event property"])
+
+    def test_group_property_filter(self):
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="group1 property",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=1,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="group1 another",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=1,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            name="group2 property",
+            property_type="String",
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=2,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["group1 another", "group1 property"])
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group&group_type_index=2")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["group2 property"])
+
         response = self.client.get(
-            "/api/projects/@current/property_definitions/?search=firs&event_names=%5B%22%24pageview%22%5D&is_event_property=false"
+            f"/api/projects/{self.team.pk}/property_definitions/?type=group&search=prop&group_type_index=1"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            [(r["name"], r["is_event_property"]) for r in response.json()["results"]], [("is_first_movie", False)]
-        )
+        self.assertEqual([row["name"] for row in response.json()["results"]], ["group1 property"])
 
     def test_is_feature_flag_property_filter(self):
         PropertyDefinition.objects.create(team=self.team, name="$feature/plan", property_type="String")
@@ -262,3 +302,17 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["name"], "plan")
+
+
+class TestPropertyDefinitionQuerySerializer(BaseTest):
+    def test_validation(self):
+        assert PropertyDefinitionQuerySerializer(data={}).is_valid()
+        assert PropertyDefinitionQuerySerializer(data={"type": "event", "event_names": '["foo","bar"]'}).is_valid()
+        assert PropertyDefinitionQuerySerializer(data={"type": "person"}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "person", "event_names": '["foo","bar"]'}).is_valid()
+
+        assert PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 3}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "group"}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
+        assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
