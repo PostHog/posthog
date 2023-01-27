@@ -362,7 +362,7 @@ class CaptureMiddleware:
             # If we're a multi_tenancy instance, but the host is not posthog.com it's probably a proxy
             # in which case we only want to give access to
             if settings.MULTI_TENANCY and not request.get_host().endswith(".posthog.com"):
-                return redirect("https://app.posthog.com/")
+                return redirect("https://app.posthog.com/", permanent=True)
 
         response = self.get_response(request)
         return response

@@ -63,6 +63,7 @@ class TestUrls(APIBaseTest):
             self.assertRedirects(
                 response,
                 "https://app.posthog.com/",
+                status_code=301,
                 fetch_redirect_response=False,
             )
 
@@ -73,6 +74,7 @@ class TestUrls(APIBaseTest):
             self.assertRedirects(
                 response,
                 "https://app.posthog.com/",
+                status_code=301,
                 fetch_redirect_response=False,
             )
 
