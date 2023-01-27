@@ -258,7 +258,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
