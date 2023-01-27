@@ -19,7 +19,6 @@ from posthog.test.base import (
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    snapshot_postgres_queries,
 )
 
 
@@ -155,7 +154,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()["results"][0]["id"], str(person2.uuid))
         self.assertEqual(response.json()["results"][0]["uuid"], str(person2.uuid))
 
-    @snapshot_postgres_queries
     def test_filter_person_list(self):
 
         person1: Person = _create_person(
@@ -171,7 +169,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
+        with self.assertNumQueries(11):
+            response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
         self.assertEqual(response.json()["results"][0]["id"], str(person1.uuid))
@@ -553,7 +552,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(len(response.content.splitlines()), 2)
 
-    @snapshot_postgres_queries
     def test_pagination_limit(self):
         created_ids = []
 
@@ -570,7 +568,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         create_person(team_id=self.team.pk, version=0)
 
         returned_ids = []
-        response = self.client.get("/api/person/?limit=10").json()
+        with self.assertNumQueries(10):
+            response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
         response = self.client.get(response["next"]).json()
