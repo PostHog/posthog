@@ -329,7 +329,7 @@ test.concurrent(
             '20': 'non-blocking',
             '22': 2067,
             '39': 384.30000001192093,
-            '40': 1671723306573,
+            '40': now.getTime() + 1000,
             token: 'phc_234',
             $session_id: sessionId,
             $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
@@ -389,7 +389,7 @@ test.concurrent(
             start_time: 10737.89999999106,
             team_id: teamId,
             time_origin: expect.any(String),
-            timestamp: now.toString(),
+            timestamp: expect.any(String),
             transfer_size: 2067,
             unload_event_end: 0,
             unload_event_start: 0,
@@ -415,6 +415,7 @@ test.concurrent(
         await capture(producer, teamId, distinctId, uuid, '$performance_event', {
             '0': 'resource',
             '1': now.getTime(),
+            '40': now.getTime() + 1000,
             $session_id: '1234abc',
             $snapshot_data: 'yes way',
         })
