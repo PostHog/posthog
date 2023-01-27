@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Dict, List
 
+from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -140,11 +141,12 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response[0]["name"], "click here")
         self.assertEqual(len(response), 1)
 
+    # checking postgres, don't care about person on events
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_element_stats_postgres_queries_are_as_expected(self) -> None:
         self._setup_events()
 
-        """django session, posthog_user, team, organization_membership, then two person inserts 🤷"""
         self.client.get("/api/element/stats/?paginate_response=true").json()
 
     def test_element_stats_can_filter_by_properties(self) -> None:
