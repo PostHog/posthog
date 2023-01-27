@@ -55,6 +55,27 @@ class TestUrls(APIBaseTest):
         response = self.client.get(f"/login")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_cloud_proxy_redirect(self):
+        with self.settings(MULTI_TENANCY=True):
+            self.client.logout()
+
+            response = self.client.get("/", HTTP_HOST="proxy.somedomain.com")
+            self.assertRedirects(
+                response,
+                "https://app.posthog.com/",
+                fetch_redirect_response=False,
+            )
+
+            response = self.client.get("/", HTTP_HOST="app.posthog.com")
+            self.assertRedirects(response, "/login?next=/", fetch_redirect_response=False)
+
+            response = self.client.get(f"/signup/{uuid.uuid4()}", HTTP_HOST="proxy.someotherdomain.com")
+            self.assertRedirects(
+                response,
+                "https://app.posthog.com/",
+                fetch_redirect_response=False,
+            )
+
     def test_authorize_and_redirect_domain(self):
         self.team.app_urls = ["https://domain.com", "https://not.com"]
         self.team.save()

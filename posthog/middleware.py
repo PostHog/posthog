@@ -9,6 +9,7 @@ from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
+from django.shortcuts import redirect
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware
@@ -357,6 +358,11 @@ class CaptureMiddleware:
                 return response
             finally:
                 reset_query_tags()
+        else:
+            # If we're a multi_tenancy instance, but the host is not posthog.com it's probably a proxy
+            # in which case we only want to give access to
+            if settings.MULTI_TENANCY and not request.get_host().endswith(".posthog.com"):
+                return redirect("https://app.posthog.com/")
 
         response = self.get_response(request)
         return response
