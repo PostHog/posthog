@@ -132,7 +132,7 @@ def query_events_list(
         )
 
 
-def query_events_list_v2(
+def run_events_query(
     team: Team,
     query: EventsQuery,
 ) -> EventsQueryResponse:
