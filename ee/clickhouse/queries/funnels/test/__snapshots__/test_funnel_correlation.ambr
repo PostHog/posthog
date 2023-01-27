@@ -39,7 +39,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(((event = 'user signed up'
                                 AND (has(['val'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))))) , 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
@@ -138,7 +138,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -230,7 +230,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -318,7 +318,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -406,7 +406,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -494,7 +494,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -582,7 +582,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -674,7 +674,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -762,7 +762,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -850,7 +850,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -938,7 +938,7 @@
                  FROM
                    (SELECT e.timestamp as timestamp,
                            pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
+                           pdi.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
