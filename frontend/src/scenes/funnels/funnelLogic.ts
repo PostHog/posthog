@@ -6,6 +6,7 @@ import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/uti
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { funnelLogicType } from './funnelLogicType'
 import {
+    AnyPropertyFilter,
     AvailableFeature,
     BinCountValue,
     BreakdownKeyType,
@@ -32,7 +33,6 @@ import {
     HistogramGraphDatum,
     InsightLogicProps,
     InsightType,
-    PropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     StepOrderValue,
@@ -1508,7 +1508,7 @@ const parseEventAndProperty = (
     event: FunnelCorrelation['event']
 ): {
     name: string
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
 } => {
     const components = event.event.split('::')
     /*

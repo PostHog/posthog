@@ -79,6 +79,33 @@ export function IconSpinner({ monocolor = false, ...props }: LemonIconProps & { 
     )
 }
 
+// material design format-size icon
+export function IconTextSize(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase fill="currentColor" {...props}>
+            <path d="M2 4V7H7V19H10V7H15V4H2M21 9H12V12H15V19H18V12H21V9Z" />
+        </LemonIconBase>
+    )
+}
+
+// material design source-branch icon
+export function IconBranch(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase fill="currentColor" {...props}>
+            <path d="M13,14C9.64,14 8.54,15.35 8.18,16.24C9.25,16.7 10,17.76 10,19A3,3 0 0,1 7,22A3,3 0 0,1 4,19C4,17.69 4.83,16.58 6,16.17V7.83C4.83,7.42 4,6.31 4,5A3,3 0 0,1 7,2A3,3 0 0,1 10,5C10,6.31 9.17,7.42 8,7.83V13.12C8.88,12.47 10.16,12 12,12C14.67,12 15.56,10.66 15.85,9.77C14.77,9.32 14,8.25 14,7A3,3 0 0,1 17,4A3,3 0 0,1 20,7C20,8.34 19.12,9.5 17.91,9.86C17.65,11.29 16.68,14 13,14M7,18A1,1 0 0,0 6,19A1,1 0 0,0 7,20A1,1 0 0,0 8,19A1,1 0 0,0 7,18M7,4A1,1 0 0,0 6,5A1,1 0 0,0 7,6A1,1 0 0,0 8,5A1,1 0 0,0 7,4M17,6A1,1 0 0,0 16,7A1,1 0 0,0 17,8A1,1 0 0,0 18,7A1,1 0 0,0 17,6Z" />
+        </LemonIconBase>
+    )
+}
+
+// material design clipboard-edit-outline
+export function IconClipboardEdit(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase fill="currentColor" {...props}>
+            <path d="M21.04 12.13C21.18 12.13 21.31 12.19 21.42 12.3L22.7 13.58C22.92 13.79 22.92 14.14 22.7 14.35L21.7 15.35L19.65 13.3L20.65 12.3C20.76 12.19 20.9 12.13 21.04 12.13M19.07 13.88L21.12 15.93L15.06 22H13V19.94L19.07 13.88M11 19L9 21H5C3.9 21 3 20.1 3 19V5C3 3.9 3.9 3 5 3H9.18C9.6 1.84 10.7 1 12 1C13.3 1 14.4 1.84 14.82 3H19C20.1 3 21 3.9 21 5V9L19 11V5H17V7H7V5H5V19H11M12 3C11.45 3 11 3.45 11 4C11 4.55 11.45 5 12 5C12.55 5 13 4.55 13 4C13 3.45 12.55 3 12 3Z" />
+        </LemonIconBase>
+    )
+}
+
 export function IconJavascript(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase viewBox="0 0 32 32" fill="currentColor" {...props}>

@@ -146,7 +146,7 @@ export const FEATURE_FLAGS = {
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
 export const POSTHOG_CLOUD_STANDARD_PLAN = LicensePlan.Scale
-export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
+export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>> = {
     [AvailableFeature.ZAPIER]: LicensePlan.Scale,
     [AvailableFeature.ORGANIZATIONS_PROJECTS]: LicensePlan.Scale,
     [AvailableFeature.GOOGLE_LOGIN]: LicensePlan.Scale,

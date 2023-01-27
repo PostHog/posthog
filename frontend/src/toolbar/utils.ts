@@ -6,6 +6,7 @@ import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
 import { finder } from '@medv/finder'
+import wildcardMatch from 'wildcard-match'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -52,13 +53,8 @@ export function elementToQuery(
         return
     }
 
-    console.log('seeking with selectors length', desiredSelectorsLength)
     return finder(element, {
-        attr: (name: string): boolean => {
-            // return true if we want to include the attribute
-            // by default we want to exclude all attributes to avoid leaking PII
-            return denyAllAttributesExceptAllowlist(name, dataAttributes)
-        },
+        attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
         seedMinLength: desiredSelectorsLength, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
     })
 }

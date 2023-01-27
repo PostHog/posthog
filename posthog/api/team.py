@@ -184,7 +184,6 @@ class TeamSerializer(serializers.ModelSerializer):
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
         request.user.save()
-        set_team_in_cache(team.api_token, team)
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:
@@ -197,7 +196,6 @@ class TeamSerializer(serializers.ModelSerializer):
             self._handle_timezone_update(instance)
 
         updated_team = super().update(instance, validated_data)
-        set_team_in_cache(updated_team.api_token, updated_team)
         return updated_team
 
 
@@ -312,7 +310,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team.api_token = generate_random_token_project()
         team.save()
         set_team_in_cache(old_token, None)
-        set_team_in_cache(team.api_token, team)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
