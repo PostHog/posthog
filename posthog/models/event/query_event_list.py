@@ -165,8 +165,7 @@ def query_events_list_v2(
             "event": event,
         }
     )
-    parsedProperties = [p["__root__"] if "__root__" in p else p for p in [p.dict() for p in properties]]
-    filter = Filter(team=team, data={"properties": parsedProperties}, hogql_context=hogql_context)
+    filter = Filter(team=team, data={"properties": [p.dict() for p in properties]}, hogql_context=hogql_context)
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
     )
