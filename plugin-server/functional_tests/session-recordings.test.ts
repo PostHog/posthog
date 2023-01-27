@@ -435,6 +435,7 @@ test.concurrent(
             {
                 '0': 'resource',
                 '1': now.getTime(),
+                '40': now.getTime() + 1000,
                 $session_id: '1234abc',
                 $snapshot_data: 'yes way',
             },
