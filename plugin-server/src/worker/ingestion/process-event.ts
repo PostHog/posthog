@@ -87,57 +87,16 @@ export class EventsProcessor {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
 
-            if (data['event'] === '$snapshot') {
-                if (team.session_recording_opt_in) {
-                    const snapshotEventTimeout = timeoutGuard(
-                        'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
-                        { eventUuid }
-                    )
-                    try {
-                        result = await this.createSessionRecordingEvent(
-                            eventUuid,
-                            teamId,
-                            distinctId,
-                            timestamp,
-                            ip,
-                            properties
-                        )
-                        this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
-                            team_id: teamId.toString(),
-                        })
-                    } finally {
-                        clearTimeout(snapshotEventTimeout)
-                    }
-                }
-            } else if (data['event'] === '$performance_event') {
-                const performanceEventTimeout = timeoutGuard(
-                    'Still running "createPerformanceEvent". Timeout warning after 30 sec!',
-                    {
-                        eventUuid,
-                    }
-                )
-                try {
-                    await this.createPerformanceEvent(eventUuid, teamId, distinctId, timestamp, ip, properties)
-                    // No return value in case of performance events as we don't do further processing on them
-
-                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.performance', singleSaveTimer, {
-                        team_id: teamId.toString(),
-                    })
-                } finally {
-                    clearTimeout(performanceEventTimeout)
-                }
-            } else {
-                const captureTimeout = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', {
-                    eventUuid,
+            const captureTimeout = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', {
+                eventUuid,
+            })
+            try {
+                result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
+                this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
+                    team_id: teamId.toString(),
                 })
-                try {
-                    result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
-                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
-                        team_id: teamId.toString(),
-                    })
-                } finally {
-                    clearTimeout(captureTimeout)
-                }
+            } finally {
+                clearTimeout(captureTimeout)
             }
         } finally {
             clearTimeout(timeout)
@@ -274,36 +233,6 @@ export class EventsProcessor {
         })
 
         return preIngestionEvent
-    }
-
-    private async createSessionRecordingEvent(
-        uuid: string,
-        team_id: number,
-        distinct_id: string,
-        timestamp: DateTime,
-        ip: string | null,
-        properties: Properties
-    ): Promise<PostIngestionEvent> {
-        return await createSessionRecordingEvent(
-            uuid,
-            team_id,
-            distinct_id,
-            timestamp,
-            ip,
-            properties,
-            this.kafkaProducer
-        )
-    }
-
-    private async createPerformanceEvent(
-        uuid: string,
-        team_id: number,
-        distinct_id: string,
-        timestamp: DateTime,
-        ip: string | null,
-        properties: Properties
-    ): Promise<PostIngestionEvent> {
-        return await createPerformanceEvent(uuid, team_id, distinct_id, properties, ip, timestamp, this.kafkaProducer)
     }
 
     private async upsertGroup(teamId: number, properties: Properties, timestamp: DateTime): Promise<void> {
