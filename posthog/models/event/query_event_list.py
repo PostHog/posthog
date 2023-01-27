@@ -109,7 +109,6 @@ def query_events_list(
         if action.steps.count() == 0:
             return []
 
-        # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
         action_query, params = format_action_filter(team_id=team.pk, action=action)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
@@ -179,7 +178,6 @@ def query_events_list_v2(
         if action.steps.count() == 0:
             raise Exception("Action does not have any match groups")
 
-        # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
         action_query, params = format_action_filter(team_id=team.pk, action=action)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
