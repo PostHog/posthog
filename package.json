@@ -252,11 +252,11 @@
     },
     "lint-staged": {
         "*.{json,yaml,yml,css,scss}": "prettier --write",
-        "!(plugin-server)/*.{js,jsx,mjs,ts,tsx}": [
+        "(!(plugin-server)/**).{js,jsx,mjs,ts,tsx}": [
             "eslint -c .eslintrc.js --fix",
             "prettier --write"
         ],
-        "plugin-server/**.{js,jsx,mjs,ts,tsx}": [
+        "(plugin-server/**).{js,jsx,mjs,ts,tsx}": [
             "eslint -c plugin-server/.eslintrc.js --fix",
             "prettier --write"
         ],
