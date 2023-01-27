@@ -5,7 +5,6 @@ import structlog
 from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
-from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -19,14 +18,13 @@ from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
-from posthog.constants import INSIGHT_TRENDS, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import should_ignore_dashboard_items_field
 
 logger = structlog.get_logger(__name__)
 
@@ -73,7 +71,6 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
-    items = serializers.SerializerMethodField()
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
@@ -88,7 +85,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             "id",
             "name",
             "description",
-            "items",
             "pinned",
             "created_at",
             "created_by",
@@ -320,39 +316,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             serialized_tiles.append(tile_data)
 
         return serialized_tiles
-
-    @extend_schema(deprecated=True, description="items is deprecated, use tiles instead")
-    def get_items(self, dashboard: Dashboard):
-        if self.context["view"].action == "list" or should_ignore_dashboard_items_field(self.context["request"]):
-            return None
-
-        # used by insight serializer to load insight filters in correct context
-        self.context.update({"dashboard": dashboard})
-
-        insights = []
-        for tile in dashboard.tiles.all():
-            self.context.update({"dashboard_tile": tile})
-            if tile.insight:
-                insight = tile.insight
-                layouts = tile.layouts
-                # workaround because DashboardTiles layouts were migrated as stringified JSON :/
-                if isinstance(layouts, str):
-                    layouts = json.loads(layouts)
-
-                color = tile.color
-
-                # Make sure all items have an insight set
-                if not insight.filters.get("insight"):
-                    insight.filters["insight"] = INSIGHT_TRENDS
-                    insight.save(update_fields=["filters"])
-
-                self.context.update({"filters_hash": tile.filters_hash})
-                insight_data = InsightSerializer(insight, many=False, context=self.context).data
-                insight_data["layouts"] = layouts
-                insight_data["color"] = color
-                insights.append(insight_data)
-
-        return insights
 
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
         return dashboard.get_effective_privilege_level(self.context["request"].user.id)
