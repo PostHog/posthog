@@ -177,7 +177,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     // for the team that is opted in was ingested and the recording for the team
     // that is opted out was not ingested.
     const tokenOptedOut = uuidv4()
-    const teamOptedInOut = await createTeam(postgres, organizationId, undefined, tokenOptedOut, false)
+    const teamOptedOutId = await createTeam(postgres, organizationId, undefined, tokenOptedOut, false)
     const uuidOptedOut = new UUIDT().toString()
 
     await capture(
