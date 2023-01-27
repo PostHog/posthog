@@ -38,9 +38,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             null as string | null,
             {
                 installTemplateSuccess: () => null,
-                updateTemplateSuccess: () => null,
                 installTemplate: (_, { name }) => name,
-                updateTemplate: (_, { name }) => name,
             },
         ],
         templatesList: [
