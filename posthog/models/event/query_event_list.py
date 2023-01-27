@@ -192,7 +192,7 @@ def run_events_query(
         if action.steps.count() == 0:
             raise Exception("Action does not have any match groups")
 
-        action_query, params = format_action_filter(team_id=team.pk, action=action)
+        action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
