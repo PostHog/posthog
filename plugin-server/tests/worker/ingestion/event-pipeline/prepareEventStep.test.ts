@@ -83,35 +83,4 @@ describe('prepareEventStep()', () => {
         ])
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
-
-    it('produces to kafka and to `runAsyncHandlersStep` for $snapshot events', async () => {
-        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, personContainer)
-
-        expect(response).toEqual([
-            'runAsyncHandlersStep',
-            {
-                distinctId: 'my_id',
-                elementsList: [],
-                event: '$snapshot',
-                eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
-                ip: '127.0.0.1',
-                properties: {
-                    $ip: '127.0.0.1',
-                },
-                teamId: 2,
-                timestamp: '2020-02-23T02:15:00.000Z',
-            },
-            personContainer,
-        ])
-        expect(hub.db.kafkaProducer!.queueMessage).toHaveBeenCalled()
-    })
-
-    it('does not continue if event is ignored', async () => {
-        await hub.db.postgresQuery('UPDATE posthog_team SET session_recording_opt_in = $1', [false], 'testRecordings')
-
-        const response = await prepareEventStep(runner, { ...pluginEvent, event: '$snapshot' }, personContainer)
-
-        expect(response).toEqual(null)
-        expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
-    })
 })

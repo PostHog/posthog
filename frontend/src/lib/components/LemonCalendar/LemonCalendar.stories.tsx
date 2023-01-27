@@ -5,13 +5,16 @@ import { dayjs } from 'lib/dayjs'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
     component: LemonCalendar,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         onClick: {
             defaultValue: (date: dayjs.Dayjs) => {
                 console.log(`Clicked: ${date}`)
             },
         },
+    },
+    parameters: {
+        mockDate: '2023-01-26',
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonCalendar>
 

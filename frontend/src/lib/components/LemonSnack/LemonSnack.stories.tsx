@@ -5,11 +5,13 @@ import { ProfilePicture } from '../ProfilePicture'
 export default {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         children: {
             defaultValue: 'Tasty snacks',
         },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonSnack>
 

@@ -8,9 +8,11 @@ import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 export default {
     title: 'Lemon UI/Lemon Input',
     component: LemonInput,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: { defaultValue: 'Foo' },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonInput>
 

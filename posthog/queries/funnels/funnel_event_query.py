@@ -52,7 +52,7 @@ class FunnelEventQuery(EventQuery):
             if self._should_join_persons:
                 _fields.extend(
                     f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
-                    for column_name in self._person_query.fields
+                    for column_name in sorted(self._person_query.fields)
                 )
 
         _fields = list(filter(None, _fields))

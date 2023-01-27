@@ -3,6 +3,7 @@ from django.test.runner import DiscoverRunner as TestRunner
 from infi.clickhouse_orm import Database
 
 from posthog.clickhouse.schema import (
+    CREATE_DICTIONARY_QUERIES,
     CREATE_DISTRIBUTED_TABLE_QUERIES,
     CREATE_KAFKA_TABLE_QUERIES,
     CREATE_MERGETREE_TABLE_QUERIES,
@@ -53,6 +54,7 @@ class Command(BaseCommand):
         create_clickhouse_schema_in_parallel(CREATE_KAFKA_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_DISTRIBUTED_TABLE_QUERIES)
         create_clickhouse_schema_in_parallel(CREATE_MV_TABLE_QUERIES)
+        create_clickhouse_schema_in_parallel(CREATE_DICTIONARY_QUERIES)
 
 
 def create_clickhouse_schema_in_parallel(queries):

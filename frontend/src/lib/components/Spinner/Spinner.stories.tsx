@@ -6,7 +6,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 export default {
     title: 'Lemon UI/Spinner',
     component: Spinner,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof Spinner>
 
 export function Default(): JSX.Element {
