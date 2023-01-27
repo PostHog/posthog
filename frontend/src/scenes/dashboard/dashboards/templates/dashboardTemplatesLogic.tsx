@@ -34,6 +34,15 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         ],
     }),
     reducers(() => ({
+        templateBeingSaved: [
+            null as string | null,
+            {
+                installTemplateSuccess: () => null,
+                updateTemplateSuccess: () => null,
+                installTemplate: (_, { name }) => name,
+                updateTemplate: (_, { name }) => name,
+            },
+        ],
         templatesList: [
             [] as LemonSelectOption<string>[],
             {
