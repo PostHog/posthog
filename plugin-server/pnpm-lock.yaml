@@ -15,7 +15,7 @@ specifiers:
   '@posthog/clickhouse': ^1.7.0
   '@posthog/piscina': ^3.2.0-posthog
   '@posthog/plugin-contrib': ^0.0.5
-  '@posthog/plugin-scaffold': 1.3.4
+  '@posthog/plugin-scaffold': 1.4.0
   '@sentry/node': ^7.17.4
   '@sentry/tracing': ^7.17.4
   '@sentry/types': ^7.17.4
@@ -105,7 +105,7 @@ dependencies:
   '@posthog/clickhouse': 1.7.0
   '@posthog/piscina': 3.2.0-posthog
   '@posthog/plugin-contrib': 0.0.5
-  '@posthog/plugin-scaffold': 1.3.4
+  '@posthog/plugin-scaffold': 1.4.0
   '@sentry/node': 7.17.4
   '@sentry/tracing': 7.17.4
   '@sentry/utils': 7.17.4
@@ -2399,8 +2399,8 @@ packages:
     resolution: {integrity: sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==}
     dev: false
 
-  /@posthog/plugin-scaffold/1.3.4:
-    resolution: {integrity: sha512-69AC7GA3sU/z5X6SVlH7mgj+0XgolvOp9IUtvRNA4CXF/OglFM81SXbTkURxL9VBSNfdAZxRp+8x+h4rmyj4dw==}
+  /@posthog/plugin-scaffold/1.4.0:
+    resolution: {integrity: sha512-vDSc0ElMeeZkCGRjfIqkzTYZxeL7dOc0osw4wbQ0gLt0N2Csy4H/gHtoj0qum/b90ge3cGcHyHYIwld804mrfg==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
     dev: false

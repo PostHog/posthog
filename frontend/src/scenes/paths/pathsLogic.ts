@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 import type { pathsLogicType } from './pathsLogicType'
-import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType, PathsFilterType } from '~/types'
+import { InsightLogicProps, FilterType, PathType, InsightType, PathsFilterType, AnyPropertyFilter } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isPathsFilter } from 'scenes/insights/sharedUtils'
@@ -58,7 +58,7 @@ export const pathsLogic = kea<pathsLogicType>({
     }),
 
     actions: {
-        setProperties: (properties: PropertyFilter[]) => ({ properties }),
+        setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         setFilter: (filter: Partial<PathsFilterType>) => ({ filter }),
         openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
             props,
