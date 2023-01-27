@@ -214,7 +214,7 @@ def query_events_list_v2(
                 fragment = fragment[1:]
             order_by_list.append(translate_hogql(fragment, hogql_context) + " " + order_direction)
     else:
-        if "count(*)" in select_columns:
+        if "count(*)" in select_columns or "count()" in select_columns:
             order_by_list.append("count() DESC")
         else:
             order_by_list.append(select_columns[0] + " ASC")
