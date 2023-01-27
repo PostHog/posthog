@@ -121,26 +121,10 @@ def test_person_overrides_dict():
         "version": 1,
     }
 
-    sync_execute(
-        """
-        INSERT INTO person_overrides (*)
-        VALUES (
-            {team_id},
-            '{old_person_id}',
-            '{override_person_id}',
-            '{merged_at:%Y-%m-%d %H:%M:%S}',
-            '{oldest_event:%Y-%m-%d %H:%M:%S}',
-            '{created_at:%Y-%m-%d %H:%M:%S}',
-            {version}
-        )
-        """.format(
-            **values
-        )
-    )
-
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
     sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
     results = sync_execute(
-        "SELECT dictGet(person_overrides_dict, 'override_person_id', ({team_id}, '{old_person_id}'))".format(**values)
+        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))", values
     )
 
     assert len(results) == 1
@@ -149,26 +133,10 @@ def test_person_overrides_dict():
     values["version"] = 2
     values["override_person_id"] = uuid4()
 
-    sync_execute(
-        """
-        INSERT INTO person_overrides (*)
-        VALUES (
-            {team_id},
-            '{old_person_id}',
-            '{override_person_id}',
-            '{merged_at:%Y-%m-%d %H:%M:%S}',
-            '{oldest_event:%Y-%m-%d %H:%M:%S}',
-            '{created_at:%Y-%m-%d %H:%M:%S}',
-            {version}
-        )
-        """.format(
-            **values
-        )
-    )
-
+    sync_execute("INSERT INTO person_overrides (*) VALUES", [values])
     sync_execute("SYSTEM RELOAD DICTIONARY person_overrides_dict")
     new_results = sync_execute(
-        "SELECT dictGet(person_overrides_dict, 'override_person_id', ({team_id}, '{old_person_id}'))".format(**values)
+        "SELECT dictGet(person_overrides_dict, 'override_person_id', (%(team_id)s, %(old_person_id)s))", values
     )
 
     assert len(new_results) == 1
