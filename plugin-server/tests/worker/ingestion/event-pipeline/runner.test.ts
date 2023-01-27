@@ -1,44 +1,35 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
-import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/1-populateTeamDataStep'
-import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/2-emitToBufferStep'
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
-import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/4-processPersonsStep'
-import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/6-createEventStep'
-import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep'
-import {
-    EventPipelineRunner,
-    EventPipelineStepsType,
-    StepParameters,
-    StepResult,
-    StepType,
-} from '../../../../src/worker/ingestion/event-pipeline/runner'
+import { ISOTimestamp, Person, PipelineEvent, PreIngestionEvent } from '../../../../src/types'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
+import { emitToBufferStep } from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
+import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
+import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
+import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
+import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep'
+import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/ingestion/utils'
 
 jest.mock('../../../../src/utils/status')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/1-populateTeamDataStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/2-emitToBufferStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/4-processPersonsStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/5-prepareEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/6-createEventStep')
-jest.mock('../../../../src/worker/ingestion/event-pipeline/7-runAsyncHandlersStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/emitToBufferStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/processPersonsStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/prepareEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/createEventStep')
+jest.mock('../../../../src/worker/ingestion/event-pipeline/runAsyncHandlersStep')
 jest.mock('../../../../src/worker/ingestion/utils')
 
 class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
-        name: Step,
-        ...args: ArgsType
-    ): Promise<StepResult> {
-        this.steps.push(name)
-        this.stepsWithArgs.push([name, args])
-        return super.runStep(name, ...args)
+    protected runStep(step, ...args) {
+        this.steps.push(step.name)
+        this.stepsWithArgs.push([step.name, args])
+        return super.runStep(step.name, ...args)
     }
 }
 
@@ -72,7 +63,7 @@ const preIngestionEvent: PreIngestionEvent = {
     distinctId: 'my_id',
     ip: '127.0.0.1',
     teamId: 2,
-    timestamp: DateTime.fromISO('2020-02-23T02:15:00.000Z', { zone: 'utc' }),
+    timestamp: '2020-02-23T02:15:00.000Z' as ISOTimestamp,
     event: '$pageview',
     properties: {},
     elementsList: [],
@@ -108,18 +99,12 @@ describe('EventPipelineRunner', () => {
         }
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
-        jest.mocked(populateTeamDataStep).mockResolvedValue(['emitToBufferStep', [pluginEvent]])
-        jest.mocked(emitToBufferStep).mockResolvedValue(['pluginsProcessEventStep', [pluginEvent, person]])
-        jest.mocked(pluginsProcessEventStep).mockResolvedValue([
-            'processPersonsStep',
-            [pluginEvent, { person, personUpdateProperties: {} }],
-        ])
-        jest.mocked(processPersonsStep).mockResolvedValue([
-            'prepareEventStep',
-            [pluginEvent, { person, personUpdateProperties: {} }],
-        ])
-        jest.mocked(prepareEventStep).mockResolvedValue(['createEventStep', [preIngestionEvent]])
-        jest.mocked(createEventStep).mockResolvedValue(['runAsyncHandlersStep', [preIngestionEvent]])
+        jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
+        jest.mocked(emitToBufferStep).mockResolvedValue(pluginEvent)
+        jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
+        jest.mocked(processPersonsStep).mockResolvedValue([pluginEvent, { person, personUpdateProperties: {} } as any])
+        jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
+        jest.mocked(createEventStep).mockResolvedValue(null)
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 

@@ -1,6 +1,6 @@
 import { PipelineEvent, Team } from '../../../../src/types'
 import { UUIDT } from '../../../../src/utils/utils'
-import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/1-populateTeamDataStep'
+import { populateTeamDataStep } from '../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep'
 
 const pipelineEvent: PipelineEvent = {
     event: '$pageview',

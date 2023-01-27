@@ -1,4 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import assert from 'assert'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
 
@@ -19,8 +20,8 @@ describe('Event Pipeline integration test', () => {
 
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
-        const result = await runner.runEventPipeline(event)
-        const resultEvent = result.args[0]
+        const resultEvent = await runner.runEventPipeline(event)
+        assert(resultEvent)
         return runner.runAsyncHandlersEventPipeline(resultEvent)
     }
 

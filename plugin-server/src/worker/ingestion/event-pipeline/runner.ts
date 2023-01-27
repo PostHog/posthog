@@ -2,7 +2,7 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { runInSpan } from '../../../sentry'
-import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
+import { Hub, PipelineEvent, PostIngestionEvent, PreIngestionEvent } from '../../../types'
 import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
@@ -41,26 +41,33 @@ export class EventPipelineRunner {
     // KLUDGE: This is a temporary entry point for the pipeline while we transition away from
     // hitting Postgres in the capture endpoint. Eventually the entire pipeline should
     // follow this route and we can rename it to just be `runEventPipeline`.
-    async runLightweightCaptureEndpointEventPipeline(event: PipelineEvent) {
+    async runLightweightCaptureEndpointEventPipeline(
+        event: PipelineEvent
+    ): Promise<PreIngestionEvent | null | undefined> {
         this.hub.statsd?.increment('kafka_queue.lightweight_capture_endpoint_event_pipeline.start', {
             pipeline: 'lightweight_capture',
         })
 
+        let result: PreIngestionEvent | null | undefined = null
+
         const eventWithTeam = await this.runStep(populateTeamDataStep, this, event)
         if (eventWithTeam != null) {
-            return await this.runEventPipeline(eventWithTeam)
+            result = await this.runEventPipeline(eventWithTeam)
         }
 
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+
+        return result
     }
 
-    async runEventPipeline(event: PluginEvent) {
+    async runEventPipeline(event: PluginEvent): Promise<PostIngestionEvent | null | undefined> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-        await this.runEventPipelineSteps(event)
+        const result = await this.runEventPipelineSteps(event)
         this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
     }
 
-    async runEventPipelineSteps(event: PluginEvent) {
+    async runEventPipelineSteps(event: PluginEvent): Promise<PostIngestionEvent | null | undefined> {
         const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
         const bufferResultEvent = await this.runStep(emitToBufferStep, this, event, personContainer)
         if (bufferResultEvent != null) {
@@ -82,7 +89,7 @@ export class EventPipelineRunner {
         }
     }
 
-    async runBufferEventPipeline(event: PluginEvent) {
+    async runBufferEventPipeline(event: PluginEvent): Promise<PreIngestionEvent | null | undefined> {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
         const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
         // We fetch person and check for existence for metrics for buffer efficiency
