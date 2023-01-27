@@ -100,8 +100,8 @@ export function PayGateMini({
         }
     }
 
-    if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
-        return null // Don't show anything if paid features are explicitly disabled
+    if ((gateVariant && preflight?.instance_preferences?.disable_paid_fs) || !planRequired) {
+        return null // Don't show anything if paid features are explicitly disabled or if the feature doesn't have a minimum plan
     }
 
     return gateVariant ? (

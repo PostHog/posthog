@@ -23,6 +23,7 @@ from posthog.models.performance.sql import (
 from posthog.models.person.sql import *
 from posthog.models.person_overrides.sql import (
     KAFKA_PERSON_OVERRIDES_TABLE_SQL,
+    PERSON_OVERRIDES_CREATE_DICTIONARY_SQL,
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     PERSON_OVERRIDES_CREATE_TABLE_SQL,
 )
@@ -89,6 +90,8 @@ CREATE_TABLE_QUERIES = (
     + CREATE_KAFKA_TABLE_QUERIES
     + CREATE_MV_TABLE_QUERIES
 )
+
+CREATE_DICTIONARY_QUERIES = (PERSON_OVERRIDES_CREATE_DICTIONARY_SQL,)
 
 build_query = lambda query: query if isinstance(query, str) else query()
 get_table_name = lambda query: re.findall(r"[\.\s]`?([a-z0-9_]+)`?\s+ON CLUSTER", build_query(query))[0]

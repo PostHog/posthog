@@ -962,10 +962,6 @@ def should_refresh(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
 
 
-def should_ignore_dashboard_items_field(request: Request) -> bool:
-    return _request_has_key_set("no_items_field", request)
-
-
 def _request_has_key_set(key: str, request: Request) -> bool:
     query_param = request.query_params.get(key)
     data_value = request.data.get(key)

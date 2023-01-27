@@ -10,7 +10,6 @@ export default {
     title: 'Queries/DataTable',
     component: Query,
     parameters: {
-        chromatic: { disableSnapshot: false },
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',

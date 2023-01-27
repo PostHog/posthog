@@ -6,10 +6,10 @@ import type { eventsTableLogicType } from './eventsTableLogicType'
 import { FixedFilters } from 'scenes/events/EventsTable'
 import {
     AnyPropertyFilter,
+    EmptyPropertyFilter,
     EventsTableRowItem,
     EventType,
     ExporterFormat,
-    PropertyFilter,
     PropertyGroupFilter,
 } from '~/types'
 import { teamLogic } from '../teamLogic'
@@ -94,12 +94,12 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             // this action normalises them
             if (Array.isArray(properties)) {
                 if (properties.length === 0) {
-                    return { properties: [{}] }
+                    return { properties: [{} as EmptyPropertyFilter] }
                 } else {
                     return { properties }
                 }
             } else {
-                return { properties: [properties as AnyPropertyFilter] }
+                return { properties: [properties as EmptyPropertyFilter] }
             }
         },
         fetchEvents: (
@@ -133,9 +133,10 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             },
         ],
         properties: [
-            [] as PropertyFilter[],
+            [] as AnyPropertyFilter[],
             {
-                setProperties: (_, { properties }) => convertPropertyGroupToProperties(properties) as PropertyFilter[],
+                setProperties: (_, { properties }) =>
+                    convertPropertyGroupToProperties(properties) as AnyPropertyFilter[],
             },
         ],
         eventFilter: [

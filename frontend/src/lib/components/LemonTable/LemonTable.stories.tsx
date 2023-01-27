@@ -4,7 +4,9 @@ import { LemonTable, LemonTableProps } from './LemonTable'
 export default {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable,
-    parameters: { chromatic: { disableSnapshot: false } },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonTable>
 
 interface MockPerson {

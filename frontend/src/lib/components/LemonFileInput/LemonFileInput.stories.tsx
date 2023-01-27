@@ -5,10 +5,12 @@ import { createRef, useState } from 'react'
 export default {
     title: 'Lemon UI/Lemon File Input',
     component: LemonFileInput,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         loading: { type: 'boolean', defaultValue: false },
         accept: { type: 'string', defaultValue: '.json' },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonFileInput>
 

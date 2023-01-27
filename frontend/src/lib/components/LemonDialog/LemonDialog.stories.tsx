@@ -2,7 +2,6 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonDialog, LemonDialogProps } from './LemonDialog'
 import { LemonButton } from '../LemonButton'
 import { Link } from '@posthog/lemon-ui'
-import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export default {
     title: 'Lemon UI/Lemon Dialog',
@@ -53,15 +52,9 @@ export const Template: ComponentStory<typeof LemonDialog> = (props: LemonDialogP
             <div className="bg-default p-4">
                 <LemonDialog {...props} inline />
             </div>
-
             <LemonButton type="primary" onClick={() => onClick()} className="mx-auto mt-2">
-                Open as Dialog
+                Open as modal
             </LemonButton>
-
-            <h3>Usage</h3>
-            <CodeSnippet language={Language.JavaScript}>
-                {`LemonDialog.open(${JSON.stringify(props, null, 2)})`}
-            </CodeSnippet>
         </div>
     )
 }

@@ -20,29 +20,17 @@ export async function emitToBufferStep(
 
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
-    if (['$snapshot', '$performance_event'].includes(event.event)) {
-        return runner.nextStep('processPersonsStep', event, personContainer)
-    }
-
     if (
-        process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ||
-        process.env.DELAY_ALL_EVENTS_FOR_TEAMS?.split(',').includes(event.team_id.toString())
+        process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ||
+        process.env.POE_EMBRACE_JOIN_FOR_TEAMS?.split(',').includes(event.team_id.toString())
     ) {
-        // If we're delaying all events for this team, we don't want to run the
-        // complete pipeline on the event on the first pass, but rather just
-        // create a person and/or add new distinct_id, person_id pairs, then
-        // pass the event to the buffer for complete processing later.
+        // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
+        // We're not using the buffer anymore
+        // instead we'll (if within timeframe) merge into the newer personId
 
-        // To communicate to the rest of the pipeline the difference of
-        // behavior we use the `fullyProcessEvent` flag on the runner, which
-        // should be available to all further steps.
-
-        // NOTE: we run in this step but we could have added a step, but I
-        // didn't want to add more steps then there already are.
-
-        // TODO: remove this conditional once we're confident that the new
+        // TODO: remove this step and runner env once we're confident that the new
         // ingestion pipeline is working well for all teams.
-        runner.onlyUpdatePersonIdAssociations = true
+        runner.poEEmbraceJoin = true
         return runner.nextStep('pluginsProcessEventStep', event, personContainer)
     }
 

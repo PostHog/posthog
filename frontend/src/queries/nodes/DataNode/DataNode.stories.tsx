@@ -9,7 +9,6 @@ export default {
     title: 'Queries/DataNode',
     component: QueryRunner,
     parameters: {
-        chromatic: { disableSnapshot: false },
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
