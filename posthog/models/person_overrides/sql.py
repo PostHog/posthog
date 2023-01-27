@@ -146,23 +146,12 @@ GET_LATEST_PERSON_OVERRIDE_ID_SQL = f"""
 SELECT
     team_id,
     old_person_id,
-    override_person_id
+    argMax(override_person_id, version)
 FROM
     `{CLICKHOUSE_DATABASE}`.`person_overrides` AS overrides
-JOIN (
-    SELECT
-        team_id,
-        old_person_id,
-        max(version) AS max_version
-    FROM `{CLICKHOUSE_DATABASE}`.`person_overrides`
-    GROUP BY
-        team_id,
-        old_person_id
-) AS latest
-ON
-    latest.team_id = overrides.team_id
-    AND latest.old_person_id = overrides.old_person_id
-    AND latest.max_version = overrides.version
+GROUP BY
+    team_id,
+    old_person_id
 """
 
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
