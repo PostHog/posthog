@@ -16,7 +16,7 @@ export async function emitToBufferStep(
         person: IngestionPersonData | undefined,
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
-) {
+): Promise<PluginEvent | null> {
     status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
 
     if (

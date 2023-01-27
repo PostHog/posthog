@@ -10,7 +10,7 @@ export async function processPersonsStep(
     runner: EventPipelineRunner,
     pluginEvent: PluginEvent,
     personContainer: LazyPersonContainer
-) {
+): Promise<[PluginEvent, LazyPersonContainer]> {
     const event = normalizeEvent(pluginEvent)
 
     const timestamp = parseEventTimestamp(event)
@@ -27,5 +27,5 @@ export async function processPersonsStep(
         personContainer
     )
 
-    return [event, newPersonContainer] as const
+    return [event, newPersonContainer]
 }

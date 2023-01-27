@@ -4,7 +4,10 @@ import { runInstrumentedFunction } from '../../../main/utils'
 import { runProcessEvent } from '../../plugins/run'
 import { EventPipelineRunner } from './runner'
 
-export async function pluginsProcessEventStep(runner: EventPipelineRunner, event: PluginEvent) {
+export async function pluginsProcessEventStep(
+    runner: EventPipelineRunner,
+    event: PluginEvent
+): Promise<PluginEvent | null> {
     const processedEvent = await runInstrumentedFunction({
         server: runner.hub,
         event,

@@ -10,7 +10,10 @@ the capture endpoint will have handled this process. This is
 temporary as this step will become the default for all events
 when we fully remove this functionality from the capture endpoint.
 */
-export async function populateTeamDataStep(runner: EventPipelineRunner, event: PipelineEvent) {
+export async function populateTeamDataStep(
+    runner: EventPipelineRunner,
+    event: PipelineEvent
+): Promise<PluginEvent | null> {
     if (!event.token) {
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'false' })
         return null
