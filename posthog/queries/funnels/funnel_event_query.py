@@ -32,13 +32,7 @@ class FunnelEventQuery(EventQuery):
         )
 
         _fields = [
-            f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",
-            (
-                f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
-                if self._column_optimizer.should_query_elements_chain_column
-                else ""
-            ),
             f"{aggregation_target} as aggregation_target",
         ]
 
