@@ -3,13 +3,13 @@ import { Element, PostIngestionEvent } from '../../../types'
 import { convertToProcessedPluginEvent } from '../../../utils/event'
 import { runOnEvent } from '../../plugins/run'
 import { LazyPersonContainer } from '../lazy-person-container'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner } from './runner'
 
 export async function runAsyncHandlersStep(
     runner: EventPipelineRunner,
     event: PostIngestionEvent,
     personContainer: LazyPersonContainer
-): Promise<StepResult> {
+) {
     await Promise.all([
         processOnEvent(runner, event),
         processWebhooks(runner, event, personContainer, event.elementsList),

@@ -2,14 +2,9 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { runInstrumentedFunction } from '../../../main/utils'
 import { runProcessEvent } from '../../plugins/run'
-import { LazyPersonContainer } from '../lazy-person-container'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner } from './runner'
 
-export async function pluginsProcessEventStep(
-    runner: EventPipelineRunner,
-    event: PluginEvent,
-    personContainer: LazyPersonContainer
-): Promise<StepResult> {
+export async function pluginsProcessEventStep(runner: EventPipelineRunner, event: PluginEvent) {
     const processedEvent = await runInstrumentedFunction({
         server: runner.hub,
         event,
@@ -19,7 +14,7 @@ export async function pluginsProcessEventStep(
     })
 
     if (processedEvent) {
-        return runner.nextStep('processPersonsStep', processedEvent, personContainer)
+        return processedEvent
     } else {
         // processEvent might not return an event. This is expected and plugins, e.g. downsample plugin uses it.
         runner.hub.statsd?.increment('kafka_queue.dropped_event', {

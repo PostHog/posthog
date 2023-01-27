@@ -4,21 +4,20 @@ import { KAFKA_BUFFER } from '../../../config/kafka-topics'
 import { Hub, IngestionPersonData, TeamId } from '../../../types'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner } from './runner'
 
 export async function emitToBufferStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
+    personContainer: LazyPersonContainer,
     shouldBuffer: (
         hub: Hub,
         event: PluginEvent,
         person: IngestionPersonData | undefined,
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
-): Promise<StepResult> {
+) {
     status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
-
-    const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (
         process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ||
@@ -31,7 +30,7 @@ export async function emitToBufferStep(
         // TODO: remove this step and runner env once we're confident that the new
         // ingestion pipeline is working well for all teams.
         runner.poEEmbraceJoin = true
-        return runner.nextStep('pluginsProcessEventStep', event, personContainer)
+        return event
     }
 
     const person = await personContainer.get()
@@ -69,7 +68,7 @@ export async function emitToBufferStep(
         runner.hub.statsd?.increment('events_sent_to_buffer')
         return null
     } else {
-        return runner.nextStep('pluginsProcessEventStep', event, personContainer)
+        return event
     }
 }
 
