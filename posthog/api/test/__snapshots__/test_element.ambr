@@ -106,7 +106,7 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-01-27T00:35:18.541675+00:00'::timestamptz /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  WHERE "ee_license"."valid_until" >= '2023-01-27T01:08:14.093598+00:00'::timestamptz /*controller='element-stats',route='api/element/stats/%3F%24'*/
   '
 ---
 # name: TestElement.test_element_stats_postgres_queries_are_as_expected.4
