@@ -4,7 +4,6 @@ from typing import Any, Dict, Optional
 
 from rest_framework import request
 
-from posthog.hogql.hogql import HogQLContext
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.hogql import HogQLParamMixin
 from posthog.models.utils import sane_repr
@@ -16,7 +15,6 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
         self,
         data: Optional[Dict[str, Any]] = None,
         request: Optional[request.Request] = None,
-        hogql_context: Optional[HogQLContext] = None,
         **kwargs,
     ) -> None:
         if request:
@@ -24,7 +22,6 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
         elif not data:
             raise ValueError("You need to define either a data dict or a request")
         self._data = data
-        self.hogql_context = hogql_context or HogQLContext()
         self.kwargs = kwargs
         if kwargs.get("team"):
             self.team = kwargs["team"]
@@ -50,7 +47,7 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
 
     def with_data(self, overrides: Dict[str, Any]):
         "Allow making copy of filter whilst preserving the class"
-        return type(self)(data={**self._data, **overrides}, hogql_context=self.hogql_context, **self.kwargs)
+        return type(self)(data={**self._data, **overrides}, **{**self.kwargs, "hogql_context": self.hogql_context})
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

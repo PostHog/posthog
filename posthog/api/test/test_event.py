@@ -46,7 +46,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
@@ -61,9 +61,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         _create_event(event="another event", team=self.team, distinct_id="2", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
-        expected_queries = (
-            10  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id, 4x license
-        )
+        expected_queries = 9  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id, 3x PoE check
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?event=event_name").json()
@@ -77,7 +75,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?properties=%s"
                 % (json.dumps([{"key": "$browser", "value": "Safari"}]))

@@ -5,7 +5,6 @@ from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
-from posthog.hogql.hogql import HogQLContext
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
@@ -100,11 +99,11 @@ class Filter(
 
     funnel_id: Optional[int] = None
     _data: Dict
+    kwargs: Dict
 
     def __init__(
         self,
         data: Optional[Dict[str, Any]] = None,
-        hogql_context: Optional[HogQLContext] = None,
         request: Optional[request.Request] = None,
         **kwargs,
     ) -> None:
@@ -125,10 +124,8 @@ class Filter(
 
         self._data = data
         self.kwargs = kwargs
-        self.hogql_context = hogql_context or HogQLContext()
         if "team" in kwargs:
             self.team = kwargs["team"]
-            self.hogql_context.using_person_on_events = kwargs["team"].person_on_events_querying_enabled
             if not self.is_simplified:
                 simplified_filter = self.simplify(kwargs["team"])
                 self._data = simplified_filter._data
