@@ -304,6 +304,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "derived_name",
                 "favorited",
                 "filters",
+                "query",
                 "dashboards",
                 "dashboard_tiles",
                 "description",

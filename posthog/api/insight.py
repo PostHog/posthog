@@ -14,7 +14,8 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -22,6 +23,7 @@ from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -110,6 +112,19 @@ def log_insight_activity(
         )
 
 
+class QuerySchemaParser(JSONParser):
+    def parse(self, stream, media_type=None, parser_context=None):
+        data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
+        try:
+            query = data.get("query", None)
+            if query:
+                schema.Model.parse_obj(query)
+        except Exception as error:
+            raise ParseError(detail=str(error))
+        else:
+            return data
+
+
 class DashboardTileBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = DashboardTile
@@ -132,6 +147,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "name",
             "derived_name",
             "filters",
+            "query",
             "dashboards",
             "dashboard_tiles",
             "description",
@@ -160,6 +176,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         if not filters.get("date_from"):
             filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
+
         return representation
 
     @lru_cache(maxsize=1)
@@ -199,6 +216,7 @@ class InsightSerializer(InsightBasicSerializer):
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
     """,
     )
+    query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
 
     class Meta:
         model = Insight
@@ -208,6 +226,7 @@ class InsightSerializer(InsightBasicSerializer):
             "name",
             "derived_name",
             "filters",
+            "query",
             "order",
             "deleted",
             "dashboards",
@@ -480,6 +499,8 @@ class InsightViewSet(
     stickiness_query_class = Stickiness
     paths_query_class = Paths
 
+    parser_classes = (QuerySchemaParser,)
+
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -516,6 +537,8 @@ class InsightViewSet(
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
+            # exclude insights that have a query but no filters (for now)
+            queryset = queryset.exclude(filters={})
 
         order = self.request.GET.get("order", None)
         if order:
