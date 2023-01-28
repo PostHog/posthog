@@ -49,7 +49,7 @@ export function InfoWindow(): JSX.Element | null {
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = windowHeight - rect.top + 10 - window.pageYOffset
+        bottom = windowHeight - rect.top + 10 - window.pageYOffset - relativePositionCompensation
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow
