@@ -41,7 +41,7 @@ describe('pluginsProcessEventStep()', () => {
 
         const response = await pluginsProcessEventStep(runner, pluginEvent, personContainer)
 
-        expect(response).toEqual(['processPersonsStep', processedEvent, personContainer])
+        expect(response).toEqual(processedEvent)
     })
 
     it('does not forward but counts dropped events by plugins', async () => {
