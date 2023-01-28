@@ -15,6 +15,17 @@ import { collectAllElementsDeep } from 'query-selector-shadow-dom'
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
 
+function debounce<F extends (...args: Parameters<F>) => ReturnType<F>>(
+    func: F,
+    waitFor: number
+): (...args: Parameters<F>) => void {
+    let timeout: ReturnType<typeof setTimeout>
+    return (...args: Parameters<F>): void => {
+        clearTimeout(timeout)
+        timeout = setTimeout(() => func(...args), waitFor)
+    }
+}
+
 export const elementsLogic = kea<elementsLogicType>({
     path: ['toolbar', 'elements', 'elementsLogic'],
     actions: {
@@ -325,7 +336,7 @@ export const elementsLogic = kea<elementsLogicType>({
 
     events: ({ cache, values, actions }) => ({
         afterMount: () => {
-            cache.updateRelativePosition = () => {
+            cache.updateRelativePosition = debounce(() => {
                 const relativePositionCompensation =
                     window.getComputedStyle(document.body).position === 'relative'
                         ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
@@ -333,7 +344,7 @@ export const elementsLogic = kea<elementsLogicType>({
                 if (relativePositionCompensation !== values.relativePositionCompensation) {
                     actions.setRelativePositionCompensation(relativePositionCompensation)
                 }
-            }
+            }, 100)
             cache.onClick = () => actions.updateRects()
             cache.onScrollResize = () => {
                 window.clearTimeout(cache.clickDelayTimeout)
