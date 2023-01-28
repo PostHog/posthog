@@ -28,6 +28,8 @@ export const elementsLogic = kea<elementsLogicType>({
         setHoverElement: (element: HTMLElement | null) => ({ element }),
         setHighlightElement: (element: HTMLElement | null) => ({ element }),
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
+
+        setRelativePositionCompensation: (compensation: number) => ({ compensation }),
     },
 
     reducers: () => ({
@@ -81,6 +83,12 @@ export const elementsLogic = kea<elementsLogicType>({
                 // keep track of what to disable first with ESC
                 enableInspect: () => 'inspect',
                 [heatmapLogic.actionTypes.enableHeatmap]: () => 'heatmap',
+            },
+        ],
+        relativePositionCompensation: [
+            0,
+            {
+                setRelativePositionCompensation: (_, { compensation }) => compensation,
             },
         ],
     }),
@@ -137,6 +145,7 @@ export const elementsLogic = kea<elementsLogicType>({
                             })
                         }
                     })
+                    return steps
                 }
                 return [] as ElementWithMetadata[]
             },
@@ -316,11 +325,21 @@ export const elementsLogic = kea<elementsLogicType>({
 
     events: ({ cache, values, actions }) => ({
         afterMount: () => {
+            cache.updateRelativePosition = () => {
+                const relativePositionCompensation =
+                    window.getComputedStyle(document.body).position === 'relative'
+                        ? document.documentElement.getBoundingClientRect().y - document.body.getBoundingClientRect().y
+                        : 0
+                if (relativePositionCompensation !== values.relativePositionCompensation) {
+                    actions.setRelativePositionCompensation(relativePositionCompensation)
+                }
+            }
             cache.onClick = () => actions.updateRects()
             cache.onScrollResize = () => {
                 window.clearTimeout(cache.clickDelayTimeout)
                 actions.updateRects()
                 cache.clickDelayTimeout = window.setTimeout(actions.updateRects, 100)
+                cache.updateRelativePosition()
             }
             cache.onKeyDown = (e: KeyboardEvent) => {
                 if (e.keyCode !== 27) {
@@ -350,6 +369,7 @@ export const elementsLogic = kea<elementsLogicType>({
             window.addEventListener('resize', cache.onScrollResize)
             window.addEventListener('keydown', cache.onKeyDown)
             window.document.addEventListener('scroll', cache.onScrollResize, true)
+            cache.updateRelativePosition()
         },
         beforeUnmount: () => {
             window.removeEventListener('click', cache.onClick)
