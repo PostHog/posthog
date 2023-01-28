@@ -205,7 +205,7 @@ export class EventPipelineRunner {
 
     private async handleError(err: any, currentStepName: string, currentArgs: any) {
         const serializedArgs = currentArgs.map((arg: any) => this.serialize(arg))
-        status.error('🔔', err)
+        status.error('🔔', 'step_failed', { currentStepName, err })
         Sentry.captureException(err, { extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
