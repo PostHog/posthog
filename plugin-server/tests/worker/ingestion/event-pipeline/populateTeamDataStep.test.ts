@@ -52,13 +52,13 @@ describe('populateTeamDataStep()', () => {
     it('event with a valid token gets assigned a team_id keeps its ip', async () => {
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: undefined })
 
-        expect(response).toEqual(['emitToBufferStep', { ...defaultResultEvent, team_id: 2, ip: '127.0.0.1' }])
+        expect(response).toEqual({ ...defaultResultEvent, team_id: 2, ip: '127.0.0.1' })
     })
 
     it('event with a valid token for a team with anonymize_ips=true gets its ip set to null', async () => {
         jest.mocked(runner.hub.teamManager.getTeamByToken).mockReturnValue({ ...team, anonymize_ips: true })
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: undefined })
 
-        expect(response).toEqual(['emitToBufferStep', { ...defaultResultEvent, team_id: 2, ip: null }])
+        expect(response).toEqual({ ...defaultResultEvent, team_id: 2, ip: null })
     })
 })

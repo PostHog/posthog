@@ -103,7 +103,7 @@ describe('emitToBufferStep()', () => {
     it('calls `pluginsProcessEventStep` next if not buffering', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => false)
 
-        expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, expect.any(LazyPersonContainer)])
+        expect(response).toEqual([pluginEvent, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(runner.hub.graphileWorker.enqueue).not.toHaveBeenCalled()
     })
