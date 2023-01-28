@@ -171,7 +171,10 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 task: 'runAsyncHandlersEventPipeline',
                 args: { event },
             })
-        ).resolves.toEqual(null)
+        ).resolves.toEqual({
+            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
+            lastStep: 'runAsyncHandlersStep',
+        })
 
         // Ensure the retry call is made.
         jest.runOnlyPendingTimers()
@@ -214,7 +217,10 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 task: 'runAsyncHandlersEventPipeline',
                 args: { event },
             })
-        ).resolves.toEqual(null)
+        ).resolves.toEqual({
+            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
+            lastStep: 'runAsyncHandlersStep',
+        })
     })
 })
 

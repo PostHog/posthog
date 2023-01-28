@@ -143,17 +143,10 @@ export class EventPipelineRunner {
             const preparedEvent = await this.runStep(prepareEventStep, this, normalizedEvent)
 
             await this.runStep(createEventStep, this, preparedEvent, newPersonContainer)
-            return this.registerLastStep('createEventStep', event.team_id, [preparedEvent])
+            return this.registerLastStep('createEventStep', event.team_id, [preparedEvent, newPersonContainer])
         } else {
             return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
         }
-    }
-    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-            step: stepName,
-            team_id: new String(teamId).toString(),
-        })
-        return { lastStep: stepName, args: args }
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
@@ -162,7 +155,7 @@ export class EventPipelineRunner {
             const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
             await this.runStep(runAsyncHandlersStep, this, event, personContainer)
             this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
-            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event])
+            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event, personContainer])
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 // If this is an error with a dependency that we control, we want to
@@ -173,6 +166,14 @@ export class EventPipelineRunner {
 
             return { lastStep: error.step, args: [], error: error.message }
         }
+    }
+
+    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
+            step: stepName,
+            team_id: new String(teamId).toString(),
+        })
+        return { lastStep: stepName, args: args.map((arg) => this.serialize(arg)) }
     }
 
     protected runStep<Step extends (...args: any[]) => any>(step: Step, ...args: Parameters<Step>): ReturnType<Step> {
