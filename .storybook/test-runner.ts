@@ -71,15 +71,21 @@ module.exports = {
                 // You'd expect that the 'load' @storybook/test-runner waits for would already mean the story is ready,
                 // and definitely that 'networkidle' would indicate all assets to be ready. But that's not the case,
                 // so we need to introduce a bit of a delay
-                await page.waitForTimeout(1000)
+                await page.waitForTimeout(2000)
                 await expectStoryToMatchSnapshot(page, context) // Don't retry when updating
             } else {
                 try {
                     await expectStoryToMatchSnapshot(page, context) // Run check immediately after render
                 } catch {
-                    await page.waitForTimeout(1000) // Retry a moment later in case something failed to load in time
-                    await expectStoryToMatchSnapshot(page, context) // Run check again
-                    console.warn('Flaky test warning - this snapshot only matched after a retry')
+                    try {
+                        await page.waitForTimeout(1000) // Retry a moment later in case something failed to load in time
+                        await expectStoryToMatchSnapshot(page, context) // Run check again
+                        console.warn('Flaky test warning - this snapshot only matched after a retry')
+                    } catch {
+                        await page.waitForTimeout(1000)
+                        await expectStoryToMatchSnapshot(page, context)
+                        console.warn('Flaky test warning - this snapshot only matched after two retries')
+                    }
                 }
             }
         }
