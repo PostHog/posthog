@@ -26,7 +26,10 @@ export function InfoWindow(): JSX.Element | null {
 
     const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
     const windowHeight = Math.min(document.documentElement.clientHeight, window.innerHeight)
-    const positioningHeight = document.documentElement.offsetHeight
+    let positioningHeight = windowHeight
+    if (window.getComputedStyle(document.body).position === 'relative') {
+        positioningHeight = document.documentElement.offsetHeight
+    }
 
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
