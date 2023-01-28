@@ -25,10 +25,10 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep(step, runner, ...args) {
+    protected runStep(step: any, [runner, ...args]: any[], sendtoDLQ: boolean) {
         this.steps.push(step.name)
         this.stepsWithArgs.push([step.name, args])
-        return super.runStep(step, runner, ...args)
+        return super.runStep(step, [runner, ...args], sendtoDLQ)
     }
 }
 

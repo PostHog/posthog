@@ -5,7 +5,6 @@ import { Hub, Person } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { prepareEventStep } from '../../../../src/worker/ingestion/event-pipeline/prepareEventStep'
-import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -37,7 +36,6 @@ const person: Person = {
 
 describe('prepareEventStep()', () => {
     let runner: any
-    let personContainer: any
     let hub: Hub
     let closeHub: () => Promise<void>
 
@@ -50,7 +48,6 @@ describe('prepareEventStep()', () => {
             'my_id',
         ])
         hub.db.kafkaProducer!.queueMessage = jest.fn()
-        personContainer = new LazyPersonContainer(2, 'my_id', hub)
 
         runner = {
             nextStep: (...args: any[]) => args,
@@ -63,24 +60,20 @@ describe('prepareEventStep()', () => {
     })
 
     it('goes to `createEventStep` for normal events', async () => {
-        const response = await prepareEventStep(runner, pluginEvent, personContainer)
+        const response = await prepareEventStep(runner, pluginEvent)
 
-        expect(response).toEqual([
-            'createEventStep',
-            {
-                distinctId: 'my_id',
-                elementsList: [],
-                event: 'default event',
-                eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
-                ip: '127.0.0.1',
-                properties: {
-                    $ip: '127.0.0.1',
-                },
-                teamId: 2,
-                timestamp: '2020-02-23T02:15:00.000Z',
+        expect(response).toEqual({
+            distinctId: 'my_id',
+            elementsList: [],
+            event: 'default event',
+            eventUuid: '017ef865-19da-0000-3b60-1506093bf40f',
+            ip: '127.0.0.1',
+            properties: {
+                $ip: '127.0.0.1',
             },
-            personContainer,
-        ])
+            teamId: 2,
+            timestamp: '2020-02-23T02:15:00.000Z',
+        })
         expect(hub.db.kafkaProducer!.queueMessage).not.toHaveBeenCalled()
     })
 })
