@@ -50,7 +50,7 @@ export class EventPipelineRunner {
     // hitting Postgres in the capture endpoint. Eventually the entire pipeline should
     // follow this route and we can rename it to just be `runEventPipeline`.
     async runLightweightCaptureEndpointEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
-        this.hub.statsd?.increment('kafka_queue.lightweight_capture_endpoint_event_pipeline.start', {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', {
             pipeline: 'lightweight_capture',
         })
 
