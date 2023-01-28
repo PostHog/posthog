@@ -171,10 +171,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 task: 'runAsyncHandlersEventPipeline',
                 args: { event },
             })
-        ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
-            lastStep: 'runAsyncHandlersStep',
-        })
+        ).resolves.toEqual(null)
 
         // Ensure the retry call is made.
         jest.runOnlyPendingTimers()
@@ -217,10 +214,7 @@ describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
                 task: 'runAsyncHandlersEventPipeline',
                 args: { event },
             })
-        ).resolves.toEqual({
-            args: [expect.objectContaining(event), { distinctId: 'asdf', loaded: false, teamId }],
-            lastStep: 'runAsyncHandlersStep',
-        })
+        ).resolves.toEqual(null)
     })
 })
 
@@ -257,7 +251,7 @@ describe('eachBatchAsyncHandlers', () => {
                     new KafkaJSError('Failed to produce')
                 )
             },
-        })
+        } as any)
 
         await expect(
             ingestionConsumer.eachBatchConsumer({

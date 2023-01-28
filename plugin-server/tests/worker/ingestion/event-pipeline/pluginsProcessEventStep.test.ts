@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
 

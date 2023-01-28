@@ -7,7 +7,7 @@ import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/2-emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')

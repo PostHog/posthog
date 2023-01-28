@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/4-processPersonsStep'
+import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { updatePersonState } from '../../../../src/worker/ingestion/person-state'
 

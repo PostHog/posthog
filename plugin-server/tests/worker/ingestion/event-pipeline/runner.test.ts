@@ -12,7 +12,6 @@ import { runAsyncHandlersStep } from '../../../../src/worker/ingestion/event-pip
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { generateEventDeadLetterQueueMessage } from '../../../../src/worker/ingestion/utils'
 
-jest.mock('../../../../src/utils/status')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/populateTeamDataStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/emitToBufferStep')
 jest.mock('../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep')
@@ -26,10 +25,10 @@ class TestEventPipelineRunner extends EventPipelineRunner {
     steps: Array<string> = []
     stepsWithArgs: Array<[string, any[]]> = []
 
-    protected runStep(step, ...args) {
+    protected runStep(step, runner, ...args) {
         this.steps.push(step.name)
         this.stepsWithArgs.push([step.name, args])
-        return super.runStep(step.name, ...args)
+        return super.runStep(step, runner, ...args)
     }
 }
 
@@ -100,11 +99,17 @@ describe('EventPipelineRunner', () => {
         runner = new TestEventPipelineRunner(hub, pluginEvent)
 
         jest.mocked(populateTeamDataStep).mockResolvedValue(pluginEvent)
-        jest.mocked(emitToBufferStep).mockResolvedValue(pluginEvent)
+        jest.mocked(emitToBufferStep).mockResolvedValue([
+            pluginEvent,
+            { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+        ])
         jest.mocked(pluginsProcessEventStep).mockResolvedValue(pluginEvent)
-        jest.mocked(processPersonsStep).mockResolvedValue([pluginEvent, { person, personUpdateProperties: {} } as any])
+        jest.mocked(processPersonsStep).mockResolvedValue([
+            pluginEvent,
+            { person, personUpdateProperties: {}, get: () => Promise.resolve(person) } as any,
+        ])
         jest.mocked(prepareEventStep).mockResolvedValue(preIngestionEvent)
-        jest.mocked(createEventStep).mockResolvedValue(null)
+        jest.mocked(createEventStep).mockResolvedValue(preIngestionEvent)
         jest.mocked(runAsyncHandlersStep).mockResolvedValue(null)
     })
 
@@ -119,7 +124,6 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'createEventStep',
-                'runAsyncHandlersStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
@@ -127,14 +131,14 @@ describe('EventPipelineRunner', () => {
         it('emits metrics for every step', async () => {
             await runner.runLightweightCaptureEndpointEventPipeline(pipelineEvent)
 
-            expect(hub.statsd.timing).toHaveBeenCalledTimes(7)
-            expect(hub.statsd.increment).toBeCalledTimes(10)
+            expect(hub.statsd.timing).toHaveBeenCalledTimes(6)
+            expect(hub.statsd.increment).toHaveBeenCalledTimes(9)
 
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step', {
                 step: 'createEventStep',
             })
             expect(hub.statsd.increment).toHaveBeenCalledWith('kafka_queue.event_pipeline.step.last', {
-                step: 'runAsyncHandlersStep',
+                step: 'createEventStep',
                 team_id: '2',
             })
             expect(hub.statsd.increment).not.toHaveBeenCalledWith('kafka_queue.event_pipeline.step.error')
@@ -217,7 +221,6 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'createEventStep',
-                'runAsyncHandlersStep',
             ])
             expect(runner.stepsWithArgs).toMatchSnapshot()
         })
@@ -234,7 +237,6 @@ describe('EventPipelineRunner', () => {
                 'processPersonsStep',
                 'prepareEventStep',
                 'createEventStep',
-                'runAsyncHandlersStep',
             ])
         })
     })
