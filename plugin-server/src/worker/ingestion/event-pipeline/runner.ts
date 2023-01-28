@@ -61,10 +61,7 @@ export class EventPipelineRunner {
                 this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
                 return result
             } else {
-                this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-                    step: 'populateTeamDataStep',
-                })
-                return { lastStep: 'populateTeamDataStep', args: [event] }
+                return this.registerLastStep('populateTeamDataStep', null, [event])
             }
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
@@ -102,11 +99,7 @@ export class EventPipelineRunner {
             const [bufferResultEvent, personContainer] = bufferResult
             return this.runBufferEventPipelineSteps(bufferResultEvent, personContainer)
         } else {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-                step: 'emitToBufferStep',
-                team_id: event.team_id.toString(),
-            })
-            return { lastStep: 'emitToBufferStep', args: [event] }
+            return this.registerLastStep('emitToBufferStep', event.team_id, [event])
         }
     }
 
@@ -140,40 +133,27 @@ export class EventPipelineRunner {
         const processedEvent = await this.runStep(pluginsProcessEventStep, this, event)
 
         if (processedEvent != null) {
-            const processPersonsResult = await this.runStep(processPersonsStep, this, processedEvent, personContainer)
+            const [normalizedEvent, newPersonContainer] = await this.runStep(
+                processPersonsStep,
+                this,
+                processedEvent,
+                personContainer
+            )
 
-            if (processPersonsResult != null) {
-                const [normalizedEvent, newPersonContainer] = processPersonsResult
+            const preparedEvent = await this.runStep(prepareEventStep, this, normalizedEvent)
 
-                const preparedEvent = await this.runStep(prepareEventStep, this, normalizedEvent)
-                if (preparedEvent != null) {
-                    await this.runStep(createEventStep, this, preparedEvent, newPersonContainer)
-                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-                        step: 'createEventStep',
-                        team_id: event.team_id.toString(),
-                    })
-                    return { lastStep: 'createEventStep', args: [preparedEvent] }
-                } else {
-                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-                        step: 'prepareEventStep',
-                        team_id: event.team_id.toString(),
-                    })
-                    return { lastStep: 'prepareEventStep', args: [normalizedEvent] }
-                }
-            } else {
-                this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-                    step: 'processPersonsStep',
-                    team_id: event.team_id.toString(),
-                })
-                return { lastStep: 'processPersonsStep', args: [processedEvent] }
-            }
+            await this.runStep(createEventStep, this, preparedEvent, newPersonContainer)
+            return this.registerLastStep('createEventStep', event.team_id, [preparedEvent])
         } else {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-                step: 'pluginsProcessEventStep',
-                team_id: event.team_id.toString(),
-            })
-            return { lastStep: 'pluginsProcessEventStep', args: [event] }
+            return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
         }
+    }
+    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
+            step: stepName,
+            team_id: new String(teamId).toString(),
+        })
+        return { lastStep: stepName, args: args }
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
@@ -182,7 +162,7 @@ export class EventPipelineRunner {
             const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
             await this.runStep(runAsyncHandlersStep, this, event, personContainer)
             this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
-            return { lastStep: 'runAsyncHandlersStep', args: [event] }
+            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event])
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 // If this is an error with a dependency that we control, we want to
@@ -195,10 +175,7 @@ export class EventPipelineRunner {
         }
     }
 
-    protected runStep<Step extends (...args: any[]) => any>(
-        step: Step,
-        ...args: Parameters<Step>
-    ): ReturnType<Step> | null {
+    protected runStep<Step extends (...args: any[]) => any>(step: Step, ...args: Parameters<Step>): ReturnType<Step> {
         const timer = new Date()
 
         return runInSpan(
