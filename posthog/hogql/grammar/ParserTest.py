@@ -6,6 +6,14 @@ from antlr4.tree.Trees import Trees
 from HogQLLexer import HogQLLexer
 from HogQLParser import HogQLParser
 from HogQLParserListener import HogQLParserListener
+from HogQLPrinter import HogQLPrinter
+
+
+def extract_original_text(self, ctx):
+    token_source = ctx.start.getTokenSource()
+    input_stream = token_source.inputStream
+    start, stop = ctx.start.start, ctx.stop.stop
+    return input_stream.getText(start, stop)
 
 
 class KeyPrinter(HogQLParserListener):
@@ -29,19 +37,18 @@ def main(argv):
     if argv and len(argv) > 1:
         input_stream = FileStream(argv[1])
     else:
-        default_query = "select *, toStartOfMonth(foo) as bar, (select bla), (case when 1 < 2 then 'string' else 'strang' end) from events"
-        print(f"Default query: {default_query}\n")
-        print(f"Enter a query to parse, or leave blank to parse the default")
-        input_stream = InputStream(input(f"? ") or default_query)
+        default_query = "select *, toStartOfMonth(foo, foo2) as bar, (select bla), (case when 1 < 2 then 'string' else 'strang' end) from events"
+        print(f"Input query: {default_query}")
+        input_query = default_query
+        input_stream = InputStream(input_query)
 
     lexer = HogQLLexer(input_stream)
     stream = CommonTokenStream(lexer)
     parser = HogQLParser(stream)
     tree = parser.query()
-    printer = KeyPrinter()
-    walker = ParseTreeWalker()
-    walker.walk(printer, tree)
-    print(Trees.toStringTree(tree, None, parser))
+    response = HogQLPrinter().visit(tree)
+    print(f"With changes: {response}")
+    print(f"Parse tree: {Trees.toStringTree(tree, None, parser)}")
 
 
 if __name__ == "__main__":

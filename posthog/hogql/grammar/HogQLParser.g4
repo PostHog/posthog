@@ -31,13 +31,14 @@ columnAliases
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
 selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
 selectStmt:
-    withClause?
-    SELECT DISTINCT? topClause? columnExprList
-    fromClause?
+    with=withClause?
+    SELECT DISTINCT? topClause?
+    columns=columnExprList
+    from=fromClause?
     arrayJoinClause?
     windowClause?
     prewhereClause?
-    whereClause?
+    where=whereClause?
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
     orderByClause?
@@ -122,7 +123,7 @@ columnsExpr
     | columnExpr                       # ColumnsExprColumn
     ;
 columnExpr
-    : CASE columnExpr? (WHEN columnExpr THEN columnExpr)+ (ELSE columnExpr)? END          # ColumnExprCase
+    : CASE caseExpr=columnExpr? (WHEN whenExpr=columnExpr THEN thenExpr=columnExpr)+ (ELSE elseExpr=columnExpr)? END          # ColumnExprCase
     | CAST LPAREN columnExpr AS columnTypeExpr RPAREN                                     # ColumnExprCast
     | DATE STRING_LITERAL                                                                 # ColumnExprDate
     | EXTRACT LPAREN interval FROM columnExpr RPAREN                                      # ColumnExprExtract
@@ -139,24 +140,24 @@ columnExpr
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
-    | columnExpr ( ASTERISK                                                               // multiply
-                 | SLASH                                                                  // divide
-                 | PERCENT                                                                // modulo
-                 ) columnExpr                                                             # ColumnExprPrecedence1
-    | columnExpr ( PLUS                                                                   // plus
-                 | DASH                                                                   // minus
-                 | CONCAT                                                                 // concat
-                 ) columnExpr                                                             # ColumnExprPrecedence2
-    | columnExpr ( EQ_DOUBLE                                                              // equals
-                 | EQ_SINGLE                                                              // equals
-                 | NOT_EQ                                                                 // notEquals
-                 | LE                                                                     // lessOrEquals
-                 | GE                                                                     // greaterOrEquals
-                 | LT                                                                     // less
-                 | GT                                                                     // greater
-                 | GLOBAL? NOT? IN                                                        // in, notIn, globalIn, globalNotIn
-                 | NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
-                 ) columnExpr                                                             # ColumnExprPrecedence3
+    | left=columnExpr ( operator=ASTERISK                                                               // multiply
+                 | operator=SLASH                                                                  // divide
+                 | operator=PERCENT                                                                // modulo
+                 ) right=columnExpr                                                             # ColumnExprPrecedence1
+    | left=columnExpr ( operator=PLUS                                                                   // plus
+                 | operator=DASH                                                                   // minus
+                 | operator=CONCAT                                                                 // concat
+                 ) right=columnExpr                                                             # ColumnExprPrecedence2
+    | left=columnExpr ( operator=EQ_DOUBLE                                                              // equals
+                 | operator=EQ_SINGLE                                                              // equals
+                 | operator=NOT_EQ                                                                 // notEquals
+                 | operator=LE                                                                     // lessOrEquals
+                 | operator=GE                                                                     // greaterOrEquals
+                 | operator=LT                                                                     // less
+                 | operator=GT                                                                     // greater
+                 | operator=GLOBAL? NOT? IN                                                        // in, notIn, globalIn, globalNotIn
+                 | operator=NOT? (LIKE | ILIKE)                                                    // like, notLike, ilike, notILike
+                 ) right=columnExpr                                                             # ColumnExprPrecedence3
     | columnExpr IS NOT? NULL_SQL                                                         # ColumnExprIsNull
     | NOT columnExpr                                                                      # ColumnExprNot
     | columnExpr AND columnExpr                                                           # ColumnExprAnd
