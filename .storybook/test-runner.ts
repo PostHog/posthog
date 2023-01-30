@@ -3,7 +3,6 @@ import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-
 import { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
-const updateSnapshot = expect.getState().snapshotState._updateSnapshot === 'all'
 
 async function expectStoryToMatchFullPageSnapshot(page: Page, context: TestContext): Promise<void> {
     await expectLocatorToMatchStorySnapshot(page, context)
@@ -46,6 +45,7 @@ async function expectLocatorToMatchStorySnapshot(
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
     },
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
@@ -67,27 +67,11 @@ module.exports = {
                 expectStoryToMatchSnapshot = expectStoryToMatchComponentSnapshot
             }
 
-            if (updateSnapshot) {
-                // You'd expect that the 'load' @storybook/test-runner waits for would already mean the story is ready,
-                // and definitely that 'networkidle' would indicate all assets to be ready. But that's not the case,
-                // so we need to introduce a bit of a delay
-                await page.waitForTimeout(2000)
-                await expectStoryToMatchSnapshot(page, context) // Don't retry when updating
-            } else {
-                try {
-                    await expectStoryToMatchSnapshot(page, context) // Run check immediately after render
-                } catch {
-                    try {
-                        await page.waitForTimeout(1000) // Retry a moment later in case something failed to load in time
-                        await expectStoryToMatchSnapshot(page, context) // Run check again
-                        console.warn('Flaky test warning - this snapshot only matched after a retry')
-                    } catch {
-                        await page.waitForTimeout(1000)
-                        await expectStoryToMatchSnapshot(page, context)
-                        console.warn('Flaky test warning - this snapshot only matched after two retries')
-                    }
-                }
-            }
+            // You'd expect that the 'load' state which @storybook/test-runner waits for would already mean
+            // the story is ready, and definitely that 'networkidle' would indicate all assets to be ready.
+            // But that's not the case, so we need to introduce a bit of a delay.
+            await page.waitForTimeout(200)
+            await expectStoryToMatchSnapshot(page, context) // Don't retry when updating
         }
     },
 } as TestRunnerConfig
