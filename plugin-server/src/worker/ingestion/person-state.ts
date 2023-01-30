@@ -52,6 +52,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     private personManager: PersonManager
     private updateIsIdentified: boolean
+    private poEEmbraceJoin: boolean
 
     constructor(
         event: PluginEvent,
@@ -62,6 +63,7 @@ export class PersonState {
         statsd: StatsD | undefined,
         personManager: PersonManager,
         personContainer: LazyPersonContainer,
+        poEEmbraceJoin: boolean,
         uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
@@ -82,6 +84,9 @@ export class PersonState {
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
+
+        // For persons on events embrace the join gradual roll-out, remove after fully rolled out
+        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     async update(): Promise<LazyPersonContainer> {
@@ -463,11 +468,18 @@ export class PersonState {
         let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         properties = this.applyEventPropertyUpdates(properties)
 
-        // Keep the oldest created_at (i.e. the first time we've seen this person)
+        if (this.poEEmbraceJoin) {
+            // Optimize merging persons to keep using the person id that has longer history,
+            // which means we'll have less events to update during the squash later
+            if (otherPerson.created_at < mergeInto.created_at) {
+                ;[mergeInto, otherPerson] = [otherPerson, mergeInto]
+            }
+        }
+
         const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
-            olderCreatedAt,
+            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
@@ -506,7 +518,15 @@ export class PersonState {
 
             const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
-            return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+            let personOverrideMessages: ProducerRecord[] = []
+            if (this.poEEmbraceJoin) {
+                personOverrideMessages = [await this.db.addPersonOverride(otherPerson, mergeInto, client)]
+            }
+
+            return [
+                [...personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
+                person,
+            ]
         })
     }
 
