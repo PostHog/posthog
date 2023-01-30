@@ -68,7 +68,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
@@ -124,7 +124,7 @@
           AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
@@ -181,7 +181,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
@@ -359,7 +359,7 @@
            GROUP BY actor_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
