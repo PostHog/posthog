@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Modal } from 'antd'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from '../LemonButton'
-import { LemonTable } from '../LemonTable'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { CodeSnippet, Language } from '../CodeSnippet'
 
 interface Query {
@@ -40,7 +40,12 @@ function QueryCol({ item }: { item: Query }): JSX.Element {
     }
     return (
         <>
-            <CodeSnippet language={Language.SQL} copyDescription="Copy query" style={{ maxWidth: 600, fontSize: 12 }}>
+            <CodeSnippet
+                hideCopyButton={!expanded}
+                language={Language.SQL}
+                copyDescription="Copy query"
+                style={{ maxWidth: 600, fontSize: 12 }}
+            >
                 {expanded ? item.query : item.query.slice(0, has5lines)}
             </CodeSnippet>
             <LemonButton size="small" onClick={() => setExpanded(!expanded)}>

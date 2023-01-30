@@ -1,4 +1,4 @@
-import { LemonSelect } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CalendarOutlined } from '@ant-design/icons'
 import { SavedInsightsTabs } from '~/types'
@@ -7,7 +7,7 @@ import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 export function SavedInsightsFilters(): JSX.Element {
     const { nameSortedDashboards } = useValues(dashboardsModel)

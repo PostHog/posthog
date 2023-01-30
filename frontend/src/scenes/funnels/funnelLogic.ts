@@ -65,8 +65,8 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
@@ -699,9 +699,15 @@ export const funnelLogic = kea<funnelLogicType>({
                             },
                         }
                     })
+
+                    const conversionRatesTotal = step.count / steps[0].count
                     const conversionRates = {
                         fromPrevious: previousCount === 0 ? 0 : step.count / previousCount,
-                        total: step.count / steps[0].count,
+
+                        // We get NaN from dividing 0/0 so we just show 0 instead
+                        // This is an empty funnel so dropped off percentage will show as 100%
+                        // and conversion percentage as 0% but that's better for users than `NaN%`
+                        total: Number.isNaN(conversionRatesTotal) ? 0 : conversionRatesTotal,
                     }
                     return {
                         ...step,

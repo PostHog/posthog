@@ -10,8 +10,8 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 import { Divider, DividerProps, Select } from 'antd'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
-import { Link } from 'lib/components/Link'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 interface DefinitionPopupProps {

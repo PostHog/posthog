@@ -3,8 +3,8 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconLink } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopup } from './playlist-popup/PlaylistPopup'
 

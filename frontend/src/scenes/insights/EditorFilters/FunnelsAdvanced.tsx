@@ -11,7 +11,7 @@ import {
     FunnelStepReferencePickerDataExploration,
 } from '../filters/FunnelStepReferencePicker'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
 import { Noun } from '~/models/groupsModel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'

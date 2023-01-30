@@ -3,7 +3,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { QueryContext, DataTableNode } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
-import { SortingIndicator } from 'lib/components/LemonTable/sorting'
+import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
 export interface ColumnMeta {
     title?: JSX.Element | string

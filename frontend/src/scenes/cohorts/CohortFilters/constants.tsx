@@ -35,7 +35,7 @@ import {
     CohortTextField,
 } from 'scenes/cohorts/CohortFilters/CohortField'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { CohortTypeEnum, PROPERTY_MATCH_TYPE } from 'lib/constants'
 
 /*

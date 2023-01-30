@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { GroupType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupAnalyticsConfigLogic } from 'scenes/project/Settings/groupAnalyticsConfigLogic'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'

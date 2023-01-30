@@ -9,7 +9,7 @@ import {
     IconPieChart,
     IconTableChart,
     IconPublic,
-} from 'lib/components/icons'
+} from 'lib/lemon-ui/icons'
 
 import { ChartDisplayType, FilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'

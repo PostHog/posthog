@@ -5,7 +5,7 @@ import {
     RetentionTableAppearanceType,
 } from 'scenes/retention/types'
 import { dayjs } from 'lib/dayjs'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'

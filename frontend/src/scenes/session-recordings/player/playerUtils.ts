@@ -6,9 +6,9 @@ import {
     SessionRecordingPlaylistType,
     SessionRecordingType,
 } from '~/types'
-import { ExpandableConfig } from 'lib/components/LemonTable'
+import { ExpandableConfig } from 'lib/lemon-ui/LemonTable'
 import api from 'lib/api'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 

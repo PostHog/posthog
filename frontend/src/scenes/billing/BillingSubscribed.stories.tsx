@@ -9,7 +9,12 @@ import { BillingLocked } from './BillingLocked'
 
 export default {
     title: 'Scenes-Other/Billing',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: true },
+    },
     decorators: [
         mswDecorator({
             get: {

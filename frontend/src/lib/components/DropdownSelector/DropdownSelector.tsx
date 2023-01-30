@@ -1,7 +1,7 @@
 /* Custom dropdown selector with an icon a help caption  */
 import { Dropdown, Menu } from 'antd'
 import clsx from 'clsx'
-import { IconArrowDropDown } from '../icons'
+import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 import './DropdownSelector.scss'
 
 interface DropdownSelectorProps {

@@ -649,7 +649,7 @@
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -724,7 +724,7 @@
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering
@@ -769,7 +769,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -814,7 +814,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -841,7 +841,7 @@
           AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -886,7 +886,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -913,7 +913,7 @@
           AND (has(['1'], "mat_name"))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -958,7 +958,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezone_weekly
@@ -984,7 +984,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-25 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones
@@ -1010,7 +1010,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.1
@@ -1043,7 +1043,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.2
@@ -1090,7 +1090,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.3
@@ -1116,7 +1116,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.4
@@ -1213,7 +1213,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.7
@@ -1239,7 +1239,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones_hourly
@@ -1272,7 +1272,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones_hourly.1
@@ -1327,7 +1327,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
@@ -1354,7 +1354,7 @@
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
@@ -1675,7 +1675,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -1720,7 +1720,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
@@ -1852,7 +1852,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
@@ -1892,7 +1892,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
@@ -2121,7 +2121,7 @@
            GROUP BY "$group_0", date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -2190,7 +2190,7 @@
            GROUP BY pdi.person_id, date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
@@ -2221,7 +2221,7 @@
            GROUP BY actor_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_per_day_cumulative
@@ -2247,7 +2247,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -2419,7 +2419,7 @@
            GROUP BY sessions.$session_id, date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -2457,7 +2457,7 @@
            GROUP BY sessions.$session_id, date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
@@ -2728,7 +2728,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -2787,7 +2787,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -2846,7 +2846,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -2893,7 +2893,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_monthly
@@ -2940,7 +2940,7 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -2987,6 +2987,6 @@
            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
