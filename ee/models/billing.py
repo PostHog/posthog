@@ -160,7 +160,7 @@ class BillingManager:
         if not self.license:  # mypy
             raise Exception("No license found")
 
-        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing", headers=self.ders(organization))
+        res = requests.get(f"{BILLING_SERVICE_URL}/api/billing", headers=self.get_auth_headers(organization))
 
         handle_billing_service_error(res)
 
