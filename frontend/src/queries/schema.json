@@ -1715,7 +1715,6 @@
                     "$ref": "#/definitions/EntityType"
                 }
             },
-            "required": ["id"],
             "type": "object"
         },
         "FunnelStepReference": {
