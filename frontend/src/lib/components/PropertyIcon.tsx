@@ -16,9 +16,9 @@ import {
     IconTablet,
     IconWeb,
     IconWindows,
-} from 'lib/components/icons'
+} from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { countryCodeToFlag } from 'scenes/insights/views/WorldMap'
 import { ReactNode } from 'react'
 

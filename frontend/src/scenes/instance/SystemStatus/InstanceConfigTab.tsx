@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { IconOpenInNew, IconWarning } from 'lib/components/icons'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { IconOpenInNew, IconWarning } from 'lib/lemon-ui/icons'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { EnvironmentConfigOption, preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InstanceSetting } from '~/types'

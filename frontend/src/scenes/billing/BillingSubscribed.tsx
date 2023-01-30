@@ -6,7 +6,7 @@ import { dayjs } from 'lib/dayjs'
 import { billingLogic } from './billingLogic'
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconCheckmark } from 'lib/components/icons'
+import { IconCheckmark } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: BillingSubscribed,

@@ -1,6 +1,6 @@
 import { Col, Row } from 'antd'
 import { useValues } from 'kea'
-import { IconInfo } from 'lib/components/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { teamLogic } from 'scenes/teamLogic'
 import { CardContainer } from '../CardContainer'

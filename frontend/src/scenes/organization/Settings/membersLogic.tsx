@@ -6,7 +6,7 @@ import { OrganizationMemberType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { membershipLevelToName } from 'lib/utils/permissioning'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
 
 // eslint-disable-next-line @typescript-eslint/no-empty-interface

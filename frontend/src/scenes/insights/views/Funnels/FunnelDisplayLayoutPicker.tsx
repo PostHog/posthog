@@ -3,7 +3,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelLayout } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonSelect } from '@posthog/lemon-ui'
-import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/components/icons'
+import { IconFunnelHorizontal, IconFunnelVertical } from 'lib/lemon-ui/icons'
 
 export function FunnelDisplayLayoutPicker({ disabled }: { disabled?: boolean }): JSX.Element {
     const { insightProps } = useValues(insightLogic)

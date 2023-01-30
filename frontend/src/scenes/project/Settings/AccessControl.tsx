@@ -1,7 +1,7 @@
 import { AvailableFeature } from '~/types'
 import { organizationLogic } from '../../organizationLogic'
 import { useActions, useValues } from 'kea'
-import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
+import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { sceneLogic } from '../../sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { LockOutlined, UnlockOutlined } from '@ant-design/icons'

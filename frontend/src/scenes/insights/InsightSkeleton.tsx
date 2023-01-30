@@ -1,4 +1,4 @@
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function InsightSkeleton(): JSX.Element {
     return (

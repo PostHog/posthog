@@ -14,7 +14,7 @@ import {
     DefinitionLogicProps,
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
 import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
 import { humanFriendlyNumber } from 'lib/utils'
@@ -22,9 +22,9 @@ import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/D
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
-import { IconPlayCircle } from 'lib/components/icons'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { combineUrl } from 'kea-router/lib/utils'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

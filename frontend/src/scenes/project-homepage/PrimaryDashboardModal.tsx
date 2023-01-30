@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardType } from '~/types'
 import { primaryDashboardModalLogic } from './primaryDashboardModalLogic'
-import { IconCottage } from 'lib/components/icons'
-import { LemonRow } from 'lib/components/LemonRow'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { IconCottage } from 'lib/lemon-ui/icons'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function PrimaryDashboardModal(): JSX.Element {
     const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)

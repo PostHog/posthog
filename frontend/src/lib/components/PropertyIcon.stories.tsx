@@ -1,6 +1,6 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
 export default {

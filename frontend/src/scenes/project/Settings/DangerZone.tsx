@@ -1,9 +1,9 @@
 import { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
+import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete } from 'lib/lemon-ui/icons'
 
 export function DeleteProjectModal({
     isOpen,

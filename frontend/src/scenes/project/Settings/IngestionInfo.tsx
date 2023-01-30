@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { JSSnippet } from 'lib/components/JSSnippet'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
-import { IconRefresh } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
+import { IconRefresh } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 
 export function IngestionInfo({ loadingComponent }: { loadingComponent: JSX.Element }): JSX.Element {
     const { currentTeam, currentTeamLoading, isTeamTokenResetAvailable } = useValues(teamLogic)
