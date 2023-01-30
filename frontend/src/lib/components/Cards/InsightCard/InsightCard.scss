@@ -45,6 +45,9 @@
     > :last-child {
         margin-bottom: auto;
     }
+    &.QueryCard {
+        justify-content: unset;
+    }
 }
 
 .InsightDetails {

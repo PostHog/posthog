@@ -27,7 +27,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode } from './queries/schema'
+import { InsightQueryNode, QuerySchema } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1210,6 +1210,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
+    query?: QuerySchema
 }
 
 export interface DashboardType {

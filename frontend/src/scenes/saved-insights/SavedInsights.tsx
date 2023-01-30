@@ -11,8 +11,17 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
+    IconAction,
+    IconBarChart,
+    IconCoffee,
+    IconEvent,
+    IconInternetExplorer,
+    IconPerson,
+    IconQuestionAnswer,
+    IconSelectEvents,
     IconStarFilled,
     IconStarOutline,
+    IconTableChart,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
@@ -41,6 +50,7 @@ import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { AppstoreFilled, UnorderedListOutlined } from '@ant-design/icons'
+import { NodeKind } from '~/queries/schema'
 
 const { TabPane } = Tabs
 
@@ -90,6 +100,117 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         name: 'Lifecycle',
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: InsightsLifecycleIcon,
+        inMenu: true,
+    },
+}
+
+export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
+    [NodeKind.TrendsQuery]: {
+        name: 'Trends',
+        description: 'Visualize and break down how actions or events vary over time',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.FunnelsQuery]: {
+        name: 'Funnel',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
+        icon: InsightsFunnelsIcon,
+        inMenu: true,
+    },
+    [NodeKind.RetentionQuery]: {
+        name: 'Retention',
+        description: 'See how many users return on subsequent days after an intial action',
+        icon: InsightsRetentionIcon,
+        inMenu: true,
+    },
+    [NodeKind.PathsQuery]: {
+        name: 'Paths',
+        description: 'Trace the journeys users take within your product and where they drop off',
+        icon: InsightsPathsIcon,
+        inMenu: true,
+    },
+    [NodeKind.StickinessQuery]: {
+        name: 'Stickiness',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        icon: InsightsStickinessIcon,
+        inMenu: true,
+    },
+    [NodeKind.LifecycleQuery]: {
+        name: 'Lifecycle',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        icon: InsightsLifecycleIcon,
+        inMenu: true,
+    },
+    [NodeKind.EventsNode]: {
+        name: 'Events',
+        description: 'List and explore events',
+        icon: IconSelectEvents,
+        inMenu: true,
+    },
+    [NodeKind.ActionsNode]: {
+        name: 'Actions',
+        description: 'List and explore actions',
+        icon: IconAction,
+        inMenu: true,
+    },
+    [NodeKind.NewEntityNode]: {
+        name: 'New Entity',
+        description: 'Something to do with new series 🤷',
+        icon: IconQuestionAnswer,
+        inMenu: true,
+    },
+    [NodeKind.EventsQuery]: {
+        name: 'Events Query',
+        description: 'Hmmm, not every kind should be displayable I guess',
+        icon: IconEvent,
+        inMenu: true,
+    },
+    [NodeKind.PersonsNode]: {
+        name: 'Persons',
+        description: 'List and explore your persons',
+        icon: IconPerson,
+        inMenu: true,
+    },
+    [NodeKind.DataTableNode]: {
+        name: 'Data table',
+        description: 'Slice and dice your data in a table',
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.InsightVizNode]: {
+        name: 'Insight visualization',
+        description: 'View your insights',
+        icon: IconBarChart,
+        inMenu: true,
+    },
+    [NodeKind.LegacyQuery]: {
+        name: 'A legacy query',
+        description: 'Watch out for these, they might be dangerous',
+        icon: IconQuestionAnswer,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataSessionsQuery]: {
+        name: 'Internal PostHog perforamance data',
+        description: 'View performance data about a session in PostHog itself',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataQuery]: {
+        name: 'Internal PostHog perforamance data',
+        description: 'View listings of performance data in PostHog itself',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.RecentPerformancePageViewNode]: {
+        name: 'PostHog perforamance data',
+        description: 'PageViews where we recorded performance data about your site',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.UnimplementedQuery]: {
+        name: 'An unimplemented query',
+        description: 'A query that has not yet been implemented',
+        icon: IconInternetExplorer,
         inMenu: true,
     },
 }

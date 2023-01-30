@@ -337,7 +337,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="space-y-4 relative">
+                <div className="relative w-full h-full">
                     {showFirstRow && (
                         <div className="flex gap-4 items-center">
                             {firstRowLeft}
