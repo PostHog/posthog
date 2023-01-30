@@ -15,7 +15,8 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         chromatic: { disableSnapshot: false },
-    }, // scene mode
+        mockDate: '2023-01-28', // To stabilize relative dates
+    },
     decorators: [
         mswDecorator({
             get: {
