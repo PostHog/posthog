@@ -133,8 +133,16 @@
             top: 0px;
             transition: transform 150ms ease-in-out;
 
-            &--match {
-                --tick-color: var(--purple-dark);
+            &--warning {
+                --tick-color: var(--warning);
+            }
+
+            &--danger {
+                --tick-color: var(--danger);
+            }
+
+            &--primary {
+                --tick-color: var(--primary);
             }
 
             .PlayerSeekbarTick__line {

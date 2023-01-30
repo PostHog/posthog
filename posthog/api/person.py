@@ -49,6 +49,7 @@ from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -197,7 +198,9 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
+        raw_result = insight_sync_execute(
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+        )
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)

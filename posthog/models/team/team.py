@@ -1,7 +1,7 @@
 import json
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import Any, List, Optional
 
 import posthoganalytics
 import pytz
@@ -14,7 +14,6 @@ from sentry_sdk import capture_exception
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
@@ -25,9 +24,6 @@ from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
-
-if TYPE_CHECKING:
-    from posthog.models.organization import OrganizationMembership
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
@@ -194,52 +190,6 @@ class Team(UUIDClassicModel):
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)
         set_team_in_cache(self.api_token, None)
-
-    def get_effective_membership_level_for_parent_membership(
-        self, requesting_parent_membership: "OrganizationMembership"
-    ) -> Optional["OrganizationMembership.Level"]:
-        if (
-            not requesting_parent_membership.organization.is_feature_available(
-                AvailableFeature.PROJECT_BASED_PERMISSIONING
-            )
-            or not self.access_control
-        ):
-            return requesting_parent_membership.level
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            from ee.models import ExplicitTeamMembership
-        except ImportError:
-            # Only organizations admins and above get implicit project membership
-            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                return None
-            return requesting_parent_membership.level
-        else:
-            try:
-                return (
-                    requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                    .get(team=self)
-                    .effective_level
-                )
-            except ExplicitTeamMembership.DoesNotExist:
-                # Only organizations admins and above get implicit project membership
-                if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                    return None
-                return requesting_parent_membership.level
-
-    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
-        """Return an effective membership level.
-        None returned if the user has no explicit membership and organization access is too low for implicit membership.
-        """
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
-                "organization"
-            ).get(organization_id=self.organization_id, user_id=user_id)
-        except OrganizationMembership.DoesNotExist:
-            return None
-        return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
 
     @property
     def person_on_events_querying_enabled(self) -> bool:

@@ -344,7 +344,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(Insight.objects.count(), i + 1)
 
             with capture_db_queries() as capture_query_context:
-                response = self.client.get(f"/api/projects/{self.team.id}/insights")
+                response = self.client.get(f"/api/projects/{self.team.id}/insights?basic=true")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
                 self.assertEqual(len(response.json()["results"]), i + 1)
 
