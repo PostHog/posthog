@@ -72,7 +72,6 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
-    items = serializers.SerializerMethodField()
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
     use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
