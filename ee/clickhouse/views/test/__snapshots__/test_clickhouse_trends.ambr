@@ -690,7 +690,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
@@ -723,7 +723,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
@@ -756,7 +756,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
@@ -789,7 +789,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
@@ -817,7 +817,7 @@
           AND "$group_0" != ''
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
@@ -866,7 +866,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
