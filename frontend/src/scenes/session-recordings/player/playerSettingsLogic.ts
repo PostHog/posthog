@@ -223,9 +223,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
         // Inspector
         tab: [
-            (values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
-                ? SessionRecordingPlayerTab.ALL
-                : SessionRecordingPlayerTab.EVENTS) as SessionRecordingPlayerTab,
+            SessionRecordingPlayerTab.ALL as SessionRecordingPlayerTab,
             { persist: true },
             {
                 setTab: (_, { tab }) => tab,

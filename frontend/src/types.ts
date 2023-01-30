@@ -875,11 +875,7 @@ export interface RecordingTimeMixinType {
     capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
-export interface RecordingEventType extends EventType, RecordingTimeMixinType {
-    percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    // Can be removed once inspector V1 is removed
-    level?: 'match' | 'information' // If undefined, by default information row
-}
+export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
 
 export interface EventsTableRowItem {
     event?: EventType

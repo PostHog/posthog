@@ -16,10 +16,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
-import { IconWindow } from '../../icons'
-import { playerSettingsLogic } from '../../playerSettingsLogic'
-import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from '../playerInspectorLogic'
+import { IconWindow } from '../icons'
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,

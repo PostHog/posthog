@@ -410,10 +410,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
                                     capturedInWindow: !!event.properties.$window_id,
-                                    percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
-                                        ? (100 * eventPlayerTime) /
-                                          values.sessionPlayerData.metadata.recordingDurationMs
-                                        : 0,
                                 })
                             }
                         }

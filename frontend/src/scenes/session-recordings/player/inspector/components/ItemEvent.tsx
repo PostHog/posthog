@@ -2,7 +2,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
-import { InspectorListItemEvent } from '../../playerInspectorLogic'
+import { InspectorListItemEvent } from '../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {

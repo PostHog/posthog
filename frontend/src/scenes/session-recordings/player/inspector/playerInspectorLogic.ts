@@ -20,8 +20,8 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
-import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
-import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
+
+const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export const IMAGE_WEB_EXTENSIONS = [
     'png',
@@ -136,14 +136,14 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    listeners(() => ({
+    listeners(({ actions }) => ({
         setTab: ({ tab }) => {
             if (tab === SessionRecordingPlayerTab.CONSOLE) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.consoleListData?.length ?? 0
-                    )
+                // eventUsageLogic
+                //     .findMounted()
+                //     ?.actions?.reportRecordingConsoleViewed(
+                //         consoleLogsListLogic.findMounted()?.values?.consoleListData?.length ?? 0
+                //     )
             }
         },
     })),
