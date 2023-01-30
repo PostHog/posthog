@@ -2,7 +2,7 @@ from typing import Dict, Optional
 
 import requests
 
-from ee.billing.billing_utils import build_billing_token
+from ee.billing.billing_manager import build_billing_token
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 

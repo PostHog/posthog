@@ -220,9 +220,10 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     if not settings.EE_AVAILABLE:
         return
 
-    from ee.billing.billing_utils import build_billing_token
+    from ee.billing.billing_manager import build_billing_token
     from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
+    from ee.billing.billing_manager import BillingManager
 
     license = License.objects.first_valid()
     if not license or not license.is_v2_license:
@@ -238,6 +239,9 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
         raise Exception(
             f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
         )
+
+    response_data: Dict[str, Any] = response.json()
+    BillingManager(license)._update_org_details(organization, response_data)
 
     # TODO: Use response to update saved usage info
     # NOTE: Returns empty if there is no subscription
