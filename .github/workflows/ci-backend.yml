@@ -209,8 +209,8 @@ jobs:
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
                 # :NOTE: Keep concurrency and groups in sync
-                concurrency: [5]
-                group: [1, 2, 3, 4, 5]
+                concurrency: [6]
+                group: [1, 2, 3, 4, 5, 6]
 
         steps:
             - uses: actions/checkout@v3
