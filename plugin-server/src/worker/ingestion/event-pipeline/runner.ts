@@ -17,6 +17,8 @@ import { processPersonsStep } from './processPersonsStep'
 import { runAsyncHandlersStep } from './runAsyncHandlersStep'
 
 // Only used in tests
+// TODO: update to test for side-effects of running the pipeline rather than
+// this return type.
 export type EventPipelineResult = {
     lastStep: string
     args: any[]
