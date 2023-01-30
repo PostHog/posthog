@@ -10,9 +10,6 @@ export default {
             defaultValue: 'Tasty snacks',
         },
     },
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
 } as ComponentMeta<typeof LemonSnack>
 
 const BasicTemplate: ComponentStory<typeof LemonSnack> = (props: LemonSnackProps) => {

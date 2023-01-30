@@ -13,9 +13,6 @@ export default {
             defaultValue: 'Information',
         },
     },
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
 } as ComponentMeta<typeof LemonRow>
 
 const Template: ComponentStory<typeof LemonRow> = (props: LemonRowProps<keyof JSX.IntrinsicElements>) => {

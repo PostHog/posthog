@@ -6,9 +6,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 export default {
     title: 'Lemon UI/Lemon Badge/Lemon Badge Number',
     component: LemonBadge.Number,
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
 } as ComponentMeta<typeof LemonBadge.Number>
 
 const Template: ComponentStory<typeof LemonBadge.Number> = ({ count, ...props }: LemonBadgeNumberProps) => {

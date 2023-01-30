@@ -6,9 +6,6 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 export default {
     title: 'Lemon UI/Lemon Modal',
     component: LemonModal,
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
 } as ComponentMeta<typeof LemonModal>
 
 export const _LemonModal: ComponentStory<typeof LemonModal> = (props: LemonModalProps) => {

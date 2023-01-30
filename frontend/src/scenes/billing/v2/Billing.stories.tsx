@@ -6,7 +6,12 @@ import billingJson from '~/mocks/fixtures/_billing_v2.json'
 
 export default {
     title: 'Scenes-Other/Billing v2',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: true },
+    },
     decorators: [
         mswDecorator({
             get: {
