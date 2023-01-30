@@ -41,7 +41,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -61,7 +61,8 @@ import {
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
-import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
+import { filterForQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { InsightVizNode } from '~/queries/schema'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -224,6 +225,7 @@ function InsightMeta({
 
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
+    console.log('insight', insight.name)
 
     return (
         <CardMeta
@@ -237,9 +239,18 @@ function InsightMeta({
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    {insight.query ? (
+                    {!!insight.query ? (
                         <h4 title={name} data-attr="insight-card-title">
-                            {name}
+                            {name ||
+                                (isInsightVizNode(insight.query)
+                                    ? summarizeInsightQuery(
+                                          (insight.query as InsightVizNode).source,
+                                          aggregationLabel,
+                                          cohortsById,
+                                          mathDefinitions
+                                      )
+                                    : // TODO summarize non insight queries
+                                      'query: ' + insight.query.kind)}
                         </h4>
                     ) : (
                         <Link to={urls.insightView(short_id)}>
