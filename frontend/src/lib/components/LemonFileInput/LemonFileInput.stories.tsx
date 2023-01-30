@@ -9,9 +9,6 @@ export default {
         loading: { type: 'boolean', defaultValue: false },
         accept: { type: 'string', defaultValue: '.json' },
     },
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
 } as ComponentMeta<typeof LemonFileInput>
 
 const Template: ComponentStory<typeof LemonFileInput> = (props) => {

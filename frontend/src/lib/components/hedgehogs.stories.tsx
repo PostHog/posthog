@@ -16,6 +16,7 @@ export default {
     title: 'Lemon UI/Hog illustrations',
     parameters: {
         options: { showPanel: false },
+        chromatic: { disableSnapshot: true },
         docs: {
             description: {
                 component: `

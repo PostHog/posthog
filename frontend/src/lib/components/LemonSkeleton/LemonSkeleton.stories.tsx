@@ -8,7 +8,6 @@ export default {
     title: 'Lemon UI/Lemon Skeleton',
     component: LemonSkeleton,
     parameters: {
-        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `
