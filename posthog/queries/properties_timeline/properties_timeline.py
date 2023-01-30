@@ -121,7 +121,7 @@ class PropertiesTimeline:
         )
 
         params = {**event_query_params, "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key}
-        raw_query_result = insight_sync_execute(formatted_sql, params, query_type="properties_timeline", filter=filter)
+        raw_query_result = insight_sync_execute(formatted_sql, params, query_type="properties_timeline")
 
         return PropertiesTimelineResult(
             points=[
