@@ -88,9 +88,9 @@ class BillingManager:
             billing_service_response = self._get_billing(organization)
             response = self._process_billing_service_response(organization, billing_service_response)
             # Get the specified plans from "plan_keys" query param, otherwise get the defaults
-            plans = self._get_plans(organization, plan_keys)
+            plans = self._get_plans(plan_keys)
             response["available_plans"] = plans["plans"]
-
+            return response
         else:
             products = self.get_default_products(organization)
             return {
@@ -197,7 +197,7 @@ class BillingManager:
 
         return response
 
-    def _get_plans(self, plan_keys: Optional[str], organization: Optional[Organization]):
+    def _get_plans(self, plan_keys: Optional[str]):
         res = requests.get(
             f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
         )
