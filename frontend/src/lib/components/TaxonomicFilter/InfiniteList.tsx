@@ -1,5 +1,5 @@
 import './InfiniteList.scss'
-import 'lib/lemon-ui/Popup/Popup.scss'
+import '../../lemon-ui/Popup/Popup.scss'
 import { Empty, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'

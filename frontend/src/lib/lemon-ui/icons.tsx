@@ -1,7 +1,7 @@
 // Loads custom icons (some icons may come from a third-party library)
 import clsx from 'clsx'
 import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
-import 'lib/lemon-ui/icons.scss'
+import './icons.scss'
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 
 interface IconWithCountProps {

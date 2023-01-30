@@ -1,6 +1,6 @@
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
-import '../lib/components/PropertyGroupFilters/PropertyGroupFilters.scss'
+import '../../lib/components/PropertyGroupFilters/PropertyGroupFilters.scss'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 export function GlobalFiltersTitle({
