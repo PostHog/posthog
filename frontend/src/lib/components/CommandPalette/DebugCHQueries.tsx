@@ -40,7 +40,12 @@ function QueryCol({ item }: { item: Query }): JSX.Element {
     }
     return (
         <>
-            <CodeSnippet language={Language.SQL} copyDescription="Copy query" style={{ maxWidth: 600, fontSize: 12 }}>
+            <CodeSnippet
+                hideCopyButton={!expanded}
+                language={Language.SQL}
+                copyDescription="Copy query"
+                style={{ maxWidth: 600, fontSize: 12 }}
+            >
                 {expanded ? item.query : item.query.slice(0, has5lines)}
             </CodeSnippet>
             <LemonButton size="small" onClick={() => setExpanded(!expanded)}>
