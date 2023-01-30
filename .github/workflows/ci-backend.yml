@@ -95,7 +95,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -153,7 +153,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -204,7 +204,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.8.14']
+                python-version: ['3.9.16']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:22.8']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
@@ -297,7 +297,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -386,7 +386,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
 
             - name: Install SAML (python3-saml) dependencies
               shell: bash

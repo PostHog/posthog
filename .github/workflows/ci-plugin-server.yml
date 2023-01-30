@@ -99,7 +99,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -180,7 +180,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
