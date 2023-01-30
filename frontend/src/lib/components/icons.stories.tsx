@@ -18,7 +18,6 @@ const allIcons: IconDefinition[] = Object.entries(icons)
 export default {
     title: 'Lemon UI/Icons',
     parameters: {
-        chromatic: { disableSnapshot: false },
         options: { showPanel: false },
         docs: {
             description: {

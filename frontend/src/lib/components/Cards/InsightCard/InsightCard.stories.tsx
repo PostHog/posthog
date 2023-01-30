@@ -31,6 +31,7 @@ const EXAMPLE_TRENDS: InsightModel = {
     },
     deleted: false,
     dashboards: [1],
+    dashboard_tiles: [{ id: 1, dashboard_id: 1 }],
     order: 0,
     last_refresh: '2021-12-14T12:57:57.125157Z',
     result: [
@@ -222,6 +223,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
     order: 1,
     deleted: false,
     dashboards: [6],
+    dashboard_tiles: [{ id: 2, dashboard_id: 6 }],
     last_refresh: null,
     result: [
         {
@@ -283,9 +285,7 @@ const EXAMPLE_FUNNEL: InsightModel = {
 export default {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
+    parameters: {},
     argTypes: {
         insightName: {
             control: { type: 'text' },

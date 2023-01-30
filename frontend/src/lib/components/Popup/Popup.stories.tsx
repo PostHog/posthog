@@ -6,7 +6,6 @@ import { IconArrowDropDown } from '../icons'
 export default {
     title: 'Lemon UI/Popup',
     component: Popup,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof Popup>
 
 const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />
@@ -15,7 +14,7 @@ export const Popup_ = Template.bind({})
 Popup_.args = {
     visible: true,
     children: (
-        <span style={{ fontSize: '1.5rem' }}>
+        <span className="text-2xl">
             <IconArrowDropDown />
         </span>
     ),

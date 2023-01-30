@@ -3,7 +3,8 @@ import LRU from 'lru-cache'
 import LRUCache from 'lru-cache'
 
 import { ONE_HOUR } from '../../config/constants'
-import { PluginsServerConfig, PropertyType, TeamId } from '../../types'
+import { GroupTypeIndex, PluginsServerConfig, PropertyDefinitionTypeEnum, PropertyType, TeamId } from '../../types'
+import { DB } from '../../utils/db/db'
 
 export const NULL_IN_DATABASE = Symbol('NULL_IN_DATABASE')
 export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TYPE_DETECTION')
@@ -11,7 +12,7 @@ export const NULL_AFTER_PROPERTY_TYPE_DETECTION = Symbol('NULL_AFTER_PROPERTY_TY
 type PropertyDefinitionsCacheValue = PropertyType | typeof NULL_IN_DATABASE | typeof NULL_AFTER_PROPERTY_TYPE_DETECTION
 
 /**
- * During event ingestion the team manager attempts to auto-detect the property type and format for properties
+ * During event ingestion the property definitions manager attempts to auto-detect the property type and format for properties
  *
  * The PropertyDefinitionsCache is used to reduce the load on Postgres
  * when inserting property definitions during event ingestion
@@ -24,7 +25,7 @@ type PropertyDefinitionsCacheValue = PropertyType | typeof NULL_IN_DATABASE | ty
  * - it is in the cache and has been confirmed as having no property type -> it never needs to be updated ('NULL_AFTER_PROPERTY_TYPE_DETECTION')
  */
 export class PropertyDefinitionsCache {
-    private readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
+    readonly propertyDefinitionsCache: Map<TeamId, LRU<string, PropertyDefinitionsCacheValue>>
     private readonly statsd?: StatsD
     private readonly lruCacheSize: number
 
@@ -34,21 +35,24 @@ export class PropertyDefinitionsCache {
         this.propertyDefinitionsCache = new Map()
     }
 
-    initialize(
-        teamId: number,
-        items: {
-            name: string
-            property_type: PropertyDefinitionsCacheValue
-        }[]
-    ): void {
+    async initialize(teamId: number, db: DB): Promise<void> {
+        const properties = await db.postgresQuery(
+            'SELECT name, property_type, type, group_type_index FROM posthog_propertydefinition WHERE team_id = $1',
+            [teamId],
+            'fetchPropertyDefinitions'
+        )
+
         const teamPropertyDefinitionsCache = new LRU<string, PropertyDefinitionsCacheValue>({
             max: this.lruCacheSize, // keep in memory the last 10k property definitions we have seen
             maxAge: ONE_HOUR * 24, // cache up to 24h
             updateAgeOnGet: true,
         })
 
-        for (const item of items) {
-            teamPropertyDefinitionsCache.set(item.name, item.property_type ?? NULL_IN_DATABASE)
+        for (const item of properties.rows) {
+            teamPropertyDefinitionsCache.set(
+                this.key(item.name, item.type, item.group_type_index),
+                item.property_type ?? NULL_IN_DATABASE
+            )
         }
 
         this.propertyDefinitionsCache.set(teamId, teamPropertyDefinitionsCache)
@@ -62,14 +66,29 @@ export class PropertyDefinitionsCache {
         return this.propertyDefinitionsCache.has(teamId)
     }
 
-    shouldUpdate(teamId: number, key: string): boolean {
+    shouldUpdate(
+        teamId: number,
+        property: string,
+        type: PropertyDefinitionTypeEnum,
+        groupTypeIndex: GroupTypeIndex | null
+    ): boolean {
         const teamCache = this.propertyDefinitionsCache.get(teamId)
-        return !teamCache?.has(key) || teamCache?.get(key) === NULL_IN_DATABASE
+        const value = teamCache?.get(this.key(property, type, groupTypeIndex))
+        return value === undefined || value === NULL_IN_DATABASE
     }
 
-    set(teamId: number, key: string, detectedPropertyType: PropertyType | null): void {
+    set(
+        teamId: number,
+        property: string,
+        type: PropertyDefinitionTypeEnum,
+        groupTypeIndex: GroupTypeIndex | null,
+        detectedPropertyType: PropertyType | null
+    ): void {
         const teamCache = this.propertyDefinitionsCache.get(teamId)
-        teamCache?.set(key, detectedPropertyType ?? NULL_AFTER_PROPERTY_TYPE_DETECTION)
+        teamCache?.set(
+            this.key(property, type, groupTypeIndex),
+            detectedPropertyType ?? NULL_AFTER_PROPERTY_TYPE_DETECTION
+        )
 
         this.statsd?.gauge('propertyDefinitionsCache.length', teamCache?.length ?? 0, {
             team_id: teamId.toString(),
@@ -78,5 +97,9 @@ export class PropertyDefinitionsCache {
 
     get(teamId: number): LRUCache<string, string | symbol> | undefined {
         return this.propertyDefinitionsCache.get(teamId)
+    }
+
+    private key(property: string, type: PropertyDefinitionTypeEnum, groupTypeIndex: GroupTypeIndex | null): string {
+        return `${type}${groupTypeIndex ?? ''}${property}`
     }
 }

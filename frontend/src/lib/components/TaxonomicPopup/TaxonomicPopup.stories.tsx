@@ -11,7 +11,6 @@ import { ComponentMeta } from '@storybook/react'
 export default {
     title: 'Filters/TaxonomicPopup',
     component: TaxonomicPopup,
-    parameters: { chromatic: { disableSnapshot: false } },
     decorators: [taxonomicFilterMocksDecorator],
 } as ComponentMeta<typeof TaxonomicPopup>
 

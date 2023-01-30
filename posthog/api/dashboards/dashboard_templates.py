@@ -1,5 +1,4 @@
 import json
-from datetime import timedelta
 from typing import Dict, List
 
 import requests
@@ -10,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.cache_utils import cache_for
+from posthog.logging.timing import timed
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
@@ -34,7 +33,9 @@ class DashboardTemplateSerializer(serializers.Serializer):
             raise ValidationError(f"Could not load template from GitHub. {e}")
 
         if "template_name" not in template or template["template_name"] != validated_data["name"]:
-            raise ValidationError(detail="The requested URL does not match the requested template.")
+            raise ValidationError(
+                detail=f'The requested template "{validated_data["name"]}" does not match the requested template URL which loaded the template "{template["template_name"]}"'
+            )
 
         return DashboardTemplate.objects.create(team_id=validated_data["team_id"], **template)
 
@@ -52,6 +53,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         serializer.save(team_id=self.team_id)
         return response.Response(data="", status=status.HTTP_200_OK)
 
+    @timed("dashboard_templates.api_repository_load")
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs) -> response.Response:
         loaded_templates = self._load_repository_listing()
@@ -67,12 +69,8 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         return response.Response(annotated_templates)
 
-    @cache_for(timedelta(seconds=5))
-    def _load_repository_listing(self) -> List[Dict]:
-        """
-        The repository in GitHub will change infrequently,
-        there is no point loading it over-the-wire on every request
-        """
+    @staticmethod
+    def _load_repository_listing() -> List[Dict]:
         url = "https://raw.githubusercontent.com/PostHog/templates-repository/main/dashboards/dashboards.json"
         loaded_templates: List[Dict] = json.loads(requests.get(url).text)
         return loaded_templates

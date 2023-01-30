@@ -71,10 +71,6 @@ class DashboardAPI:
         if team_id is None:
             team_id = self.team.id
 
-        if query_params is None:
-            # default to no items field
-            query_params = {"no_items_field": True}
-
         response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}", query_params)
         self.assertEqual(response.status_code, expected_status)
 

@@ -1,4 +1,3 @@
-import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ActionStepUrlMatching } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
@@ -6,8 +5,8 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
-
-let simmer: SimmerType
+import { finder } from '@medv/finder'
+import wildcardMatch from 'wildcard-match'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -31,12 +30,23 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     if (!element) {
         return
     }
-    if (!simmer) {
-        simmer = new Simmer(window, { depth: 8, dataAttributes })
+
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (!dataAttributes.includes(name)) {
+            continue
+        }
+
+        const selector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        if (querySelectorAllDeep(selector).length == 1) {
+            return selector
+        }
     }
 
-    // Turn tags into lower cases
-    return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
+    return finder(element, {
+        attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
+        tagName: (name) => !TAGS_TO_IGNORE.includes(name),
+        seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+    })
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
@@ -372,11 +382,26 @@ export async function toolbarFetch(
     url: string,
     method: string = 'GET',
     payload?: Record<string, any>,
-    useProvidedURL?: boolean
+    /*
+     allows caller to control how the provided URL is altered before use
+     if "full" then the payload and URL are taken apart and reconstructed
+     if "only-add-token" the URL is unchanged, the payload is not used
+     but the temporary token is added to the URL
+     if "use-as-provided" then the URL is used as-is, and the payload is not used
+     this is because the heatmapLogic needs more control over how the query parameters are constructed
+    */
+    urlConstruction: 'full' | 'only-add-token' | 'use-as-provided' = 'full'
 ): Promise<Response> {
-    const { pathname, searchParams } = combineUrl(url)
-    const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
-    const fullUrl = useProvidedURL ? url : `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+    let fullUrl: string
+    if (urlConstruction === 'use-as-provided') {
+        fullUrl = url
+    } else if (urlConstruction === 'only-add-token') {
+        fullUrl = `${url}&temporary_token=${toolbarLogic.values.temporaryToken}`
+    } else {
+        const { pathname, searchParams } = combineUrl(url)
+        const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
+        fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+    }
 
     const payloadData = payload
         ? {

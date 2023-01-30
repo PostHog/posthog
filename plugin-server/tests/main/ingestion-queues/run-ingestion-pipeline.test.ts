@@ -1,5 +1,4 @@
 import Redis from 'ioredis'
-import { KafkaJSError } from 'kafkajs'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -65,38 +64,5 @@ describe('workerTasks.runEventPipeline()', () => {
                 },
             })
         ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Postgres', new Error(errorMessage)))
-    })
-
-    test('throws DependencyUnavailableError on Kafka producer to buffer errors when delaying all events', async () => {
-        const errorMessage = 'Cannot connect to Kafka broker'
-        const organizationId = await createOrganization(hub.postgres)
-        const teamId = await createTeam(hub.postgres, organizationId)
-
-        jest.spyOn(hub.db.kafkaProducer.producer, 'send').mockImplementationOnce(() => {
-            return Promise.reject(new KafkaJSError(errorMessage))
-        })
-
-        // TODO: remove once event delays is rolled out. See
-        // https://github.com/PostHog/product-internal/pull/405/files for
-        // context.
-        process.env.DELAY_ALL_EVENTS_FOR_TEAMS = '*'
-
-        await expect(
-            piscinaTaskRunner({
-                task: 'runEventPipeline',
-                args: {
-                    event: {
-                        distinctId: 'asdf',
-                        ip: '',
-                        team_id: teamId,
-                        event: 'some event',
-                        properties: {},
-                        eventUuid: new UUIDT().toString(),
-                    },
-                },
-            })
-        ).rejects.toEqual(
-            new DependencyUnavailableError('Kafka buffer topic is unavailable', 'Kafka', new KafkaJSError(errorMessage))
-        )
     })
 })

@@ -47,7 +47,7 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema'
-import { isEventsNode, isLifecycleQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { isEventsNode, isLifecycleQuery, isPathsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -161,19 +161,19 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): string[] {
+export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
-    if (filters.include_event_types) {
+    if (include_event_types) {
         let matchCount = 0
-        if (filters.include_event_types.includes(PathType.PageView)) {
+        if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.Screen)) {
+        if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.CustomEvent)) {
+        if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
             matchCount++
         }
@@ -239,7 +239,7 @@ export function summarizeInsightFilters(
         )
     } else if (isPathsFilter(filters)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
+        let summary = `User paths based on ${humanizePathsEventTypes(filters.include_event_types).join(' and ')}`
         if (filters.start_point) {
             summary += ` starting at ${filters.start_point}`
         }
@@ -340,18 +340,7 @@ export function summarizeInsightQuery(
     cohortsById: cohortsModelType['values']['cohortsById'],
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
 ): string {
-    if (isStickinessQuery(query)) {
-        return capitalizeFirstLetter(
-            (query as StickinessQuery).series
-                .map((s) => {
-                    const actor = aggregationLabel(s.math_group_type_index, true).singular
-                    return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
-                })
-                .join(' & ')
-        )
-    } else if (isLifecycleQuery(query)) {
-        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
-    } else if (isTrendsQuery(query)) {
+    if (isTrendsQuery(query)) {
         let summary = (query as TrendsQuery).series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
@@ -397,6 +386,29 @@ export function summarizeInsightQuery(
         }
 
         return summary
+    } else if (isPathsQuery(query)) {
+        // Sync format with PathsSummary in InsightDetails
+        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
+            ' and '
+        )}`
+        if (query.pathsFilter?.start_point) {
+            summary += ` starting at ${query.pathsFilter?.start_point}`
+        }
+        if (query.pathsFilter?.end_point) {
+            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
+        }
+        return summary
+    } else if (isStickinessQuery(query)) {
+        return capitalizeFirstLetter(
+            (query as StickinessQuery).series
+                .map((s) => {
+                    const actor = aggregationLabel(s.math_group_type_index, true).singular
+                    return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
+                })
+                .join(' & ')
+        )
+    } else if (isLifecycleQuery(query)) {
+        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
     } else {
         return ''
     }

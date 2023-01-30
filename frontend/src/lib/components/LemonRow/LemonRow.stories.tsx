@@ -5,7 +5,6 @@ import { LemonRow, LemonRowProps } from './LemonRow'
 export default {
     title: 'Lemon UI/Lemon Row',
     component: LemonRow,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         icon: {
             defaultValue: <IconPremium />,
@@ -13,6 +12,9 @@ export default {
         children: {
             defaultValue: 'Information',
         },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonRow>
 

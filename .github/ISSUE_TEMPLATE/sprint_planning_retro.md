@@ -67,6 +67,10 @@ Team ___
 
 <!-- Each item should have a single owner. Owner can only be an engineer. -->
 
+ - any vacations?
+ - any support here?
+ - who is on secondary support this sprint? 
+
 ### High priority
 
 -

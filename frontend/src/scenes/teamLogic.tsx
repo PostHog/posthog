@@ -23,6 +23,12 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
+export interface FrequentMistakeAdvice {
+    key: string
+    type: 'event' | 'person'
+    fix: string
+}
+
 export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect({
@@ -115,12 +121,6 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam, currentOrganization): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
-        pathCleaningFiltersWithNew: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam): Record<string, any>[] => {
-                return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
-            },
-        ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): CorrelationConfigType => {
@@ -170,6 +170,26 @@ export const teamLogic = kea<teamLogicType>([
                         return filter.key
                     }
                 })
+            },
+        ],
+        testAccountFilterFrequentMistakes: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): FrequentMistakeAdvice[] => {
+                if (!currentTeam) {
+                    return []
+                }
+                const frequentMistakes: FrequentMistakeAdvice[] = []
+
+                for (const filter of currentTeam.test_account_filters) {
+                    if (filter.key === 'email' && filter.type === 'event') {
+                        frequentMistakes.push({
+                            key: 'email',
+                            type: 'event',
+                            fix: 'it is more common to filter email by person properties, not event properties',
+                        })
+                    }
+                }
+                return frequentMistakes
             },
         ],
     }),

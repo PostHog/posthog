@@ -1,3 +1,405 @@
+# name: TestFormula.test_breakdown
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session start'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFormula.test_breakdown.1
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+            avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session start'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFormula.test_breakdown.2
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A - B, arrayResize(sub_A.data, max_length, 0), arrayResize(sub_B.data, max_length, 0)) ,
+         arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1] ,
+         arrayMax([length(sub_A.data), length(sub_B.data)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data,
+            breakdown_value
+     FROM
+       (SELECT SUM(total) as count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT *
+           FROM
+             (SELECT toUInt16(0) AS total,
+                     ticks.day_start as day_start,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+                 FROM numbers(8)
+                 UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              CROSS JOIN
+                (SELECT breakdown_value
+                 FROM
+                   (SELECT ['London', 'Paris'] as breakdown_value) ARRAY
+                 JOIN breakdown_value) as sec
+              ORDER BY breakdown_value,
+                       day_start
+              UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
+                               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                               replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') as breakdown_value
+              FROM events e
+              WHERE e.team_id = 2
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
+              GROUP BY day_start,
+                       breakdown_value))
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY breakdown_value,
+                 day_start)
+     GROUP BY breakdown_value
+     ORDER BY breakdown_value) as sub_A
+  FULL OUTER JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data,
+            breakdown_value
+     FROM
+       (SELECT SUM(total) as count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT *
+           FROM
+             (SELECT toUInt16(0) AS total,
+                     ticks.day_start as day_start,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+                 FROM numbers(8)
+                 UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              CROSS JOIN
+                (SELECT breakdown_value
+                 FROM
+                   (SELECT ['London', 'Paris'] as breakdown_value) ARRAY
+                 JOIN breakdown_value) as sec
+              ORDER BY breakdown_value,
+                       day_start
+              UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
+                               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                               replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') as breakdown_value
+              FROM events e
+              WHERE e.team_id = 2
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
+              GROUP BY day_start,
+                       breakdown_value))
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY breakdown_value,
+                 day_start)
+     GROUP BY breakdown_value
+     ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
+  '
+---
+# name: TestFormula.test_breakdown_cohort
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A + B, arrayResize(sub_A.data, max_length, 0), arrayResize(sub_B.data, max_length, 0)) ,
+         arrayFilter(x -> x != 0, [sub_A.breakdown_value, sub_B.breakdown_value])[1] ,
+         arrayMax([length(sub_A.data), length(sub_B.data)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data,
+            breakdown_value
+     FROM
+       (SELECT SUM(total) as count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT *
+           FROM
+             (SELECT toUInt16(0) AS total,
+                     ticks.day_start as day_start,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+                 FROM numbers(8)
+                 UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              CROSS JOIN
+                (SELECT breakdown_value
+                 FROM
+                   (SELECT [34, 0] as breakdown_value) ARRAY
+                 JOIN breakdown_value) as sec
+              ORDER BY breakdown_value,
+                       day_start
+              UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
+                               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                               value as breakdown_value
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        34 as value
+                 FROM
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0)
+                 WHERE person_id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 2
+                        AND id IN
+                          (SELECT id
+                           FROM person
+                           WHERE team_id = 2
+                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', '')))) )
+                      GROUP BY id
+                      HAVING max(is_deleted) = 0
+                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
+                 UNION ALL SELECT DISTINCT distinct_id,
+                                           0 as value
+                 FROM events all_events
+                 WHERE team_id = 2
+                   AND toDateTime(all_events.timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+                   AND toDateTime(all_events.timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) ep ON e.distinct_id = ep.distinct_id
+              where team_id = 2
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+              GROUP BY day_start,
+                       breakdown_value))
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY breakdown_value,
+                 day_start)
+     GROUP BY breakdown_value
+     ORDER BY breakdown_value) as sub_A
+  FULL OUTER JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data,
+            breakdown_value
+     FROM
+       (SELECT SUM(total) as count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT *
+           FROM
+             (SELECT toUInt16(0) AS total,
+                     ticks.day_start as day_start,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+                 FROM numbers(8)
+                 UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              CROSS JOIN
+                (SELECT breakdown_value
+                 FROM
+                   (SELECT [34, 0] as breakdown_value) ARRAY
+                 JOIN breakdown_value) as sec
+              ORDER BY breakdown_value,
+                       day_start
+              UNION ALL SELECT avg(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
+                               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                               value as breakdown_value
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        34 as value
+                 FROM
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0)
+                 WHERE person_id IN
+                     (SELECT id
+                      FROM person
+                      WHERE team_id = 2
+                        AND id IN
+                          (SELECT id
+                           FROM person
+                           WHERE team_id = 2
+                             AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', '')))) )
+                      GROUP BY id
+                      HAVING max(is_deleted) = 0
+                      AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))))
+                 UNION ALL SELECT DISTINCT distinct_id,
+                                           0 as value
+                 FROM events all_events
+                 WHERE team_id = 2
+                   AND toDateTime(all_events.timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+                   AND toDateTime(all_events.timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) ep ON e.distinct_id = ep.distinct_id
+              where team_id = 2
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+              GROUP BY day_start,
+                       breakdown_value))
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY breakdown_value,
+                 day_start)
+     GROUP BY breakdown_value
+     ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
+  '
+---
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session start'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.1
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') AS value,
+            sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'session end'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestFormula.test_breakdown_with_different_breakdown_values_per_series.2
+  '
+  SELECT sub_A.date,
+         arrayMap((A, B) -> A + B, arrayResize(sub_A.data, max_length, 0), arrayResize(sub_B.data, max_length, 0)) ,
+         arrayFilter(x -> notEmpty(x), [replaceRegexpAll(sub_A.breakdown_value, '^"|"$', ''), replaceRegexpAll(sub_B.breakdown_value, '^"|"$', '')])[1] ,
+         arrayMax([length(sub_A.data), length(sub_B.data)]) as max_length
+  FROM
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data,
+            breakdown_value
+     FROM
+       (SELECT SUM(total) as count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT *
+           FROM
+             (SELECT toUInt16(0) AS total,
+                     ticks.day_start as day_start,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+                 FROM numbers(8)
+                 UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              CROSS JOIN
+                (SELECT breakdown_value
+                 FROM
+                   (SELECT ['London', 'Paris'] as breakdown_value) ARRAY
+                 JOIN breakdown_value) as sec
+              ORDER BY breakdown_value,
+                       day_start
+              UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
+                               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                               replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') as breakdown_value
+              FROM events e
+              WHERE e.team_id = 2
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Paris'])
+              GROUP BY day_start,
+                       breakdown_value))
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY breakdown_value,
+                 day_start)
+     GROUP BY breakdown_value
+     ORDER BY breakdown_value) as sub_A
+  FULL OUTER JOIN
+    (SELECT groupArray(day_start) as date,
+            groupArray(count) as data,
+            breakdown_value
+     FROM
+       (SELECT SUM(total) as count,
+               day_start,
+               breakdown_value
+        FROM
+          (SELECT *
+           FROM
+             (SELECT toUInt16(0) AS total,
+                     ticks.day_start as day_start,
+                     breakdown_value
+              FROM
+                (SELECT toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - number * 86400) as day_start
+                 FROM numbers(8)
+                 UNION ALL SELECT toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')) as day_start) as ticks
+              CROSS JOIN
+                (SELECT breakdown_value
+                 FROM
+                   (SELECT ['London', 'Belo Horizonte', ''] as breakdown_value) ARRAY
+                 JOIN breakdown_value) as sec
+              ORDER BY breakdown_value,
+                       day_start
+              UNION ALL SELECT sum(toFloat64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'session duration'), '^"|"$', ''))) as total,
+                               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                               replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') as breakdown_value
+              FROM events e
+              WHERE e.team_id = 2
+                AND event = 'session end'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Belo Horizonte', ''])
+              GROUP BY day_start,
+                       breakdown_value))
+        GROUP BY day_start,
+                 breakdown_value
+        ORDER BY breakdown_value,
+                 day_start)
+     GROUP BY breakdown_value
+     ORDER BY breakdown_value) as sub_B ON sub_A.breakdown_value = sub_B.breakdown_value
+  '
+---
 # name: TestFormula.test_formula_with_unique_sessions
   '
   SELECT sub_A.date,
@@ -24,7 +426,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
            GROUP BY date)
         GROUP BY day_start
-        ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60) as sub_A
+        ORDER BY day_start)) as sub_A
   CROSS JOIN
     (SELECT groupArray(day_start) as date,
             groupArray(count) as data
@@ -53,6 +455,6 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
            GROUP BY date)
         GROUP BY day_start
-        ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60) as sub_B
+        ORDER BY day_start)) as sub_B
   '
 ---

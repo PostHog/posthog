@@ -22,8 +22,6 @@ class TeamBasicSerializer(serializers.ModelSerializer):
     Also used for nested serializers.
     """
 
-    effective_membership_level = serializers.SerializerMethodField(read_only=True)
-
     class Meta:
         model = Team
         fields = (
@@ -37,11 +35,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
             "is_demo",
             "timezone",
             "access_control",
-            "effective_membership_level",
         )
-
-    def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
 
 
 class OrganizationBasicSerializer(serializers.ModelSerializer):

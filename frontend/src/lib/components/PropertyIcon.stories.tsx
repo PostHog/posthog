@@ -6,7 +6,6 @@ import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 export default {
     title: 'Lemon UI/Icons/Property Icon',
     component: PropertyIcon,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyIcon>
 
 const Template: ComponentStory<typeof PropertyIcon> = (args) => {

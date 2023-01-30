@@ -437,13 +437,13 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         Team.objects.create(organization=self.organization, name="Other", access_control=True)
 
         # The other team should not be returned as it's restricted for the logged-in user
-        with self.assertNumQueries(9):
+        with self.assertNumQueries(7):
             projects_response = self.client.get(f"/api/projects/")
 
         # 9 (above) + 2 below:
         # Used for `metadata`.`taxonomy_set_events_count`: SELECT COUNT(*) FROM "ee_enterpriseeventdefinition" WHERE ...
         #  Used for `metadata`.`taxonomy_set_properties_count`: SELECT COUNT(*) FROM "ee_enterprisepropertydefinition" WHERE ...
-        with self.assertNumQueries(11):
+        with self.assertNumQueries(10):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)
@@ -461,7 +461,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                     "is_demo": False,
                     "timezone": "UTC",
                     "access_control": False,
-                    "effective_membership_level": int(OrganizationMembership.Level.MEMBER),
                 }
             ],
         )
@@ -480,7 +479,6 @@ class TestProjectEnterpriseAPI(APILicensedTest):
                     "is_demo": False,
                     "timezone": "UTC",
                     "access_control": False,
-                    "effective_membership_level": int(OrganizationMembership.Level.MEMBER),
                 }
             ],
         )

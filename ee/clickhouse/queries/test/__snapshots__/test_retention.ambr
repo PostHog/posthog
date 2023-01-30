@@ -1,11 +1,11 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -22,7 +22,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -64,11 +64,11 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -85,7 +85,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -120,11 +120,11 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events.2
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_1" as target
         FROM events e
         WHERE team_id = 2
@@ -141,7 +141,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -180,11 +180,11 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -201,7 +201,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -243,11 +243,11 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -264,7 +264,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -299,11 +299,11 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized.2
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_1" as target
         FROM events e
         WHERE team_id = 2
@@ -320,7 +320,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -359,11 +359,11 @@
 # name: TestClickhouseRetention.test_groups_filtering_person_on_events
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -394,7 +394,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -447,11 +447,11 @@
 # name: TestClickhouseRetention.test_groups_filtering_person_on_events.1
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                pdi.person_id as target
         FROM events e
         INNER JOIN
@@ -482,7 +482,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -662,11 +662,11 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -684,7 +684,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e
@@ -723,11 +723,11 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
-       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'), 0) AS event_date,
+       (SELECT toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC')) AS event_date,
                e."$group_0" as target
         FROM events e
         WHERE team_id = 2
@@ -745,7 +745,7 @@
                           dateDiff(
                               'Week',
                               toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
-                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC') , 0)
+                              toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
         FROM events e

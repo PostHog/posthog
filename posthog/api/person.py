@@ -49,6 +49,7 @@ from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -197,7 +198,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = sync_execute(query, params)
+        raw_result = insight_sync_execute(query, params, filter=filter, query_type="person_list")
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
@@ -640,13 +641,33 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
+    group_properties_filter_group = []
+    if hasattr(filter, "aggregation_group_type_index"):
+        group_properties_filter_group += [
+            {
+                "key": "name",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+            {
+                "key": "slug",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+        ]
+
     new_group = {
         "type": "OR",
         "values": [
             {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
             {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-        ],
+        ]
+        + group_properties_filter_group,
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}

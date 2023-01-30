@@ -246,6 +246,8 @@ ptyprocess==0.6.0
     # via pexpect
 pycparser==2.20
     # via cffi
+pydantic==1.10.4
+    # via -r requirements.in
 pyjwt==2.4.0
     # via
     #   -r requirements.in
@@ -347,8 +349,10 @@ trio==0.20.0
     #   trio-websocket
 trio-websocket==0.9.2
     # via selenium
-typing-extensions==4.1.1
-    # via typing-inspect
+typing-extensions==4.4.0
+    # via
+    #   pydantic
+    #   typing-inspect
 typing-inspect==0.7.1
     # via dataclasses-json
 tzlocal==2.1
