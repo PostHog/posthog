@@ -25,7 +25,6 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, QuerySchema } from './queries/schema'
 
@@ -269,8 +268,6 @@ export interface TeamBasicType {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
-    /** Effective access level of the user in this specific team. Null if user has no access. */
-    effective_membership_level: OrganizationMembershipLevel | null
 }
 
 export interface CorrelationConfigType {
@@ -298,6 +295,10 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
+
+    /** Effective access level of the user in this specific team. Null if user has no access. */
+    effective_membership_level: OrganizationMembershipLevel | null
+
     /** Used to exclude person properties from correlation analysis results.
      *
      * For example can be used to exclude properties that have trivial causation.
@@ -878,7 +879,8 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    level?: RowStatus.Match | RowStatus.Information // If undefined, by default information row
+    // Can be removed once inspector V1 is removed
+    level?: 'match' | 'information' // If undefined, by default information row
 }
 
 export interface EventsTableRowItem {

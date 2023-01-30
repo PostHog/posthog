@@ -35,7 +35,7 @@ class Insight(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     filters: models.JSONField = models.JSONField(default=dict)
     filters_hash: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    query: models.JSONField = models.JSONField(null=True)
+    query: models.JSONField = models.JSONField(null=True, blank=True)
     order: models.IntegerField = models.IntegerField(null=True, blank=True)
     deleted: models.BooleanField = models.BooleanField(default=False)
     saved: models.BooleanField = models.BooleanField(default=False)
@@ -139,32 +139,6 @@ class Insight(models.Model):
             return filters
         else:
             return self.filters
-
-    @property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        dashboard_tiles = list(self.dashboard_tiles.all())
-        if not dashboard_tiles:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-        restrictions = [t.dashboard.effective_restriction_level for t in dashboard_tiles]
-        restriction_set_to_only_collaborators = next(
-            (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
-        )
-        if restriction_set_to_only_collaborators:
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        else:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-    def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        dashboard_tiles = list(self.dashboard_tiles.all())
-        if not dashboard_tiles:
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-
-        edit_permissions = [t.dashboard.can_user_edit(user_id) for t in dashboard_tiles]
-        if any(edit_permissions):
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-        else:
-            return Dashboard.PrivilegeLevel.CAN_VIEW
 
     @property
     def url(self):
