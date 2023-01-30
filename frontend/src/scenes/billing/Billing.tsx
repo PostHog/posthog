@@ -6,10 +6,10 @@ import './Billing.scss'
 import { billingLogic } from './billingLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { useValues } from 'kea'
 import { BillingV2 } from './v2/Billing'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: Billing,

@@ -1,6 +1,6 @@
 import { Tag } from 'antd'
 import { copyToClipboard } from 'lib/utils'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function LocalPluginTag({
     url,

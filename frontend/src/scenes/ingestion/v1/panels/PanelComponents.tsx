@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BOOKMARKLET } from '../constants'
 import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
-import { IconArrowLeft } from 'lib/components/icons'
+import { IconArrowLeft } from 'lib/lemon-ui/icons'
 
 export function PanelFooterToRecordingStep(): JSX.Element {
     const { platform } = useValues(ingestionLogic)

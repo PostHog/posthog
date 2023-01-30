@@ -10,7 +10,13 @@ import { AvailableFeature } from '~/types'
 
 export default {
     title: 'Scenes-App/Feature Flags',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' }, // scene mode
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+
+        mockDate: '2023-01-28', // To stabilize relative dates
+    },
     decorators: [
         mswDecorator({
             get: {

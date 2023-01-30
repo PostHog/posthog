@@ -10,7 +10,7 @@ import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyN
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
-import { IconInfo } from 'lib/components/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 import { TZLabel } from 'lib/components/TZLabel'
 
 interface ExperimentPreviewProps {

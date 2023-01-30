@@ -3,8 +3,8 @@ import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import type { helpButtonLogicType } from './HelpButtonType'
-import { Popup } from '../Popup/Popup'
-import { LemonButton } from '../LemonButton'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconArrowDropDown,
     IconArticle,
@@ -15,7 +15,7 @@ import {
     IconMessages,
     IconFlare,
     IconTrendingUp,
-} from '../icons'
+} from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'

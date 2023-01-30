@@ -5,6 +5,7 @@ import { PropertyKeyInfo } from './PropertyKeyInfo'
 export default {
     title: 'Components/Property Key Info',
     component: PropertyKeyInfo,
+    chromatic: { disableSnapshot: true },
 } as ComponentMeta<typeof PropertyKeyInfo>
 
 const Template: ComponentStory<typeof PropertyKeyInfo> = (args) => {

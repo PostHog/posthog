@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/v1/constants'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 
 export function FrameworkPanel(): JSX.Element {

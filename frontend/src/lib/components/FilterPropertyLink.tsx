@@ -1,7 +1,7 @@
 import { combineUrl } from 'kea-router'
 
 import { Property } from 'lib/components/Property'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { FilterType } from '~/types'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
 

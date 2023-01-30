@@ -21,8 +21,8 @@ import { copyToClipboard } from 'lib/utils'
 import { Popconfirm } from 'antd'
 import { PopconfirmProps } from 'antd/lib/popconfirm'
 import './CodeSnippet.scss'
-import { IconCopy } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export enum Language {
     Text = 'text',

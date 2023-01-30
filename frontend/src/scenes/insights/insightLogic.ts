@@ -18,7 +18,7 @@ import {
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
     filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,

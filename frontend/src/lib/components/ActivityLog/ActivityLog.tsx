@@ -1,11 +1,11 @@
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityScope, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
-import { PaginationControl, usePagination } from 'lib/components/PaginationControl'
-import { LemonSkeleton } from '../LemonSkeleton'
+import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import clsx from 'clsx'
 
 export interface ActivityLogProps {

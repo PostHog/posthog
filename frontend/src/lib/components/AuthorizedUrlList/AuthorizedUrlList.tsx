@@ -1,18 +1,18 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     AuthorizedUrlListType as AuthorizedUrlListType,
     authorizedUrlListLogic,
     AuthorizedUrlListProps,
 } from './authorizedUrlListLogic'
-import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/components/icons'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { IconDelete, IconEdit, IconOpenInApp, IconPlus } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Form } from 'kea-forms'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Field } from 'lib/forms/Field'
-import { LemonDialog } from '../LemonDialog'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 function EmptyState({
     numberOfResults,
