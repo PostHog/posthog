@@ -118,7 +118,9 @@ class ActorBaseQuery:
             and session_id in %(session_ids)s
         """
         params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
-        raw_result = insight_sync_execute(query, params, query_type="actors_session_ids_with_recordings")
+        raw_result = insight_sync_execute(
+            query, params, query_type="actors_session_ids_with_recordings", filter=self._filter
+        )
         return {row[0] for row in raw_result}
 
     def add_matched_recordings_to_serialized_actors(

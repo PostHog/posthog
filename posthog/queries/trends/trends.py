@@ -146,11 +146,13 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(self, result: List, index: int, query_type, sql, params, query_tags: Dict):
+    def _run_query_for_threading(
+        self, result: List, index: int, query_type, sql, params, query_tags: Dict, filter: Filter
+    ):
         tag_queries(**query_tags)
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = insight_sync_execute(sql, params, query_type=query_type)
+            result[index] = insight_sync_execute(sql, params, query_type=query_type, filter=filter)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -166,7 +168,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, params, get_query_tags()),
+                args=(result, entity.index, query_type, sql, params, get_query_tags(), adjusted_filter),
             )
             jobs.append(thread)
 
