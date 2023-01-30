@@ -132,20 +132,19 @@ export class EventPipelineRunner {
     ): Promise<EventPipelineResult> {
         const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event])
 
-        if (processedEvent != null) {
-            const [normalizedEvent, newPersonContainer] = await this.runStep(processPersonsStep, [
+        if (processedEvent == null) {
+            return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
+        } 
+        const [normalizedEvent, newPersonContainer] = await this.runStep(processPersonsStep, [
                 this,
                 processedEvent,
                 personContainer,
-            ])
+        ])
 
-            const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent])
+        const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent])
 
-            await this.runStep(createEventStep, [this, preparedEvent, newPersonContainer])
-            return this.registerLastStep('createEventStep', event.team_id, [preparedEvent, newPersonContainer])
-        } else {
-            return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
-        }
+        await this.runStep(createEventStep, [this, preparedEvent, newPersonContainer])
+        return this.registerLastStep('createEventStep', event.team_id, [preparedEvent, newPersonContainer])
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
