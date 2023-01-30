@@ -113,7 +113,6 @@ SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     GROUP BY day_start
     ORDER BY day_start
 )
-SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """
