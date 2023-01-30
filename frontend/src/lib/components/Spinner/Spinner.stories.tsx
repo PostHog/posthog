@@ -68,7 +68,7 @@ export function InButtons(): JSX.Element {
 
 export function AsOverlay(): JSX.Element {
     return (
-        <div>
+        <div className="relative">
             <h1>Hey there</h1>
             <p>
                 Illum impedit eligendi minima aperiam. Quo aut eaque debitis dolor corrupti fugit sit qui. Esse
