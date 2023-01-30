@@ -6,11 +6,11 @@ import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CommunityTag } from 'lib/CommunityTag'
-import { IconCloudDownload } from 'lib/lemon-ui/icons'
+import { IconCloudUpload } from 'lib/lemon-ui/icons'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
-    const { repository, repositoryLoading, templateLoading } = useValues(dashboardTemplatesLogic)
+    const { repository, repositoryLoading, templateLoading, templateBeingSaved } = useValues(dashboardTemplatesLogic)
     const { installTemplate } = useActions(dashboardTemplatesLogic)
 
     return (
@@ -51,18 +51,18 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                         ) {
                             return (
                                 <div className="template-installed">
-                                    {installed ? (
+                                    {installed && !record.has_new_version ? (
                                         <LemonSnack>INSTALLED</LemonSnack>
                                     ) : (
                                         <LemonButton
                                             status={'primary'}
                                             type={'primary'}
+                                            icon={<IconCloudUpload />}
                                             onClick={() => installTemplate({ name: record.name, url: record.url })}
-                                            icon={<IconCloudDownload />}
-                                            loading={templateLoading}
-                                            disabled={templateLoading}
+                                            loading={templateLoading && templateBeingSaved === record.name}
+                                            disabledReason={templateLoading ? 'Installing template...' : undefined}
                                         >
-                                            Install
+                                            {record.has_new_version ? 'Update' : 'Install'}
                                         </LemonButton>
                                     )}
                                 </div>

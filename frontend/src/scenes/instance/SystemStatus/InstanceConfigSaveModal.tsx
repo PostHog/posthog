@@ -89,6 +89,15 @@ export function InstanceConfigSaveModal({ onClose, isOpen }: { onClose: () => vo
                         </>
                     </AlertMessage>
                 )}
+                {Object.keys(instanceConfigEditingState).includes('RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS') && (
+                    <AlertMessage type="warning">
+                        <>
+                            Changing your performance events TTL requires ClickHouse to have enough free space to
+                            perform the operation (even when reducing this value). In addition, please mind that
+                            removing old recordings will be removed asynchronously, not immediately.
+                        </>
+                    </AlertMessage>
+                )}
                 <div>The following changes will be immediately applied to your instance.</div>
                 {Object.keys(instanceConfigEditingState).map((key) => (
                     <ChangeRow
