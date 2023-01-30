@@ -73,7 +73,21 @@ const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
             kind: NodeKind.InsightVizNode,
             source: {
                 kind: NodeKind.RetentionQuery,
-                retentionFilter: {},
+                retentionFilter: {
+                    period: 'Day',
+                    total_intervals: 11,
+                    target_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                    },
+                    returning_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                    },
+                    retention_type: 'retention_first_time',
+                },
             },
         }
     } else if (kind === NodeKind.PathsQuery) {
