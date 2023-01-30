@@ -106,7 +106,15 @@ export const reloadAction = async (redis: Redis.Redis, teamId: number, actionId:
 
 export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
-        SELECT * FROM events 
+        SELECT 
+            *, 
+            dictGetOrDefault(
+                person_overrides_dict, 
+                'override_person_id', 
+                (${teamId}, events.person_id),
+                events.person_id
+            ) as person_id 
+        FROM events 
         WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)

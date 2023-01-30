@@ -6,6 +6,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
+import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -487,6 +488,29 @@ export class PersonState {
         properties: Properties
     ): Promise<[ProducerRecord[], Person]> {
         return await this.db.postgresTransaction('mergePeople', async (client) => {
+            // Merge the distinct IDs
+            // TODO: Doesn't this table need to add updates to CH too?
+            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
+
+            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
+
+            const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
+
+            const {
+                rows: [[version]],
+            } = await client.query(
+                `
+                INSERT INTO posthog_personoverride (
+                    team_id, 
+                    override_person_id, 
+                    old_person_id, 
+                    oldest_event
+                ) VALUES ($1, $2, $3, $4)
+                RETURNING version
+                `,
+                [this.teamId, mergeInto.id, otherPerson.id, mergeInto.created_at]
+            )
+
             const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
                 mergeInto,
                 {
@@ -497,15 +521,26 @@ export class PersonState {
                 client
             )
 
-            // Merge the distinct IDs
-            // TODO: Doesn't this table need to add updates to CH too?
-            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
+            const personOverrideMessage: ProducerRecord = {
+                topic: KAFKA_PERSON_OVERRIDE,
+                messages: [
+                    {
+                        value: JSON.stringify({
+                            team_id: this.teamId,
+                            merged_at: createdAt,
+                            override_person_id: mergeInto.id,
+                            old_person_id: otherPerson.id,
+                            oldest_event: mergeInto.created_at,
+                            version: version,
+                        }),
+                    },
+                ],
+            }
 
-            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
-
-            const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
-
-            return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+            return [
+                [personOverrideMessage, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
+                person,
+            ]
         })
     }
 
