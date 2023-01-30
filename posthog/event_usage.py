@@ -185,6 +185,14 @@ def report_user_action(user: User, event: str, properties: Dict = {}):
     )
 
 
+def report_local_evaluation_requested(team: Team) -> None:
+    posthoganalytics.capture(
+        str(team.id),
+        "local evaluation request",
+        groups=groups(team.organization, team),
+    )
+
+
 def report_organization_deleted(user: User, organization: Organization):
     posthoganalytics.capture(
         user.distinct_id, "organization deleted", organization.get_analytics_metadata(), groups=groups(organization)

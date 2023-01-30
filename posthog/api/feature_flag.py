@@ -13,7 +13,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
-from posthog.event_usage import report_user_action
+from posthog.event_usage import report_local_evaluation_requested, report_user_action
 from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -317,6 +317,8 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             else:
                 feature_flag.filters = filters
             parsed_flags.append(feature_flag)
+
+        report_local_evaluation_requested(self.team)
 
         return Response(
             {
