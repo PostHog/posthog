@@ -9,7 +9,17 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { filterForQuery, filterPropertyForQuery, isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
+import {
+    filterForQuery,
+    filterPropertyForQuery,
+    isTrendsQuery,
+    isFunnelsQuery,
+    isRetentionQuery,
+    isPathsQuery,
+    isStickinessQuery,
+    isLifecycleQuery,
+    isUnimplementedQuery,
+} from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
@@ -158,7 +168,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
-        insightFilter: [(s) => [s.querySource], (querySource) => filterForQuery(querySource)],
+        insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
+        trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
+        funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
+        retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
+        pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
+        stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
+        lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
     }),
 
     listeners(({ actions, values }) => ({

@@ -12,11 +12,8 @@ import { FunnelsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 export function AttributionDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { insightFilter } = useValues(funnelDataLogic(insightProps))
+    const { insightFilter, steps } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
-
-    // TODO: implement in funnelDataLogic
-    const steps: FunnelStepWithNestedBreakdown[] = []
 
     return <AttributionComponent setFilters={updateInsightFilter} steps={steps} {...insightFilter} />
 }
