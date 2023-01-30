@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -32,7 +32,8 @@ from posthog.constants import (
     OFFSET,
 )
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort
+from posthog.models import Cohort, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -133,6 +134,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        user = cast(User, request.user)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -144,6 +146,13 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
+            if cohort.deleted is True:
+                AsyncDeletion.objects.create(
+                    deletion_type=DeletionType.Cohort_full,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{cohort.version}",
+                    created_by=user,
+                )
 
         if not cohort.is_static and not is_deletion_change:
             cohort.is_calculating = True

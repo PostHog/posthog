@@ -6,6 +6,7 @@ import {
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
+    isRecentPerformancePageViewNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -36,18 +37,15 @@ export async function query<N extends DataNode = DataNode>(
 ): Promise<N['response']> {
     if (isEventsQuery(query)) {
         if (!query.before && !query.after) {
-            const earlyResults = await api.get(
-                getEventsEndpoint({ ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() }),
+            const earlyResults = await api.query(
+                { ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() },
                 methodOptions
             )
             if (earlyResults.results.length > 0) {
                 return earlyResults
             }
         }
-        return await api.get(
-            getEventsEndpoint({ after: now().subtract(1, 'year').toISOString(), ...query }),
-            methodOptions
-        )
+        return await api.query({ after: now().subtract(1, 'year').toISOString(), ...query }, methodOptions)
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query), methodOptions)
     } else if (isInsightQueryNode(query)) {
@@ -76,6 +74,8 @@ export async function query<N extends DataNode = DataNode>(
             session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
             session_end: query.sessionEnd ?? now().toISOString(),
         })
+    } else if (isRecentPerformancePageViewNode(query)) {
+        return await api.performanceEvents.recentPageViews()
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }
@@ -92,6 +92,7 @@ export function getEventsEndpoint(query: EventsQuery): string {
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
             ...(query.orderBy ? { orderBy: query.orderBy } : {}),
+            ...(query.offset ? { offset: query.offset } : {}),
         },
         query.limit ?? DEFAULT_QUERY_LIMIT
     )

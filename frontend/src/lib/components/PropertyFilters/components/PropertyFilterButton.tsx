@@ -35,7 +35,7 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
         return (
             <Button
                 shape="round"
-                style={{ ...style }}
+                style={style}
                 onClick={onClick}
                 ref={ref}
                 className="PropertyFilterButton ph-no-capture"

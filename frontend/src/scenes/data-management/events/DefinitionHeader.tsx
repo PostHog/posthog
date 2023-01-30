@@ -4,8 +4,8 @@ import {
     IconPageleave,
     IconPageview,
     PropertyIcon,
-    UnverifiedEvent,
-    VerifiedEvent,
+    IconUnverifiedEvent,
+    IconVerifiedEvent,
     VerifiedPropertyIcon,
 } from 'lib/components/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
@@ -61,13 +61,13 @@ export function getEventDefinitionIcon(definition: EventDefinition): JSX.Element
     if (definition.name && (definition.verified || !!keyMapping.event[definition.name])) {
         return (
             <Tooltip title={`${!!keyMapping.event[definition.name] ? 'PostHog' : 'Verified'} event`}>
-                <VerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
+                <IconVerifiedEvent className="taxonomy-icon taxonomy-icon-verified" />
             </Tooltip>
         )
     }
     return (
         <Tooltip title={`Unverified event`}>
-            <UnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
+            <IconUnverifiedEvent className="taxonomy-icon taxonomy-icon-muted" />
         </Tooltip>
     )
 }
@@ -161,7 +161,7 @@ export function PropertyDefinitionHeader({
                 getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getFullDetailUrl: (propertyDefinition: PropertyDefinition) =>
-                    urls.eventPropertyDefinition(propertyDefinition.id),
+                    urls.propertyDefinition(propertyDefinition.id),
                 ...propertyTaxonomicGroupProps(),
             }}
             {...props}

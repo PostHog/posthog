@@ -92,9 +92,7 @@ PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
 )
 
 
-PERFORMANCE_EVENT_DATA_TABLE = (
-    lambda: "sharded_performance_events" if settings.CLICKHOUSE_REPLICATION else "performance_events"
-)
+PERFORMANCE_EVENT_DATA_TABLE = lambda: "sharded_performance_events"
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
     lambda: """
@@ -171,7 +169,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQ
 )
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 {columns}
@@ -179,8 +177,24 @@ AS SELECT
 FROM {database}.kafka_performance_events
 """.format(
     columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-    target_table="writeable_performance_events" if settings.CLICKHOUSE_REPLICATION else PERFORMANCE_EVENT_DATA_TABLE(),
+    target_table="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
 )
+
+# TODO this should probably be a materialized view
+# because then it could include a count of other events per `pageview_id`
+# and because the inclusion of entry_type in the filters here
+# might be bad for perf of the query
+RECENT_PAGE_VIEWS_SQL = """
+select session_id, pageview_id, name, duration, timestamp
+from performance_events
+prewhere team_id = %(team_id)s
+and timestamp >= %(date_from)s
+and timestamp <= %(date_to)s
+and entry_type = 'navigation'
+order by timestamp desc
+"""
+
+TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {PERFORMANCE_EVENT_DATA_TABLE()}"

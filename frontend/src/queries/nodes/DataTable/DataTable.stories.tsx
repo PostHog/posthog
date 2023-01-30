@@ -10,7 +10,6 @@ export default {
     title: 'Queries/DataTable',
     component: Query,
     parameters: {
-        chromatic: { disableSnapshot: false },
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
@@ -21,8 +20,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/events': events,
-                '/api/projects/:projectId/persons': persons,
+                '/api/projects/:team_id/events': events,
+                '/api/projects/:team_id/persons': persons,
             },
         }),
     ],

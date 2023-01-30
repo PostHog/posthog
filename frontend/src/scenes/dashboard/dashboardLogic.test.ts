@@ -49,8 +49,6 @@ const TEXT_TILE: DashboardTile = {
     layouts: {},
     color: InsightColor.Blue,
     last_refresh: '2021-01-01T00:00:00Z',
-    filters_hash: '',
-    refreshing: false,
 }
 
 let tileId = 0
@@ -60,8 +58,6 @@ export const tileFromInsight = (insight: InsightModel, id: number = tileId++): D
     color: null,
     insight: insight,
     last_refresh: insight.last_refresh,
-    filters_hash: insight.filters_hash,
-    refreshing: false,
 })
 
 export const dashboardResult = (
@@ -292,7 +288,6 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                no_items_field: true,
                 tiles: [
                     {
                         id: 0,
@@ -318,7 +313,6 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                no_items_field: true,
                 tiles: [
                     {
                         id: 1,

@@ -1,3 +1,4 @@
+import json
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, List, Optional
@@ -6,8 +7,10 @@ import posthoganalytics
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.validators import MinLengthValidator
 from django.db import models
+from sentry_sdk import capture_exception
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -90,6 +93,21 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
+    def get_team_from_cache_or_token(self, token: Optional[str]) -> Optional["Team"]:
+        if not token:
+            return None
+        try:
+            team = get_team_in_cache(token)
+            if team:
+                return team
+
+            team = Team.objects.get(api_token=token)
+            set_team_in_cache(token, team)
+            return team
+
+        except Team.DoesNotExist:
+            return None
+
 
 def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
@@ -135,7 +153,7 @@ class Team(UUIDClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
-        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
+        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
     )  # Dashboard shown on project homepage
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
@@ -160,14 +178,22 @@ class Team(UUIDClassicModel):
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED: in favor of `EventDefinition` model
-    event_names: models.JSONField = models.JSONField(default=list)
-    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    event_names: models.JSONField = models.JSONField(default=list, blank=True)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     # DEPRECATED: in favor of `PropertyDefinition` model
-    event_properties: models.JSONField = models.JSONField(default=list)
-    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
-    event_properties_numerical: models.JSONField = models.JSONField(default=list)
+    event_properties: models.JSONField = models.JSONField(default=list, blank=True)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
 
     objects: TeamManager = TeamManager()
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        set_team_in_cache(self.api_token, self)
+
+    def delete(self, *args, **kwargs):
+        super().delete(*args, **kwargs)
+        set_team_in_cache(self.api_token, None)
 
     def get_effective_membership_level_for_parent_membership(
         self, requesting_parent_membership: "OrganizationMembership"
@@ -291,6 +317,39 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+def set_team_in_cache(token: str, team: Optional[Team] = None) -> None:
+    from posthog.api.team import CachingTeamSerializer
+
+    if not team:
+        try:
+            team = Team.objects.get(api_token=token)
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+            cache.delete(f"team_token:{token}")
+            return
+
+    serialized_team = CachingTeamSerializer(team).data
+
+    cache.set(f"team_token:{token}", json.dumps(serialized_team), None)
+
+
+def get_team_in_cache(token: str) -> Optional[Team]:
+    try:
+        team_data = cache.get(f"team_token:{token}")
+    except Exception:
+        # redis is unavailable
+        return None
+
+    if team_data:
+        try:
+            parsed_data = json.loads(team_data)
+            return Team(**parsed_data)
+        except Exception as e:
+            capture_exception(e)
+            return None
+
+    return None
 
 
 def groups_on_events_querying_enabled():

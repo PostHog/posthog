@@ -31,6 +31,11 @@ describe('processPersonsStep()', () => {
                 db: 'hub.db',
                 statsd: 'hub.statsd',
                 personManager: 'hub.personManager',
+                kafkaProducer: {
+                    producer: {
+                        send: jest.fn(),
+                    },
+                },
             },
         }
         personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
@@ -43,17 +48,6 @@ describe('processPersonsStep()', () => {
 
         expect(response).toEqual(['prepareEventStep', pluginEvent, personContainer])
         expect(jest.mocked(updatePersonState)).toHaveBeenCalled()
-    })
-
-    it('forwards $snapshot events to `prepareEventStep` without creating / updating the person', async () => {
-        const snapshotEvent = {
-            ...pluginEvent,
-            event: '$snapshot',
-        }
-        const response = await processPersonsStep(runner, snapshotEvent, personContainer)
-
-        expect(response).toEqual(['prepareEventStep', snapshotEvent, personContainer])
-        expect(jest.mocked(updatePersonState)).not.toHaveBeenCalled()
     })
 
     it('re-normalizes the event with properties set by plugins', async () => {

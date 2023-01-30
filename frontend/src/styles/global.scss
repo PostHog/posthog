@@ -10,6 +10,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 // Global components
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'fonts';
+@import 'functions';
 @import 'mixins';
 @import 'utility-legacy';
 @import 'utilities';
@@ -560,8 +561,10 @@ input::-ms-clear {
 }
 
 .main-app-content {
-    position: relative; // So that scene-level <Loading/> is positioned correctly.
+    position: relative; // So that scene-level <SpinnerOverlay /> is positioned correctly.
     min-width: 0;
+    width: 100%;
+    height: 100%;
     padding: 0 1rem 1rem;
 
     @include screen($sm) {
@@ -570,6 +573,10 @@ input::-ms-clear {
 
     @include screen($lg) {
         padding: 0 2rem 4rem;
+    }
+
+    &.main-app-content--plain {
+        padding: 0;
     }
 }
 
@@ -590,10 +597,6 @@ body {
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
         line-height: 1.5rem;
-    }
-
-    .ant-layout {
-        min-height: 100vh;
     }
 
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
@@ -662,5 +665,17 @@ body {
 
     .ant-tooltip {
         max-width: 350px;
+    }
+}
+
+.dangerously-stop-all-animations {
+    // Only use this class to achieve consistent snapshots by stopping all animations
+    *,
+    *::before,
+    *::after {
+        transition: none !important;
+        animation-fill-mode: forwards !important;
+        animation-duration: 0ms !important;
+        animation-iteration-count: 1 !important;
     }
 }

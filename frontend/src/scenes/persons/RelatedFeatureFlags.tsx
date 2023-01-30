@@ -74,7 +74,9 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
                     <div style={{ wordBreak: 'break-word' }}>
-                        {featureFlag.active ? capitalizeFirstLetter(featureFlag.value.toString()) : '--'}
+                        {featureFlag.active && featureFlag.value
+                            ? capitalizeFirstLetter(featureFlag.value.toString())
+                            : '--'}
                     </div>
                 )
             },

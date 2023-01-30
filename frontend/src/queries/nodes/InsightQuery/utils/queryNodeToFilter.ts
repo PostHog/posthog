@@ -5,8 +5,9 @@ import {
     SupportedNodeKind,
     NodeKind,
     BreakdownFilter,
+    NewEntityNode,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes } from '~/types'
+import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
 import {
     isEventsNode,
     isTrendsQuery,
@@ -16,18 +17,26 @@ import {
     isStickinessQuery,
     isUnimplementedQuery,
     isLifecycleQuery,
+    isActionsNode,
 } from '~/queries/utils'
 import { objectClean } from 'lib/utils'
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
+type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
-const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): Required<FilterTypeActionsAndEvents> => {
+export const seriesToActionsAndEvents = (
+    series: (EventsNode | ActionsNode | NewEntityNode)[]
+): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
+    const new_entity: ActionFilter[] = []
     series.forEach((node, index) => {
         const entity: ActionFilter = objectClean({
-            type: isEventsNode(node) ? EntityTypes.EVENTS : EntityTypes.ACTIONS,
-            id: (isEventsNode(node) ? node.event : node.id) || null,
+            type: isEventsNode(node)
+                ? EntityTypes.EVENTS
+                : isActionsNode(node)
+                ? EntityTypes.ACTIONS
+                : EntityTypes.NEW_ENTITY,
+            id: (!isActionsNode(node) ? node.event : node.id) || null,
             order: index,
             name: node.name,
             custom_name: node.custom_name,
@@ -40,15 +49,22 @@ const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): Require
 
         if (isEventsNode(node)) {
             events.push(entity)
-        } else {
+        } else if (isActionsNode(node)) {
             actions.push(entity)
+        } else {
+            new_entity.push(entity)
         }
     })
-    if (actions.length + events.length === 1) {
-        actions.length > 0 ? delete actions[0].order : delete events[0].order
+
+    if (actions.length + events.length + new_entity.length === 1) {
+        actions.length > 0
+            ? delete actions[0].order
+            : events.length > 0
+            ? delete events[0].order
+            : delete new_entity[0].order
     }
 
-    return { actions, events }
+    return { actions, events, new_entity }
 }
 
 const insightMap: Record<SupportedNodeKind, InsightType> = {
@@ -81,12 +97,15 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query) && !isUnimplementedQuery(query)) {
-        const { actions, events } = seriesToActionsAndEvents(query.series)
+        const { actions, events, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions
         }
         if (events.length > 0) {
             filters.events = events
+        }
+        if (new_entity.length > 0) {
+            filters.new_entity = new_entity
         }
     }
 
@@ -97,6 +116,14 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
         filters.interval = query.interval
+    }
+
+    if (isTrendsQuery(query)) {
+        ;(filters as TrendsFilterType).display = query.trendsFilter?.display
+    }
+
+    if (isStickinessQuery(query)) {
+        ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

@@ -20,7 +20,7 @@ export function TextCardModal({
     textTileId: number | 'new' | null
 }): JSX.Element {
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
-    const { isTextTileSubmitting } = useValues(modalLogic)
+    const { isTextTileSubmitting, textTileValidationErrors } = useValues(modalLogic)
     const { submitTextTile, resetTextTile } = useActions(modalLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -38,12 +38,16 @@ export function TextCardModal({
             onClose={handleClose}
             footer={
                 <>
-                    <LemonButton disabled={isTextTileSubmitting} type="secondary" onClick={handleClose}>
+                    <LemonButton
+                        disabledReason={isTextTileSubmitting ? 'Cannot cancel card creation in progress' : null}
+                        type="secondary"
+                        onClick={handleClose}
+                    >
                         Cancel
                     </LemonButton>
                     {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && (
                         <LemonButton
-                            disabled={isTextTileSubmitting}
+                            disabledReason={textTileValidationErrors.body as string | null}
                             loading={isTextTileSubmitting}
                             form="text-tile-form"
                             htmlType="submit"
@@ -67,9 +71,7 @@ export function TextCardModal({
             >
                 <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
                     <Field name="body" label="">
-                        {({ value, onChange }) => (
-                            <LemonTextMarkdown data-attr={'text-card-edit-area'} value={value} onChange={onChange} />
-                        )}
+                        <LemonTextMarkdown data-attr={'text-card-edit-area'} />
                     </Field>
                 </PayGateMini>
             </Form>

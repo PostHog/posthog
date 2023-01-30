@@ -10,18 +10,13 @@ export async function pluginsProcessEventStep(
     event: PluginEvent,
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
-    let processedEvent: PluginEvent | null = event
-
-    // run processEvent on all events that are not $snapshot
-    if (event.event !== '$snapshot') {
-        processedEvent = await runInstrumentedFunction({
-            server: runner.hub,
-            event,
-            func: (event) => runProcessEvent(runner.hub, event),
-            statsKey: 'kafka_queue.single_event',
-            timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
-        })
-    }
+    const processedEvent = await runInstrumentedFunction({
+        server: runner.hub,
+        event,
+        func: (event) => runProcessEvent(runner.hub, event),
+        statsKey: 'kafka_queue.single_event',
+        timeoutMessage: 'Still running plugins on event. Timeout warning after 30 sec!',
+    })
 
     if (processedEvent) {
         return runner.nextStep('processPersonsStep', processedEvent, personContainer)

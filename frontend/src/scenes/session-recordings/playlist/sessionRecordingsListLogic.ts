@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
-    PropertyFilter,
+    AnyPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RecordingFilters,
@@ -80,7 +80,8 @@ export const defaultPageviewPropertyEntityFilter = (
                     ? {
                           ...eventFilter,
                           properties: [
-                              ...(eventFilter.properties?.filter(({ key }: PropertyFilter) => key !== property) ?? []),
+                              ...(eventFilter.properties?.filter(({ key }: AnyPropertyFilter) => key !== property) ??
+                                  []),
                               propToAdd,
                           ],
                       }
@@ -129,6 +130,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
+        loadAllRecordings: true,
         loadNext: true,
         loadPrev: true,
     }),
@@ -202,22 +204,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             [] as SessionRecordingType[],
             {
                 getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
-                    return [...sessionRecordingsResponse.results]
+                    return [...(sessionRecordingsResponse?.results ?? [])]
                 },
-                setSelectedRecordingId: (prevSessionRecordings, { id }) => {
-                    return [
-                        ...prevSessionRecordings.map((s) => {
-                            if (s.id === id) {
-                                return {
-                                    ...s,
-                                    viewed: true,
-                                }
-                            } else {
-                                return { ...s }
+                setSelectedRecordingId: (prevSessionRecordings, { id }) =>
+                    prevSessionRecordings.map((s) => {
+                        if (s.id === id) {
+                            return {
+                                ...s,
+                                viewed: true,
                             }
-                        }),
-                    ]
-                },
+                        } else {
+                            return { ...s }
+                        }
+                    }),
             },
         ],
         selectedRecordingId: [
@@ -228,6 +227,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadAllRecordings: () => {
+            actions.getSessionRecordings({})
+            actions.loadPinnedRecordings({})
+        },
         setFilters: () => {
             actions.getSessionRecordings({})
         },

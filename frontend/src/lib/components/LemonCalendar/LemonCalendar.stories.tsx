@@ -5,13 +5,16 @@ import { dayjs } from 'lib/dayjs'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar',
     component: LemonCalendar,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         onClick: {
-            defaultValue: (date: string) => {
+            defaultValue: (date: dayjs.Dayjs) => {
                 console.log(`Clicked: ${date}`)
             },
         },
+    },
+    parameters: {
+        mockDate: '2023-01-26',
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonCalendar>
 
@@ -32,9 +35,9 @@ CustomStyles.args = {
     getLemonButtonProps: ({ date, props }) => {
         return {
             ...props,
-            active: dayjs(date).day() % 2 === 0,
-            status: dayjs(date).date() % 10 === 0 ? 'primary' : 'stealth',
-            type: dayjs(date).date() % 10 === 0 ? 'primary' : undefined,
+            active: date.day() % 2 === 0,
+            status: date.date() % 10 === 0 ? 'primary' : 'stealth',
+            type: date.date() % 10 === 0 ? 'primary' : undefined,
         }
     },
 }

@@ -1,0 +1,11 @@
+@function escape-number($value) {
+    $int: floor($value);
+    $fract: $value - $int;
+    @if ($fract == 0) {
+        @return $int;
+    }
+    @while ($fract != floor($fract)) {
+        $fract: $fract * 10;
+    }
+    @return $int + '\\.'+ $fract;
+}

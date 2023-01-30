@@ -1,28 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import { AutoComplete } from 'antd'
-import { useThrottledCallback } from 'use-debounce'
-import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { PropertyOperator, PropertyType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import './PropertyValue.scss'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import clsx from 'clsx'
-
-type PropValue = {
-    id?: number
-    name?: string | boolean
-}
-
-type Option = {
-    label?: string
-    name?: string
-    status?: 'loading' | 'loaded'
-    values?: PropValue[]
-}
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -34,9 +20,9 @@ export interface PropertyValueProps {
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
     operator: PropertyOperator
-    outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
+    eventNames?: string[]
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -56,19 +42,18 @@ export function PropertyValue({
     onSet,
     value,
     operator,
-    outerOptions = undefined,
     autoFocus = false,
     allowCustom = true,
+    eventNames = [],
 }: PropertyValueProps): JSX.Element {
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
-    // options from the server for search
-    const [options, setOptions] = useState({} as Record<string, Option>)
 
     const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
-    const { formatPropertyValueForDisplay, describeProperty } = useValues(propertyDefinitionsModel)
+    const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
+    const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -88,37 +73,9 @@ export function PropertyValue({
         }
     }, [value])
 
-    const loadPropertyValues = useThrottledCallback((newInput) => {
-        if (['cohort', 'session'].includes(type)) {
-            return
-        }
-        if (!propertyKey) {
-            return
-        }
-        const key = propertyKey.split('__')[0]
-        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
-        if (outerOptions) {
-            setOptions({
-                ...options,
-                [propertyKey]: {
-                    values: [...Array.from(new Set(outerOptions))],
-                    status: 'loaded',
-                },
-            })
-        } else {
-            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
-                (propValues: PropValue[]) => {
-                    setOptions({
-                        ...options,
-                        [propertyKey]: {
-                            values: [...Array.from(new Set(propValues))],
-                            status: 'loaded',
-                        },
-                    })
-                }
-            )
-        }
-    }, 300)
+    const load = (newInput: string | undefined): void => {
+        loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames })
+    }
 
     function setValue(newValue: PropertyValueProps['value']): void {
         onSet(newValue)
@@ -128,7 +85,7 @@ export function PropertyValue({
     }
 
     useEffect(() => {
-        loadPropertyValues('')
+        load('')
     }, [propertyKey])
 
     useEffect(() => {
@@ -146,7 +103,7 @@ export function PropertyValue({
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
-                loadPropertyValues(newInput)
+                load(newInput)
             }
         },
         ['data-attr']: 'prop-val',

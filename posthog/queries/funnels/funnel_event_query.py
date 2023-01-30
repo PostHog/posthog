@@ -45,12 +45,12 @@ class FunnelEventQuery(EventQuery):
         _fields += [
             get_property_string_expr("events", field, f"'{field}'", "properties", table_alias=self.EVENT_TABLE_ALIAS)[0]
             + f' as "{field}"'
-            for field in self._extra_event_properties
+            for field in sorted(self._extra_event_properties)
         ]
 
         _fields.extend(
             f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
-            for column_name in self._column_optimizer.event_columns_to_query
+            for column_name in sorted(self._column_optimizer.event_columns_to_query)
         )
 
         if self._using_person_on_events:
@@ -67,7 +67,7 @@ class FunnelEventQuery(EventQuery):
             if self._should_join_persons:
                 _fields.extend(
                     f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
-                    for column_name in self._person_query.fields
+                    for column_name in sorted(self._person_query.fields)
                 )
 
         if self._using_person_on_events and groups_on_events_querying_enabled():
@@ -78,7 +78,7 @@ class FunnelEventQuery(EventQuery):
         else:
             _fields.extend(
                 f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
-                for group_index in self._column_optimizer.group_types_to_query
+                for group_index in sorted(self._column_optimizer.group_types_to_query)
             )
 
         _fields = list(filter(None, _fields))
@@ -110,9 +110,7 @@ class FunnelEventQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = (
-            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
-        )
+        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
         query = f"""
             SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}

@@ -8,6 +8,7 @@ from ee.models.role import Role
 from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import FeatureFlag
+from posthog.models.organization import OrganizationMembership
 
 
 class FeatureFlagRoleAccessPermissions(BasePermission):
@@ -15,6 +16,11 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
 
     def has_permission(self, request, view):
         if request.method in SAFE_METHODS:
+            return True
+        if (
+            request.user.organization_memberships.get(organization=request.user.organization).level
+            >= OrganizationMembership.Level.ADMIN
+        ):
             return True
         try:
             resource_access = OrganizationResourceAccess.objects.get(

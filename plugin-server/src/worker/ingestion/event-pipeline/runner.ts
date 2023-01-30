@@ -67,9 +67,13 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent | ProcessedPluginEvent
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent) {
+    // See https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
+    poEEmbraceJoin: boolean
+
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, poEEmbraceJoin = false) {
         this.hub = hub
         this.originalEvent = originalEvent
+        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     // KLUDGE: This is a temporary entry point for the pipeline while we transition away from

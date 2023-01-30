@@ -1,3 +1,5 @@
+@use 'sass:list';
+
 $sm: 576px;
 $md: 768px;
 $lg: 992px;
@@ -12,7 +14,9 @@ $screens: (
     'xxl': $xxl,
 );
 
-$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 40, 60, 80, 100, 120, 200;
+$tiny_spaces: 0, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
+$humongous_spaces: 40, 60, 80, 100, 120, 140, 160, 180, 200;
+$all_spaces: list.join($tiny_spaces, $humongous_spaces);
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
 // CSS cursors from https://tailwindcss.com/docs/cursor
@@ -229,6 +233,8 @@ $_lifecycle_dormant: #f86234;
     --z-force-modal-above-popups: 1850;
     --z-ant-message: 1070;
     --z-ant-select-dropdown: 1065;
+    --z-definition-popup: 1063;
+    --z-definition-popup-overlay: 1062;
     --z-popup: 1061;
     --z-modal: 1060;
     --z-ant-modal-wrap: 1060;
@@ -297,6 +303,7 @@ $_lifecycle_dormant: #f86234;
 
     // Modals
     --modal-backdrop-blur: 5px; // Half the value in Figma as blur is calculated differently there it seems
+    --modal-backdrop-color: rgba(0, 0, 0, 0.2);
     --modal-transition-time: 200ms;
 
     // Retention

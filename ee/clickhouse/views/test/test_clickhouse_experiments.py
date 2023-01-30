@@ -1,4 +1,5 @@
 import pytest
+from django.core.cache import cache
 from flaky import flaky
 from rest_framework import status
 
@@ -6,7 +7,7 @@ from ee.api.test.base import APILicensedTest
 from posthog.constants import ExperimentSignificanceCode
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.experiment import Experiment
-from posthog.models.feature_flag import FeatureFlag
+from posthog.models.feature_flag import FeatureFlag, get_feature_flags_for_team_in_cache
 from posthog.test.base import ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
 
@@ -742,7 +743,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -753,6 +754,161 @@ class TestExperimentCRUD(APILicensedTest):
                 [(res["key"], res["experiment_set"]) for res in result["results"]],
                 [("flag_0", []), (ff_key, [created_experiment])],
             )
+
+    def test_create_experiment_updates_feature_flag_cache(self):
+        cache.clear()
+
+        initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        self.assertIsNone(initial_cached_flags)
+
+        ff_key = "a-b-test"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "description": "",
+                "start_date": None,
+                "end_date": None,
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+                "filters": {
+                    "events": [{"order": 0, "id": "$pageview"}, {"order": 1, "id": "$pageleave"}],
+                    "properties": [
+                        {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                    ],
+                },
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test Experiment")
+        self.assertEqual(response.json()["feature_flag_key"], ff_key)
+
+        # save was called, but no flags saved because experiment is in draft mode, so flag is not active
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
+
+        id = response.json()["id"]
+
+        # launch experiment
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "start_date": "2021-12-01T10:23",
+            },
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, ff_key)
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": None,
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+
+        # Now try updating FF
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {"feature_flag_variants": [{"key": "control", "name": "X", "rollout_percentage": 33}]},
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # ensure cache doesn't change either
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, ff_key)
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": None,
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
+
+        # Now try changing FF rollout %s
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{id}",
+            {
+                "description": "Bazinga",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 34},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 32},
+                    ]
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Can't update feature_flag_variants on Experiment")
+
+        # ensure cache doesn't change either
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, ff_key)
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "$geoip_country_name", "type": "person", "value": ["france"], "operator": "exact"}
+                        ],
+                        "rollout_percentage": None,
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 33},
+                        {"key": "test_1", "name": "Test Variant", "rollout_percentage": 33},
+                        {"key": "test_2", "name": "Test Variant", "rollout_percentage": 34},
+                    ]
+                },
+            },
+        )
 
 
 @flaky(max_runs=10, min_passes=1)

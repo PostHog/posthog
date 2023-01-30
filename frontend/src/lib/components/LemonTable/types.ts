@@ -17,11 +17,15 @@ export type TableCellRenderResult =
 
 export interface LemonTableColumn<T extends Record<string, any>, D extends keyof T | undefined> {
     title?: string | React.ReactNode
+    /** Tooltip to display on title hover. An info icon ("i" in circle) is shown when a tooltip is available. */
+    tooltip?: string
     key?: string
     dataIndex?: D
     render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
+    /** Menu containing extra column options, accessible via a "More" button in the title of the column. */
+    more?: JSX.Element
     className?: string
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */
     align?: 'left' | 'right' | 'center'

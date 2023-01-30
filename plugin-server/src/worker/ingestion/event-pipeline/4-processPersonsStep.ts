@@ -13,14 +13,9 @@ export async function processPersonsStep(
 ): Promise<StepResult> {
     const event = normalizeEvent(pluginEvent)
 
-    // TODO: Have the snapshot events pipeline be completely separate
-    // from all other events
-    if (event.event === '$snapshot') {
-        return runner.nextStep('prepareEventStep', event, personContainer)
-    }
-
     const timestamp = parseEventTimestamp(event)
 
+    // TODO: handle runner.poEEmbraceJoinEnabled
     const newPersonContainer: LazyPersonContainer = await updatePersonState(
         event,
         event.team_id,

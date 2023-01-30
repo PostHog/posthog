@@ -4,7 +4,9 @@ import { LemonTable, LemonTableProps } from './LemonTable'
 export default {
     title: 'Lemon UI/Lemon Table',
     component: LemonTable,
-    parameters: { chromatic: { disableSnapshot: false } },
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as ComponentMeta<typeof LemonTable>
 
 interface MockPerson {
@@ -101,6 +103,7 @@ const BasicTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps
                 {
                     title: 'Occupation',
                     dataIndex: 'occupation',
+                    tooltip: 'What they are primarily working on.',
                     sorter: (a, b) => a.occupation.localeCompare(b.occupation),
                 },
             ]}

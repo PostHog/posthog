@@ -20,6 +20,7 @@ export function Elements(): JSX.Element {
         selectedElement,
         inspectEnabled,
         highlightElementMeta,
+        relativePositionCompensation,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount, shiftPressed } = useValues(heatmapLogic)
@@ -47,7 +48,7 @@ export function Elements(): JSX.Element {
                     width: '100%',
                     height: '100%',
                     position: 'absolute',
-                    top: 0,
+                    top: relativePositionCompensation,
                     left: 0,
                     zIndex: 2147483010,
                     pointerEvents: 'none',
@@ -73,12 +74,12 @@ export function Elements(): JSX.Element {
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
                         onClick={() => selectElement(element)}
-                        onMouseOver={() => setHoverElement(element)}
-                        onMouseOut={() => setHoverElement(null)}
+                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
                     />
                 ))}
 
-                {heatmapElements.map(({ rect, count, element }, index) => {
+                {heatmapElements.map(({ rect, count, clickCount, rageclickCount, element }, index) => {
                     return (
                         <React.Fragment key={`heatmap-${index}`}>
                             <HeatmapElement
@@ -96,31 +97,70 @@ export function Elements(): JSX.Element {
                                     ),
                                 }}
                                 onClick={() => selectElement(element)}
-                                onMouseOver={() => setHoverElement(element)}
-                                onMouseOut={() => setHoverElement(null)}
+                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             />
-                            <HeatmapLabel
-                                rect={rect}
-                                style={{
-                                    pointerEvents: heatmapPointerEvents,
-                                    zIndex: 5,
-                                    opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
-                                    transition: 'opacity 0.2s, transform 0.2s linear',
-                                    transform: hoverElement === element ? 'scale(1.3)' : 'none',
-                                    cursor: 'pointer',
-                                    color: `hsla(${getHeatMapHue(count || 0, highestClickCount)}, 20%, 12%, 1)`,
-                                    background: `hsla(${getHeatMapHue(count || 0, highestClickCount)}, 100%, 62%, 1)`,
-                                    boxShadow: `hsla(${getHeatMapHue(
-                                        count || 0,
-                                        highestClickCount
-                                    )}, 100%, 32%, 1) 0px 1px 5px 1px`,
-                                }}
-                                onClick={() => selectElement(element)}
-                                onMouseOver={() => setHoverElement(element)}
-                                onMouseOut={() => setHoverElement(null)}
-                            >
-                                {compactNumber(count || 0)}
-                            </HeatmapLabel>
+                            {!!clickCount && (
+                                <HeatmapLabel
+                                    rect={rect}
+                                    style={{
+                                        pointerEvents: heatmapPointerEvents,
+                                        zIndex: 5,
+                                        opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                        transition: 'opacity 0.2s, transform 0.2s linear',
+                                        transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                        cursor: 'pointer',
+                                        color: `hsla(${getHeatMapHue(
+                                            clickCount || 0,
+                                            highestClickCount
+                                        )}, 20%, 12%, 1)`,
+                                        background: `hsla(${getHeatMapHue(
+                                            clickCount || 0,
+                                            highestClickCount
+                                        )}, 100%, 62%, 1)`,
+                                        boxShadow: `hsla(${getHeatMapHue(
+                                            clickCount || 0,
+                                            highestClickCount
+                                        )}, 100%, 32%, 1) 0px 1px 5px 1px`,
+                                    }}
+                                    onClick={() => selectElement(element)}
+                                    onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                    onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                >
+                                    {compactNumber(clickCount || 0)}
+                                </HeatmapLabel>
+                            )}
+                            {!!rageclickCount && (
+                                <HeatmapLabel
+                                    rect={rect}
+                                    style={{
+                                        pointerEvents: heatmapPointerEvents,
+                                        zIndex: 5,
+                                        opacity: hoverElement && hoverElement !== element ? 0.4 : 1,
+                                        transition: 'opacity 0.2s, transform 0.2s linear',
+                                        transform: hoverElement === element ? 'scale(1.3)' : 'none',
+                                        cursor: 'pointer',
+                                        color: `hsla(${getHeatMapHue(
+                                            rageclickCount || 0,
+                                            highestClickCount
+                                        )}, 20%, 12%, 1)`,
+                                        background: `hsla(${getHeatMapHue(
+                                            rageclickCount || 0,
+                                            highestClickCount
+                                        )}, 100%, 62%, 1)`,
+                                        boxShadow: `hsla(${getHeatMapHue(
+                                            rageclickCount || 0,
+                                            highestClickCount
+                                        )}, 100%, 32%, 1) 0px 1px 5px 1px`,
+                                    }}
+                                    align={'left'}
+                                    onClick={() => selectElement(element)}
+                                    onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                    onMouseOut={() => selectedElement === null && setHoverElement(null)}
+                                >
+                                    {compactNumber(rageclickCount)}&#128545;
+                                </HeatmapLabel>
+                            )}
                         </React.Fragment>
                     )
                 })}
@@ -144,8 +184,8 @@ export function Elements(): JSX.Element {
                                     boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
                                 }}
                                 onClick={() => selectElement(element)}
-                                onMouseOver={() => setHoverElement(element)}
-                                onMouseOut={() => setHoverElement(null)}
+                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >
                                 {(index || loopIndex) + 1}
                             </HeatmapLabel>

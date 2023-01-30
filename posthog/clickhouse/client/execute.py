@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
@@ -73,9 +72,7 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
-
         try:
             result = client.execute(
                 prepared_sql,
@@ -127,25 +124,6 @@ def query_with_columns(
         rows.append(result)
 
     return rows
-
-
-def substitute_params(query, params):
-    """
-    Helper method to ease rendering of sql clickhouse queries progressively.
-    For example, there are many places where we construct queries to be used
-    as subqueries of others. Each time we generate a subquery we also pass
-    up the "bound" parameters to be used to render the query, which
-    otherwise only happens at the point of calling clickhouse via the
-    clickhouse_driver `Client`.
-
-    This results in sometimes large lists of parameters with no relevance to
-    the containing query being passed up. Rather than do this, we can
-    instead "render" the subqueries prior to using as a subquery, so our
-    containing code is only responsible for it's parameters, and we can
-    avoid any potential param collisions.
-    """
-    escaped = escape_params(params)
-    return query % escaped
 
 
 @patchable

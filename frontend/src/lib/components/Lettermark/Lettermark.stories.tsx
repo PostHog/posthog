@@ -6,7 +6,6 @@ export default {
     title: 'Lemon UI/Lettermark',
     component: Lettermark,
     parameters: {
-        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component:

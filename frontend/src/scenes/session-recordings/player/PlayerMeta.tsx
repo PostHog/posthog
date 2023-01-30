@@ -204,6 +204,14 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                                 </span>
                             </span>
                         )}
+                        {lastPageviewEvent?.properties?.['$screen_name'] && (
+                            <span className="flex items-center gap-2 truncate">
+                                <span>·</span>
+                                <span className="flex items-center gap-1 truncate">
+                                    {lastPageviewEvent?.properties['$screen_name']}
+                                </span>
+                            </span>
+                        )}
                     </>
                 )}
                 <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />

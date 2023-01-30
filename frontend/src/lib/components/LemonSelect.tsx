@@ -260,33 +260,14 @@ function LemonSelectOptionRowInternal<T>(
     { option, activeValue, onSelect, tooltipPlacement, onKeyDown }: LemonSelectOptionRowProps<T>,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
-    const disabled = !!option.disabledReason
-
-    let tooltipContent: string | JSX.Element | undefined
-    if (option.tooltip && option.disabledReason) {
-        // TODO: Pull this logic into LemonButton, so that `disabledReason` is a thing in the entire design system
-        tooltipContent = (
-            <>
-                {option.tooltip}
-                <div className="mt-1 italic">{option.disabledReason}</div>
-            </>
-        )
-    } else {
-        tooltipContent = option.disabledReason ? (
-            <span className="italic">{option.disabledReason}</span>
-        ) : (
-            option.tooltip
-        )
-    }
-
     return 'options' in option ? (
         <LemonButtonWithPopup
             icon={option.icon}
             sideIcon={option.sideIcon}
-            tooltip={tooltipContent}
+            tooltip={option.tooltip}
             tooltipPlacement={tooltipPlacement}
             status="stealth"
-            disabled={disabled}
+            disabledReason={option.disabledReason}
             fullWidth
             data-attr={option['data-attr']}
             active={doOptionsContainActiveValue(option.options, activeValue)}
@@ -316,18 +297,17 @@ function LemonSelectOptionRowInternal<T>(
             ref={ref}
             icon={option.icon}
             sideIcon={option.sideIcon}
-            tooltip={tooltipContent}
+            tooltip={option.tooltip}
             tooltipPlacement={tooltipPlacement}
             status="stealth"
-            disabled={disabled}
+            disabledReason={option.disabledReason}
             fullWidth
             data-attr={option['data-attr']}
             active={option.value === activeValue}
             onClick={() => onSelect(option.value)}
             onKeyDown={onKeyDown}
         >
-            {option.label ?? option.value}
-            {option.element}
+            {option.element ? option.element : option.label ?? option.value}
         </LemonButton>
     )
 }

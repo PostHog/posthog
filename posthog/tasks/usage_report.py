@@ -36,6 +36,7 @@ from posthog.models.organization import Organization
 from posthog.models.plugin import PluginConfig
 from posthog.models.team.team import Team
 from posthog.models.utils import namedtuplefetchall
+from posthog.settings import INSTANCE_TAG
 from posthog.utils import get_helm_info_env, get_instance_realm, get_machine_id, get_previous_day
 from posthog.version import VERSION
 
@@ -88,6 +89,7 @@ class InstanceMetadata:
     table_sizes: Optional[TableSizes]
     plugins_installed: Optional[Dict]
     plugins_enabled: Optional[Dict]
+    instance_tag: str
 
 
 @dataclasses.dataclass
@@ -154,6 +156,7 @@ def get_instance_metadata(period: Tuple[datetime, datetime]) -> InstanceMetadata
         table_sizes=None,
         plugins_installed=None,
         plugins_enabled=None,
+        instance_tag=INSTANCE_TAG,
     )
 
     if realm != "cloud":

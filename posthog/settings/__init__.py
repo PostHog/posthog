@@ -48,6 +48,7 @@ disable_paid_fs = get_from_env("DISABLE_PAID_FEATURE_SHOWCASING", False, type_ca
 INSTANCE_PREFERENCES = {"debug_queries": debug_queries, "disable_paid_fs": disable_paid_fs}
 
 SITE_URL: str = os.getenv("SITE_URL", "http://localhost:8000").rstrip("/")
+INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 
 if DEBUG:
     JS_URL = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")

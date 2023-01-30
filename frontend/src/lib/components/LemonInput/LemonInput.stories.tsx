@@ -8,9 +8,11 @@ import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 export default {
     title: 'Lemon UI/Lemon Input',
     component: LemonInput,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: { defaultValue: 'Foo' },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof LemonInput>
 
@@ -45,6 +47,9 @@ Password.args = { type: 'password', placeholder: 'Enter your password' }
 
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
+
+export const DangerStatus = Template.bind({})
+DangerStatus.args = { status: 'danger' }
 
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }

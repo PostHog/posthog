@@ -40,11 +40,15 @@ export interface LemonButtonPropsBase
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
     tooltipPlacement?: TooltipProps['placement']
+    /** popup container for any tooltip **/
+    getPopupContainer?: () => HTMLElement
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
-    /** @deprecated Buttons should never be disabled. Work with Design to find an alternative approach. */
+    /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
+    /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
+    disabledReason?: string | null | false
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -62,6 +66,7 @@ function LemonButtonInternal(
         active = false,
         className,
         disabled,
+        disabledReason,
         loading,
         type = 'tertiary',
         status = 'primary',
@@ -77,12 +82,29 @@ function LemonButtonInternal(
         to,
         targetBlank,
         disableClientSideRouting,
+        getPopupContainer,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
     if (loading) {
         icon = <Spinner monocolor />
+    }
+    let tooltipContent: TooltipProps['title']
+    if (disabledReason) {
+        disabled = true // Support `disabledReason` while maintaining compatibility with `disabled`
+        if (tooltipContent) {
+            tooltipContent = (
+                <>
+                    {tooltip}
+                    <div className="mt-1 italic">{disabledReason}</div>
+                </>
+            )
+        } else {
+            tooltipContent = <span className="italic">{disabledReason}</span>
+        }
+    } else {
+        tooltipContent = tooltip
     }
 
     const ButtonComponent = to ? Link : 'button'
@@ -124,11 +146,11 @@ function LemonButtonInternal(
         </ButtonComponent>
     )
 
-    if (tooltip) {
+    if (tooltipContent) {
         workingButton = (
-            <Tooltip title={tooltip} placement={tooltipPlacement}>
-                {/* If the button is disabled, wrap it in a div so that the tooltip can still work */}
-                {disabled ? <div>{workingButton}</div> : workingButton}
+            <Tooltip title={tooltipContent} placement={tooltipPlacement} getPopupContainer={getPopupContainer}>
+                {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
+                {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
             </Tooltip>
         )
     }

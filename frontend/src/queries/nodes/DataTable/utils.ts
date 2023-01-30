@@ -1,4 +1,4 @@
-import { DataNode, HogQLExpression, DataTableNode, NodeKind } from '~/queries/schema'
+import { DataNode, DataTableNode, HogQLExpression, NodeKind } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
 
 export const defaultDataTableEventColumns: HogQLExpression[] = [
@@ -44,5 +44,5 @@ export function removeExpressionComment(query: string): string {
     if (query.includes('#')) {
         return query.split('#').slice(0, -1).join('#').trim()
     }
-    return query
+    return query.trim()
 }

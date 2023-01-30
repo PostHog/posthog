@@ -13,7 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
+import { AnyDataNode, DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -34,12 +34,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     props({} as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
+        if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
+            actions.clearResponse()
+        }
         if (!objectsEqual(props.query, oldProps.query)) {
             actions.loadData()
         }
     }),
     actions({
         abortQuery: true,
+        clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,
@@ -48,8 +52,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
-            null as DataNode['response'] | null,
+            null as AnyDataNode['response'] | null,
             {
+                clearResponse: () => null,
                 loadData: async (refresh: boolean = false, breakpoint) => {
                     // TODO: cancel with queryId, combine with abortQuery action
                     cache.abortController?.abort()
@@ -57,13 +62,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
+                    const now = performance.now()
                     try {
-                        const now = performance.now()
                         const data = (await query<DataNode>(props.query, methodOptions, refresh)) ?? null
                         breakpoint()
                         actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
+                        actions.setElapsedTime(performance.now() - now)
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             return values.response
                         } else {
@@ -156,6 +162,18 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => performance.now(),
             },
         ],
+        response: {
+            // Clear the response if a failure to avoid showing inconsistencies in the UI
+            loadDataFailure: () => null,
+        },
+        responseError: [
+            null as string | null,
+            {
+                loadData: () => null,
+                loadDataFailure: () => 'Error loading data',
+                loadDataSuccess: () => null,
+            },
+        ],
         elapsedTime: [
             null as number | null,
             {
@@ -170,10 +188,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
-                if (!response || !isEventsQuery(query)) {
+                if (!isEventsQuery(query)) {
                     return null
                 }
-                if (isEventsQuery(query)) {
+                if (isEventsQuery(query) && !query.before) {
                     const sortKey = query.orderBy?.[0] ?? '-timestamp'
                     if (sortKey === '-timestamp') {
                         const sortColumnIndex = query.select
@@ -181,9 +199,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             .indexOf('timestamp')
                         if (sortColumnIndex !== -1) {
                             const typedResults = (response as EventsQuery['response'])?.results
-                            const firstTimestamp = typedResults?.[0][sortColumnIndex]
-                            const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
-                            return nextQuery
+                            const firstTimestamp = typedResults?.[0]?.[sortColumnIndex]
+                            if (firstTimestamp) {
+                                const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
+                                return nextQuery
+                            } else {
+                                return query
+                            }
                         }
                     }
                 }
@@ -192,25 +214,33 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
         nextQuery: [
-            (s, p) => [p.query, s.response],
-            (query, response): DataNode | null => {
-                if (isEventsQuery(query)) {
+            (s, p) => [p.query, s.response, s.responseError, s.dataLoading],
+            (query, response, responseError, dataLoading): DataNode | null => {
+                if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        const typedResults = (response as EventsQuery['response'])?.results
                         if (sortKey === '-timestamp') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
-                                const typedResults = (response as EventsQuery['response'])?.results
-                                const lastTimestamp = typedResults?.[typedResults.length - 1][sortColumnIndex]
-                                const newQuery: EventsQuery = { ...query, before: lastTimestamp }
-                                return newQuery
+                                const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
+                                if (lastTimestamp) {
+                                    const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                    return newQuery
+                                }
                             }
+                        } else {
+                            const newQuery: EventsQuery = {
+                                ...query,
+                                offset: typedResults?.length || 0,
+                            }
+                            return newQuery
                         }
                     }
                 }
-                if (isPersonsNode(query) && response) {
+                if (isPersonsNode(query) && response && !responseError) {
                     const personsResults = (response as PersonsNode['response'])?.results
                     const nextQuery: PersonsNode = {
                         ...query,
@@ -229,8 +259,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         lastRefresh: [
             (s, p) => [p.query, s.response],
-            (query, response) => {
-                return isInsightQueryNode(query) && response?.last_refresh
+            (query, response): string | null => {
+                return isInsightQueryNode(query) && response && 'last_refresh' in response
+                    ? response.last_refresh
+                    : null
             },
         ],
     }),

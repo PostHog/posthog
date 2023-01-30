@@ -1,18 +1,24 @@
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { IconInfo } from 'lib/components/icons'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { Tooltip } from 'lib/components/Tooltip'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
 import { rolesLogic } from './Roles/rolesLogic'
+import { getSingularType } from './utils'
 
 export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { resourceRolesAccess, organizationResourcePermissionsLoading } = useValues(permissionsLogic)
     const { updatePermission } = useActions(permissionsLogic)
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
+
     const columns: LemonTableColumns<RoleType> = [
         {
             key: 'role',
@@ -56,9 +62,17 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                 {
                     key: 'edit',
                     title: (
-                        <div className="text-center">
-                            {name} <br /> Edit
-                        </div>
+                        <TitleWithIcon
+                            icon={
+                                <Tooltip title={`You can extend permissions on a per ${getSingularType(name)} basis.`}>
+                                    <IconInfo />
+                                </Tooltip>
+                            }
+                        >
+                            <>
+                                {name} <br /> Edit
+                            </>
+                        </TitleWithIcon>
                     ),
                     align: 'center',
                     render: function RenderEdit(_, role) {
@@ -69,6 +83,8 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                                         updatePermission(v, role, resource[name].id, name)
                                     }}
                                     checked={resource[`${name}`][role.name] >= AccessLevel.WRITE}
+                                    disabled={!isAdminOrOwner}
+                                    color={isAdminOrOwner ? '' : 'gray'}
                                 />
                             </div>
                         )

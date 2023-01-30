@@ -20,8 +20,18 @@ export async function emitToBufferStep(
 
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
-    if (event.event === '$snapshot') {
-        return runner.nextStep('processPersonsStep', event, personContainer)
+    if (
+        process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ||
+        process.env.POE_EMBRACE_JOIN_FOR_TEAMS?.split(',').includes(event.team_id.toString())
+    ) {
+        // https://docs.google.com/document/d/12Q1KcJ41TicIwySCfNJV5ZPKXWVtxT7pzpB3r9ivz_0
+        // We're not using the buffer anymore
+        // instead we'll (if within timeframe) merge into the newer personId
+
+        // TODO: remove this step and runner env once we're confident that the new
+        // ingestion pipeline is working well for all teams.
+        runner.poEEmbraceJoin = true
+        return runner.nextStep('pluginsProcessEventStep', event, personContainer)
     }
 
     const person = await personContainer.get()
@@ -96,8 +106,8 @@ export function shouldSendEventToBuffer(
 ): boolean {
     // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
     // we don't want to buffer these to make group properties available asap
-    // identify and alias are identical and could merge the person - the sooner we update the person_id the better
-
+    // identify and alias are identical and could merge the person - the sooner
+    // we update the person_id the better
     const eventProperties = event.properties ?? {}
 
     const isGroupIdentifyEvent = event.event == '$groupidentify'

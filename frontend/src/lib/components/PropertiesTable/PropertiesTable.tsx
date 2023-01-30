@@ -41,6 +41,8 @@ function EditTextValueComponent({
             autoFocus
             onBlur={() => onChange(null, false)}
             onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+            autoComplete="off"
+            autoCapitalize="off"
         />
     )
 }
@@ -145,6 +147,7 @@ interface PropertiesTableType extends BasePropertyType {
     /* only event types are detected and so describe-able. see https://github.com/PostHog/posthog/issues/9245 */
     useDetectedPropertyType?: boolean
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
+    highlightedKeys?: string[]
 }
 
 export function PropertiesTable({
@@ -159,6 +162,7 @@ export function PropertiesTable({
     className,
     useDetectedPropertyType,
     tableProps,
+    highlightedKeys,
 }: PropertiesTableType): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
 
@@ -230,6 +234,7 @@ export function PropertiesTable({
                         explicitValue={item[1]}
                         selectable
                         isValueSensitive
+                        style={{ verticalAlign: 'middle' }}
                     />
                 )
             },
@@ -279,12 +284,20 @@ export function PropertiesTable({
             }
             if (sortProperties) {
                 entries.sort(([aKey], [bKey]) => {
-                    if (aKey[0] === '$' && bKey[0] !== '$') {
-                        return 1
-                    } else if (aKey[0] !== '$' && bKey[0] === '$') {
-                        return -1
+                    if (highlightedKeys) {
+                        const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
+                        const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
+                        if (aHighlightValue !== bHighlightValue) {
+                            return aHighlightValue - bHighlightValue
+                        }
                     }
-                    return aKey.toLowerCase() < bKey.toLowerCase() ? -1 : 1
+                    return aKey.localeCompare(bKey)
+                })
+            } else if (highlightedKeys) {
+                entries.sort(([aKey], [bKey]) => {
+                    const aHighlightValue = highlightedKeys.includes(aKey) ? 0 : 1
+                    const bHighlightValue = highlightedKeys.includes(bKey) ? 0 : 1
+                    return aHighlightValue - bHighlightValue
                 })
             }
             return entries
@@ -315,6 +328,13 @@ export function PropertiesTable({
                     className={className}
                     emptyState="This person doesn't have any properties"
                     inset={nestingLevel > 0}
+                    onRow={(record) =>
+                        highlightedKeys?.includes(record[0])
+                            ? {
+                                  style: { background: 'var(--mark-color)' },
+                              }
+                            : {}
+                    }
                     {...tableProps}
                 />
             </>

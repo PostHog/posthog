@@ -6,8 +6,7 @@
     bottom: 0;
 
     transition: background-color var(--modal-transition-time) ease-out,
-        backdrop-filter var(--modal-transition-time) ease-out,
-        -webkit-backdrop-filter var(--modal-transition-time) ease-out;
+        backdrop-filter var(--modal-transition-time) ease-out;
     z-index: var(--z-modal);
 
     display: flex;
@@ -19,23 +18,22 @@
     }
 
     &.ReactModal__Overlay--after-open {
-        background-color: rgba(0, 0, 0, 0.2);
+        background-color: var(--modal-backdrop-color);
         backdrop-filter: blur(var(--modal-backdrop-blur));
-        -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
     }
 
     &.ReactModal__Overlay--before-close {
-        background-color: rgba(0, 0, 0, 0);
+        background-color: transparent;
         backdrop-filter: blur(0px);
-        -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
     }
 }
 
 .LemonModal {
     position: relative;
-    max-width: 80%;
-    min-width: 30rem;
-    width: min-content;
+    max-width: 90%;
+    width: fit-content;
+    min-width: min(30rem, 100%);
+    max-height: 90%;
     margin: 1rem auto;
     border-radius: var(--radius);
     background-color: #fff;
@@ -44,7 +42,6 @@
     transition: opacity var(--modal-transition-time) ease-out, transform var(--modal-transition-time) ease-out;
     display: flex;
     flex-direction: column;
-    max-height: 90%;
 
     // Transition properties
     will-change: transform;
@@ -111,6 +108,7 @@
 
 .LemonModal__footer {
     display: flex;
+    flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.5rem;
     border-top: 1px solid var(--border);

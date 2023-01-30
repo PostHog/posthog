@@ -22,6 +22,7 @@ const ERROR_FILTER_WHITELIST = [
     'signup', // Special error handling on login
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
+    'loadData', // Gracefully handled in the data table
 ]
 
 interface InitKeaProps {

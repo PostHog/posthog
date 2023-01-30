@@ -10,7 +10,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 
 const POLL_DELAY_MS = 1000
 const MAX_PNG_POLL = 10
-const MAX_CSV_POLL = 60
+const MAX_CSV_POLL = 300
 
 function downloadBlob(content: Blob, filename: string): void {
     const anchor = document.createElement('a')

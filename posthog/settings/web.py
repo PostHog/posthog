@@ -39,12 +39,14 @@ INSTALLED_APPS = [
     "drf_spectacular",
 ]
 
+
 MIDDLEWARE = [
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
     "django_structlog.middlewares.CeleryMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "posthog.middleware.CaptureMiddleware",
     # NOTE: we need healthcheck high up to avoid hitting middlewares that may be
     # using dependencies that the healthcheck should be checking. It should be
     # ok below the above middlewares however.
@@ -240,20 +242,32 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/projects/@current/property_definitions/?$",
                 "^/?api/projects/\\d+/event_definitions/?$",
                 "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/projects/\\d+/insights/?$",
                 "^/?api/projects/\\d+/insights/\\d+/?$",
                 "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/?$",
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
+                "^/?api/projects/\\d+/session_recordings/.*$",
+                "^/?api/projects/\\d+/session_recording_playlists/?$",
+                "^/?api/projects/\\d+/session_recording_playlists/.*$",
+                "^/?api/projects/\\d+/performance_events/?$",
+                "^/?api/projects/\\d+/performance_events/.*$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
                 "^/?api/projects/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/year_in_posthog/.*$",
+                "^/api/element/stats/?$",
+                "^/api/projects/\\d+/groups/property_definitions/?$",
+                "^/api/projects/\\d+/cohorts/?$",
+                "^/api/projects/\\d+/persons/?$",
+                "^/api/organizations/@current/plugins/?$",
+                "^api/projects/@current/feature_flags/my_flags/?$",
             ]
         ),
     )

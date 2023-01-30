@@ -18,6 +18,16 @@
     &.LemonSkeleton--static {
         animation: none;
     }
+
+    // The following CSS visually hides the "Loading…" span, but still leaves it available for a screen reader
+    // See https://adrianroselli.com/2020/11/more-accessible-skeletons.html
+    > span {
+        display: block;
+        overflow: hidden;
+        width: 1px;
+        height: 1px;
+        white-space: nowrap;
+    }
 }
 
 @keyframes lemon-skeleton-loading {

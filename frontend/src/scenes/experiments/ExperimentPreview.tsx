@@ -6,11 +6,12 @@ import { dayjs } from 'lib/dayjs'
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
+import { IconInfo } from 'lib/components/icons'
+import { TZLabel } from 'lib/components/TZLabel'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -96,7 +97,7 @@ export function ExperimentPreview({
                                         'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
                                     }
                                 >
-                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                    <IconInfo className="ml-1 text-muted text-xl" />
                                 </Tooltip>
                             </div>
                             <Row className="mde-slider">
@@ -240,7 +241,7 @@ export function ExperimentPreview({
                             <Col span={12}>
                                 <div className="card-secondary mt-4">Start date</div>
                                 {experiment?.start_date ? (
-                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                    <TZLabel time={experiment?.start_date} />
                                 ) : (
                                     <span className="description">Not started yet</span>
                                 )}
@@ -260,7 +261,7 @@ export function ExperimentPreview({
                         {experiment?.end_date && (
                             <Col span={12}>
                                 <div className="card-secondary mt-4">Completed date</div>
-                                <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                                <TZLabel time={experiment?.end_date} />
                             </Col>
                         )}
                     </Row>

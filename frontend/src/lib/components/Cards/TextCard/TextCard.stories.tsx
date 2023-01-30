@@ -5,9 +5,7 @@ import { TextCard } from './TextCard'
 export default {
     title: 'Components/Cards/Text Card',
     component: TextCard,
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
+    parameters: {},
 } as Meta
 
 const makeTextTile = (body: string, color: InsightColor | null = null): DashboardTile => {
@@ -28,8 +26,6 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
         layouts: {},
         color,
         last_refresh: null,
-        filters_hash: '',
-        refreshing: false,
     }
 }
 

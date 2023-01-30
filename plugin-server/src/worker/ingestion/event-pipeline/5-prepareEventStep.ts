@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { PostIngestionEvent } from '../../../types'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
@@ -12,13 +11,11 @@ export async function prepareEventStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const { ip, site_url, team_id, uuid } = event
-    const invalidTimestampCallback = function (field: string, value: string, reason: string) {
-        runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id) })
-        captureIngestionWarning(runner.hub.db, team_id, 'ignored_invalid_timestamp', {
-            field: field,
-            value: value,
-            reason: reason,
-        })
+    const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
+        // TODO: make that metric name more generic when transitionning to prometheus
+        runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id), type: type })
+
+        captureIngestionWarning(runner.hub.db, team_id, type, details)
     }
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
@@ -31,10 +28,8 @@ export async function prepareEventStep(
 
     await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
 
-    if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
+    if (preIngestionEvent) {
         return runner.nextStep('createEventStep', preIngestionEvent, personContainer)
-    } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
-        return runner.nextStep('runAsyncHandlersStep', preIngestionEvent as PostIngestionEvent, personContainer)
     } else {
         return null
     }

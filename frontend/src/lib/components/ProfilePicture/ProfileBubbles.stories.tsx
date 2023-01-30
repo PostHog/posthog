@@ -12,7 +12,6 @@ const DUMMIES: ProfileBubblesProps['people'] = [
 export default {
     title: 'Lemon UI/Profile Bubbles',
     component: ProfileBubblesComponent,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         people: {
             defaultValue: DUMMIES,

@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -148,6 +148,10 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 
 class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+    """
+    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    """
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -411,6 +415,13 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         self._set_properties(request.data["properties"], request.user)
         return Response(status=204)
 
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+        )
+
     def _set_properties(self, properties, user):
         instance = self.get_object()
         capture_internal(
@@ -629,13 +640,33 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
+    group_properties_filter_group = []
+    if hasattr(filter, "aggregation_group_type_index"):
+        group_properties_filter_group += [
+            {
+                "key": "name",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+            {
+                "key": "slug",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+        ]
+
     new_group = {
         "type": "OR",
         "values": [
             {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
             {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-        ],
+        ]
+        + group_properties_filter_group,
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
