@@ -55,14 +55,16 @@ export class EventPipelineRunner {
         })
 
         try {
+            let result: EventPipelineResult | null = null
             const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event])
             if (eventWithTeam != null) {
-                const result = await this.runEventPipelineSteps(eventWithTeam)
-                this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
-                return result
+                result = await this.runEventPipelineSteps(eventWithTeam)
             } else {
-                return this.registerLastStep('populateTeamDataStep', null, [event])
+                result = this.registerLastStep('populateTeamDataStep', null, [event])
             }
+
+            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+            return result
         } catch (error) {
             if (error instanceof DependencyUnavailableError) {
                 // If this is an error with a dependency that we control, we want to
