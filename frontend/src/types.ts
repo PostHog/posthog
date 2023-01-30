@@ -2554,11 +2554,6 @@ export interface ExportedAssetType {
     filename: string
 }
 
-export enum YesOrNoResponse {
-    Yes = 'yes',
-    No = 'no',
-}
-
 export enum FeatureFlagReleaseType {
     ReleaseToggle = 'Release toggle',
     Variants = 'Multiple variants',

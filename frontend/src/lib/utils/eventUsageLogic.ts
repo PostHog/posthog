@@ -22,7 +22,6 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
     InsightShortId,
-    YesOrNoResponse,
     SessionPlayerData,
     AnyPartialFilterType,
     Resource,
@@ -385,12 +384,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingConsoleFeedback: (logCount: number, response: YesOrNoResponse, question: string) => ({
-            logCount,
-            response,
-            question,
-        }),
-        reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
         reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
             recordingViewedSummary,
         }),
@@ -986,12 +979,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
-        },
-        reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
-            posthog.capture('recording console feedback', { question, response, log_count: logCount })
-        },
-        reportRecordingConsoleViewed: ({ logCount }) => {
-            posthog.capture('recording console logs viewed', { log_count: logCount })
         },
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
             posthog.capture('recording viewed summary', { ...recordingViewedSummary })

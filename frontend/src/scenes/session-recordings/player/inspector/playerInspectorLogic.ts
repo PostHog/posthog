@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, listeners, connect, props, key, selectors } from 'kea'
+import { actions, kea, reducers, path, connect, props, key, selectors } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -9,7 +9,6 @@ import {
     SessionRecordingPlayerTab,
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
@@ -72,7 +71,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
-        logic: [eventUsageLogic],
         actions: [playerSettingsLogic, ['setTab', 'setMiniFilter', 'setSyncScroll']],
         values: [
             playerSettingsLogic,
@@ -136,18 +134,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
-        setTab: ({ tab }) => {
-            if (tab === SessionRecordingPlayerTab.CONSOLE) {
-                // eventUsageLogic
-                //     .findMounted()
-                //     ?.actions?.reportRecordingConsoleViewed(
-                //         consoleLogsListLogic.findMounted()?.values?.consoleListData?.length ?? 0
-                //     )
-            }
-        },
-    })),
-
     selectors(({}) => ({
         recordingTimeInfo: [
             (s) => [s.sessionPlayerMetaData],
