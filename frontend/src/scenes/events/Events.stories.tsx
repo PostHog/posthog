@@ -18,7 +18,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: false },
+
         mockDate: '2023-01-28', // To stabilize relative dates
     },
 } as Meta

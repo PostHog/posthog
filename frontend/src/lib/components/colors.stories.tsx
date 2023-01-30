@@ -11,7 +11,6 @@ export default {
                 component: 'Colors can be used in a variety of ways',
             },
         },
-        chromatic: { disableSnapshot: false },
     },
 } as Meta
 
