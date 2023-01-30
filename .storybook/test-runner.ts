@@ -2,7 +2,10 @@ import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 
+const RETRY_TIMES = 3
+
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
+const updateSnapshot = expect.getState().snapshotState._updateSnapshot === 'all'
 
 async function expectStoryToMatchFullPageSnapshot(page: Page, context: TestContext): Promise<void> {
     await expectLocatorToMatchStorySnapshot(page, context)
@@ -70,7 +73,9 @@ module.exports = {
             // You'd expect that the 'load' state which @storybook/test-runner waits for would already mean
             // the story is ready, and definitely that 'networkidle' would indicate all assets to be ready.
             // But that's not the case, so we need to introduce a bit of a delay.
-            await page.waitForTimeout(200)
+            // The delay is extended when updating snapshots, so that we're 100% sure they represent the final state.
+            const delayMultiplier: number = updateSnapshot ? RETRY_TIMES : 1
+            await page.waitForTimeout(250 * delayMultiplier)
             await expectStoryToMatchSnapshot(page, context) // Don't retry when updating
         }
     },
