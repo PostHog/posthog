@@ -124,7 +124,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
 
     reducers: ({ props }) => ({
         pollingIsActive: [
-            !navigator.userAgent.includes('StorybookTestRunner'), // Disable polling in visual regression tests
+            true,
             {
                 setPollingActive: (_, { pollingActive }) => pollingActive,
                 pollEventsSuccess: (state, { events }) => (events && events.length ? false : state),
