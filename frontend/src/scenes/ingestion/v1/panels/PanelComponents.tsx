@@ -7,9 +7,9 @@ import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
 import { IconArrowLeft } from 'lib/components/icons'
 
-export function PanelFooter(): JSX.Element {
+export function PanelFooterToRecordingStep(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
-    const { setPlatform, setVerify } = useActions(ingestionLogic)
+    const { setPlatform, setRecording } = useActions(ingestionLogic)
     const { reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
 
     return (
@@ -24,7 +24,7 @@ export function PanelFooter(): JSX.Element {
                         center
                         onClick={() => {
                             reportIngestionTryWithBookmarkletClicked()
-                            setVerify(true)
+                            setRecording(true)
                         }}
                     >
                         Try PostHog with the exploration bookmarklet
@@ -48,7 +48,7 @@ export function PanelFooter(): JSX.Element {
                         fullWidth
                         center
                         className="mb-2"
-                        onClick={() => setVerify(true)}
+                        onClick={() => setRecording(true)}
                     >
                         Continue
                     </LemonButton>
@@ -58,7 +58,7 @@ export function PanelFooter(): JSX.Element {
                         fullWidth
                         center
                         type="secondary"
-                        onClick={() => setVerify(true)}
+                        onClick={() => setRecording(true)}
                     >
                         Skip for now
                     </LemonButton>

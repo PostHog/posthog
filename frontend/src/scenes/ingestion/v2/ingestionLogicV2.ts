@@ -23,6 +23,7 @@ export enum INGESTION_STEPS {
     START = 'Get started',
     PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
+    RECORDINGS = 'Setup session recordings',
     VERIFY = 'Listen for events',
     BILLING = 'Add payment method',
     DONE = 'Done!',
@@ -32,12 +33,14 @@ export enum INGESTION_STEPS_WITHOUT_BILLING {
     START = 'Get started',
     PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
+    RECORDINGS = 'Setup session recordings',
     VERIFY = 'Listen for events',
     DONE = 'Done!',
 }
 
 export enum INGESTION_VIEWS {
     BILLING = 'billing',
+    RECORDINGS = 'recordings',
     INVITE_TEAM = 'invite-team',
     TEAM_INVITED = 'post-invite-team',
     CHOOSE_PLATFORM = 'choose-platform',
@@ -51,6 +54,7 @@ export enum INGESTION_VIEWS {
 
 export const INGESTION_VIEW_TO_STEP = {
     [INGESTION_VIEWS.BILLING]: INGESTION_STEPS.BILLING,
+    [INGESTION_VIEWS.RECORDINGS]: INGESTION_STEPS.RECORDINGS,
     [INGESTION_VIEWS.INVITE_TEAM]: INGESTION_STEPS.START,
     [INGESTION_VIEWS.TEAM_INVITED]: INGESTION_STEPS.START,
     [INGESTION_VIEWS.NO_DEMO_INGESTION]: INGESTION_STEPS.START,
@@ -66,6 +70,7 @@ export type IngestionState = {
     platform: PlatformType
     framework: Framework
     readyToVerify: boolean
+    showRecording: boolean
     showBilling: boolean
     hasInvitedMembers: boolean | null
     isTechnicalUser: boolean | null
@@ -82,6 +87,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: null,
                 framework: null,
                 readyToVerify: false,
+                showRecording: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -93,6 +99,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: null,
                 framework: null,
                 readyToVerify: false,
+                showRecording: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -104,7 +111,20 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: props.platform,
                 framework: props.framework,
                 readyToVerify: false,
+                showRecording: false,
                 showBilling: true,
+                isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
+            }
+        case INGESTION_VIEWS.BILLING:
+            return {
+                isTechnicalUser: null,
+                hasInvitedMembers: null,
+                platform: props.platform,
+                framework: props.framework,
+                readyToVerify: false,
+                showRecording: true,
+                showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
             }
@@ -115,6 +135,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: props.platform,
                 framework: props.framework,
                 readyToVerify: true,
+                showRecording: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -126,6 +147,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: null,
                 framework: null,
                 readyToVerify: false,
+                showRecording: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -138,6 +160,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: props.platform,
                 framework: null,
                 readyToVerify: false,
+                showRecording: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -149,6 +172,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
         platform: null,
         framework: null,
         readyToVerify: false,
+        showRecording: false,
         showBilling: false,
         isDemoProject: props.isDemoProject,
         generatingDemoData: false,
@@ -476,6 +500,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 framework: framework,
                 readyToVerify: false,
                 showBilling: false,
+                showRecording: false,
                 isDemoProject: values.isDemoProject,
                 generatingDemoData: false,
             })

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
 import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
@@ -23,23 +22,21 @@ export function BillingPanel(): JSX.Element {
 
     if (!billingVersion) {
         return (
-            <CardContainer>
-                <div className="space-y-4" style={{ width: 800 }}>
-                    <LemonSkeleton className="w-full h-10" />
-                    <LemonSkeleton className="w-full" />
-                    <LemonSkeleton className="w-full" />
-                    <div className="h-20" />
-                    <div className="h-20" />
-                    <LemonSkeleton className="w-full h-10" />
-                    <LemonSkeleton className="w-full h-10" />
-                </div>
-            </CardContainer>
+            <div className="space-y-4" style={{ width: 800 }}>
+                <LemonSkeleton className="w-full h-10" />
+                <LemonSkeleton className="w-full" />
+                <LemonSkeleton className="w-full" />
+                <div className="h-20" />
+                <div className="h-20" />
+                <LemonSkeleton className="w-full h-10" />
+                <LemonSkeleton className="w-full h-10" />
+            </div>
         )
     }
 
     if (billingVersion == 'v2') {
         return (
-            <CardContainer>
+            <div style={{ maxWidth: 800 }}>
                 {billingV2?.has_active_subscription ? (
                     <div className="flex flex-col space-y-4">
                         <h1 className="ingestion-title">You're good to go!</h1>
@@ -81,12 +78,12 @@ export function BillingPanel(): JSX.Element {
                         </LemonButton>
                     </div>
                 )}
-            </CardContainer>
+            </div>
         )
     }
 
     return (
-        <CardContainer>
+        <div style={{ maxWidth: 800 }}>
             {(!billing?.plan || billing.should_setup_billing) && (
                 <div className="text-left flex flex-col space-y-4">
                     <h1 className="ingestion-title">Add payment method</h1>
@@ -139,6 +136,6 @@ export function BillingPanel(): JSX.Element {
                     </LemonButton>
                 </div>
             )}
-        </CardContainer>
+        </div>
     )
 }

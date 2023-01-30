@@ -1,6 +1,5 @@
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
-import { CardContainer } from '../CardContainer'
 import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
 import { LemonModal } from 'lib/components/LemonModal'
@@ -13,6 +12,7 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { PanelFooterToRecordingStep } from 'scenes/ingestion/v1/panels/PanelComponents'
 
 export function ThirdPartyPanel(): JSX.Element {
     const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogic)
@@ -25,7 +25,7 @@ export function ThirdPartyPanel(): JSX.Element {
     } = useActions(eventUsageLogic)
 
     return (
-        <CardContainer showFooter>
+        <div style={{ maxWidth: 800 }}>
             <div className="px-6">
                 <h1 className="ingestion-title">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {
@@ -127,7 +127,8 @@ export function ThirdPartyPanel(): JSX.Element {
                 })}
             </div>
             <IntegrationInstructionsModal />
-        </CardContainer>
+            <PanelFooterToRecordingStep />
+        </div>
     )
 }
 

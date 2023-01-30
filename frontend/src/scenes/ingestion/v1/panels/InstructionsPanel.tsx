@@ -1,5 +1,4 @@
 import './InstructionsPanel.scss'
-import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
 import {
     AndroidInstructions,
     APIInstructions,
@@ -17,6 +16,7 @@ import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/v1/constants'
 import { useValues } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { WebInstructions } from '../frameworks/WebInstructions'
+import { PanelFooterToRecordingStep } from 'scenes/ingestion/v1/panels/PanelComponents'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     NODEJS: NodeInstructions,
@@ -44,11 +44,12 @@ export function InstructionsPanel(): JSX.Element {
     return (
         <div className="InstructionsPanel mb-8">
             {platform === WEB ? (
-                <CardContainer showFooter>
+                <div style={{ maxWidth: 800 }}>
                     <WebInstructions />
-                </CardContainer>
+                    <PanelFooterToRecordingStep />
+                </div>
             ) : framework === API ? (
-                <CardContainer showFooter>
+                <div style={{ maxWidth: 800 }}>
                     <h2>{frameworkString}</h2>
                     <p className="prompt-text">
                         {
@@ -56,9 +57,10 @@ export function InstructionsPanel(): JSX.Element {
                         }
                     </p>
                     <FrameworkSnippet />
-                </CardContainer>
+                    <PanelFooterToRecordingStep />
+                </div>
             ) : (
-                <CardContainer showFooter>
+                <div style={{ maxWidth: 800 }}>
                     <h1>{`Setup ${frameworkString}`}</h1>
 
                     {platform === BACKEND ? (
@@ -70,7 +72,8 @@ export function InstructionsPanel(): JSX.Element {
                         </>
                     ) : null}
                     {platform === MOBILE ? <FrameworkSnippet /> : null}
-                </CardContainer>
+                    <PanelFooterToRecordingStep />
+                </div>
             )}
         </div>
     )

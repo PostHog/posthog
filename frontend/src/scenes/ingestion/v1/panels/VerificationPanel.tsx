@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
-import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
 import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
@@ -23,7 +22,7 @@ export function VerificationPanel(): JSX.Element {
     }, 2000)
 
     return (
-        <CardContainer>
+        <div style={{ maxWidth: 800 }}>
             <div className="text-center">
                 {!currentTeam?.ingested_event ? (
                     <>
@@ -79,6 +78,6 @@ export function VerificationPanel(): JSX.Element {
                     </div>
                 )}
             </div>
-        </CardContainer>
+        </div>
     )
 }

@@ -28,6 +28,7 @@ import { urls } from 'scenes/urls'
 export enum INGESTION_STEPS {
     START = 'Get started',
     CONNECT_PRODUCT = 'Connect your product',
+    RECORDINGS = 'Setup session recordings',
     VERIFY = 'Listen for events',
     BILLING = 'Add payment method',
     DONE = 'Done!',
@@ -36,6 +37,7 @@ export enum INGESTION_STEPS {
 export enum INGESTION_STEPS_WITHOUT_BILLING {
     START = 'Get started',
     CONNECT_PRODUCT = 'Connect your product',
+    RECORDINGS = 'Setup session recordings',
     VERIFY = 'Listen for events',
     DONE = 'Done!',
 }
@@ -59,14 +61,21 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
+        setRecording: (recording: boolean) => ({ recording }),
         setAddBilling: (addBilling: boolean) => ({ addBilling }),
-        setState: (platform: PlatformType, framework: string | null, verify: boolean, addBilling: boolean) => ({
+        setState: (
+            platform: PlatformType,
+            framework: string | null,
+            verify: boolean,
+            recording: boolean,
+            addBilling: boolean
+        ) => ({
             platform,
             framework,
             verify,
+            recording,
             addBilling,
         }),
-        setActiveTab: (tab: string) => ({ tab }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
@@ -94,12 +103,24 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setState: (_, { framework }) => (framework ? (framework.toUpperCase() as Framework) : null),
             },
         ],
+        recording: [
+            false,
+            {
+                setPlatform: () => false,
+                setFramework: () => false,
+                setAddBilling: () => false,
+                setVerify: () => false,
+                setState: (_, { recording }) => recording,
+                setRecording: (_, { recording }) => recording,
+            },
+        ],
         verify: [
             false,
             {
                 setPlatform: () => false,
                 setFramework: () => false,
                 setAddBilling: () => false,
+                setRecording: () => false,
                 setVerify: (_, { verify }) => verify,
                 setState: (_, { verify }) => verify,
             },
@@ -110,14 +131,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setPlatform: () => false,
                 setFramework: () => false,
                 setVerify: () => false,
+                setRecording: () => false,
                 setAddBilling: (_, { addBilling }) => addBilling,
                 setState: (_, { addBilling }) => addBilling,
-            },
-        ],
-        activeTab: [
-            'browser',
-            {
-                setActiveTab: (_, { tab }) => tab,
             },
         ],
         instructionsModalOpen: [
@@ -148,10 +164,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
     }),
     selectors(() => ({
         currentStep: [
-            (s) => [s.platform, s.framework, s.verify, s.addBilling],
-            (platform, framework, verify, addBilling) => {
+            (s) => [s.platform, s.framework, s.verify, s.recording, s.addBilling],
+            (platform, framework, verify, recording, addBilling) => {
                 if (addBilling) {
                     return INGESTION_STEPS.BILLING
+                }
+                if (recording) {
+                    return INGESTION_STEPS.RECORDINGS
                 }
                 if (verify) {
                     return INGESTION_STEPS.VERIFY
@@ -199,23 +218,142 @@ export const ingestionLogic = kea<ingestionLogicType>([
         ],
     })),
 
-    actionToUrl(({ values }) => ({
-        setPlatform: () => getUrl(values),
-        setFramework: () => getUrl(values),
-        setVerify: () => getUrl(values),
-        setAddBilling: () => getUrl(values),
-        setState: () => getUrl(values),
-        updateCurrentTeamSuccess: () => {
-            const isBillingPage = router.values.location.pathname == '/ingestion/billing'
-            const isVerifyPage = !values.showBillingStep && router.values.location.pathname == '/ingestion/verify'
-            if (isBillingPage || isVerifyPage) {
-                return urls.events()
+    actionToUrl(({ values }) => {
+        function _actionToUrl(): string | [string, Record<string, undefined | string>] {
+            const { platform, framework, verify, addBilling, recording } = values
+
+            let url = '/ingestion'
+
+            if (addBilling) {
+                return url + '/billing'
             }
-        },
-    })),
+
+            if (recording) {
+                url += '/recording'
+                return [
+                    url,
+                    {
+                        platform:
+                            platform === WEB
+                                ? 'web'
+                                : platform === MOBILE
+                                ? 'mobile'
+                                : platform === BACKEND
+                                ? 'backend'
+                                : platform === BOOKMARKLET
+                                ? 'just-exploring'
+                                : platform === THIRD_PARTY
+                                ? 'third-party'
+                                : undefined,
+                        framework: framework?.toLowerCase() || undefined,
+                    },
+                ]
+            }
+
+            if (verify) {
+                url += '/verify'
+                return [
+                    url,
+                    {
+                        platform:
+                            platform === WEB
+                                ? 'web'
+                                : platform === MOBILE
+                                ? 'mobile'
+                                : platform === BACKEND
+                                ? 'backend'
+                                : platform === BOOKMARKLET
+                                ? 'just-exploring'
+                                : platform === THIRD_PARTY
+                                ? 'third-party'
+                                : undefined,
+                        framework: framework?.toLowerCase() || undefined,
+                    },
+                ]
+            }
+
+            if (framework === API) {
+                url += '/api'
+                return [
+                    url,
+                    {
+                        platform:
+                            platform === WEB
+                                ? 'web'
+                                : platform === MOBILE
+                                ? 'mobile'
+                                : platform === BACKEND
+                                ? 'backend'
+                                : undefined,
+                    },
+                ]
+            }
+
+            if (platform === MOBILE) {
+                url += '/mobile'
+            }
+
+            if (platform === WEB) {
+                url += '/web'
+            }
+
+            if (platform === BACKEND) {
+                url += '/backend'
+            }
+
+            if (platform === BOOKMARKLET) {
+                url += '/just-exploring'
+            }
+
+            if (platform === THIRD_PARTY) {
+                url += '/third-party'
+            }
+
+            if (framework) {
+                url += `/${framework.toLowerCase()}`
+            }
+
+            return url
+        }
+
+        return {
+            setPlatform: _actionToUrl,
+            setFramework: _actionToUrl,
+            setVerify: _actionToUrl,
+            setRecording: _actionToUrl,
+            setAddBilling: _actionToUrl,
+            setState: _actionToUrl,
+            updateCurrentTeamSuccess: () => {
+                const isBillingPage = router.values.location.pathname == '/ingestion/billing'
+                const isVerifyPage = !values.showBillingStep && router.values.location.pathname == '/ingestion/verify'
+                if (isBillingPage || isVerifyPage) {
+                    return urls.events()
+                }
+            },
+        }
+    }),
 
     urlToAction(({ actions }) => ({
-        '/ingestion': () => actions.setState(null, null, false, false),
+        '/ingestion': () => actions.setState(null, null, false, false, false),
+        '/ingestion/recording': (_: any, { platform, framework }) => {
+            actions.setState(
+                platform === 'mobile'
+                    ? MOBILE
+                    : platform === 'web'
+                    ? WEB
+                    : platform === 'backend'
+                    ? BACKEND
+                    : platform === 'just-exploring'
+                    ? BOOKMARKLET
+                    : platform === 'third-party'
+                    ? THIRD_PARTY
+                    : null,
+                framework,
+                false,
+                true,
+                false
+            )
+        },
         '/ingestion/billing': (_: any, { platform, framework }) => {
             actions.setState(
                 platform === 'mobile'
@@ -230,6 +368,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     ? THIRD_PARTY
                     : null,
                 framework,
+                false,
                 false,
                 true
             )
@@ -249,6 +388,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     : null,
                 framework,
                 true,
+                false,
                 false
             )
         },
@@ -256,6 +396,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             actions.setState(
                 platform === 'mobile' ? MOBILE : platform === 'web' ? WEB : platform === 'backend' ? BACKEND : null,
                 API,
+                false,
                 false,
                 false
             )
@@ -274,6 +415,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     ? THIRD_PARTY
                     : null,
                 framework as Framework,
+                false,
                 false,
                 false
             )
@@ -301,12 +443,16 @@ export const ingestionLogic = kea<ingestionLogicType>([
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
                     if (values.platform) {
-                        actions.setVerify(false)
                         actions.setPlatform(values.platform)
                     }
                     return
-                case INGESTION_STEPS.VERIFY:
+                case INGESTION_STEPS.RECORDINGS:
                     if (values.platform) {
+                        actions.setRecording(true)
+                    }
+                    return
+                case INGESTION_STEPS.VERIFY:
+                    if (values.recording) {
                         actions.setVerify(true)
                     }
                     return
@@ -322,13 +468,16 @@ export const ingestionLogic = kea<ingestionLogicType>([
         onBack: () => {
             switch (values.currentStep) {
                 case INGESTION_STEPS.BILLING:
-                    actions.setState(values.platform, values.framework, true, false)
+                    actions.setState(values.platform, values.framework, true, false, false)
+                    return
+                case INGESTION_STEPS.RECORDINGS:
+                    actions.setState(values.platform, values.framework, false, false, false)
                     return
                 case INGESTION_STEPS.VERIFY:
-                    actions.setState(values.platform, null, false, false)
+                    actions.setState(values.platform, null, false, true, false)
                     return
                 case INGESTION_STEPS.CONNECT_PRODUCT:
-                    actions.setState(null, null, false, false)
+                    actions.setState(null, null, false, false, false)
                     return
                 default:
                     return
@@ -352,78 +501,3 @@ export const ingestionLogic = kea<ingestionLogicType>([
         },
     })),
 ])
-
-function getUrl(values: ingestionLogicType['values']): string | [string, Record<string, undefined | string>] {
-    const { platform, framework, verify, addBilling } = values
-
-    let url = '/ingestion'
-
-    if (addBilling) {
-        return url + '/billing'
-    }
-
-    if (verify) {
-        url += '/verify'
-        return [
-            url,
-            {
-                platform:
-                    platform === WEB
-                        ? 'web'
-                        : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : platform === BOOKMARKLET
-                        ? 'just-exploring'
-                        : platform === THIRD_PARTY
-                        ? 'third-party'
-                        : undefined,
-                framework: framework?.toLowerCase() || undefined,
-            },
-        ]
-    }
-
-    if (framework === API) {
-        url += '/api'
-        return [
-            url,
-            {
-                platform:
-                    platform === WEB
-                        ? 'web'
-                        : platform === MOBILE
-                        ? 'mobile'
-                        : platform === BACKEND
-                        ? 'backend'
-                        : undefined,
-            },
-        ]
-    }
-
-    if (platform === MOBILE) {
-        url += '/mobile'
-    }
-
-    if (platform === WEB) {
-        url += '/web'
-    }
-
-    if (platform === BACKEND) {
-        url += '/backend'
-    }
-
-    if (platform === BOOKMARKLET) {
-        url += '/just-exploring'
-    }
-
-    if (platform === THIRD_PARTY) {
-        url += '/third-party'
-    }
-
-    if (framework) {
-        url += `/${framework.toLowerCase()}`
-    }
-
-    return url
-}

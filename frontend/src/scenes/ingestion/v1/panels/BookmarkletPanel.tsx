@@ -3,14 +3,14 @@ import { useValues } from 'kea'
 import { IconInfo } from 'lib/components/icons'
 import { JSBookmarklet } from 'lib/components/JSBookmarklet'
 import { teamLogic } from 'scenes/teamLogic'
-import { CardContainer } from '../CardContainer'
 import './Panels.scss'
+import { PanelFooterToRecordingStep } from 'scenes/ingestion/v1/panels/PanelComponents'
 
 export function BookmarkletPanel(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
     return (
-        <CardContainer showFooter>
+        <div style={{ maxWidth: 800 }}>
             {currentTeam && (
                 <div style={{ padding: '0px 16px' }}>
                     <h1 className="ingestion-title mb-2">Just exploring?</h1>
@@ -48,6 +48,7 @@ export function BookmarkletPanel(): JSX.Element {
                     </Row>
                 </div>
             )}
-        </CardContainer>
+            <PanelFooterToRecordingStep />
+        </div>
     )
 }

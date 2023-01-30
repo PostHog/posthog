@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
 import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { API, mobileFrameworks, BACKEND, webFrameworks } from 'scenes/ingestion/v1/constants'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -11,7 +10,7 @@ export function FrameworkPanel(): JSX.Element {
     const frameworks = platform === BACKEND ? webFrameworks : mobileFrameworks
 
     return (
-        <CardContainer>
+        <div style={{ maxWidth: 800 }}>
             <div className="FrameworkPanel">
                 <h1 className="ingestion-title">
                     {platform === BACKEND ? 'Choose the framework your app is built in' : 'Pick a mobile platform'}
@@ -44,6 +43,6 @@ export function FrameworkPanel(): JSX.Element {
                     </div>
                 </div>
             </div>
-        </CardContainer>
+        </div>
     )
 }
