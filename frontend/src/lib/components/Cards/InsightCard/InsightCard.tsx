@@ -61,7 +61,7 @@ import {
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
-import { filterForQuery, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 import { InsightVizNode } from '~/queries/schema'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
@@ -225,7 +225,6 @@ function InsightMeta({
 
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
-    console.log('insight', insight.name)
 
     return (
         <CardMeta
@@ -434,16 +433,19 @@ function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
     }
 
     let { date_from, date_to } = filters
-    if (!!query && isInsightQueryNode(query)) {
-        const queryAsFilter = filterForQuery(query)
-        date_from = (queryAsFilter as FilterType).date_from
-        date_to = (queryAsFilter as FilterType).date_to
+    if (!!query) {
+        const queryDateRange = dateRangeFor(query)
+        if (!!queryDateRange) {
+            date_from = queryDateRange.date_from
+            date_to = queryDateRange.date_to
+        }
     }
 
+    const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
     return (
         <>
             <span title={insightType?.description}>{insightType?.name}</span> •{' '}
-            {dateFilterToText(date_from, date_to, 'Last 7 days')}
+            {dateFilterToText(date_from, date_to, defaultDateRange)}
         </>
     )
 }
