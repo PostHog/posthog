@@ -8,13 +8,17 @@ import {
     retentionTableLogic,
 } from 'scenes/retention/retentionTableLogic'
 import { Input, Select } from 'antd'
-import { EditorFilterProps, FilterType, RetentionType } from '~/types'
+import { EditorFilterProps, FilterType, QueryEditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AggregationSelectComponent } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+
+export function RetentionSummaryDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    return <RetentionSummary insightProps={insightProps} />
+}
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { showGroupsOptions } = useValues(groupsModel)

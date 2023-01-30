@@ -46,6 +46,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -85,6 +86,11 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         {
             title: 'General',
             editorFilters: filterFalsy([
+                isRetention && {
+                    key: 'retention-summary',
+                    label: 'Retention Summary',
+                    component: RetentionSummaryDataExploration,
+                },
                 ...(isPaths
                     ? filterFalsy([
                           {
