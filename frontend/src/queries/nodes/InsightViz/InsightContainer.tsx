@@ -29,14 +29,14 @@ import {
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-// import { Tooltip } from 'lib/components/Tooltip'
+// import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 // import { FunnelInsight } from './views/Funnels/FunnelInsight'
 // import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-// import { AlertMessage } from 'lib/components/AlertMessage'
+// import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,

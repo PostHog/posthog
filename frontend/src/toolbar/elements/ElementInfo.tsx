@@ -4,7 +4,7 @@ import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconCalendar, IconPlus } from 'lib/components/icons'
+import { IconCalendar, IconPlus } from 'lib/lemon-ui/icons'
 
 function ElementStatistic({
     prefix,

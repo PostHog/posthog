@@ -1,8 +1,8 @@
 import './UniversalSearch.scss'
 import { useState } from 'react'
-import { LemonButtonWithPopupProps } from '../LemonButton'
+import { LemonButtonWithPopupProps } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import {
@@ -25,7 +25,7 @@ import { useEventListener } from 'lib/hooks/useEventListener'
 import { taxonomicFilterLogic } from '../TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
-import { LemonInput } from '../LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {

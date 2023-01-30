@@ -8,9 +8,9 @@ import {
     TaxonomicFilterLogicProps,
     TaxonomicFilterProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import { IconKeyboard } from '../icons'
-import { Tooltip } from '../Tooltip'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { IconKeyboard } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 
 let uniqueMemoizedIndex = 0

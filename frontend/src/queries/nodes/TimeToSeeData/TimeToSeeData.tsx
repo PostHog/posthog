@@ -3,10 +3,10 @@ import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TimeToSeeDataQuery } from '~/queries/schema'
 import { useValues } from 'kea'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { timeToSeeDataLogic } from './timeToSeeDataLogic'
 import { TimeToSeeNode } from './types'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { dayjs } from 'lib/dayjs'
 
 let uniqueNode = 0

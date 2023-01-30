@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { SimpleOption, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 

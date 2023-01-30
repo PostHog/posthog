@@ -1,4 +1,4 @@
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { BillingV2 } from './Billing'
 
 export type BillingPopupProps = {

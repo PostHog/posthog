@@ -1,4 +1,4 @@
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function UsageDisabledWarning(): JSX.Element {
     return (

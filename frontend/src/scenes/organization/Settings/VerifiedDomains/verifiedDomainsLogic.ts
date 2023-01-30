@@ -1,6 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { SECURE_URL_REGEX } from 'lib/constants'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationDomainType, AvailableFeature } from '~/types'

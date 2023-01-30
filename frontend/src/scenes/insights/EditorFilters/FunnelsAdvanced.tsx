@@ -5,7 +5,7 @@ import { FunnelStepOrderPicker } from '../views/Funnels/FunnelStepOrderPicker'
 import { FunnelExclusionsFilter } from '../filters/FunnelExclusionsFilter'
 import { FunnelStepReferencePicker } from '../filters/FunnelStepReferencePicker'
 import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
 
 export function FunnelsAdvanced({ filters, insightProps }: EditorFilterProps): JSX.Element {

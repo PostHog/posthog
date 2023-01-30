@@ -1,6 +1,6 @@
 import { LemonSelect } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { AccessLevel } from '~/types'

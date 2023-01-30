@@ -1,5 +1,5 @@
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconPlus } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconPlus } from 'lib/lemon-ui/icons'
 import { createPlaylist } from '../playlist/playlistUtils'
 
 export function SavedSessionRecordingPlaylistsEmptyState(): JSX.Element {

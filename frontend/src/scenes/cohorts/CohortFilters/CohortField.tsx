@@ -1,9 +1,9 @@
 import './CohortField.scss'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import {
@@ -14,7 +14,7 @@ import {
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilterValue, PropertyOperator } from '~/types'

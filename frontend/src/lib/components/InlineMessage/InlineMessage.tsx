@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import './InlineMessage.scss'
 import clsx from 'clsx'
-import { IconClose, IconInfo } from '../icons'
+import { IconClose, IconInfo } from 'lib/lemon-ui/icons'
 
 interface InlineMessageProps {
     children: string | JSX.Element

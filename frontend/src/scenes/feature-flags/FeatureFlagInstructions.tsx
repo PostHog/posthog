@@ -10,8 +10,8 @@ import {
     IconPHP,
     IconRuby,
     IconGolang,
-} from 'lib/components/icons'
-import { LemonDivider } from 'lib/components/LemonDivider'
+} from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     UTM_TAGS,
     APISnippet,

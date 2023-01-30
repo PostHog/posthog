@@ -6,7 +6,7 @@ import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dayjs } from 'lib/dayjs'
 
 export const LastRefreshText = (): JSX.Element => {

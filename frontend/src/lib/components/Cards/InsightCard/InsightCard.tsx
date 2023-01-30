@@ -25,10 +25,10 @@ import {
     InsightModel,
     InsightType,
 } from '~/types'
-import { Splotch, SplotchColor } from '../../icons/Splotch'
-import { LemonButton, LemonButtonWithPopup } from '../../LemonButton'
-import { LemonDivider } from '../../LemonDivider'
-import { Link } from '../../Link'
+import { Splotch, SplotchColor } from 'lib/lemon-ui/icons/Splotch'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
@@ -46,11 +46,11 @@ import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
-import { AlertMessage } from '../../AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
-import { SpinnerOverlay } from '../../Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,

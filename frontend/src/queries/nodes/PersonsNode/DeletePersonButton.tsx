@@ -1,5 +1,5 @@
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconDelete } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconDelete } from 'lib/lemon-ui/icons'
 import { useActions } from 'kea'
 import { PersonType } from '~/types'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'

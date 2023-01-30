@@ -5,7 +5,7 @@ import { TZLabel } from '../TZLabel'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { ColumnType } from 'antd/lib/table'
 import { Row } from 'antd'
-import { ProfilePicture } from '../ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 export function createdAtColumn<T extends Record<string, any> = Record<string, any>>(): ColumnType<T> {
     return {

@@ -2,8 +2,8 @@ import { useState } from 'react'
 import { Modal } from 'antd'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from '../LemonButton'
-import { LemonTable } from '../LemonTable'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { CodeSnippet, Language } from '../CodeSnippet'
 
 interface Query {
