@@ -17,6 +17,7 @@ frontend/.cache/
 .mypy_cache
 frontend/dist/
 frontend/types/
+frontend/__snapshots__/__diff_output__/
 *Type.ts
 frontend/pnpm-error.log
 frontend/tmp

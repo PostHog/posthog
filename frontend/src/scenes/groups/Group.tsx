@@ -9,7 +9,7 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { Group as IGroup, PersonsTabType } from '~/types'
+import { Group as IGroup, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
@@ -85,7 +85,14 @@ export function Group(): JSX.Element {
                                 source: {
                                     kind: NodeKind.EventsQuery,
                                     select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    fixedProperties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                                    fixedProperties: [
+                                        {
+                                            key: `$group_${groupTypeIndex}`,
+                                            value: groupKey,
+                                            operator: PropertyOperator.Exact,
+                                            type: PropertyFilterType.Group,
+                                        },
+                                    ],
                                 },
                             }}
                         />
@@ -93,7 +100,14 @@ export function Group(): JSX.Element {
                         <EventsTable
                             pageKey={`${groupTypeIndex}::${groupKey}`}
                             fixedFilters={{
-                                properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                                properties: [
+                                    {
+                                        key: `$group_${groupTypeIndex}`,
+                                        value: groupKey,
+                                        type: PropertyFilterType.Group,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
                             }}
                             sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
                             showCustomizeColumns={false}

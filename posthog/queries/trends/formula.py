@@ -20,17 +20,20 @@ class TrendsFormula:
         queries = []
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
-            query_type, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
+            _, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
             sql = sql.replace("%(", f"%({idx}_")
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)
             params = {**params, **entity_params}
 
-        breakdown_value = (
-            ", sub_A.breakdown_value"
-            if filter.breakdown_type == "cohort"
-            else f", {trim_quotes_expr('sub_A.breakdown_value')}"
-        )
+        breakdown_value = ""
+        if filter.breakdown_type == "cohort":
+            breakdown_columns = ", ".join(f"sub_{letter}.breakdown_value" for letter in letters)
+            breakdown_value = ", arrayFilter(x -> x != 0, [{}])[1]".format(breakdown_columns)
+        else:
+            breakdown_columns = ", ".join(trim_quotes_expr(f"sub_{letter}.breakdown_value") for letter in letters)
+            breakdown_value = ", arrayFilter(x -> notEmpty(x), [{}])[1]".format(breakdown_columns)
+
         is_aggregate = filter.display in NON_TIME_SERIES_DISPLAY_TYPES
 
         sql = """SELECT

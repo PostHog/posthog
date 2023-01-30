@@ -141,3 +141,38 @@ DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     SYNC
 """
+
+GET_LATEST_PERSON_OVERRIDE_ID_SQL = f"""
+SELECT
+    team_id,
+    old_person_id,
+    argMax(override_person_id, version)
+FROM
+    `{CLICKHOUSE_DATABASE}`.`person_overrides` AS overrides
+GROUP BY
+    team_id,
+    old_person_id
+"""
+
+# ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
+PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
+    CREATE OR REPLACE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+        team_id INT,
+        old_person_id UUID,
+        override_person_id UUID
+    )
+    PRIMARY KEY team_id, old_person_id
+    SOURCE(CLICKHOUSE(QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'))
+    LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
+
+    -- The LIFETIME setting indicates to ClickHouse to automatically update this dictionary
+    -- when not set to 0. When using a time range ClickHouse will pick a uniformly random time in
+    -- the range. We are setting an initial update time range of 5 to 10 seconds.
+    LIFETIME(MIN 5 MAX 10)
+"""
+
+DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
+    DROP DICTIONARY IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+"""

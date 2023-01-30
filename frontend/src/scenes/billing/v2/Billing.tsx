@@ -31,12 +31,18 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingV2Logic)
     const { reportBillingV2Shown } = useActions(billingV2Logic)
     const { preflight } = useValues(preflightLogic)
+    const cloudOrDev = preflight?.cloud || preflight?.is_debug
 
     useEffect(() => {
         if (billing) {
             reportBillingV2Shown()
         }
     }, [!!billing])
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
+    })
 
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
@@ -59,7 +65,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     {supportLink}.
                 </AlertMessage>
 
-                {!preflight?.cloud ? (
+                {!cloudOrDev ? (
                     <AlertMessage type="info">
                         Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
                         <br />
@@ -73,11 +79,6 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
 
     const products = billing?.products
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        1000: 'medium',
-    })
-
     return (
         <div ref={ref}>
             {billing?.free_trial_until ? (
@@ -85,7 +86,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </AlertMessage>
             ) : null}
-            {!billing?.billing_period && preflight?.cloud && (
+            {!billing?.billing_period && cloudOrDev && (
                 <>
                     <div className="my-8">
                         <BillingHero />
@@ -173,7 +174,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                             </Form>
                         </>
                     ) : null}
-                    {!preflight?.cloud && billing?.license?.plan ? (
+                    {!cloudOrDev && billing?.license?.plan ? (
                         <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
                             <div className="text-center font-bold">
                                 {capitalizeFirstLetter(billing.license.plan)} license
@@ -185,7 +186,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                         </div>
                     ) : null}
 
-                    {!preflight?.cloud && !billing?.has_active_subscription ? (
+                    {!cloudOrDev && !billing?.has_active_subscription ? (
                         <p>
                             Self-hosted licenses are no longer available for purchase. Please contact{' '}
                             <a href="mailto:sales@posthog.com">sales@posthog.com</a> to discuss options.
@@ -215,9 +216,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
     const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
 
-    const billingLimitAsUsage = isEditingBillingLimit
-        ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-        : convertAmountToUsage(customLimitUsd || '', product.tiers)
+    const billingLimitAsUsage = product.tiers
+        ? isEditingBillingLimit
+            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
+            : convertAmountToUsage(customLimitUsd || '', product.tiers)
+        : 0
 
     const productType = { plural: product.type, singular: product.type.slice(0, -1) }
 
@@ -231,7 +234,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             return actuallyUpdateLimit()
         }
 
-        const newAmountAsUsage = convertAmountToUsage(`${value}`, product.tiers)
+        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({
@@ -278,7 +281,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     useEffect(() => {
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
-                parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers)) ||
+                (product.tiers
+                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
     }, [customLimitUsd])
@@ -373,7 +378,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
                         </div>
-                        {product.tiered && (
+                        {product.tiered && product.tiers && (
                             <>
                                 <div className="space-y-2">
                                     <LemonLabel
@@ -518,7 +523,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </div>
 
                             <ul>
-                                {product.tiers.map((tier, i) => (
+                                {product.tiers?.map((tier, i) => (
                                     <li
                                         key={i}
                                         className={clsx('flex justify-between py-2', {
@@ -530,10 +535,10 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             {i === 0
                                                 ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
                                                 : tier.up_to
-                                                ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
-                                                      tier.up_to
-                                                  )}`
-                                                : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
+                                                ? `${summarizeUsage(
+                                                      product.tiers?.[i - 1].up_to || null
+                                                  )} - ${summarizeUsage(tier.up_to)}`
+                                                : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`}
                                         </span>
                                         <b>
                                             {tierAmountType === 'individual' ? (

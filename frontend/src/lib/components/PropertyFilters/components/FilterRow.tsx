@@ -1,10 +1,9 @@
 import React, { useState } from 'react'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
-import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
 import clsx from 'clsx'
 import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'
@@ -13,7 +12,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 interface FilterRowProps {
     item: Record<string, any>
     index: number
-    filters: AnyPropertyFilter[]
+    filters: AnyPropertyFilter[] | PathCleaningFilter[]
     pageKey: string
     showConditionBadge?: boolean
     totalCount: number
@@ -65,24 +64,15 @@ export const FilterRow = React.memo(function FilterRow({
                 {disablePopover ? (
                     <>
                         {filterComponent(() => setOpen(false))}
-                        {!!Object.keys(filters[index]).length &&
-                            (orFiltering ? (
-                                <LemonButton
-                                    icon={<IconDelete />}
-                                    status="primary-alt"
-                                    onClick={() => onRemove(index)}
-                                    size="small"
-                                    className="ml-2"
-                                />
-                            ) : (
-                                <LemonButton
-                                    icon={<IconClose />}
-                                    status="primary-alt"
-                                    onClick={() => onRemove(index)}
-                                    size="small"
-                                    className="ml-2"
-                                />
-                            ))}
+                        {!!Object.keys(filters[index]).length && (
+                            <LemonButton
+                                icon={orFiltering ? <IconDelete /> : <IconClose />}
+                                status="primary-alt"
+                                onClick={() => onRemove(index)}
+                                size="small"
+                                className="ml-2"
+                            />
+                        )}
                     </>
                 ) : (
                     <Popup
@@ -97,14 +87,6 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClose={() => onRemove(index)}
                                 item={item}
                             />
-                        ) : isValidPathCleanFilter(item) ? (
-                            <PropertyFilterButton
-                                item={item}
-                                onClick={() => setOpen(!open)}
-                                onClose={() => onRemove(index)}
-                            >
-                                {`${item['alias']}::${item['regex']}`}
-                            </PropertyFilterButton>
                         ) : (
                             <LemonButton
                                 onClick={() => setOpen(!open)}

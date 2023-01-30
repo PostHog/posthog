@@ -3,12 +3,20 @@
 # We do this to ensure our reference images for visual regression tests are the same during development and in CI.
 #
 
-FROM mcr.microsoft.com/playwright:v1.28.1-focal
+FROM mcr.microsoft.com/playwright:v1.29.2-focal
 
 WORKDIR /work
 
 RUN npm install -g pnpm
 
-RUN pnpm install @playwright/test@1.28.1
+COPY package.json pnpm-lock.yaml ./
 
-COPY playwright.config.ts ./
+ENV CYPRESS_INSTALL_BINARY=0
+
+RUN pnpm install
+
+COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
+
+COPY .storybook/ .storybook/
+
+COPY frontend/ frontend/

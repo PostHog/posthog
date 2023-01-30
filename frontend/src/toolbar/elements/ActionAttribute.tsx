@@ -1,4 +1,4 @@
-import { FontSizeOutlined, LinkOutlined, FormOutlined, BranchesOutlined } from '@ant-design/icons'
+import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/components/icons'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()
@@ -12,13 +12,13 @@ function SelectorString({ value }: { value: string }): JSX.Element {
 export function ActionAttribute({ attribute, value }: { attribute: string; value?: string }): JSX.Element {
     const icon =
         attribute === 'text' ? (
-            <FontSizeOutlined />
+            <IconTextSize />
         ) : attribute === 'href' ? (
-            <LinkOutlined />
+            <IconLink />
         ) : attribute === 'selector' ? (
-            <BranchesOutlined />
+            <IconBranch />
         ) : (
-            <FormOutlined />
+            <IconClipboardEdit />
         )
 
     const text =
@@ -28,7 +28,7 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
             </a>
         ) : attribute === 'selector' ? (
             value ? (
-                <span style={{ fontFamily: 'monospace' }}>
+                <span className="font-mono">
                     <SelectorString value={value} />
                 </span>
             ) : (
@@ -42,9 +42,9 @@ export function ActionAttribute({ attribute, value }: { attribute: string; value
         )
 
     return (
-        <div key={attribute} style={{ marginBottom: 10, paddingLeft: 24, position: 'relative' }}>
-            <div style={{ position: 'absolute', left: 2, top: 3, color: 'hsl(240, 14%, 50%)' }}>{icon}</div>
-            <span>{text}</span>
+        <div key={attribute} className="flex flex-row gap-2 justify-between items-center">
+            <div className="text-muted text-xl">{icon}</div>
+            <div className="grow">{text}</div>
         </div>
     )
 }

@@ -2,7 +2,16 @@ import { router } from 'kea-router'
 import api from 'lib/api'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { Link } from 'lib/components/Link'
-import { ActionStepType, ActionStepUrlMatching, ActionType, ElementType, EventType, TeamType } from '~/types'
+import {
+    ActionStepType,
+    ActionStepUrlMatching,
+    ActionType,
+    ElementType,
+    EventType,
+    PropertyFilterType,
+    PropertyOperator,
+    TeamType,
+} from '~/types'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
 import { lemonToast } from 'lib/components/lemonToast'
 import { urls } from 'scenes/urls'
@@ -85,7 +94,9 @@ export async function createActionFromEvent(
     }
 
     if (event.properties.$event_type === 'submit' && actionData.steps?.length) {
-        actionData.steps[0].properties = [{ key: '$event_type', value: 'submit' }]
+        actionData.steps[0].properties = [
+            { key: '$event_type', value: 'submit', type: PropertyFilterType.Event, operator: PropertyOperator.Exact },
+        ]
     }
 
     let action: ActionType

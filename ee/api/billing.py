@@ -9,7 +9,7 @@ import requests
 import structlog
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
@@ -140,7 +140,7 @@ class BillingViewset(viewsets.GenericViewSet):
         BasicAuthentication,
     ]
 
-    def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = License.objects.first_valid()
         if license and not license.is_v2_license:
             raise NotFound("Billing V2 is not supported for this license type")
@@ -185,6 +185,11 @@ class BillingViewset(viewsets.GenericViewSet):
         for product in response["products"]:
             usage_limit = product.get("usage_limit", product.get("free_allocation"))
             product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+
+        # Get the specified plans from "plan_keys" query param, otherwise get the defaults
+        plan_keys = request.query_params.get("plan_keys", None)
+        plans = self._get_plans(plan_keys, org)
+        response["available_plans"] = plans["plans"]
 
         # Before responding ensure the org is updated with the latest info
         if org:
@@ -301,6 +306,15 @@ class BillingViewset(viewsets.GenericViewSet):
             f"{BILLING_SERVICE_URL}/api/products",
             params=params,
             headers=headers,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def _get_plans(self, plan_keys: Optional[str], organization: Optional[Organization]):
+        res = requests.get(
+            f'{BILLING_SERVICE_URL}/api/plans{"?keys=" + plan_keys if plan_keys else ""}',
         )
 
         handle_billing_service_error(res)

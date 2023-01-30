@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Radio } from 'antd'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
