@@ -388,7 +388,9 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
         events.forEach((event) => {
             expect(event?.person_id).toBeDefined()
         })
-        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+
+        // Make sure all the person_ids are the same
+        expect(new Set(events.map((event) => event.person_id))).toEqual(new Set([events[0].person_id]))
     }, 10000)
 })
 

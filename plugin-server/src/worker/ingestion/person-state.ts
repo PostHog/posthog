@@ -506,22 +506,38 @@ export class PersonState {
 
             const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
+            const { rows: transitiveUpdates } = await client.query(
+                `
+                    UPDATE posthog_personoverride 
+                    SET oldest_event = $1, override_person_id = $4, version = version + 1
+                    WHERE team_id = $2 AND old_person_id = $3
+                    RETURNING 
+                        old_person_id, 
+                        version
+                `,
+                [mergeInto.created_at, this.teamId, otherPerson.id, mergeInto.id]
+            )
+
             const {
                 rows: [[version]],
             } = await client.query(
                 `
-                INSERT INTO posthog_personoverride (
-                    team_id, 
-                    override_person_id, 
-                    old_person_id, 
-                    oldest_event
-                ) VALUES ($1, $2, $3, $4)
-                RETURNING version
+                    INSERT INTO posthog_personoverride (
+                        team_id, 
+                        old_person_id, 
+                        override_person_id, 
+                        oldest_event,
+                        version
+                    ) VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (team_id, old_person_id) 
+                    DO 
+                        UPDATE SET override_person_id = $3, version = version + 1
+                    RETURNING version
                 `,
-                [this.teamId, mergeInto.id, otherPerson.id, mergeInto.created_at]
+                [this.teamId, otherPerson.id, mergeInto.id, mergeInto.created_at, 1]
             )
 
-            const personOverrideMessage: ProducerRecord = {
+            const personOverrideMessages: ProducerRecord = {
                 topic: KAFKA_PERSON_OVERRIDE,
                 messages: [
                     {
@@ -534,11 +550,21 @@ export class PersonState {
                             version: version,
                         }),
                     },
+                    ...transitiveUpdates.map(([oldPersonId, version]) => ({
+                        value: JSON.stringify({
+                            team_id: this.teamId,
+                            merged_at: createdAt,
+                            override_person_id: mergeInto.id,
+                            old_person_id: oldPersonId,
+                            oldest_event: mergeInto.created_at,
+                            version: version,
+                        }),
+                    })),
                 ],
             }
 
             return [
-                [personOverrideMessage, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
+                [personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
                 person,
             ]
         })
