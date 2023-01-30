@@ -30,43 +30,36 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id,
+                        person.person_props as person_props ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'user did things', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
-                           pdi.person_id as person_id,
-                           person.person_props as person_props
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(properties, version) as person_props
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['user did things', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-                      AND ((and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
-                           AND (like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%'))) ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT id,
+                           argMax(properties, version) as person_props
+                    FROM person
+                    WHERE team_id = 2
+                    GROUP BY id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 WHERE team_id = 2
+                   AND event IN ['user did things', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+                   AND ((and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
+                        AND (like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%')))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -106,8 +99,10 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id,
+                        person.person_props as person_props ,
                         if(event = 'user signed up'
                            AND (and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd'))
                                 AND like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%')), 1, 0) as step_0,
@@ -116,35 +111,26 @@
                            AND (and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd'))
                                 AND like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%')), 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           e."properties" as "properties",
-                           pdi.person_id as person_id,
-                           person.person_props as person_props
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT id,
-                              argMax(properties, version) as person_props
-                       FROM person
-                       WHERE team_id = 2
-                       GROUP BY id
-                       HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['user did things', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-23 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-30 23:59:59', 'UTC') ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT id,
+                           argMax(properties, version) as person_props
+                    FROM person
+                    WHERE team_id = 2
+                    GROUP BY id
+                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+                 WHERE team_id = 2
+                   AND event IN ['user did things', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-23 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-30 23:59:59', 'UTC')
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
