@@ -171,7 +171,7 @@ export class EventPipelineRunner {
     registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
             step: stepName,
-            team_id: new String(teamId).toString(),
+            team_id: String(teamId), // NOTE: potentially high cardinality
         })
         return { lastStep: stepName, args: args.map((arg) => this.serialize(arg)) }
     }
