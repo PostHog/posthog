@@ -1,6 +1,4 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actions, kea, path, reducers, selectors } from 'kea'
 import { SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
@@ -164,9 +162,6 @@ const MiniFilters: SharedListMiniFilter[] = [
 // There is no key for this logic, so it does not reset when recordings change
 export const playerSettingsLogic = kea<playerSettingsLogicType>([
     path(['scenes', 'session-recordings', 'player', 'playerSettingsLogic']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
@@ -179,7 +174,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
     }),
-    reducers(({ values }) => ({
+    reducers(({}) => ({
         speed: [
             1,
             { persist: true },
