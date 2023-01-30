@@ -7,37 +7,65 @@ import {
     retentionOptions,
     retentionTableLogic,
 } from 'scenes/retention/retentionTableLogic'
-import { EditorFilterProps, FilterType, QueryEditorFilterProps, RetentionType } from '~/types'
+import { EditorFilterProps, FilterType, InsightLogicProps, QueryEditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { AggregationSelectComponent } from 'scenes/insights/filters/AggregationSelect'
+import { AggregationSelect, AggregationSelectDataExploration } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { RetentionFilter } from '~/queries/schema'
+import { insightDataLogic } from '../insightDataLogic'
 
 export function RetentionSummaryDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    return <RetentionSummary insightProps={insightProps} />
+    const { retentionFilter } = useValues(insightDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+    return (
+        <RetentionSummaryComponent
+            insightProps={insightProps}
+            setFilters={updateInsightFilter}
+            {...retentionFilter}
+            isDataExploration
+        />
+    )
 }
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
-    const { showGroupsOptions } = useValues(groupsModel)
-    const { filters, actionFilterTargetEntity, actionFilterReturningEntity } = useValues(
-        retentionTableLogic(insightProps)
-    )
+    const { filters } = useValues(retentionTableLogic(insightProps))
     const { setFilters } = useActions(retentionTableLogic(insightProps))
+    return <RetentionSummaryComponent insightProps={insightProps} setFilters={setFilters} {...filters} />
+}
+
+type RetentionSummaryComponentProps = {
+    setFilters: (filters: Partial<RetentionFilter>) => void
+    isDataExploration?: boolean
+    insightProps: InsightLogicProps
+} & RetentionFilter
+
+export function RetentionSummaryComponent({
+    target_entity,
+    returning_entity,
+    retention_type,
+    total_intervals,
+    period,
+    setFilters,
+    isDataExploration,
+    insightProps,
+}: RetentionSummaryComponentProps): JSX.Element {
+    const { showGroupsOptions } = useValues(groupsModel)
 
     return (
         <div className="space-y-2" data-attr="retention-summary">
             <div className="flex items-center">
                 Show
                 {showGroupsOptions ? (
-                    <AggregationSelectComponent
-                        className="mx-2"
-                        aggregationGroupTypeIndex={filters.aggregation_group_type_index}
-                        onChange={(groupTypeIndex) => setFilters({ aggregation_group_type_index: groupTypeIndex })}
-                    />
+                    isDataExploration ? (
+                        <AggregationSelectDataExploration className="mx-2" insightProps={insightProps} />
+                    ) : (
+                        <AggregationSelect className="mx-2" insightProps={insightProps} />
+                    )
                 ) : (
                     <b> Unique users </b>
                 )}
@@ -51,7 +79,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                     hideFilter
                     hideRename
                     buttonCopy="Add graph series"
-                    filters={actionFilterTargetEntity as FilterType} // retention filters use target and returning entity instead of events
+                    filters={{ events: [target_entity] } as FilterType} // retention filters use target and returning entity instead of events
                     setFilters={(newFilters: FilterType) => {
                         if (newFilters.events && newFilters.events.length > 0) {
                             setFilters({ target_entity: newFilters.events[0] })
@@ -76,7 +104,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                             </>
                         ),
                     }))}
-                    value={filters.retention_type ? retentionOptions[filters.retention_type] : undefined}
+                    value={retention_type ? retentionOptions[retention_type] : undefined}
                     onChange={(value): void => setFilters({ retention_type: value as RetentionType })}
                     dropdownMatchSelectWidth={false}
                 />
@@ -86,12 +114,12 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                 <LemonInput
                     type="number"
                     className="ml-2 w-20"
-                    value={(filters.total_intervals ?? 11) - 1}
+                    value={(total_intervals ?? 11) - 1}
                     onChange={(value) => setFilters({ total_intervals: (value || 0) + 1 })}
                 />
                 <LemonSelect
                     className="mx-2"
-                    value={filters.period}
+                    value={period}
                     onChange={(value): void => setFilters({ period: value ? value : undefined })}
                     options={dateOptions.map((period) => ({
                         value: period,
@@ -109,7 +137,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                     hideFilter
                     hideRename
                     buttonCopy="Add graph series"
-                    filters={actionFilterReturningEntity as FilterType}
+                    filters={{ events: [returning_entity] } as FilterType}
                     setFilters={(newFilters: FilterType) => {
                         if (newFilters.events && newFilters.events.length > 0) {
                             setFilters({ returning_entity: newFilters.events[0] })
@@ -121,7 +149,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
                     }}
                     typeKey="retention-table-returning"
                 />
-                on any of the next {dateOptionPlurals[filters.period ?? 'Day']}.
+                on any of the next {dateOptionPlurals[period ?? 'Day']}.
             </div>
             <div>
                 <p className="text-muted mt-4">
