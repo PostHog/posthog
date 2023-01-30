@@ -99,7 +99,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
@@ -181,7 +181,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1

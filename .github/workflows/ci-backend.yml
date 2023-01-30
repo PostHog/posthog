@@ -98,7 +98,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
@@ -145,10 +145,10 @@ jobs:
             - name: Check if antlr definitions are up to date
               run: |
                   # Installing a version of ant compatible with what we use in development from homebrew (4.11)
-                  # "apt-get install antlr" would install 4.7 which is incompatible with our grammar. 
+                  # "apt-get install antlr" would install 4.7 which is incompatible with our grammar.
                   export ANTLR_VERSION=4.11.1
                   # java version doesn't matter
-                  sudo apt-get install default-jre 
+                  sudo apt-get install default-jre
                   mkdir antlr
                   cd antlr
                   curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
@@ -183,7 +183,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
@@ -235,7 +235,7 @@ jobs:
         strategy:
             fail-fast: false
             matrix:
-                python-version: ['3.8.14']
+                python-version: ['3.9.16']
                 clickhouse-server-image: ['clickhouse/clickhouse-server:22.8']
                 segment: ['FOSS', 'EE']
                 person-on-events: [false, true]
@@ -329,7 +329,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
@@ -419,7 +419,7 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
-                  python-version: 3.8.14
+                  python-version: 3.9.16
                   token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install SAML (python3-saml) dependencies
