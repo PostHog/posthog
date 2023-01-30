@@ -1,4 +1,5 @@
 from infi.clickhouse_orm import migrations
+
 from posthog.clickhouse.client.execute import sync_execute
 
 
