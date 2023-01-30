@@ -9,26 +9,29 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
+    className?: string
 }
 
-export function AggregationSelectDataExploration({ insightProps }: AggregationSelectProps): JSX.Element {
+export function AggregationSelectDataExploration({ insightProps, className }: AggregationSelectProps): JSX.Element {
     const { querySource } = useValues(funnelDataLogic(insightProps))
     const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
 
     return (
         <AggregationSelectComponent
+            className={className}
             aggregationGroupTypeIndex={querySource.aggregation_group_type_index}
             onChange={(aggregation_group_type_index) => updateQuerySource({ aggregation_group_type_index })}
         />
     )
 }
 
-export function AggregationSelect({ insightProps }: AggregationSelectProps): JSX.Element {
+export function AggregationSelect({ insightProps, className }: AggregationSelectProps): JSX.Element {
     const { filters } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
 
     return (
         <AggregationSelectComponent
+            className={className}
             aggregationGroupTypeIndex={filters.aggregation_group_type_index}
             onChange={(aggregation_group_type_index) => setFilters({ aggregation_group_type_index })}
         />
@@ -37,11 +40,13 @@ export function AggregationSelect({ insightProps }: AggregationSelectProps): JSX
 
 const UNIQUE_USERS = -1
 interface AggregationSelectComponentProps {
+    className?: string
     aggregationGroupTypeIndex: number | undefined
     onChange: (aggregation_group_type_index: number | undefined) => void
 }
 
 export function AggregationSelectComponent({
+    className,
     aggregationGroupTypeIndex: aggregation_group_type_index,
     onChange,
 }: AggregationSelectComponentProps): JSX.Element {
@@ -73,6 +78,7 @@ export function AggregationSelectComponent({
 
     return (
         <LemonSelect
+            className={className}
             value={aggregation_group_type_index === undefined ? UNIQUE_USERS : aggregation_group_type_index}
             onChange={(value) => {
                 if (value !== null) {
