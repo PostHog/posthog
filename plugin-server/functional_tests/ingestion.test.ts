@@ -332,6 +332,8 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
         expect(events.length).toBe(2)
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
 })
@@ -380,10 +382,9 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
         expect(events.length).toBe(4)
-        events.forEach((event) => {
-            expect(event?.person_id).toBeDefined()
-        })
-        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
 })
 
@@ -416,10 +417,9 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
         expect(events.length).toBe(5)
-        events.forEach((event) => {
-            expect(event?.person_id).toBeDefined()
-        })
-        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
 })
 
@@ -469,10 +469,9 @@ testIfPoEEmbraceJoinEnabled(
         await waitForExpect(async () => {
             const events = await fetchEvents(clickHouseClient, teamId)
             expect(events.length).toBe(7)
-            events.forEach((event) => {
-                expect(event?.person_id).toBeDefined()
-            })
-            // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+            expect(events[0].person_id).toBeDefined()
+            expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+            expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
         }, 10000)
     }
 )

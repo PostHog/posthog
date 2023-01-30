@@ -26,3 +26,4 @@ export const KAFKA_JOBS_DLQ = `${prefix}jobs_dlq${suffix}`
 export const KAFKA_SCHEDULED_TASKS = `${prefix}scheduled_tasks${suffix}`
 export const KAFKA_SCHEDULED_TASKS_DLQ = `${prefix}scheduled_tasks_dlq${suffix}`
 export const KAFKA_METRICS_TIME_TO_SEE_DATA = `${prefix}clickhouse_metrics_time_to_see_data${suffix}`
+export const KAFKA_PERSON_OVERRIDE = `${prefix}clickhouse_person_override${suffix}`
