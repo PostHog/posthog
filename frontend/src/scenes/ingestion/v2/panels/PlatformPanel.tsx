@@ -1,9 +1,9 @@
 import { useActions } from 'kea'
 import { ingestionLogicV2 } from '../ingestionLogicV2'
 import { THIRD_PARTY, platforms } from '../constants'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function PlatformPanel(): JSX.Element {

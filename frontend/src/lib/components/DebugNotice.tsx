@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { IconClose } from './icons'
-import { LemonButton } from './LemonButton'
+import { IconClose } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export function DebugNotice(): JSX.Element | null {
     const [debugInfo, setDebugInfo] = useState<{ branch: string; revision: string } | undefined>()

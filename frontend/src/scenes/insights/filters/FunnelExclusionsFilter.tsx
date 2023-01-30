@@ -10,7 +10,7 @@ import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTy
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete } from 'lib/lemon-ui/icons'
 
 function ExclusionRowSuffix({
     filter,

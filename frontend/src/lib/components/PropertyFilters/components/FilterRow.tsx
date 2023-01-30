@@ -3,11 +3,11 @@ import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import './FilterRow.scss'
 import clsx from 'clsx'
-import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface FilterRowProps {
     item: Record<string, any>

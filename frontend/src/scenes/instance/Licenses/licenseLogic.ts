@@ -3,7 +3,7 @@ import { kea } from 'kea'
 import type { licenseLogicType } from './licenseLogicType'
 import { APIErrorType, LicensePlan, LicenseType } from '~/types'
 import { preflightLogic } from '../../PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { dayjs } from 'lib/dayjs'
 
 export function isLicenseExpired(license: LicenseType): boolean {

@@ -1,5 +1,5 @@
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconExport } from 'lib/components/icons'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'

@@ -6,7 +6,7 @@ import {
     detectBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { pluralize } from 'lib/utils'

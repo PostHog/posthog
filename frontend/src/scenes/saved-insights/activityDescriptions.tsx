@@ -6,11 +6,11 @@ import {
     detectBoolean,
     HumanizedChange,
 } from 'lib/components/ActivityLog/humanizeActivity'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
-import '../../lib/components/Cards/InsightCard/InsightCard.scss'
+import '../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'

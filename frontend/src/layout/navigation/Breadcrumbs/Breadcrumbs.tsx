@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
+import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import './Breadcrumbs.scss'
 import { breadcrumbsLogic } from './breadcrumbsLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 import clsx from 'clsx'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 
 function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)

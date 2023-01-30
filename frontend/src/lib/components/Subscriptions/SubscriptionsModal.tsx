@@ -7,8 +7,8 @@ import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from '
 import { PayGatePage } from '../PayGatePage/PayGatePage'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { Spinner } from '../Spinner/Spinner'
-import { LemonModal } from '../LemonModal'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 export interface SubscriptionsModalProps extends SubscriptionBaseProps {
     isOpen: boolean

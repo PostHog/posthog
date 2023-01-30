@@ -1,5 +1,5 @@
 import { BuiltLogic, useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import React from 'react'
 import type { pluginSourceLogicType } from './pluginSourceLogicType'
 

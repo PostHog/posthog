@@ -16,8 +16,8 @@ import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../teamLogic'
 import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
-import { IconPlusMini } from 'lib/components/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void

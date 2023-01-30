@@ -65,8 +65,8 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 

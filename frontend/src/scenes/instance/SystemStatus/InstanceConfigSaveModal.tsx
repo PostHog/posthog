@@ -1,6 +1,6 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { pluralize } from 'lib/utils'
 import { SystemStatusRow } from '~/types'
 import { RenderMetricValue } from './RenderMetricValue'

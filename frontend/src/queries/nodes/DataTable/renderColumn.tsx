@@ -1,7 +1,7 @@
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
@@ -13,8 +13,8 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import ReactJson from 'react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export function renderColumn(
     key: string,

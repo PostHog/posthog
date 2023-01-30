@@ -1,12 +1,12 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CommunityTag } from 'lib/CommunityTag'
-import { IconCloudDownload } from 'lib/components/icons'
+import { IconCloudDownload } from 'lib/lemon-ui/icons'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)

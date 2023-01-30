@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconSettings } from 'lib/components/icons'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconSettings } from 'lib/lemon-ui/icons'
 
 export function TestAccountFilter({
     filters,

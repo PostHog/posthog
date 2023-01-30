@@ -1,7 +1,7 @@
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
-import '../../lib/components/PropertyGroupFilters/PropertyGroupFilters.scss'
-import { IconInfo } from 'lib/components/icons'
+import '../lib/components/PropertyGroupFilters/PropertyGroupFilters.scss'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 export function GlobalFiltersTitle({
     unit = 'series',

@@ -6,7 +6,7 @@ import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { IconClose } from 'lib/components/icons'
+import { IconClose } from 'lib/lemon-ui/icons'
 
 window.process = MOCK_NODE_PROCESS
 

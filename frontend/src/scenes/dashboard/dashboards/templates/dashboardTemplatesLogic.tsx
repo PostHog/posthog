@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
-import { LemonSelectOption } from 'lib/components/LemonSelect'
+import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),

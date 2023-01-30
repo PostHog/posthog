@@ -9,7 +9,7 @@ import { funnelCommandLogic } from '../views/Funnels/funnelCommandLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { AggregationSelect } from '../filters/AggregationSelect'
 import { FunnelConversionWindowFilter } from '../views/Funnels/FunnelConversionWindowFilter'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 
 const FUNNEL_STEP_COUNT_LIMIT = 20
 

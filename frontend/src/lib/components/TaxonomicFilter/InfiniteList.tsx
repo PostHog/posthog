@@ -1,5 +1,5 @@
 import './InfiniteList.scss'
-import '../Popup/Popup.scss'
+import 'lib/lemon-ui/Popup/Popup.scss'
 import { Empty, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -16,13 +16,13 @@ import ReactDOM from 'react-dom'
 import { EventDefinition, PropertyDefinition } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { STALE_EVENT_SECONDS } from 'lib/constants'
-import { Tooltip } from '../Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { definitionPopupLogic } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { ControlledDefinitionPopupContents } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { pluralize } from 'lib/utils'
 import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
-import { LemonSkeleton } from '../LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 enum ListTooltip {
     None = 0,

@@ -3,7 +3,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
 import { useEffect, useState } from 'react'
 import equal from 'fast-deep-equal'

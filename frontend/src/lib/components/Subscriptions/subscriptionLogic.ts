@@ -7,7 +7,7 @@ import { forms } from 'kea-forms'
 
 import { isEmail, isURL } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from '../lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { beforeUnload, router, urlToAction } from 'kea-router'
 import { subscriptionsLogic } from './subscriptionsLogic'
 

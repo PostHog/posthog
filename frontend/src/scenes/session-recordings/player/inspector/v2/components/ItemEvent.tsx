@@ -1,5 +1,5 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
 import { InspectorListItemEvent } from '../../playerInspectorLogic'
