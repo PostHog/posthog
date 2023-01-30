@@ -34,6 +34,7 @@ export type InstanceStatusTabName = 'overview' | 'metrics' | 'settings' | 'staff
  */
 const EDITABLE_INSTANCE_SETTINGS = [
     'RECORDINGS_TTL_WEEKS',
+    'RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS',
     'EMAIL_ENABLED',
     'EMAIL_HOST',
     'EMAIL_PORT',

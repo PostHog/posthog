@@ -1433,6 +1433,7 @@
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
   
+  
   '
 ---
 # name: test_create_table_query[sharded_session_recording_events]
@@ -1996,6 +1997,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+  
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
