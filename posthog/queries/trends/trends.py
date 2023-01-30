@@ -130,6 +130,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             result = insight_sync_execute(
                 sql,
                 params,
+                settings={"timeout_before_checking_execution_speed": 60},
                 query_type=query_type,
                 filter=adjusted_filter,
             )
