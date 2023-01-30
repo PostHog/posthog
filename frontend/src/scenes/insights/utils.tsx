@@ -45,6 +45,7 @@ import {
     isFunnelsQuery,
     isLifecycleQuery,
     isPathsQuery,
+    isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
@@ -409,6 +410,20 @@ export function summarizeInsightQuery(
             summary += ` by ${summarizeBreakdown(query.breakdown, aggregationLabel, cohortsById)}`
         }
         return summary
+    } else if (isRetentionQuery(query)) {
+        const areTargetAndReturningIdentical =
+            query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
+            query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
+        return (
+            `Retention of ${aggregationLabel(query.aggregation_group_type_index, true).plural}` +
+            ` based on doing ${getDisplayNameFromEntityFilter(
+                (query.retentionFilter?.target_entity || {}) as EntityFilter
+            )}` +
+            ` ${retentionOptions[query.retentionFilter?.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+            (areTargetAndReturningIdentical
+                ? 'the same event'
+                : getDisplayNameFromEntityFilter((query.retentionFilter?.returning_entity || {}) as EntityFilter))
+        )
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails
         let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(

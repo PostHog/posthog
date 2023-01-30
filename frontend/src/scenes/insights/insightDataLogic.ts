@@ -1,7 +1,15 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
 import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { BreakdownFilter, InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    InsightFilter,
+    InsightNodeKind,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 import { BaseMathType } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
@@ -27,15 +35,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
-const getCleanedQuery = (
-    kind:
-        | NodeKind.TrendsQuery
-        | NodeKind.FunnelsQuery
-        | NodeKind.PathsQuery
-        | NodeKind.StickinessQuery
-        | NodeKind.LifecycleQuery
-        | NodeKind.UnimplementedQuery
-): InsightVizNode => {
+const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
     if (kind === NodeKind.TrendsQuery) {
         return {
             kind: NodeKind.InsightVizNode,
@@ -67,6 +67,14 @@ const getCleanedQuery = (
                 funnelsFilter: {
                     funnel_viz_type: FunnelVizType.Steps,
                 },
+            },
+        }
+    } else if (kind === NodeKind.RetentionQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {},
             },
         }
     } else if (kind === NodeKind.PathsQuery) {
@@ -226,6 +234,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
             } else if (type === InsightType.FUNNELS) {
                 actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
+            } else if (type === InsightType.RETENTION) {
+                actions.setQuery(getCleanedQuery(NodeKind.RetentionQuery))
             } else if (type === InsightType.PATHS) {
                 actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
             } else if (type === InsightType.STICKINESS) {
