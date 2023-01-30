@@ -488,6 +488,16 @@ export class PersonState {
         properties: Properties
     ): Promise<[ProducerRecord[], Person]> {
         return await this.db.postgresTransaction('mergePeople', async (client) => {
+            const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
+                mergeInto,
+                {
+                    created_at: createdAt,
+                    properties: properties,
+                    is_identified: true,
+                },
+                client
+            )
+
             // Merge the distinct IDs
             // TODO: Doesn't this table need to add updates to CH too?
             await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
@@ -509,16 +519,6 @@ export class PersonState {
                 RETURNING version
                 `,
                 [this.teamId, mergeInto.id, otherPerson.id, mergeInto.created_at]
-            )
-
-            const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                mergeInto,
-                {
-                    created_at: createdAt,
-                    properties: properties,
-                    is_identified: true,
-                },
-                client
             )
 
             const personOverrideMessage: ProducerRecord = {
