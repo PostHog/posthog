@@ -19,7 +19,6 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: false },
     },
 } as ComponentMeta<typeof SharingModal>
 

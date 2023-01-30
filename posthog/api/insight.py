@@ -76,6 +76,7 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -167,7 +168,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -181,6 +182,7 @@ class InsightSerializer(InsightBasicSerializer):
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    effective_restriction_level = serializers.SerializerMethodField()
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
@@ -307,6 +309,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
+        self.user_permissions.reset_insights_dashboard_cached_results()
+
         return updated_insight
 
     def _log_insight_update(self, before_update, dashboards_before_change, updated_insight):
@@ -365,7 +369,7 @@ class InsightSerializer(InsightBasicSerializer):
             # does this user have permission on dashboards to add... if they are restricted
             # it will mean this dashboard becomes restricted because of the patch
             if (
-                dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                self.user_permissions.dashboard(dashboard).effective_privilege_level
                 == Dashboard.PrivilegeLevel.CAN_VIEW
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
@@ -401,8 +405,15 @@ class InsightSerializer(InsightBasicSerializer):
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
 
+    def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        return self.user_permissions.insight(insight).effective_restriction_level
+
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
-        return insight.get_effective_privilege_level(self.context["request"].user.id)
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+        return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)

@@ -331,6 +331,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     if not request.GET.get("no-preloaded-app-context"):
         from posthog.api.team import TeamSerializer
         from posthog.api.user import User, UserSerializer
+        from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
 
         posthog_app_context = {
@@ -343,14 +344,19 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         }
 
         if request.user.pk:
-            user_serialized = UserSerializer(request.user, context={"request": request}, many=False)
+            user = cast(User, request.user)
+            user_permissions = UserPermissions(user=user, team=user.team)
+            user_serialized = UserSerializer(
+                request.user, context={"request": request, "user_permissions": user_permissions}, many=False
+            )
             posthog_app_context["current_user"] = user_serialized.data
             posthog_distinct_id = user_serialized.data.get("distinct_id")
-            team = cast(User, request.user).team
-            if team:
-                team_serialized = TeamSerializer(team, context={"request": request}, many=False)
+            if user.team:
+                team_serialized = TeamSerializer(
+                    user.team, context={"request": request, "user_permissions": user_permissions}, many=False
+                )
                 posthog_app_context["current_team"] = team_serialized.data
-                posthog_app_context["frontend_apps"] = get_frontend_apps(team.pk)
+                posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
 
     context["posthog_app_context"] = json.dumps(posthog_app_context, default=json_uuid_convert)
 

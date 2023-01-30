@@ -20,6 +20,7 @@ export function Elements(): JSX.Element {
         selectedElement,
         inspectEnabled,
         highlightElementMeta,
+        relativePositionCompensation,
     } = useValues(elementsLogic)
     const { setHoverElement, selectElement } = useActions(elementsLogic)
     const { highestClickCount, shiftPressed } = useValues(heatmapLogic)
@@ -47,7 +48,7 @@ export function Elements(): JSX.Element {
                     width: '100%',
                     height: '100%',
                     position: 'absolute',
-                    top: 0,
+                    top: relativePositionCompensation,
                     left: 0,
                     zIndex: 2147483010,
                     pointerEvents: 'none',

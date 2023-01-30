@@ -21,6 +21,12 @@ from posthog.utils import generate_cache_key
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
+        self.organization.available_features = [
+            AvailableFeature.TAGGING,
+            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @snapshot_postgres_queries
@@ -157,20 +163,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(10):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(11):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(20):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(20):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(20):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:

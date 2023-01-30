@@ -129,6 +129,10 @@ jobs:
               run: |
                   mypy .
 
+            - name: Check if "schema.py" is up to date
+              run: |
+                  npm run schema:build:python && git diff --exit-code
+
     check-migrations:
         needs: changes
         timeout-minutes: 5

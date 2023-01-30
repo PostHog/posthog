@@ -8,7 +8,6 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 export default {
     title: 'Filters/PropertyFilters',
     component: PropertyFilters,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyFilters>
 
 const propertyFilters = [

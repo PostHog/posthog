@@ -92,9 +92,7 @@ PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
 )
 
 
-PERFORMANCE_EVENT_DATA_TABLE = (
-    lambda: "sharded_performance_events" if settings.CLICKHOUSE_REPLICATION else "performance_events"
-)
+PERFORMANCE_EVENT_DATA_TABLE = lambda: "sharded_performance_events"
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
     lambda: """
@@ -179,7 +177,7 @@ AS SELECT
 FROM {database}.kafka_performance_events
 """.format(
     columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-    target_table="writeable_performance_events" if settings.CLICKHOUSE_REPLICATION else PERFORMANCE_EVENT_DATA_TABLE(),
+    target_table="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),

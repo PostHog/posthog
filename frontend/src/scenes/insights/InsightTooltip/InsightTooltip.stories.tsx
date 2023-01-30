@@ -119,7 +119,6 @@ const data = {
 export default {
     title: 'Components/InsightTooltip',
     component: InsightTooltip,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         date: { defaultValue: data.date },
         timezone: { defaultValue: data.timezone },
