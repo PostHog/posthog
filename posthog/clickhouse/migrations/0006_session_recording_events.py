@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from posthog.models.session_recording_event.sql import (
     DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL,
@@ -18,10 +18,10 @@ SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL = lambda: """
 )
 
 operations = [
-    migrations.RunSQL(WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL()),
-    migrations.RunSQL(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()),
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_SQL()),
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL()),
-    migrations.RunSQL(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL()),
-    migrations.RunSQL(SESSION_RECORDING_EVENTS_TABLE_MV_SQL()),
+    run_sql_with_exceptions(WRITABLE_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMN_COMMENTS_SQL()),
+    run_sql_with_exceptions(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(SESSION_RECORDING_EVENTS_TABLE_MV_SQL()),
 ]

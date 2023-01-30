@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, WRITABLE_EVENTS_TABLE_SQL
 from posthog.models.person.sql import (
@@ -26,10 +26,10 @@ from posthog.models.person.sql import (
 # WARNING: this does however mean that you can arrive at different DB states
 # depending on which versions of PostHog you have run.
 operations = [
-    migrations.RunSQL(KAFKA_PERSONS_TABLE_SQL()),
-    migrations.RunSQL(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL()),
-    migrations.RunSQL(PERSONS_TABLE_MV_SQL),
-    migrations.RunSQL(PERSONS_DISTINCT_ID_TABLE_MV_SQL),
-    migrations.RunSQL(WRITABLE_EVENTS_TABLE_SQL()),
-    migrations.RunSQL(DISTRIBUTED_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(KAFKA_PERSONS_TABLE_SQL()),
+    run_sql_with_exceptions(KAFKA_PERSONS_DISTINCT_ID_TABLE_SQL()),
+    run_sql_with_exceptions(PERSONS_TABLE_MV_SQL),
+    run_sql_with_exceptions(PERSONS_DISTINCT_ID_TABLE_MV_SQL),
+    run_sql_with_exceptions(WRITABLE_EVENTS_TABLE_SQL()),
+    run_sql_with_exceptions(DISTRIBUTED_EVENTS_TABLE_SQL()),
 ]

@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from posthog.models.person.sql import (
     KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL,
@@ -7,7 +7,7 @@ from posthog.models.person.sql import (
 )
 
 operations = [
-    migrations.RunSQL(PERSON_DISTINCT_ID2_TABLE_SQL()),
-    migrations.RunSQL(KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL()),
-    migrations.RunSQL(PERSON_DISTINCT_ID2_MV_SQL),
+    run_sql_with_exceptions(PERSON_DISTINCT_ID2_TABLE_SQL()),
+    run_sql_with_exceptions(KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL()),
+    run_sql_with_exceptions(PERSON_DISTINCT_ID2_MV_SQL),
 ]

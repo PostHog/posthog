@@ -1,9 +1,9 @@
-from infi.clickhouse_orm import migrations
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from posthog.models.group.sql import GROUPS_TABLE_MV_SQL, GROUPS_TABLE_SQL, KAFKA_GROUPS_TABLE_SQL
 
 operations = [
-    migrations.RunSQL(GROUPS_TABLE_SQL()),
-    migrations.RunSQL(KAFKA_GROUPS_TABLE_SQL()),
-    migrations.RunSQL(GROUPS_TABLE_MV_SQL),
+    run_sql_with_exceptions(GROUPS_TABLE_SQL()),
+    run_sql_with_exceptions(KAFKA_GROUPS_TABLE_SQL()),
+    run_sql_with_exceptions(GROUPS_TABLE_MV_SQL),
 ]

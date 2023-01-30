@@ -1,4 +1,4 @@
-from infi.clickhouse_orm import migrations
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
 from posthog.models.ingestion_warnings.sql import (
     DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL,
@@ -8,8 +8,8 @@ from posthog.models.ingestion_warnings.sql import (
 )
 
 operations = [
-    migrations.RunSQL(INGESTION_WARNINGS_DATA_TABLE_SQL()),
-    migrations.RunSQL(DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL()),
-    migrations.RunSQL(KAFKA_INGESTION_WARNINGS_TABLE_SQL()),
-    migrations.RunSQL(INGESTION_WARNINGS_MV_TABLE_SQL()),
+    run_sql_with_exceptions(INGESTION_WARNINGS_DATA_TABLE_SQL()),
+    run_sql_with_exceptions(DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL()),
+    run_sql_with_exceptions(KAFKA_INGESTION_WARNINGS_TABLE_SQL()),
+    run_sql_with_exceptions(INGESTION_WARNINGS_MV_TABLE_SQL()),
 ]
