@@ -72,16 +72,16 @@ class ClickhouseFunnelBase(ABC):
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
-            self._filter = self._filter.with_data({FUNNEL_WINDOW_INTERVAL: 14, FUNNEL_WINDOW_INTERVAL_UNIT: "day"})
+            self._filter = self._filter.shallow_clone({FUNNEL_WINDOW_INTERVAL: 14, FUNNEL_WINDOW_INTERVAL_UNIT: "day"})
 
         if self._filter.funnel_window_days:
-            self._filter = self._filter.with_data(
+            self._filter = self._filter.shallow_clone(
                 {FUNNEL_WINDOW_INTERVAL: self._filter.funnel_window_days, FUNNEL_WINDOW_INTERVAL_UNIT: "day"}
             )
 
         if not self._filter.limit:
             new_limit = {LIMIT: 100}
-            self._filter = self._filter.with_data(new_limit)
+            self._filter = self._filter.shallow_clone(new_limit)
             self.params.update(new_limit)
         else:
             self.params.update({LIMIT: self._filter.limit})
@@ -178,7 +178,7 @@ class ClickhouseFunnelBase(ABC):
                 if entity.equals(exclusion) or exclusion.is_superset(entity):
                     raise ValidationError("Exclusion event can't be the same as funnel step")
 
-        self._filter = self._filter.with_data(data)
+        self._filter = self._filter.shallow_clone(data)
 
     def _format_single_funnel(self, results, with_breakdown=False):
         # Format of this is [step order, person count (that reached that step), array of person uuids]
@@ -206,8 +206,8 @@ class ClickhouseFunnelBase(ABC):
 
             # Construct converted and dropped people URLs
             funnel_step = step.index + 1
-            converted_people_filter = self._filter.with_data({"funnel_step": funnel_step})
-            dropped_people_filter = self._filter.with_data({"funnel_step": -funnel_step})
+            converted_people_filter = self._filter.shallow_clone({"funnel_step": funnel_step})
+            dropped_people_filter = self._filter.shallow_clone({"funnel_step": -funnel_step})
 
             if with_breakdown:
                 # breakdown will return a display ready value
@@ -224,8 +224,10 @@ class ClickhouseFunnelBase(ABC):
                 # are keys for fetching persons
 
                 # Add in the breakdown to people urls as well
-                converted_people_filter = converted_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
-                dropped_people_filter = dropped_people_filter.with_data({"funnel_step_breakdown": breakdown_value})
+                converted_people_filter = converted_people_filter.shallow_clone(
+                    {"funnel_step_breakdown": breakdown_value}
+                )
+                dropped_people_filter = dropped_people_filter.shallow_clone({"funnel_step_breakdown": breakdown_value})
 
             serialized_result.update(
                 {

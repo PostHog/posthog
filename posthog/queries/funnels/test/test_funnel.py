@@ -45,7 +45,7 @@ class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_
 def funnel_test_factory(Funnel, event_factory, person_factory):
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             _, serialized_result, _ = ClickhouseFunnelActors(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]
@@ -799,7 +799,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person2.uuid])
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2}]}
             )
             funnel = Funnel(filter, self.team)
@@ -813,7 +813,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person2.uuid, person3.uuid])
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 2, "funnel_to_step": 3}]}
             )
             funnel = Funnel(filter, self.team)
@@ -827,7 +827,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person3.uuid])
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 3, "funnel_to_step": 4}]}
             )
             funnel = Funnel(filter, self.team)
@@ -842,7 +842,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [])
 
             #  bigger step window
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 3}]}
             )
             funnel = Funnel(filter, self.team)
@@ -1596,17 +1596,17 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             filter = Filter(data=filters)
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 1, "funnel_to_step": 2}]}
             )
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 2, "funnel_to_step": 1}]}
             )
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"exclusions": [{"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 2}]}
             )
             self.assertRaises(ValidationError, lambda: Funnel(filter, self.team))
@@ -1857,7 +1857,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {
                     "exclusions": [
                         {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
@@ -1876,7 +1876,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {
                     "exclusions": [
                         {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 1},
@@ -1895,7 +1895,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person4.uuid])
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {
                     "exclusions": [
                         {"id": "x", "type": "events", "funnel_from_step": 0, "funnel_to_step": 4},
