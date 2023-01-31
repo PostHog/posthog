@@ -206,18 +206,26 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unknown UnaryOp: {type(node.op)}")
     elif isinstance(node, ast.Compare):
+        left = translate_ast(node.left, stack, context)
+        right = translate_ast(node.comparators[0], stack, context)
         if isinstance(node.ops[0], ast.Eq):
-            response = f"equals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+            if right == "null":
+                response = f"isNull({left})"
+            else:
+                response = f"equals({left}, {right})"
         elif isinstance(node.ops[0], ast.NotEq):
-            response = f"notEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+            if right == "null":
+                response = f"isNotNull({left})"
+            else:
+                response = f"notEquals({left}, {right})"
         elif isinstance(node.ops[0], ast.Gt):
-            response = f"greater({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+            response = f"greater({left}, {right})"
         elif isinstance(node.ops[0], ast.GtE):
-            response = f"greaterOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+            response = f"greaterOrEquals({left}, {right})"
         elif isinstance(node.ops[0], ast.Lt):
-            response = f"less({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+            response = f"less({left}, {right})"
         elif isinstance(node.ops[0], ast.LtE):
-            response = f"lessOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+            response = f"lessOrEquals({left}, {right})"
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):

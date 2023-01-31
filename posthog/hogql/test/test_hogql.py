@@ -19,6 +19,10 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("'string'"), "%(hogql_val_0)s")
         self.assertEqual(self._translate('"string"'), "%(hogql_val_0)s")
 
+    def test_hogql_equals_null(self):
+        self.assertEqual(self._translate("1 == null"), "isNull(1)")
+        self.assertEqual(self._translate("1 != null"), "isNotNull(1)")
+
     def test_hogql_fields_and_properties(self):
         self.assertEqual(
             self._translate("properties.bla"),
