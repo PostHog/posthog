@@ -3,13 +3,25 @@ import time
 from functools import lru_cache
 from typing import List, Optional
 
+from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.models.instance_setting import get_instance_setting
-from posthog.settings import RATE_LIMIT_BYPASSED_COUNTER, RATE_LIMIT_EXCEEDED_COUNTER
 from posthog.settings.utils import get_list
+
+RATE_LIMIT_EXCEEDED_COUNTER = Counter(
+    "rate_limit_exceeded_total",
+    "Dropped requests due to rate-limiting, per team_id, scope and path.",
+    labelnames=["team_id", "scope", "path"],
+)
+
+RATE_LIMIT_BYPASSED_COUNTER = Counter(
+    "rate_limit_bypassed_total",
+    "Requests that should be dropped by rate-limiting but allowed by configuration.",
+    labelnames=["team_id", "path"],
+)
 
 
 @lru_cache(maxsize=1)
@@ -113,14 +125,14 @@ class PassThroughBurstRateThrottle(PassThroughTeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests
     scope = "burst"
-    rate = "1/minute"
+    rate = "480/minute"
 
 
 class PassThroughSustainedRateThrottle(PassThroughTeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block slower but sustained bursts of requests
     scope = "sustained"
-    rate = "1/hour"
+    rate = "4800/hour"
 
 
 class PassThroughClickHouseBurstRateThrottle(PassThroughTeamRateThrottle):
@@ -128,7 +140,7 @@ class PassThroughClickHouseBurstRateThrottle(PassThroughTeamRateThrottle):
     # on endpoints that generally hit ClickHouse
     # Intended to block quick bursts of requests
     scope = "clickhouse_burst"
-    rate = "1/minute"
+    rate = "240/minute"
 
 
 class PassThroughClickHouseSustainedRateThrottle(PassThroughTeamRateThrottle):
@@ -136,4 +148,4 @@ class PassThroughClickHouseSustainedRateThrottle(PassThroughTeamRateThrottle):
     # on endpoints that generally hit ClickHouse
     # Intended to block slower but sustained bursts of requests
     scope = "clickhouse_sustained"
-    rate = "1/hour"
+    rate = "1200/hour"
