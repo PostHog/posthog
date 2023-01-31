@@ -270,7 +270,7 @@ class FOSSCohortQuery(EventQuery):
 
     def _build_sources(self, subq: List[Tuple[QueryFragment, str]]) -> Tuple[QueryFragment, QueryFragment]:
         q = QueryFragment("")
-        filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
+        filtered_queries = [(sq, alias) for (sq, alias) in subq if sq.sql != ""]
 
         prev_alias: Optional[str] = None
         fields = QueryFragment("")
