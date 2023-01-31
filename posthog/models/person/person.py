@@ -1,6 +1,9 @@
 from typing import Any, List, Optional
 
+from django.contrib.postgres.constraints import ExclusionConstraint
+from django.contrib.postgres.fields import RangeOperators
 from django.db import models, transaction
+from django.db.models import F, Q
 
 from posthog.models.utils import UUIDT
 
@@ -102,11 +105,31 @@ class PersonDistinctId(models.Model):
 
 
 class PersonOverride(models.Model):
-    """A model of persons to be overriden in merge or merge-like events."""
+    """A model of persons to be overriden in merge or merge-like events.
+
+    This model has a set of constraints to ensure correctness:
+    1. Unique constraint on (team_id, old_person_id) pairs.
+    2. Check that old_person_id is different to override_person_id for every row.
+    3. Exclude rows that overlap across old_person_id and override_person_id (e.g. if
+        a row exists with old_person_id=123 then we would not allow a row with
+        override_person_id=123 to exist, as that would require a self join to figure
+        out the ultimate override_person_id required for old_person_id=123).
+    """
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id")
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
+            models.CheckConstraint(
+                check=~Q(old_person_id__eq=F("override_person_id")),
+                name="old_person_id_different_from_override_person_id",
+            ),
+            ExclusionConstraint(
+                name="exclude_override_person_id_from_being_old_person_id",
+                expressions=[
+                    (F("array[old_person_id, override_person_id]"), RangeOperators.OVERLAPS),
+                    ("override_person_id", RangeOperators.NOT_EQUAL),
+                ],
+            ),
         ]
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
