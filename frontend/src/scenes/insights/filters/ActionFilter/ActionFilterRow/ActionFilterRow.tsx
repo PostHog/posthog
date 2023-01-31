@@ -29,11 +29,11 @@ import {
 } from 'scenes/trends/mathsLogic'
 import { actionsModel } from '~/models/actionsModel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TaxonomicStringPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { IconCopy, IconDelete, IconEdit, IconFilter, IconWithCount } from 'lib/lemon-ui/icons'
 import { SortableHandle as sortableHandle } from 'react-sortable-hoc'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
@@ -191,10 +191,10 @@ export function ActionFilterRow({
             <SeriesLetter seriesIndex={index} hasBreakdown={hasBreakdown} />
         )
     const filterElement = (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            popup={{
+            popover={{
                 overlay: (
                     <TaxonomicFilter
                         groupType={
@@ -230,7 +230,7 @@ export function ActionFilterRow({
             <span className="text-overflow" style={{ maxWidth: '100%' }}>
                 <EntityFilterInfo filter={filter} />
             </span>
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 
     const suffix = typeof customRowSuffix === 'function' ? customRowSuffix({ filter, index, onClose }) : customRowSuffix
@@ -328,7 +328,7 @@ export function ActionFilterRow({
                                     {mathDefinitions[math || BaseMathType.TotalCount]?.category ===
                                         MathCategory.PropertyValue && (
                                         <div className="flex-auto overflow-hidden">
-                                            <TaxonomicStringPopup
+                                            <TaxonomicStringPopover
                                                 groupType={TaxonomicFilterGroupType.NumericalEventProperties}
                                                 groupTypes={[
                                                     TaxonomicFilterGroupType.NumericalEventProperties,

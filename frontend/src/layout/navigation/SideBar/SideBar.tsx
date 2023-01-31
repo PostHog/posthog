@@ -85,7 +85,7 @@ function Pages(): JSX.Element {
                 sideAction={{
                     'aria-label': 'switch project',
                     onClick: () => toggleProjectSwitcher(),
-                    popup: {
+                    popover: {
                         visible: isProjectSwitcherShown,
                         onClickOutside: hideProjectSwitcher,
                         overlay: <ProjectSwitcherOverlay />,
@@ -104,7 +104,7 @@ function Pages(): JSX.Element {
                             identifier: 'pinned-dashboards',
                             tooltip: 'Pinned dashboards',
                             onClick: () => setArePinnedDashboardsShown((state) => !state),
-                            popup: {
+                            popover: {
                                 visible: arePinnedDashboardsShown,
                                 onClickOutside: () => setArePinnedDashboardsShown(false),
                                 onClickInside: hideSideBarMobile,
@@ -222,7 +222,7 @@ function Pages(): JSX.Element {
                             identifier: 'toolbar-launch',
                             tooltip: 'Launch toolbar',
                             onClick: () => setIsToolbarLaunchShown((state) => !state),
-                            popup: {
+                            popover: {
                                 visible: isToolbarLaunchShown,
                                 onClickOutside: () => setIsToolbarLaunchShown(false),
                                 onClickInside: hideSideBarMobile,

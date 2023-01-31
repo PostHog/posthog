@@ -1,7 +1,7 @@
 import React, { CSSProperties, ReactElement, useMemo } from 'react'
 import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import clsx from 'clsx'
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconEllipsis, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { boxToSections } from 'lib/lemon-ui/LemonSelect'
@@ -118,7 +118,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         {sideContentDetermined}
                         <div className="text-xs leading-6">{record.colonTimestamp}</div>
                         {allOptions.length > 0 && (
-                            <LemonButtonWithPopup
+                            <LemonButtonWithDropdown
                                 data-attr="player-list-item-menu"
                                 id="player-list-item-menu"
                                 icon={<IconEllipsis />}
@@ -127,7 +127,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                                 onClick={(event) => {
                                     event.stopPropagation()
                                 }}
-                                popup={{
+                                popover={{
                                     placement: 'bottom-end',
                                     overlay: sections.map((section, i) => (
                                         <React.Fragment key={i}>

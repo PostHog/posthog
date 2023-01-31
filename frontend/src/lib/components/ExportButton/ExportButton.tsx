@@ -1,5 +1,5 @@
 import { ExporterFormat } from '~/types'
-import { LemonButton, LemonButtonProps, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonProps, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { triggerExport, TriggerExportProps } from './exporter'
 
@@ -17,14 +17,14 @@ export interface ExportButtonProps extends Pick<LemonButtonProps, 'icon' | 'type
 
 export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.Element {
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             status="stealth"
             data-attr="export-button"
             {...buttonProps}
-            popup={{
+            popover={{
                 actionable: true,
                 placement: 'right-start',
-                closeParentPopupOnClickInside: true,
+                closeParentPopoverOnClickInside: true,
                 overlay: (
                     <>
                         <h5>File type</h5>
@@ -49,6 +49,6 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
             }}
         >
             Export
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }

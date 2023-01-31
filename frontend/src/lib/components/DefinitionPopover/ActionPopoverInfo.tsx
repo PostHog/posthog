@@ -1,12 +1,12 @@
 import { ActionType } from '~/types'
-import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
+import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
     eventToHumanName,
     genericOperatorToHumanName,
     propertyValueToHumanName,
-} from 'lib/components/DefinitionPopup/utils'
+} from 'lib/components/DefinitionPopover/utils'
 
-export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element | null {
+export function ActionPopoverInfo({ entity }: { entity: ActionType }): JSX.Element | null {
     if (!entity) {
         return null
     }
@@ -14,8 +14,8 @@ export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element
         <>
             {entity.steps &&
                 entity.steps.map((step, index) => (
-                    <DefinitionPopup.Section key={step.id}>
-                        <DefinitionPopup.Card
+                    <DefinitionPopover.Section key={step.id}>
+                        <DefinitionPopover.Card
                             title={`Match group ${index + 1}: ${step.event && eventToHumanName(step.event)}`}
                             value={
                                 <ul>
@@ -74,11 +74,11 @@ export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element
                             }
                         />
                         {entity.steps && index < entity.steps.length - 1 && (
-                            <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                            <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
                                 OR
-                            </DefinitionPopup.HorizontalLine>
+                            </DefinitionPopover.HorizontalLine>
                         )}
-                    </DefinitionPopup.Section>
+                    </DefinitionPopover.Section>
                 ))}
         </>
     )

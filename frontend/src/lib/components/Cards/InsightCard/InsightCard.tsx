@@ -26,7 +26,7 @@ import {
     InsightType,
 } from '~/types'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -296,9 +296,9 @@ function InsightMeta({
                         </>
                     )}
                     {editable && updateColor && (
-                        <LemonButtonWithPopup
+                        <LemonButtonWithDropdown
                             status="stealth"
-                            popup={{
+                            popover={{
                                 overlay: Object.values(InsightColor).map((availableColor) => (
                                     <LemonButton
                                         key={availableColor}
@@ -320,17 +320,17 @@ function InsightMeta({
                                 placement: 'right-start',
                                 fallbackPlacements: ['left-start'],
                                 actionable: true,
-                                closeParentPopupOnClickInside: true,
+                                closeParentPopoverOnClickInside: true,
                             }}
                             fullWidth
                         >
                             Set color
-                        </LemonButtonWithPopup>
+                        </LemonButtonWithDropdown>
                     )}
                     {editable && moveToDashboard && otherDashboards.length > 0 && (
-                        <LemonButtonWithPopup
+                        <LemonButtonWithDropdown
                             status="stealth"
-                            popup={{
+                            popover={{
                                 overlay: otherDashboards.map((otherDashboard) => (
                                     <LemonButton
                                         key={otherDashboard.id}
@@ -346,12 +346,12 @@ function InsightMeta({
                                 placement: 'right-start',
                                 fallbackPlacements: ['left-start'],
                                 actionable: true,
-                                closeParentPopupOnClickInside: true,
+                                closeParentPopoverOnClickInside: true,
                             }}
                             fullWidth
                         >
                             Move to
-                        </LemonButtonWithPopup>
+                        </LemonButtonWithDropdown>
                     )}
                     <LemonDivider />
                     {editable && allInteractionsAllowed && (

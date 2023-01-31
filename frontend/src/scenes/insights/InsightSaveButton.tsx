@@ -26,7 +26,7 @@ export function InsightSaveButton({
             disabled={disabled}
             loading={!disabled && insightSaving}
             sideAction={{
-                popup: {
+                popover: {
                     placement: 'bottom-end',
                     overlay: (
                         <>

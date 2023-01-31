@@ -2,7 +2,7 @@ import { ManageSubscriptions } from './views/ManageSubscriptions'
 import { EditSubscription } from './views/EditSubscription'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
 import { SubscriptionBaseProps, urlForSubscription, urlForSubscriptions } from './utils'
 import { PayGatePage } from '../PayGatePage/PayGatePage'
 import { AvailableFeature } from '~/types'
@@ -66,12 +66,12 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
     const { push } = useActions(router)
 
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             status="stealth"
             fullWidth
-            popup={{
+            popover={{
                 actionable: true,
-                closeParentPopupOnClickInside: true,
+                closeParentPopoverOnClickInside: true,
                 placement: 'right-start',
                 overlay: (
                     <>
@@ -86,6 +86,6 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
             }}
         >
             Subscribe
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }

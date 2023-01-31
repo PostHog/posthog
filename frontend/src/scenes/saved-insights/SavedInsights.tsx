@@ -243,7 +243,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             type="primary"
             to={urls.insightNew()}
             sideAction={{
-                popup: {
+                popover: {
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,

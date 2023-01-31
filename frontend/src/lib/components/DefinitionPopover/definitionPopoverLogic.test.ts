@@ -1,4 +1,4 @@
-import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import api from 'lib/api'
 import {
     mockActionDefinition,
@@ -19,8 +19,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { useMocks } from '~/mocks/jest'
 
-describe('definitionPopupLogic', () => {
-    let logic: ReturnType<typeof definitionPopupLogic.build>
+describe('definitionPopoverLogic', () => {
+    let logic: ReturnType<typeof definitionPopoverLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -57,7 +57,7 @@ describe('definitionPopupLogic', () => {
 
     describe('editing mode', () => {
         beforeEach(() => {
-            logic = definitionPopupLogic({
+            logic = definitionPopoverLogic({
                 type: TaxonomicFilterGroupType.Events,
             })
             logic.mount()
@@ -66,11 +66,11 @@ describe('definitionPopupLogic', () => {
         it('make local state dirty', async () => {
             await expectLogic(logic, async () => {
                 await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setPopupState(DefinitionPopupState.Edit)
+                await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
             })
-                .toDispatchActions(['setDefinition', 'setPopupState'])
+                .toDispatchActions(['setDefinition', 'setPopoverState'])
                 .toMatchValues({
-                    state: DefinitionPopupState.Edit,
+                    state: DefinitionPopoverState.Edit,
                     dirty: false,
                     definition: mockEventDefinitions[0],
                     localDefinition: mockEventDefinitions[0],
@@ -88,7 +88,7 @@ describe('definitionPopupLogic', () => {
         it('cancel', async () => {
             await expectLogic(logic, async () => {
                 await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setPopupState(DefinitionPopupState.Edit)
+                await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
                 await logic.actions.setLocalDefinition({ description: 'new description' })
             })
                 .toDispatchActions(['setLocalDefinition'])
@@ -101,11 +101,11 @@ describe('definitionPopupLogic', () => {
             })
                 .toDispatchActions([
                     'handleCancel',
-                    logic.actionCreators.setPopupState(DefinitionPopupState.View),
+                    logic.actionCreators.setPopoverState(DefinitionPopoverState.View),
                     logic.actionCreators.setLocalDefinition(mockEventDefinitions[0]),
                 ])
                 .toMatchValues({
-                    state: DefinitionPopupState.View,
+                    state: DefinitionPopoverState.View,
                     dirty: false,
                     localDefinition: mockEventDefinitions[0],
                 })
@@ -172,17 +172,17 @@ describe('definitionPopupLogic', () => {
 
             groups.forEach((group) => {
                 it(group.type, async () => {
-                    logic = definitionPopupLogic({
+                    logic = definitionPopoverLogic({
                         type: group.type,
                     })
                     logic.mount()
 
                     const expectChain = expectLogic(logic, async () => {
                         await logic.actions.setDefinition(group.definition)
-                        await logic.actions.setPopupState(DefinitionPopupState.Edit)
+                        await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
                         await logic.actions.setLocalDefinition({ description: 'new and improved description' })
                         await logic.actions.handleSave({})
-                    }).toDispatchActions(['setDefinitionSuccess', 'setPopupState', 'handleSave'])
+                    }).toDispatchActions(['setDefinitionSuccess', 'setPopoverState', 'handleSave'])
 
                     if (group.dispatchActions.length > 0) {
                         expectChain.toDispatchActions(group.dispatchActions[0], group.dispatchActions[1])
@@ -203,7 +203,7 @@ describe('definitionPopupLogic', () => {
         it('add tags', async () => {
             await expectLogic(logic, async () => {
                 await logic.actions.setDefinition(mockEventDefinitions[0])
-                await logic.actions.setPopupState(DefinitionPopupState.Edit)
+                await logic.actions.setPopoverState(DefinitionPopoverState.Edit)
                 await logic.actions.setLocalDefinition({ tags: ['ohhello', 'ohwow'] })
             })
                 .toDispatchActions(['setDefinitionSuccess', 'setLocalDefinition'])
@@ -215,7 +215,7 @@ describe('definitionPopupLogic', () => {
 
     describe('view mode', () => {
         it('change context', async () => {
-            logic = definitionPopupLogic({
+            logic = definitionPopoverLogic({
                 type: TaxonomicFilterGroupType.Events,
             })
             logic.mount()
@@ -230,7 +230,7 @@ describe('definitionPopupLogic', () => {
                 })
                 .toDispatchActions([
                     'setDefinitionSuccess',
-                    logic.actionCreators.setPopupState(DefinitionPopupState.View),
+                    logic.actionCreators.setPopoverState(DefinitionPopoverState.View),
                 ])
                 .toMatchValues({
                     definition: mockEventDefinitions[1],
@@ -280,7 +280,7 @@ describe('definitionPopupLogic', () => {
 
             groups.forEach((group) => {
                 it(group.type, async () => {
-                    logic = definitionPopupLogic({
+                    logic = definitionPopoverLogic({
                         type: group.type,
                     })
                     logic.mount()

@@ -2,12 +2,12 @@ import clsx from 'clsx'
 import React, { useContext, useState } from 'react'
 import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
 import { Link } from '../Link'
-import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
+import { Popover, PopoverProps, PopoverContext } from '../Popover/Popover'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 
-export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
+export interface LemonButtonPopover extends Omit<PopoverProps, 'children'> {
     closeOnClickInside?: boolean
 }
 export interface LemonButtonPropsBase
@@ -40,7 +40,7 @@ export interface LemonButtonPropsBase
     /** Tooltip to display on hover. */
     tooltip?: TooltipProps['title']
     tooltipPlacement?: TooltipProps['placement']
-    /** popup container for any tooltip **/
+    /** popover container for any tooltip **/
     getPopupContainer?: () => HTMLElement
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
@@ -164,7 +164,7 @@ export type SideAction = Pick<
     LemonButtonProps,
     'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
 > & {
-    popup?: LemonButtonPopup
+    popover?: LemonButtonPopover
 }
 
 /** A LemonButtonWithSideAction can't have a sideIcon - instead it has a clickable sideAction. */
@@ -181,8 +181,8 @@ export function LemonButtonWithSideAction({
     children,
     ...buttonProps
 }: LemonButtonWithSideActionProps): JSX.Element {
-    const { popup: sidePopup, ...sideActionRest } = sideAction
-    const SideComponent = sidePopup ? LemonButtonWithPopup : LemonButton
+    const { popover: sidePopover, ...sideActionRest } = sideAction
+    const SideComponent = sidePopover ? LemonButtonWithDropdown : LemonButton
 
     return (
         <div className="LemonButtonWithSideAction">
@@ -205,7 +205,7 @@ export function LemonButtonWithSideAction({
                     // We don't want secondary style as it creates double borders
                     type={buttonProps.type !== 'secondary' ? buttonProps.type : undefined}
                     status={buttonProps.status}
-                    popup={sidePopup as LemonButtonPopup}
+                    popover={sidePopover as LemonButtonPopover}
                     noPadding
                     {...sideActionRest}
                 />
@@ -214,64 +214,72 @@ export function LemonButtonWithSideAction({
     )
 }
 
-export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
-    popup: LemonButtonPopup
+export interface LemonButtonWithDropdownProps extends LemonButtonPropsBase {
+    popover: LemonButtonPopover
     sideIcon?: React.ReactElement | null
 }
 
 /**
- * Styled button that opens a popup menu on click.
- * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
+ * Styled button that opens a popover menu on click.
+ * The difference vs. plain `LemonButton` is popover visibility being controlled internally, which is more convenient.
  */
-export function LemonButtonWithPopup({
-    popup: { onClickOutside, onClickInside, closeOnClickInside = true, className: popupClassName, ...popupProps },
+export function LemonButtonWithDropdown({
+    popover: { onClickOutside, onClickInside, closeOnClickInside = true, className: popoverClassName, ...popoverProps },
     onClick,
     className,
     ...buttonProps
-}: LemonButtonWithPopupProps): JSX.Element {
-    const parentPopupId = useContext(PopupContext)
-    const [popupVisible, setPopupVisible] = useState(false)
+}: LemonButtonWithDropdownProps): JSX.Element {
+    const parentPopoverId = useContext(PopoverContext)
+    const [popoverVisible, setPopoverVisible] = useState(false)
 
     if (!buttonProps.children) {
         if (!buttonProps.icon) {
-            buttonProps.icon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+            buttonProps.icon = popoverProps.placement?.startsWith('right') ? (
+                <IconChevronRight />
+            ) : (
+                <IconArrowDropDown />
+            )
         }
     } else if (buttonProps.sideIcon === undefined) {
-        buttonProps.sideIcon = popupProps.placement?.startsWith('right') ? <IconChevronRight /> : <IconArrowDropDown />
+        buttonProps.sideIcon = popoverProps.placement?.startsWith('right') ? (
+            <IconChevronRight />
+        ) : (
+            <IconArrowDropDown />
+        )
     }
 
-    if (!('visible' in popupProps)) {
-        popupProps.visible = popupVisible
+    if (!('visible' in popoverProps)) {
+        popoverProps.visible = popoverVisible
     }
 
     return (
-        <Popup
-            className={popupClassName}
+        <Popover
+            className={popoverClassName}
             onClickOutside={(e) => {
-                setPopupVisible(false)
+                setPopoverVisible(false)
                 onClickOutside?.(e)
             }}
             onClickInside={(e) => {
                 e.stopPropagation()
-                closeOnClickInside && setPopupVisible(false)
+                closeOnClickInside && setPopoverVisible(false)
                 onClickInside?.(e)
             }}
-            {...popupProps}
+            {...popoverProps}
         >
             <LemonButton
-                className={clsx('LemonButtonWithPopup', className)}
+                className={clsx('LemonButtonWithDropdown', className)}
                 onClick={(e) => {
-                    setPopupVisible((state) => !state)
+                    setPopoverVisible((state) => !state)
                     onClick?.(e)
-                    if (parentPopupId !== 0) {
-                        // If this button is inside another popup, let's not propagate this event so that
-                        // the parent popup doesn't close
+                    if (parentPopoverId !== 0) {
+                        // If this button is inside another popover, let's not propagate this event so that
+                        // the parent popover doesn't close
                         e.stopPropagation()
                     }
                 }}
-                active={popupProps.visible}
+                active={popoverProps.visible}
                 {...buttonProps}
             />
-        </Popup>
+        </Popover>
     )
 }

@@ -6,7 +6,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
-import { LemonButtonWithPopup, LemonDivider, LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown, LemonDivider, LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { IconCalendar } from 'lib/lemon-ui/icons'
 import { LemonCalendarSelect } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
@@ -60,7 +60,7 @@ export function DateFilter({
     const optionsRef = useRef<HTMLDivElement | null>(null)
     const rollingDateRangeRef = useRef<HTMLDivElement | null>(null)
 
-    const popupOverlay =
+    const popoverOverlay =
         view === DateFilterView.FixedRange ? (
             <LemonCalendarRange
                 value={[rangeDateTo ?? dayjs(), rangeDateTo ?? dayjs()]}
@@ -125,7 +125,7 @@ export function DateFilter({
                             setDate(fromDate, '')
                         }}
                         makeLabel={makeLabel}
-                        popup={{
+                        popover={{
                             ref: rollingDateRangeRef,
                         }}
                     />
@@ -141,7 +141,7 @@ export function DateFilter({
         )
 
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             data-attr="date-filter"
             id="daterange_selector"
             onClick={isVisible ? close : open}
@@ -150,10 +150,10 @@ export function DateFilter({
             size={size ?? 'small'}
             type={'secondary'}
             status="stealth"
-            popup={{
+            popover={{
                 onClickOutside: close,
                 visible: isVisible,
-                overlay: popupOverlay,
+                overlay: popoverOverlay,
                 placement: 'bottom-start',
                 actionable: true,
                 closeOnClickInside: false,
@@ -163,6 +163,6 @@ export function DateFilter({
             icon={<IconCalendar />}
         >
             {label}
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }
