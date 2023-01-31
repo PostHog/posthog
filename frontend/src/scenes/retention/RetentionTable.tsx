@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { retentionTableLogic } from './retentionTableLogic'
+import { retentionLogic } from './retentionLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import clsx from 'clsx'
@@ -12,7 +12,7 @@ import { RetentionModal } from './RetentionModal'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = retentionTableLogic(insightProps)
+    const logic = retentionLogic(insightProps)
     const {
         results: _results,
         resultsLoading,

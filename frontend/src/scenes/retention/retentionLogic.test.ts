@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType, RetentionFilterType } from '~/types'
 import { useMocks } from '~/mocks/jest'
@@ -41,8 +41,8 @@ const result = [
     },
 ]
 
-describe('retentionTableLogic', () => {
-    let logic: ReturnType<typeof retentionTableLogic.build>
+describe('retentionLogic', () => {
+    let logic: ReturnType<typeof retentionLogic.build>
 
     beforeEach(() => {
         useMocks({
@@ -63,7 +63,7 @@ describe('retentionTableLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            logic = retentionTableLogic(props)
+            logic = retentionLogic(props)
             logic.mount()
         })
 

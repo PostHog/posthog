@@ -257,7 +257,7 @@ describe('eachBatchAsyncHandlers', () => {
                     new KafkaJSError('Failed to produce')
                 )
             },
-        } as any)
+        })
 
         await expect(
             ingestionConsumer.eachBatchConsumer({

@@ -65,7 +65,7 @@ export class EventsProcessor {
         teamId: number,
         timestamp: DateTime,
         eventUuid: string
-    ): Promise<PreIngestionEvent> {
+    ): Promise<PreIngestionEvent | null> {
         if (!UUID.validateString(eventUuid, false)) {
             captureIngestionWarning(this.db, teamId, 'skipping_event_invalid_uuid', {
                 eventUuid: JSON.stringify(eventUuid),

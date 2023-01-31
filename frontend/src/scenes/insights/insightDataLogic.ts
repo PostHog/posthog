@@ -1,7 +1,15 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
 import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { BreakdownFilter, InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    InsightFilter,
+    InsightNodeKind,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 import { BaseMathType } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
@@ -18,7 +26,6 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
-    isUnimplementedQuery,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -27,15 +34,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
-const getCleanedQuery = (
-    kind:
-        | NodeKind.TrendsQuery
-        | NodeKind.FunnelsQuery
-        | NodeKind.PathsQuery
-        | NodeKind.StickinessQuery
-        | NodeKind.LifecycleQuery
-        | NodeKind.UnimplementedQuery
-): InsightVizNode => {
+const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
     if (kind === NodeKind.TrendsQuery) {
         return {
             kind: NodeKind.InsightVizNode,
@@ -66,6 +65,28 @@ const getCleanedQuery = (
                 ],
                 funnelsFilter: {
                     funnel_viz_type: FunnelVizType.Steps,
+                },
+            },
+        }
+    } else if (kind === NodeKind.RetentionQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    period: 'Day',
+                    total_intervals: 11,
+                    target_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                    },
+                    returning_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                    },
+                    retention_type: 'retention_first_time',
                 },
             },
         }
@@ -112,12 +133,7 @@ const getCleanedQuery = (
             },
         }
     } else {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.UnimplementedQuery,
-            },
-        }
+        throw new Error('should not reach here')
     }
 }
 
@@ -183,10 +199,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.updateQuerySource(newQuerySource)
         },
         updateInsightFilter: ({ insightFilter }) => {
-            if (isUnimplementedQuery(values.querySource)) {
-                return
-            }
-
             const filterProperty = filterPropertyForQuery(values.querySource)
             const newQuerySource = { ...values.querySource }
             newQuerySource[filterProperty] = {
@@ -226,14 +238,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
             } else if (type === InsightType.FUNNELS) {
                 actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
+            } else if (type === InsightType.RETENTION) {
+                actions.setQuery(getCleanedQuery(NodeKind.RetentionQuery))
             } else if (type === InsightType.PATHS) {
                 actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
             } else if (type === InsightType.STICKINESS) {
                 actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
             } else if (type === InsightType.LIFECYCLE) {
                 actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
-            } else {
-                actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
             }
         },
         setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {

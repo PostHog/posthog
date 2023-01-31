@@ -59,11 +59,11 @@ export function runInTransaction<T>(
     })
 }
 
-export function runInSpan<Callback extends (...args: any[]) => any>(
+export function runInSpan<T>(
     spanContext: SpanContext,
-    callback: Callback,
+    callback: (span?: Span) => Promise<T>,
     parentSpan?: Span
-) {
+): Promise<T> {
     if (!parentSpan) {
         parentSpan = getSpan()
     }

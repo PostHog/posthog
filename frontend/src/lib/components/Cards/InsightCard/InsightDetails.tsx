@@ -32,7 +32,6 @@ import {
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
-import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -300,11 +299,8 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
 }
 
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    let { filters } = insight
-    const { created_at, created_by } = insight
-    if (!!insight.query && isInsightQueryNode(insight.query)) {
-        filters = filterForQuery(insight.query) as Partial<FilterType>
-    }
+    const { filters, created_at, created_by } = insight
+
     return (
         <div className="InsightDetails" ref={ref}>
             <QuerySummary filters={filters} />

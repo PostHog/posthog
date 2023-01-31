@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, Extra, Field
 
 
-class MathGroupTypeIndex(float, Enum):
+class MathGroupTypeIndex(Enum):
     number_0 = 0
     number_1 = 1
     number_2 = 2
@@ -17,7 +17,7 @@ class MathGroupTypeIndex(float, Enum):
     number_4 = 4
 
 
-class AggregationAxisFormat(str, Enum):
+class AggregationAxisFormat(Enum):
     numeric = "numeric"
     duration = "duration"
     duration_ms = "duration_ms"
@@ -25,17 +25,17 @@ class AggregationAxisFormat(str, Enum):
     percentage_scaled = "percentage_scaled"
 
 
-class FunnelCorrelationPersonConverted(str, Enum):
+class FunnelCorrelationPersonConverted(Enum):
     true = "true"
     false = "false"
 
 
-class RetentionReference(str, Enum):
+class RetentionReference(Enum):
     total = "total"
     previous = "previous"
 
 
-class BaseMathType(str, Enum):
+class BaseMathType(Enum):
     total = "total"
     dau = "dau"
     weekly_active = "weekly_active"
@@ -43,14 +43,14 @@ class BaseMathType(str, Enum):
     unique_session = "unique_session"
 
 
-class BreakdownAttributionType(str, Enum):
+class BreakdownAttributionType(Enum):
     first_touch = "first_touch"
     last_touch = "last_touch"
     all_events = "all_events"
     step = "step"
 
 
-class BreakdownType(str, Enum):
+class BreakdownType(Enum):
     cohort = "cohort"
     person = "person"
     event = "event"
@@ -58,7 +58,7 @@ class BreakdownType(str, Enum):
     session = "session"
 
 
-class ChartDisplayType(str, Enum):
+class ChartDisplayType(Enum):
     ActionsLineGraph = "ActionsLineGraph"
     ActionsLineGraphCumulative = "ActionsLineGraphCumulative"
     ActionsAreaGraph = "ActionsAreaGraph"
@@ -80,7 +80,7 @@ class CohortPropertyFilter(BaseModel):
     value: float
 
 
-class CountPerActorMathType(str, Enum):
+class CountPerActorMathType(Enum):
     avg_count_per_actor = "avg_count_per_actor"
     min_count_per_actor = "min_count_per_actor"
     max_count_per_actor = "max_count_per_actor"
@@ -98,7 +98,7 @@ class DateRange(BaseModel):
     date_to: Optional[str] = None
 
 
-class Key(str, Enum):
+class Key(Enum):
     tag_name = "tag_name"
     text = "text"
     href = "href"
@@ -130,7 +130,7 @@ class EmptyPropertyFilter(BaseModel):
     value: Optional[Any] = None
 
 
-class EntityType(str, Enum):
+class EntityType(Enum):
     actions = "actions"
     events = "events"
     new_entity = "new_entity"
@@ -160,7 +160,7 @@ class EventType(BaseModel):
     timestamp: str
 
 
-class MathGroupTypeIndex1(float, Enum):
+class MathGroupTypeIndex1(Enum):
     number_0 = 0
     number_1 = 1
     number_2 = 2
@@ -186,12 +186,12 @@ class Response1(BaseModel):
     types: List[str]
 
 
-class FilterLogicalOperator(str, Enum):
+class FilterLogicalOperator(Enum):
     AND = "AND"
     OR = "OR"
 
 
-class FunnelConversionWindowTimeUnit(str, Enum):
+class FunnelConversionWindowTimeUnit(Enum):
     minute = "minute"
     hour = "hour"
     day = "day"
@@ -199,12 +199,12 @@ class FunnelConversionWindowTimeUnit(str, Enum):
     month = "month"
 
 
-class FunnelLayout(str, Enum):
+class FunnelLayout(Enum):
     horizontal = "horizontal"
     vertical = "vertical"
 
 
-class FunnelPathType(str, Enum):
+class FunnelPathType(Enum):
     funnel_path_before_step = "funnel_path_before_step"
     funnel_path_between_steps = "funnel_path_between_steps"
     funnel_path_after_step = "funnel_path_after_step"
@@ -218,23 +218,23 @@ class FunnelStepRangeEntityFilter(BaseModel):
     funnel_to_step: Optional[float] = None
 
 
-class FunnelStepReference(str, Enum):
+class FunnelStepReference(Enum):
     total = "total"
     previous = "previous"
 
 
-class FunnelVizType(str, Enum):
+class FunnelVizType(Enum):
     steps = "steps"
     time_to_convert = "time_to_convert"
     trends = "trends"
 
 
-class FunnelCorrelationPersonConverted1(str, Enum):
+class FunnelCorrelationPersonConverted1(Enum):
     true = "true"
     false = "false"
 
 
-class InsightType(str, Enum):
+class InsightType(Enum):
     TRENDS = "TRENDS"
     STICKINESS = "STICKINESS"
     LIFECYCLE = "LIFECYCLE"
@@ -243,14 +243,14 @@ class InsightType(str, Enum):
     PATHS = "PATHS"
 
 
-class IntervalType(str, Enum):
+class IntervalType(Enum):
     hour = "hour"
     day = "day"
     week = "week"
     month = "month"
 
 
-class LifecycleToggle(str, Enum):
+class LifecycleToggle(Enum):
     new = "new"
     resurrecting = "resurrecting"
     returning = "returning"
@@ -265,7 +265,7 @@ class PathCleaningFilter(BaseModel):
     regex: Optional[str] = None
 
 
-class PathType(str, Enum):
+class PathType(Enum):
     field_pageview = "$pageview"
     field_screen = "$screen"
     custom_event = "custom_event"
@@ -294,7 +294,7 @@ class PathsFilter(BaseModel):
     step_limit: Optional[float] = None
 
 
-class PropertyMathType(str, Enum):
+class PropertyMathType(Enum):
     avg = "avg"
     sum = "sum"
     min = "min"
@@ -305,7 +305,7 @@ class PropertyMathType(str, Enum):
     p99 = "p99"
 
 
-class PropertyOperator(str, Enum):
+class PropertyOperator(Enum):
     exact = "exact"
     is_not = "is_not"
     icontains = "icontains"
@@ -347,12 +347,12 @@ class RecordingDurationFilter(BaseModel):
     value: float
 
 
-class RetentionReference1(str, Enum):
+class RetentionReference1(Enum):
     total = "total"
     previous = "previous"
 
 
-class RetentionType(str, Enum):
+class RetentionType(Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
 
@@ -368,13 +368,13 @@ class SessionPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class ShownAsValue(str, Enum):
+class ShownAsValue(Enum):
     Volume = "Volume"
     Stickiness = "Stickiness"
     Lifecycle = "Lifecycle"
 
 
-class StepOrderValue(str, Enum):
+class StepOrderValue(Enum):
     strict = "strict"
     unordered = "unordered"
     ordered = "ordered"

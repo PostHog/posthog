@@ -7,7 +7,7 @@ import { UUIDT } from '../../../../src/utils/utils'
 import {
     emitToBufferStep,
     shouldSendEventToBuffer,
-} from '../../../../src/worker/ingestion/event-pipeline/emitToBufferStep'
+} from '../../../../src/worker/ingestion/event-pipeline/2-emitToBufferStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
@@ -103,7 +103,7 @@ describe('emitToBufferStep()', () => {
     it('calls `pluginsProcessEventStep` next if not buffering', async () => {
         const response = await emitToBufferStep(runner, pluginEvent, () => false)
 
-        expect(response).toEqual([pluginEvent, expect.any(LazyPersonContainer)])
+        expect(response).toEqual(['pluginsProcessEventStep', pluginEvent, expect.any(LazyPersonContainer)])
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(runner.hub.graphileWorker.enqueue).not.toHaveBeenCalled()
     })

@@ -1,5 +1,5 @@
 import { ISOTimestamp, PreIngestionEvent } from '../../../../src/types'
-import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/createEventStep'
+import { createEventStep } from '../../../../src/worker/ingestion/event-pipeline/6-createEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 
 jest.mock('../../../../src/worker/plugins/run')

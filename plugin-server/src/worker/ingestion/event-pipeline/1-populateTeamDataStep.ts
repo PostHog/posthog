@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { PipelineEvent } from '../../../types'
-import { EventPipelineRunner } from './runner'
+import { EventPipelineRunner, StepResult } from './runner'
 
 /* 
 This step populates event.team_id and deletes event.ip if needed.
@@ -10,10 +10,7 @@ the capture endpoint will have handled this process. This is
 temporary as this step will become the default for all events
 when we fully remove this functionality from the capture endpoint.
 */
-export async function populateTeamDataStep(
-    runner: EventPipelineRunner,
-    event: PipelineEvent
-): Promise<PluginEvent | null> {
+export async function populateTeamDataStep(runner: EventPipelineRunner, event: PipelineEvent): Promise<StepResult> {
     if (!event.token) {
         runner.hub.statsd?.increment('dropped_event_with_no_team', { token_set: 'false' })
         return null
@@ -34,5 +31,5 @@ export async function populateTeamDataStep(
     }
 
     delete event['token']
-    return event as PluginEvent
+    return runner.nextStep('emitToBufferStep', event as PluginEvent)
 }

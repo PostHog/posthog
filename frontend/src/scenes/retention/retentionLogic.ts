@@ -1,7 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { range, toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -11,42 +10,14 @@ import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPaylo
 import { actionsModel } from '~/models/actionsModel'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { ActionType, InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
-import type { retentionTableLogicType } from './retentionTableLogicType'
-
-export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
-
-// https://day.js.org/docs/en/durations/creating#list-of-all-available-units
-const dateOptionToTimeIntervalMap = {
-    Hour: 'h',
-    Day: 'd',
-    Week: 'w',
-    Month: 'M',
-}
-
-export const dateOptionPlurals = {
-    Hour: 'hours',
-    Day: 'days',
-    Week: 'weeks',
-    Month: 'months',
-}
-
-export const retentionOptions = {
-    [RETENTION_FIRST_TIME]: 'for the first time',
-    [RETENTION_RECURRING]: 'recurringly',
-}
-
-export const retentionOptionDescriptions = {
-    [`${RETENTION_RECURRING}`]: 'A user will belong to any cohort where they have performed the event in its Period 0.',
-    [`${RETENTION_FIRST_TIME}`]:
-        'A user will only belong to the cohort for which they performed the event for the first time.',
-}
+import { dateOptionToTimeIntervalMap } from './constants'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionTableLogic = kea<retentionTableLogicType>({
+export const retentionLogic = kea({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
+    path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
@@ -120,7 +91,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 //
                 // If `retentionReference` is not "previous" we want to calculate the percentages
                 // of the sizes compared to the first value. If we have "previous" we want to
-                // go further and translate thhese numbers into percentage of the previous value
+                // go further and translate these numbers into percentage of the previous value
                 // so we get some idea for the rate of convergence.
 
                 return results.map((cohortRetention, datasetIndex) => {
@@ -170,8 +141,6 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
             (s) => [s.actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
-        actionFilterTargetEntity: [(s) => [s.filters], (filters) => ({ events: [filters.target_entity] })],
-        actionFilterReturningEntity: [(s) => [s.filters], (filters) => ({ events: [filters.returning_entity] })],
         retentionReference: [
             (selectors) => [selectors.filters],
             ({ retention_reference }) => retention_reference ?? 'total',
@@ -249,9 +218,6 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
     },
     listeners: ({ actions, values, props }) => ({
-        setProperties: ({ properties }) => {
-            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, properties }, values.filters))
-        },
         setFilters: ({ filters }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
         },

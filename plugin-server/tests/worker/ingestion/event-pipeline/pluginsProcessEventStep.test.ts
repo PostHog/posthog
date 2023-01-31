@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/pluginsProcessEventStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
 
@@ -41,7 +41,7 @@ describe('pluginsProcessEventStep()', () => {
 
         const response = await pluginsProcessEventStep(runner, pluginEvent, personContainer)
 
-        expect(response).toEqual(processedEvent)
+        expect(response).toEqual(['processPersonsStep', processedEvent, personContainer])
     })
 
     it('does not forward but counts dropped events by plugins', async () => {

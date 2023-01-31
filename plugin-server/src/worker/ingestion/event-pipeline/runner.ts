@@ -8,32 +8,60 @@ import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { createEventStep } from './createEventStep'
-import { emitToBufferStep } from './emitToBufferStep'
-import { pluginsProcessEventStep } from './pluginsProcessEventStep'
-import { populateTeamDataStep } from './populateTeamDataStep'
-import { prepareEventStep } from './prepareEventStep'
-import { processPersonsStep } from './processPersonsStep'
-import { runAsyncHandlersStep } from './runAsyncHandlersStep'
+import { populateTeamDataStep } from './1-populateTeamDataStep'
+import { emitToBufferStep } from './2-emitToBufferStep'
+import { pluginsProcessEventStep } from './3-pluginsProcessEventStep'
+import { processPersonsStep } from './4-processPersonsStep'
+import { prepareEventStep } from './5-prepareEventStep'
+import { createEventStep } from './6-createEventStep'
+import { runAsyncHandlersStep } from './7-runAsyncHandlersStep'
+
+export type StepParameters<T extends (...args: any[]) => any> = T extends (
+    runner: EventPipelineRunner,
+    ...args: infer P
+) => any
+    ? P
+    : never
+
+const EVENT_PIPELINE_STEPS = {
+    populateTeamDataStep,
+    emitToBufferStep,
+    pluginsProcessEventStep,
+    processPersonsStep,
+    prepareEventStep,
+    createEventStep,
+    runAsyncHandlersStep,
+}
+
+export type EventPipelineStepsType = typeof EVENT_PIPELINE_STEPS
+export type StepType = keyof EventPipelineStepsType
+export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPipelineStepsType[Step]>]
+
+export type StepResult =
+    | null
+    | NextStep<'populateTeamDataStep'>
+    | NextStep<'emitToBufferStep'>
+    | NextStep<'pluginsProcessEventStep'>
+    | NextStep<'processPersonsStep'>
+    | NextStep<'prepareEventStep'>
+    | NextStep<'createEventStep'>
+    | NextStep<'runAsyncHandlersStep'>
 
 // Only used in tests
-// TODO: update to test for side-effects of running the pipeline rather than
-// this return type.
 export type EventPipelineResult = {
-    lastStep: string
+    lastStep: StepType
     args: any[]
     error?: string
 }
 
-class StepError extends Error {
-    step: string
-    args: any[]
-    constructor(step: string, args: any[], message: string) {
-        super(message)
-        this.step = step
-        this.args = args
-    }
-}
+const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
+    'populateTeamDataStep',
+    'emitToBufferStep',
+    'pluginsProcessEventStep',
+    'processPersonsStep',
+    'prepareEventStep',
+    'createEventStep',
+]
 
 export class EventPipelineRunner {
     hub: Hub
@@ -52,156 +80,99 @@ export class EventPipelineRunner {
     // hitting Postgres in the capture endpoint. Eventually the entire pipeline should
     // follow this route and we can rename it to just be `runEventPipeline`.
     async runLightweightCaptureEndpointEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', {
+        this.hub.statsd?.increment('kafka_queue.lightweight_capture_endpoint_event_pipeline.start', {
             pipeline: 'lightweight_capture',
         })
-
-        try {
-            let result: EventPipelineResult | null = null
-            const eventWithTeam = await this.runStep(populateTeamDataStep, [this, event])
-            if (eventWithTeam != null) {
-                result = await this.runEventPipelineSteps(eventWithTeam)
-            } else {
-                result = this.registerLastStep('populateTeamDataStep', null, [event])
-            }
-
-            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
-            return result
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-
-            return { lastStep: error.step, args: [], error: error.message }
-        }
+        const result = await this.runPipeline('populateTeamDataStep', event)
+        this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
     }
 
     async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
-            const result = await this.runEventPipelineSteps(event)
-            this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
-            return result
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
-
-            return { lastStep: error.step, args: [], error: error.message }
-        }
-    }
-
-    async runEventPipelineSteps(event: PluginEvent): Promise<EventPipelineResult> {
-        const bufferResult = await this.runStep(emitToBufferStep, [this, event])
-        if (bufferResult != null) {
-            const [bufferResultEvent, personContainer] = bufferResult
-            return this.runBufferEventPipelineSteps(bufferResultEvent, personContainer)
-        } else {
-            return this.registerLastStep('emitToBufferStep', event.team_id, [event])
-        }
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'event' })
+        const result = await this.runPipeline('emitToBufferStep', event)
+        this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
     }
 
     async runBufferEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
-            const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
-            const didPersonExistAtStart = !!(await personContainer.get())
-            const result = await this.runBufferEventPipelineSteps(event, personContainer)
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'buffer' })
+        const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, this.hub)
+        // We fetch person and check for existence for metrics for buffer efficiency
+        const didPersonExistAtStart = !!(await personContainer.get())
 
-            this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
-                didPersonExistAtStart: String(!!didPersonExistAtStart),
-            })
-            return result
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
+        const result = await this.runPipeline('pluginsProcessEventStep', event, personContainer)
 
-            return { lastStep: error.step, args: [], error: error.message }
-        }
-    }
-
-    async runBufferEventPipelineSteps(
-        event: PluginEvent,
-        personContainer: LazyPersonContainer
-    ): Promise<EventPipelineResult> {
-        const processedEvent = await this.runStep(pluginsProcessEventStep, [this, event])
-
-        if (processedEvent == null) {
-            return this.registerLastStep('pluginsProcessEventStep', event.team_id, [event])
-        }
-        const [normalizedEvent, newPersonContainer] = await this.runStep(processPersonsStep, [
-            this,
-            processedEvent,
-            personContainer,
-        ])
-
-        const preparedEvent = await this.runStep(prepareEventStep, [this, normalizedEvent])
-
-        await this.runStep(createEventStep, [this, preparedEvent, newPersonContainer])
-        return this.registerLastStep('createEventStep', event.team_id, [preparedEvent, newPersonContainer])
+        this.hub.statsd?.increment('kafka_queue.buffer_event.processed_and_ingested', {
+            didPersonExistAtStart: String(!!didPersonExistAtStart),
+        })
+        return result
     }
 
     async runAsyncHandlersEventPipeline(event: PostIngestionEvent): Promise<EventPipelineResult> {
-        try {
-            this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
-            const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
-            await this.runStep(runAsyncHandlersStep, [this, event, personContainer], false)
-            this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
-            return this.registerLastStep('runAsyncHandlersStep', event.teamId, [event, personContainer])
-        } catch (error) {
-            if (error instanceof DependencyUnavailableError) {
-                // If this is an error with a dependency that we control, we want to
-                // ensure that the caller knows that the event was not processed,
-                // for a reason that we control and that is transient.
-                throw error
-            }
+        this.hub.statsd?.increment('kafka_queue.event_pipeline.start', { pipeline: 'asyncHandlers' })
+        const personContainer = new LazyPersonContainer(event.teamId, event.distinctId, this.hub)
+        const result = await this.runPipeline('runAsyncHandlersStep', event, personContainer)
+        this.hub.statsd?.increment('kafka_queue.async_handlers.processed')
+        return result
+    }
 
-            return { lastStep: error.step, args: [], error: error.message }
+    private async runPipeline<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
+        name: Step,
+        ...args: ArgsType
+    ): Promise<EventPipelineResult> {
+        let currentStepName: StepType = name
+        let currentArgs: any = args
+
+        while (true) {
+            const timer = new Date()
+            try {
+                const stepResult = await this.runStep(currentStepName, ...currentArgs)
+
+                this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: currentStepName })
+                this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: currentStepName })
+
+                if (stepResult) {
+                    ;[currentStepName, currentArgs] = stepResult
+                } else {
+                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
+                        step: currentStepName,
+                        team_id: String(this.originalEvent?.team_id),
+                    })
+                    return {
+                        lastStep: currentStepName,
+                        args: currentArgs.map((arg: any) => this.serialize(arg)),
+                    }
+                }
+            } catch (error) {
+                await this.handleError(error, currentStepName, currentArgs)
+                return {
+                    lastStep: currentStepName,
+                    args: currentArgs.map((arg: any) => this.serialize(arg)),
+                    error: error.message,
+                }
+            }
         }
     }
 
-    registerLastStep(stepName: string, teamId: number | null, args: any[]): EventPipelineResult {
-        this.hub.statsd?.increment('kafka_queue.event_pipeline.step.last', {
-            step: stepName,
-            team_id: String(teamId), // NOTE: potentially high cardinality
-        })
-        return { lastStep: stepName, args: args.map((arg) => this.serialize(arg)) }
-    }
-
-    protected runStep<Step extends (...args: any[]) => any>(
-        step: Step,
-        args: Parameters<Step>,
-        sentToDql = true
-    ): ReturnType<Step> {
-        const timer = new Date()
-
+    protected runStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
+        name: Step,
+        ...args: ArgsType
+    ): Promise<StepResult> {
         return runInSpan(
             {
                 op: 'runStep',
-                description: step.name,
+                description: name,
             },
-            async () => {
+            () => {
                 const timeout = timeoutGuard('Event pipeline step stalled. Timeout warning after 30 sec!', {
-                    step: step.name,
+                    step: name,
                     event: JSON.stringify(this.originalEvent),
                 })
                 try {
-                    const result = await step(...args)
-                    this.hub.statsd?.increment('kafka_queue.event_pipeline.step', { step: step.name })
-                    this.hub.statsd?.timing('kafka_queue.event_pipeline.step.timing', timer, { step: step.name })
-                    return result
-                } catch (err) {
-                    await this.handleError(err, step.name, args, sentToDql)
+                    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+                    // @ts-expect-error
+                    return EVENT_PIPELINE_STEPS[name](this, ...args)
                 } finally {
                     clearTimeout(timeout)
                 }
@@ -209,9 +180,16 @@ export class EventPipelineRunner {
         )
     }
 
-    private async handleError(err: any, currentStepName: string, currentArgs: any, sentToDql: boolean) {
+    nextStep<Step extends StepType, ArgsType extends StepParameters<EventPipelineStepsType[Step]>>(
+        name: Step,
+        ...args: ArgsType
+    ): NextStep<Step> {
+        return [name, args]
+    }
+
+    private async handleError(err: any, currentStepName: StepType, currentArgs: any) {
         const serializedArgs = currentArgs.map((arg: any) => this.serialize(arg))
-        status.error('🔔', 'step_failed', { currentStepName, err })
+        status.info('🔔', err)
         Sentry.captureException(err, { extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
 
@@ -222,7 +200,7 @@ export class EventPipelineRunner {
             throw err
         }
 
-        if (sentToDql) {
+        if (STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
             try {
                 const message = generateEventDeadLetterQueueMessage(this.originalEvent, err)
                 await this.hub.db.kafkaProducer!.queueMessage(message)
@@ -234,8 +212,6 @@ export class EventPipelineRunner {
                 })
             }
         }
-
-        throw new StepError(currentStepName, currentArgs, err.message)
     }
 
     private serialize(arg: any) {

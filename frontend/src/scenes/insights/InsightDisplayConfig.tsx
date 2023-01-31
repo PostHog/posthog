@@ -7,13 +7,13 @@ import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
 import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from './filters/InsightDateFilter'
-import { RetentionDatePicker } from './RetentionDatePicker'
 import {
     FunnelDisplayLayoutPicker,
     FunnelDisplayLayoutPickerDataExploration,
 } from './views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
-import { ReferencePicker as RetentionReferencePicker } from './filters/ReferencePicker'
+import { RetentionDatePicker } from './RetentionDatePicker'
+import { RetentionReferencePicker } from './filters/RetentionReferencePicker'
 import { Tooltip } from 'antd'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'

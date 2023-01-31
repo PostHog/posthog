@@ -5,30 +5,34 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { InsightLogicProps } from '~/types'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { insightDataLogic } from '../insightDataLogic'
+import { insightLogic } from '../insightLogic'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
+    className?: string
 }
 
-export function AggregationSelectDataExploration({ insightProps }: AggregationSelectProps): JSX.Element {
-    const { querySource } = useValues(funnelDataLogic(insightProps))
-    const { updateQuerySource } = useActions(funnelDataLogic(insightProps))
+export function AggregationSelectDataExploration({ insightProps, className }: AggregationSelectProps): JSX.Element {
+    const { querySource } = useValues(insightDataLogic(insightProps))
+    const { updateQuerySource } = useActions(insightDataLogic(insightProps))
 
     return (
         <AggregationSelectComponent
+            className={className}
             aggregationGroupTypeIndex={querySource.aggregation_group_type_index}
             onChange={(aggregation_group_type_index) => updateQuerySource({ aggregation_group_type_index })}
         />
     )
 }
 
-export function AggregationSelect({ insightProps }: AggregationSelectProps): JSX.Element {
-    const { filters } = useValues(funnelLogic(insightProps))
+export function AggregationSelect({ insightProps, className }: AggregationSelectProps): JSX.Element {
+    const { filters } = useValues(insightLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
 
     return (
         <AggregationSelectComponent
+            className={className}
             aggregationGroupTypeIndex={filters.aggregation_group_type_index}
             onChange={(aggregation_group_type_index) => setFilters({ aggregation_group_type_index })}
         />
@@ -37,11 +41,13 @@ export function AggregationSelect({ insightProps }: AggregationSelectProps): JSX
 
 const UNIQUE_USERS = -1
 interface AggregationSelectComponentProps {
+    className?: string
     aggregationGroupTypeIndex: number | undefined
     onChange: (aggregation_group_type_index: number | undefined) => void
 }
 
-export function AggregationSelectComponent({
+function AggregationSelectComponent({
+    className,
     aggregationGroupTypeIndex: aggregation_group_type_index,
     onChange,
 }: AggregationSelectComponentProps): JSX.Element {
@@ -73,6 +79,7 @@ export function AggregationSelectComponent({
 
     return (
         <LemonSelect
+            className={className}
             value={aggregation_group_type_index === undefined ? UNIQUE_USERS : aggregation_group_type_index}
             onChange={(value) => {
                 if (value !== null) {

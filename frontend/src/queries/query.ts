@@ -7,11 +7,10 @@ import {
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
     isRecentPerformancePageViewNode,
-    isDataTableNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
-import { AnyPartialFilterType, OnlineExportContext } from '~/types'
+import { AnyPartialFilterType } from '~/types'
 import {
     filterTrendsClientSideParams,
     isFunnelsFilter,
@@ -29,62 +28,6 @@ import { currentSessionId } from 'lib/internalMetrics'
 const EVENTS_DAYS_FIRST_FETCH = 5
 
 export const DEFAULT_QUERY_LIMIT = 100
-
-//get export context for a given query
-export function queryExportContext<N extends DataNode = DataNode>(
-    query: N,
-    methodOptions?: ApiMethodOptions,
-    refresh?: boolean
-): OnlineExportContext {
-    if (isEventsQuery(query)) {
-        return {
-            path: api.queryURL(),
-            method: 'POST',
-            body: {
-                ...query,
-                after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString(),
-            },
-        }
-    } else if (isPersonsNode(query)) {
-        return { path: getPersonsEndpoint(query) }
-    } else if (isInsightQueryNode(query)) {
-        return legacyInsightQueryExportContext({
-            filters: queryNodeToFilter(query),
-            currentTeamId: getCurrentTeamId(),
-            refresh,
-        })
-    } else if (isLegacyQuery(query)) {
-        return legacyInsightQueryExportContext({
-            filters: query.filters,
-            currentTeamId: getCurrentTeamId(),
-            methodOptions,
-        })
-    } else if (isTimeToSeeDataSessionsQuery(query)) {
-        return {
-            path: '/api/time_to_see_data/sessions',
-            method: 'POST',
-            body: {
-                team_id: query.teamId ?? getCurrentTeamId(),
-            },
-        }
-    } else if (isTimeToSeeDataQuery(query)) {
-        return {
-            path: '/api/time_to_see_data/session_events',
-            method: 'POST',
-            body: {
-                team_id: query.teamId ?? getCurrentTeamId(),
-                session_id: query.sessionId ?? currentSessionId(),
-                session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
-                session_end: query.sessionEnd ?? now().toISOString(),
-            },
-        }
-    } else if (isRecentPerformancePageViewNode(query)) {
-        return { path: api.performanceEvents.recentPageViewsURL() }
-    } else if (isDataTableNode(query)) {
-        return queryExportContext(query.source, methodOptions, refresh)
-    }
-    throw new Error(`Unsupported query: ${query.kind}`)
-}
 
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
@@ -176,71 +119,29 @@ interface LegacyInsightQueryParams {
     refresh?: boolean
 }
 
-export function legacyInsightQueryURL({ filters, currentTeamId, refresh }: LegacyInsightQueryParams): string {
-    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        return `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}${
-            refresh ? '&refresh=true' : ''
-        }`
-    } else if (isRetentionFilter(filters)) {
-        return `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}${refresh ? '&refresh=true' : ''}`
-    } else if (isFunnelsFilter(filters)) {
-        return `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
-    } else if (isPathsFilter(filters)) {
-        return `api/projects/${currentTeamId}/insights/path${refresh ? '&refresh=true' : ''}`
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
-    }
-}
-
-export function legacyInsightQueryExportContext({
-    filters,
-    currentTeamId,
-    refresh,
-}: LegacyInsightQueryParams): OnlineExportContext {
-    const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
-
-    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'GET',
-        }
-    } else if (isRetentionFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'GET',
-        }
-    } else if (isFunnelsFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'POST',
-            body: filters,
-        }
-    } else if (isPathsFilter(filters)) {
-        return {
-            path: apiUrl,
-            method: 'POST',
-            body: filters,
-        }
-    } else {
-        throw new Error(`Unsupported insight type: ${filters.insight}`)
-    }
-}
-
 export async function legacyInsightQuery({
     filters,
     currentTeamId,
     methodOptions,
     refresh,
 }: LegacyInsightQueryParams): Promise<[Response, string]> {
-    const apiUrl = legacyInsightQueryURL({ filters, currentTeamId, refresh })
+    let apiUrl: string
     let fetchResponse: Response
     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}${
+            refresh ? '&refresh=true' : ''
+        }`
         fetchResponse = await api.getResponse(apiUrl, methodOptions)
     } else if (isRetentionFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}${
+            refresh ? '&refresh=true' : ''
+        }`
         fetchResponse = await api.getResponse(apiUrl, methodOptions)
     } else if (isFunnelsFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else if (isPathsFilter(filters)) {
+        apiUrl = `api/projects/${currentTeamId}/insights/path${refresh ? '&refresh=true' : ''}`
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)

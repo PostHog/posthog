@@ -1115,15 +1115,6 @@ const api = {
         ): Promise<PaginatedResponse<PerformanceEvent>> {
             return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
         },
-        recentPageViewsURL(teamId: TeamType['id'] = getCurrentTeamId(), dateFrom?: string, dateTo?: string): string {
-            return new ApiRequest()
-                .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
-                    dateTo || dayjs().toISOString(),
-                    teamId
-                )
-                .assembleEndpointUrl()
-        },
         async recentPageViews(
             teamId: TeamType['id'] = getCurrentTeamId(),
             dateFrom?: string,
@@ -1139,9 +1130,6 @@ const api = {
         },
     },
 
-    queryURL: (): string => {
-        return new ApiRequest().query().assembleEndpointUrl()
-    },
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
         options?: ApiMethodOptions

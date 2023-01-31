@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { retentionTableLogic } from './retentionTableLogic'
+import { retentionLogic } from './retentionLogic'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
 import { InsightEmptyState } from '../insights/EmptyStates'
@@ -15,7 +15,7 @@ interface RetentionLineGraphProps {
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = retentionTableLogic(insightProps)
+    const logic = retentionLogic(insightProps)
     const {
         results: _results,
         filters,
