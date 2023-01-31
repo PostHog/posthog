@@ -4,17 +4,29 @@ Grammar is located inside `HogQLLexer.g4` and `HogQLParser.g4` files.
 
 To generate source code you need to install locally the `antlr4` binary:
 
-```
-cd posthog/hogql/grammar
-
+```bash
 brew install antlr
-pip install antlr4-python3-runtime
+```
+
+Then either run
+
+```bash
+pnpm run antlr:generate
+```
+
+Or mess around with:
+
+```bash
+cd posthog/hogql/grammar
 antlr4 -Dlanguage=Python3 HogQLLexer.g4
 antlr4 -visitor -Dlanguage=Python3 HogQLParser.g4
-python ParserTest.py
 ```
 
-Original from https://github.com/ClickHouse/ClickHouse/blob/master/utils/antlr/ClickHouseParser.g4
+Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse/blob/master/utils/antlr/ClickHouseParser.g4
 
-Changes from ClickHouse's grammar:
+Changes with ClickHouse's grammar:
 - removed all statements except for "select"
+- support aliases with a string literal "as '🍄'"
+- predefined list of "slash" escape characters in strings (all from clickhouse_driver/util/escape.py, no wildcard like in the grammar)
+- raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
+ 
