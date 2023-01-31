@@ -17,7 +17,6 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Team
@@ -292,9 +291,7 @@ class FunnelCorrelation:
             """
         else:
             array_join_query = f"""
-                JSONExtractKeys(properties) as prop_keys,
-                arrayMap(x -> {trim_quotes_expr("JSONExtractRaw(properties, x)")}, prop_keys) as prop_values,
-                arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+                JSONExtractKeysAndValues(properties, 'String') as prop
             """
 
         query = f"""
@@ -528,16 +525,9 @@ class FunnelCorrelation:
             )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
-            map_expr = trim_quotes_expr(f"JSONExtractRaw({aggregation_properties_alias}, x)")
             return (
                 f"""
-            JSONExtractKeys({aggregation_properties_alias}) as person_prop_keys,
-            arrayJoin(
-                arrayZip(
-                    person_prop_keys,
-                    arrayMap(x -> {map_expr}, person_prop_keys)
-                )
-            ) as prop
+                JSONExtractKeysAndValues({aggregation_properties_alias}, 'String') as prop
             """,
                 {},
             )
