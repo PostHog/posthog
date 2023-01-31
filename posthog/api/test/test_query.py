@@ -1,7 +1,7 @@
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.schema import EventsQuery, HogQLPropertyFilter
+from posthog.schema import EventPropertyFilter, EventsQuery, HogQLPropertyFilter, PersonPropertyFilter, PropertyOperator
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -123,6 +123,78 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(len(response["results"]), 4)
 
             query.properties = [HogQLPropertyFilter(type="hogql", key="properties.key == 'test_val2'")]
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            self.assertEqual(len(response["results"]), 2)
+
+    @also_test_with_materialized_columns(event_properties=["key", "path"])
+    @snapshot_clickhouse_queries
+    def test_event_property_filter(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(
+                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = EventsQuery(
+                select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
+            )
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            self.assertEqual(len(response["results"]), 4)
+
+            query.properties = [
+                EventPropertyFilter(type="event", key="key", value="test_val3", operator=PropertyOperator.exact)
+            ]
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            self.assertEqual(len(response["results"]), 1)
+
+            query.properties = [
+                EventPropertyFilter(type="event", key="path", value="/", operator=PropertyOperator.icontains)
+            ]
+            response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            self.assertEqual(len(response["results"]), 1)
+
+    # TODO: events query person property filters don't use materialized columns!
+    # @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
+    @snapshot_clickhouse_queries
+    def test_person_property_filter(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = EventsQuery(
+                select=["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"],
+                properties=[
+                    PersonPropertyFilter(
+                        type="person", key="email", value="tom@posthog.com", operator=PropertyOperator.exact
+                    )
+                ],
+            )
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 2)
 
