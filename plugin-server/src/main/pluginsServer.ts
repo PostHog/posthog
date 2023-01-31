@@ -165,8 +165,8 @@ export async function startPluginsServer(
 
         if (error instanceof KafkaJSProtocolError) {
             kafkaProtocolErrors.inc({
-                type: error.type,
-                code: error.code,
+                error_type: error.type,
+                error_code: error.code,
             })
 
             // Ignore some "business as usual" Kafka errors, send the rest to sentry
@@ -420,5 +420,5 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
 const kafkaProtocolErrors = new Counter({
     name: 'kafka_protocol_errors_total',
     help: 'Kafka protocol errors encountered, by type',
-    labelNames: ['type', 'code'],
+    labelNames: ['error_type', 'error_code'],
 })
