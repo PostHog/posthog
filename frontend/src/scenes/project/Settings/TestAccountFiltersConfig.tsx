@@ -6,7 +6,7 @@ import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSwitch } from '@posthog/lemon-ui'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)

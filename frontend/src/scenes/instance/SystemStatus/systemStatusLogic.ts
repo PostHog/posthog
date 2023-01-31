@@ -16,7 +16,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export enum ConfigMode {
@@ -52,6 +52,8 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SLACK_APP_CLIENT_SECRET',
     'SLACK_APP_SIGNING_SECRET',
     'PARALLEL_DASHBOARD_ITEM_CACHE',
+    'RATE_LIMIT_ENABLED',
+    'RATE_LIMITING_ALLOW_LIST_TEAMS',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
 ]

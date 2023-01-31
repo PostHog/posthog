@@ -6,6 +6,7 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { Kafka, KafkaJSError, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
+import { hostname } from 'os'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
@@ -39,8 +40,6 @@ import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
 import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
-
-const { version } = require('../../../package.json')
 
 // `node-postgres` would return dates as plain JS Date objects, which would use the local timezone.
 // This converts all date fields to a proper luxon UTC DateTime and then casts them to a string
@@ -161,7 +160,10 @@ export async function createHub(
 
     status.info('🤔', `Connecting to Kafka...`)
     const kafka = new Kafka({
-        clientId: `plugin-server-v${version}-${instanceId}`,
+        /* clientId does not need to be unique, and is used in Kafka logs and quota accounting.
+           os.hostname() returns the pod name in k8s and the container ID in compose stacks.
+           This allows us to quickly find what pod is consuming a given partition */
+        clientId: hostname(),
         brokers: serverConfig.KAFKA_HOSTS.split(','),
         logLevel: KAFKAJS_LOG_LEVEL_MAPPING[serverConfig.KAFKAJS_LOG_LEVEL],
         ssl: kafkaSsl,

@@ -1,7 +1,7 @@
 import { dayjs } from 'lib/dayjs'
 import { useEffect, useState } from 'react'
 import { isOperatorDate } from 'lib/utils'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { PropertyOperator } from '~/types'
 import { PropertyValueProps } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { DatePicker } from 'lib/components/DatePicker'

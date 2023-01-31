@@ -17,7 +17,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import { PopupProps } from 'lib/components/Popup/Popup'
+import { PopupProps } from 'lib/lemon-ui/Popup/Popup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode } from './queries/schema'
+import { InsightQueryNode, QuerySchema } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -686,7 +686,8 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter {
+// TODO: Separate FunnelStepRange and FunnelStepRangeEntity filter types
+export interface FunnelStepRangeEntityFilter extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
 }
@@ -1212,6 +1213,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
+    query?: QuerySchema
 }
 
 export interface DashboardType {

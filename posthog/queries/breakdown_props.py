@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from django.forms import ValidationError
 
 from posthog.constants import BREAKDOWN_TYPES, MONTHLY_ACTIVE, WEEKLY_ACTIVE, PropertyOperatorType
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import format_filter_query
 from posthog.models.entity import Entity
@@ -114,13 +115,16 @@ def get_breakdown_prop_values(
         person_properties_mode=person_properties_mode,
         allow_denormalized_props=True,
         person_id_joined_alias=person_id_joined_alias,
+        hogql_context=filter.hogql_context,
     )
 
     if use_all_funnel_entities:
         from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
         entity_filter, entity_params = FunnelEventQuery(
-            filter, team, using_person_on_events=team.person_on_events_querying_enabled
+            filter,
+            team,
+            using_person_on_events=team.person_on_events_querying_enabled,
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:
@@ -130,12 +134,14 @@ def get_breakdown_prop_values(
             table_name="e",
             person_id_joined_alias=person_id_joined_alias,
             person_properties_mode=person_properties_mode,
+            hogql_context=filter.hogql_context,
         )
 
     value_expression = _to_value_expression(
         filter.breakdown_type,
         filter.breakdown,
         filter.breakdown_group_type_index,
+        filter.hogql_context,
         filter.breakdown_normalize_url,
         direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
         cast_as_float=filter.using_histogram,
@@ -169,6 +175,7 @@ def get_breakdown_prop_values(
             null_person_filter=null_person_filter,
             **entity_format_params,
         )
+
     return insight_sync_execute(
         elements_query,
         {
@@ -184,6 +191,7 @@ def get_breakdown_prop_values(
             **sessions_join_params,
             **extra_params,
             **date_params,
+            **filter.hogql_context.values,
         },
         query_type="get_breakdown_prop_values",
         filter=filter,
@@ -194,6 +202,7 @@ def _to_value_expression(
     breakdown_type: Optional[BREAKDOWN_TYPES],
     breakdown: Union[str, List[Union[str, int]], None],
     breakdown_group_type_index: Optional[GroupTypeIndex],
+    hogql_context: HogQLContext,
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
@@ -226,6 +235,14 @@ def _to_value_expression(
             if direct_on_events
             else "group_properties",
         )
+    elif breakdown_type == "hogql":
+        from posthog.hogql.hogql import translate_hogql
+
+        if isinstance(breakdown, list):
+            expressions = [translate_hogql(exp, hogql_context) for exp in breakdown]
+            value_expression = f"array({','.join(expressions)})"
+        else:
+            value_expression = translate_hogql(cast(str, breakdown), hogql_context)
     else:
         value_expression = get_single_or_multi_property_string_expr(
             breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url
@@ -267,7 +284,11 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
         props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events"
+        team_id=team.pk,
+        property_group=props_to_filter,
+        prepend="all_cohort_",
+        table_name="all_events",
+        hogql_context=filter.hogql_context,
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
@@ -287,7 +308,7 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
         if isinstance(filter.breakdown, list)
         else Cohort.objects.filter(team_id=team.pk, pk=filter.breakdown)
     )
-    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
+    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts), filter.hogql_context)
     ids = [cohort.pk for cohort in cohorts]
     if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
         all_query, all_params = _format_all_query(team, filter, entity=entity)
@@ -297,11 +318,11 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: List[Cohort]) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(cohorts: List[Cohort], hogql_context: HogQLContext) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
     for idx, cohort in enumerate(cohorts):
-        person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+        person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context)
         params = {**params, **cohort_filter_params}
         cohort_query = person_id_query.replace(
             "SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value", 1

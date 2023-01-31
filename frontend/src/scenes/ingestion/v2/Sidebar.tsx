@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconArticle, IconQuestionAnswer } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconArticle, IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { HelpType } from '~/types'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product-onboarding&utm_campaign=help-button-sidebar'
 

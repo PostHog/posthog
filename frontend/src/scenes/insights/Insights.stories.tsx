@@ -10,6 +10,7 @@ export default {
         options: { showPanel: false },
         viewMode: 'story',
         mockDate: '2022-03-11',
+        chromatic: { disableSnapshot: true },
     },
     decorators: [
         mswDecorator({

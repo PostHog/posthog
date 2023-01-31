@@ -1,9 +1,9 @@
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { PathType, EditorFilterProps, QueryEditorFilterProps, PathsFilterType } from '~/types'
-import { LemonButtonWithPopup, LemonButton } from 'lib/components/LemonButton'
+import { LemonButtonWithPopup, LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanizePathsEventTypes } from '../utils'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 

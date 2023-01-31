@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
-import { AlertMessage } from 'lib/components/AlertMessage'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { CardContainer } from '../CardContainer'
 import './Panels.scss'

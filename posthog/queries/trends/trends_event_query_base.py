@@ -125,6 +125,7 @@ class TrendsEventQueryBase(EventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_context=self._filter.hogql_context,
         )
 
         return entity_format_params["entity_query"], entity_params

@@ -128,6 +128,9 @@ export default {
         forceEntitiesAsColumns: { defaultValue: false },
         groupTypeLabel: { defaultValue: 'people' },
     },
+    parameters: {
+        chromatic: { disableSnapshot: true },
+    },
 } as ComponentMeta<typeof InsightTooltip>
 
 const BasicTemplate: ComponentStory<typeof InsightTooltip> = (props: InsightTooltipProps) => {

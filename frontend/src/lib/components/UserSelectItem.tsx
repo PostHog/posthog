@@ -1,6 +1,6 @@
 import { UserBasicType, UserType } from '~/types'
-import { LemonSelectMultipleOptionItem } from './LemonSelectMultiple/LemonSelectMultiple'
-import { ProfilePicture } from './ProfilePicture'
+import { LemonSelectMultipleOptionItem } from 'lib/lemon-ui/LemonSelectMultiple'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 export interface UserSelectItemProps {
     user: UserBasicType | UserType

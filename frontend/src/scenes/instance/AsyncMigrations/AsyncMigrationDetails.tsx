@@ -1,10 +1,10 @@
 import { AsyncMigration, AsyncMigrationError, asyncMigrationsLogic } from './asyncMigrationsLogic'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { useActions, useValues } from 'kea'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconRefresh } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconRefresh } from 'lib/lemon-ui/icons'
 
 export function AsyncMigrationDetails({ asyncMigration }: { asyncMigration: AsyncMigration }): JSX.Element {
     const { asyncMigrationErrorsLoading, asyncMigrationErrors } = useValues(asyncMigrationsLogic)

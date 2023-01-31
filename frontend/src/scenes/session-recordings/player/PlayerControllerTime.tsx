@@ -9,7 +9,7 @@ import {
 import { seekbarLogic } from './seekbarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { IconSkipBackward } from 'lib/components/icons'
+import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 
 export function Timestamp(props: SessionRecordingPlayerLogicProps): JSX.Element {

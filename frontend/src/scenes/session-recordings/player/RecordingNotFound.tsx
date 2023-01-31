@@ -1,4 +1,4 @@
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { NotFound } from 'lib/components/NotFound'
 

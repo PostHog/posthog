@@ -14,10 +14,10 @@ import { Navigation } from '~/layout/navigation/Navigation'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { ToastCloseButton } from 'lib/components/lemonToast'
+import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],

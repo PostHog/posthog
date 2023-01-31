@@ -1,6 +1,6 @@
 import './InsightTooltip.scss'
 import { ReactNode } from 'react'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import {
     COL_CUTOFF,
     ROW_CUTOFF,
@@ -13,7 +13,7 @@ import {
 } from './insightTooltipUtils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { IconHandClick } from 'lib/components/icons'
+import { IconHandClick } from 'lib/lemon-ui/icons'
 import { shortTimeZone } from 'lib/utils'
 import { humanFriendlyNumber } from 'lib/utils'
 import { useValues } from 'kea'

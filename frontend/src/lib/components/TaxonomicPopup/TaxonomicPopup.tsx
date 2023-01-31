@@ -7,8 +7,8 @@ import {
     LemonButtonProps,
     LemonButtonWithPopup,
     LemonButtonWithPopupProps,
-} from 'lib/components/LemonButton'
-import { IconArrowDropDown, IconClose } from 'lib/components/icons'
+} from 'lib/lemon-ui/LemonButton'
+import { IconArrowDropDown, IconClose } from 'lib/lemon-ui/icons'
 
 export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
