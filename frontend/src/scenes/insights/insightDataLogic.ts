@@ -26,7 +26,6 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
-    isUnimplementedQuery,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -120,12 +119,7 @@ const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
             },
         }
     } else {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.UnimplementedQuery,
-            },
-        }
+        throw new Error('should not reach here')
     }
 }
 
@@ -191,10 +185,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.updateQuerySource(newQuerySource)
         },
         updateInsightFilter: ({ insightFilter }) => {
-            if (isUnimplementedQuery(values.querySource)) {
-                return
-            }
-
             const filterProperty = filterPropertyForQuery(values.querySource)
             const newQuerySource = { ...values.querySource }
             newQuerySource[filterProperty] = {
@@ -242,8 +232,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
             } else if (type === InsightType.LIFECYCLE) {
                 actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
-            } else {
-                actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
             }
         },
         setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
