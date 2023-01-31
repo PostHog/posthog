@@ -30,8 +30,6 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -120,7 +118,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
+        values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature']],
     }),
     defaults({
         sessionPlayerMetaData: {
@@ -440,10 +438,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {
                 loadPerformanceEvents: async ({}, breakpoint) => {
                     cache.performanceEventsStartTime = performance.now()
-                    if (
-                        !values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] ||
-                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-                    ) {
+                    if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
                         return null
                     }
 

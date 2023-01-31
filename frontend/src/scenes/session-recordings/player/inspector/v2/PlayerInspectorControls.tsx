@@ -11,10 +11,7 @@ import {
     IconPause,
 } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
@@ -35,17 +32,12 @@ export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps)
     const { showOnlyMatching, timestampMode, miniFilters, syncScroll } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(playerSettingsLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const inspectorPerformance = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]
-
-    const tabs = useMemo(() => {
-        return [
-            SessionRecordingPlayerTab.ALL,
-            SessionRecordingPlayerTab.EVENTS,
-            SessionRecordingPlayerTab.CONSOLE,
-            inspectorPerformance ? SessionRecordingPlayerTab.NETWORK : undefined,
-        ].filter(Boolean) as SessionRecordingPlayerTab[]
-    }, [inspectorPerformance])
+    const tabs = [
+        SessionRecordingPlayerTab.ALL,
+        SessionRecordingPlayerTab.EVENTS,
+        SessionRecordingPlayerTab.CONSOLE,
+        SessionRecordingPlayerTab.NETWORK,
+    ]
 
     return (
         <div className="bg-side p-2 space-y-2">

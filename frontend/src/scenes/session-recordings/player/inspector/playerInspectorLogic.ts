@@ -16,7 +16,6 @@ import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -242,40 +241,38 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const items: InspectorListItem[] = []
 
                 // PERFORMANCE EVENTS
-                if (!!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]) {
-                    const performanceEventsArr = performanceEvents || []
-                    for (const event of performanceEventsArr) {
-                        const timestamp = dayjs(event.timestamp)
-                        const responseStatus = event.response_status || 200
+                const performanceEventsArr = performanceEvents || []
+                for (const event of performanceEventsArr) {
+                    const timestamp = dayjs(event.timestamp)
+                    const responseStatus = event.response_status || 200
 
-                        // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
-                        if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
-                            const firstContentfulPaint = performanceEventsArr.find(
-                                (x) =>
-                                    x.pageview_id === event.pageview_id &&
-                                    x.entry_type === 'paint' &&
-                                    x.name === 'first-contentful-paint'
-                            )
-                            if (firstContentfulPaint) {
-                                event.first_contentful_paint = firstContentfulPaint.start_time
-                            }
+                    // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
+                    if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
+                        const firstContentfulPaint = performanceEventsArr.find(
+                            (x) =>
+                                x.pageview_id === event.pageview_id &&
+                                x.entry_type === 'paint' &&
+                                x.name === 'first-contentful-paint'
+                        )
+                        if (firstContentfulPaint) {
+                            event.first_contentful_paint = firstContentfulPaint.start_time
                         }
-
-                        if (event.entry_type === 'paint') {
-                            // We don't include paint events as they are covered in the navigation events
-                            continue
-                        }
-
-                        items.push({
-                            type: SessionRecordingPlayerTab.NETWORK,
-                            timestamp,
-                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: event.name || '',
-                            data: event,
-                            highlightColor: responseStatus >= 400 ? 'danger' : undefined,
-                            windowId: event.window_id,
-                        })
                     }
+
+                    if (event.entry_type === 'paint') {
+                        // We don't include paint events as they are covered in the navigation events
+                        continue
+                    }
+
+                    items.push({
+                        type: SessionRecordingPlayerTab.NETWORK,
+                        timestamp,
+                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        search: event.name || '',
+                        data: event,
+                        highlightColor: responseStatus >= 400 ? 'danger' : undefined,
+                        windowId: event.window_id,
+                    })
                 }
 
                 // CONSOLE LOGS
