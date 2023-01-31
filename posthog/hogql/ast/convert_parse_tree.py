@@ -182,7 +182,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise Exception(f"Unsupported node: ColumnExprTernaryOp")
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
-        raise Exception(f"Unsupported node: ColumnExprAlias")
+        if ctx.alias():
+            alias = ctx.alias().getText()
+        elif ctx.identifier():
+            alias = ctx.identifier().getText()
+        elif ctx.STRING_LITERAL():
+            alias = self._parse_string_literal(ctx.STRING_LITERAL())
+        else:
+            raise Exception(f"Must specify an alias.")
+
+        return ast.Column(expr=self.visit(ctx.columnExpr()), alias=alias)
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
         raise Exception(f"Unsupported node: ColumnExprExtract")
@@ -194,8 +203,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise Exception(f"Unsupported node: ColumnExprSubquery")
 
     def visitColumnExprLiteral(self, ctx: HogQLParser.ColumnExprLiteralContext):
-        if len(ctx.children) == 1:
-            return self.visit(ctx.children[0])
         return self.visitChildren(ctx)
 
     def visitColumnExprArray(self, ctx: HogQLParser.ColumnExprArrayContext):
@@ -419,9 +426,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.NULL_SQL():
             return ast.Constant(value=None)
         if ctx.STRING_LITERAL():
-            text = ctx.getText()
-            text = text[1:-1]
-            text = text.replace("''", "'")
+            text = self._parse_string_literal(ctx)
             return ast.Constant(value=text)
         return self.visitChildren(ctx)
 
@@ -445,3 +450,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
         raise Exception(f"Unsupported node: EnumValue")
+
+    def _parse_string_literal(self, ctx):
+        # TODO: make sure this works well!
+        text = ctx.getText()
+        text = text[1:-1]
+        text = text.replace("''", "'")
+        return text

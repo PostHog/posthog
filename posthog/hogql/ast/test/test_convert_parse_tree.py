@@ -338,3 +338,13 @@ class TestConvertParseTree(BaseTest):
             expr_to_ast("avg(1,2,3)"),
             ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
+
+    def test_column_alias(self):
+        self.assertEqual(
+            expr_to_ast("1 as asd"),
+            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+        )
+        self.assertEqual(
+            expr_to_ast("1 as 'asd'"),
+            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+        )
