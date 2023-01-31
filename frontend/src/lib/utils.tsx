@@ -41,8 +41,8 @@ import {
     isPropertyFilterWithOperator,
     isValidPropertyFilter,
 } from './components/PropertyFilters/utils'
-import { IconCopy } from './components/icons'
-import { lemonToast } from './components/lemonToast'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'

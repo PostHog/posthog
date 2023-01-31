@@ -3,8 +3,8 @@ import { AddToDashboardModal } from './AddToDashboardModal'
 import { InsightModel } from '~/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { useValues } from 'kea'
-import { LemonButton } from '../LemonButton'
-import { IconGauge, IconWithCount } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconGauge, IconWithCount } from 'lib/lemon-ui/icons'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 
 interface SaveToDashboardProps {

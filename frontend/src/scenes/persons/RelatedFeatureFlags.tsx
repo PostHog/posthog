@@ -1,6 +1,6 @@
 import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'

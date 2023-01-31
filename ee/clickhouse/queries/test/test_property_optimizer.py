@@ -12,14 +12,14 @@ PROPERTIES_OF_ALL_TYPES = [
 ]
 
 BASE_FILTER = Filter({"events": [{"id": "$pageview", "type": "events", "order": 0}]})
-FILTER_WITH_GROUPS = BASE_FILTER.with_data({"properties": {"type": "AND", "values": PROPERTIES_OF_ALL_TYPES}})
+FILTER_WITH_GROUPS = BASE_FILTER.shallow_clone({"properties": {"type": "AND", "values": PROPERTIES_OF_ALL_TYPES}})
 TEAM_ID = 3
 
 
 class TestPersonPropertySelector(unittest.TestCase):
     def test_basic_selector(self):
 
-        filter = BASE_FILTER.with_data(
+        filter = BASE_FILTER.shallow_clone(
             {
                 "properties": {
                     "type": "OR",
@@ -34,7 +34,7 @@ class TestPersonPropertySelector(unittest.TestCase):
 
     def test_multilevel_selector(self):
 
-        filter = BASE_FILTER.with_data(
+        filter = BASE_FILTER.shallow_clone(
             {
                 "properties": {
                     "type": "AND",
@@ -62,7 +62,7 @@ class TestPersonPropertySelector(unittest.TestCase):
 
     def test_multilevel_selector_with_valid_OR_persons(self):
 
-        filter = BASE_FILTER.with_data(
+        filter = BASE_FILTER.shallow_clone(
             {
                 "properties": {
                     "type": "OR",
@@ -125,7 +125,7 @@ class TestPersonPushdown(unittest.TestCase):
         )
 
     def test_person_properties_mixed_with_event_properties(self):
-        filter = BASE_FILTER.with_data(
+        filter = BASE_FILTER.shallow_clone(
             {
                 "properties": {
                     "type": "AND",
@@ -188,7 +188,7 @@ class TestPersonPushdown(unittest.TestCase):
         )
 
     def test_person_properties_with_or_not_mixed_with_event_properties(self):
-        filter = BASE_FILTER.with_data(
+        filter = BASE_FILTER.shallow_clone(
             {
                 "properties": {
                     "type": "AND",
@@ -254,7 +254,7 @@ class TestPersonPushdown(unittest.TestCase):
         )
 
     def test_person_properties_mixed_with_event_properties_with_misdirection_using_nested_groups(self):
-        filter = BASE_FILTER.with_data(
+        filter = BASE_FILTER.shallow_clone(
             {
                 "properties": {
                     "type": "AND",

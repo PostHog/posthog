@@ -6,7 +6,7 @@ import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogi
 import { QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 
 export function InternalMetricsTab(): JSX.Element {
     const { openSections, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)

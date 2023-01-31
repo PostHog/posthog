@@ -15,7 +15,7 @@ from posthog.test.test_journeys import journeys_for
 def funnel_breakdown_group_test_factory(Funnel, FunnelPerson, _create_event, _create_action, _create_person):
     class TestFunnelBreakdownGroup(APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
-            person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
+            person_filter = filter.shallow_clone({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
             _, serialized_result, _ = FunnelPerson(person_filter, self.team).get_actors()
 
             return [val["id"] for val in serialized_result]

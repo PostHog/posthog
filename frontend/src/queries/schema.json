@@ -1005,206 +1005,34 @@
         "AnyPropertyFilter": {
             "anyOf": [
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "event",
-                            "description": "Event properties",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/EventPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "person",
-                            "description": "Person properties",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/PersonPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "enum": ["tag_name", "text", "href", "selector"],
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "element",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/ElementPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "const": "$session_duration",
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "session",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "const": "id",
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "cohort",
-                            "type": "string"
-                        },
-                        "value": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "const": "duration",
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "recording",
-                            "type": "string"
-                        },
-                        "value": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/RecordingDurationFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "group",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/GroupPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "feature",
-                            "description": "Event property with \"$feature/\" prepended",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/FeaturePropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "hogql",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/EmptyPropertyFilter"
                 }
             ]
         },
@@ -1316,6 +1144,28 @@
                 "BoldNumber"
             ],
             "type": "string"
+        },
+        "CohortPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "const": "id",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "cohort",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "type", "value"],
+            "type": "object"
         },
         "CountPerActorMathType": {
             "enum": [
@@ -1443,6 +1293,31 @@
             },
             "type": "object"
         },
+        "ElementPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "enum": ["tag_name", "text", "href", "selector"],
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "element",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "ElementType": {
             "additionalProperties": false,
             "properties": {
@@ -1483,9 +1358,52 @@
             "required": ["attributes", "tag_name"],
             "type": "object"
         },
+        "EmptyPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "not": {}
+                },
+                "operator": {
+                    "not": {}
+                },
+                "type": {
+                    "not": {}
+                },
+                "value": {
+                    "not": {}
+                }
+            },
+            "type": "object"
+        },
         "EntityType": {
             "enum": ["actions", "events", "new_entity"],
             "type": "string"
+        },
+        "EventPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "event",
+                    "description": "Event properties",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
         },
         "EventType": {
             "additionalProperties": false,
@@ -1630,7 +1548,7 @@
             "properties": {
                 "actionId": {
                     "description": "Show events matching a given action",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
@@ -1657,11 +1575,11 @@
                 },
                 "limit": {
                     "description": "Number of rows to return",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "offset": {
                     "description": "Number of rows to skip before returning rows",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "orderBy": {
                     "description": "Columns to order by",
@@ -1729,6 +1647,30 @@
             "required": ["kind", "select"],
             "type": "object"
         },
+        "FeaturePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "feature",
+                    "description": "Event property with \"$feature/\" prepended",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
@@ -1748,11 +1690,29 @@
         "FunnelStepRangeEntityFilter": {
             "additionalProperties": false,
             "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
                 "funnel_from_step": {
                     "type": "number"
                 },
                 "funnel_to_step": {
                     "type": "number"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
                 }
             },
             "type": "object"
@@ -1870,6 +1830,10 @@
         "FunnelsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -1930,8 +1894,54 @@
             "const": "unique_group",
             "type": "string"
         },
+        "GroupPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "HogQLExpression": {
             "type": "string"
+        },
+        "HogQLPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "hogql",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "type"],
+            "type": "object"
         },
         "InsightQueryNode": {
             "anyOf": [
@@ -2013,6 +2023,10 @@
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2157,6 +2171,10 @@
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2189,6 +2207,31 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PersonPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "person",
+                    "description": "Person properties",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "PersonsNode": {
@@ -2381,6 +2424,30 @@
             "required": ["kind"],
             "type": "object"
         },
+        "RecordingDurationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "duration",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
         "RetentionFilter": {
             "additionalProperties": false,
             "properties": {
@@ -2409,6 +2476,10 @@
         "RetentionQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2446,6 +2517,30 @@
         "RetentionType": {
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
+        },
+        "SessionPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "$session_duration",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "session",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
         },
         "ShownAsValue": {
             "enum": ["Volume", "Stickiness", "Lifecycle"],
@@ -2492,6 +2587,10 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2617,6 +2716,10 @@
         "TrendsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -2676,6 +2779,10 @@
         "UnimplementedQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"

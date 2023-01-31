@@ -106,7 +106,7 @@ export const reloadAction = async (redis: Redis.Redis, teamId: number, actionId:
 
 export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
-        SELECT * FROM events 
+        SELECT * FROM events
         WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
     `)) as unknown as ClickHouse.ObjectQueryResult<RawClickHouseEvent>
     return queryResult.data.map(parseRawClickHouseEvent)
@@ -124,9 +124,11 @@ export const fetchPostgresPersons = async (pgClient: Pool, teamId: number) => {
     return rows
 }
 
-export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
+export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(
-        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
+        `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${
+            uuid ? ` AND uuid = '${uuid}'` : ''
+        } ORDER BY timestamp ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<RawSessionRecordingEvent>
     return queryResult.data.map((event) => {
         return {
@@ -174,7 +176,8 @@ export const createTeam = async (
     pgClient: Pool,
     organizationId: string,
     slack_incoming_webhook?: string,
-    token?: string
+    token?: string,
+    sessionRecordingOptIn = true
 ) => {
     const team = await insertRow(pgClient, 'posthog_team', {
         organization_id: organizationId,
@@ -191,7 +194,7 @@ export const createTeam = async (
         completed_snippet_onboarding: true,
         ingested_event: true,
         uuid: new UUIDT().toString(),
-        session_recording_opt_in: true,
+        session_recording_opt_in: sessionRecordingOptIn,
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,

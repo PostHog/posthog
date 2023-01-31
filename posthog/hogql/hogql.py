@@ -2,9 +2,7 @@
 import ast
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, cast
-
-from clickhouse_driver.util.escape import escape_param
+from typing import Any, Dict, List, Literal, Optional, cast
 
 # fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
@@ -124,15 +122,24 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 
 @dataclass
+class HogQLFieldAccess:
+    input: List[str]
+    type: Optional[Literal["event", "event.properties", "person", "person.properties"]]
+    field: Optional[str]
+    sql: str
+
+
+@dataclass
 class HogQLContext:
     """Context given to a HogQL expression parser"""
 
     # If set, will save string constants to this dict. Inlines strings into the query if None.
-    values: Optional[Dict] = field(default_factory=dict)
+    values: Dict = field(default_factory=dict)
     # List of field and property accesses found in the expression
-    attribute_list: List[List[str]] = field(default_factory=list)
-    # Did the last calls to translate_hogql since setting this to False contain any HOGQL_AGGREGATIONS
+    field_access_logs: List[HogQLFieldAccess] = field(default_factory=list)
+    # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
+    using_person_on_events: bool = True
 
 
 def translate_hogql(hql: str, context: HogQLContext) -> str:
@@ -214,15 +221,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"val_{len(context.values or {})}"
+        key = f"hogql_val_{len(context.values)}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str):
-            if isinstance(context.values, dict):
-                context.values[key] = node.value
-                response = f"%({key})s"
-            else:
-                response = escape_param(node.value)
+            context.values[key] = node.value
+            response = f"%({key})s"
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
     elif isinstance(node, ast.Attribute) or isinstance(node, ast.Subscript):
@@ -258,8 +262,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
                 break
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
-        response = property_access_to_clickhouse(attribute_chain)
-        context.attribute_list.append(attribute_chain)
+        field_access = parse_field_access(attribute_chain, context)
+        context.field_access_logs.append(field_access)
+        response = field_access.sql
 
     elif isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
@@ -301,8 +306,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif isinstance(node, ast.Name) and isinstance(node.id, str):
-        response = property_access_to_clickhouse([node.id])
-        context.attribute_list.append([node.id])
+        field_access = parse_field_access([node.id], context)
+        context.field_access_logs.append(field_access)
+        response = field_access.sql
     else:
         ast.dump(node)
         raise ValueError(f"Unknown AST type {type(node).__name__}")
@@ -311,43 +317,61 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
     return response
 
 
-def property_access_to_clickhouse(chain: List[str]):
+def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAccess:
     # Circular import otherwise
     from posthog.models.property.util import get_property_string_expr
 
     """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
     if len(chain) == 2:
         if chain[0] == "properties":
+            key = f"hogql_val_{len(context.values)}"
+            context.values[key] = chain[1]
+            escaped_key = f"%({key})s"
             expression, _ = get_property_string_expr(
                 "events",
                 chain[1],
-                escape_param(chain[1]),
+                escaped_key,
                 "properties",
             )
-            return expression
+            return HogQLFieldAccess(chain, "event.properties", chain[1], expression)
         elif chain[0] == "person":
             if chain[1] in EVENT_PERSON_FIELDS:
-                return f"person_{chain[1]}"
+                return HogQLFieldAccess(chain, "person", chain[1], f"person_{chain[1]}")
             else:
                 raise ValueError(f"Unknown person field '{chain[1]}'")
     elif len(chain) == 3 and chain[0] == "person" and chain[1] == "properties":
-        expression, _ = get_property_string_expr(
-            "events",
-            chain[2],
-            escape_param(chain[2]),
-            "person_properties",
-            materialised_table_column="person_properties",
-        )
-        return expression
+        key = f"hogql_val_{len(context.values or {})}"
+        context.values[key] = chain[2]
+        escaped_key = f"%({key})s"
+
+        if context.using_person_on_events:
+            expression, _ = get_property_string_expr(
+                "events",
+                chain[2],
+                escaped_key,
+                "person_properties",
+                materialised_table_column="person_properties",
+            )
+
+        else:
+            expression, _ = get_property_string_expr(
+                "person",
+                chain[2],
+                escaped_key,
+                "person_props",
+                materialised_table_column="properties",
+            )
+
+        return HogQLFieldAccess(chain, "person.properties", chain[2], expression)
     elif len(chain) == 1:
         if chain[0] in EVENT_FIELDS:
             if chain[0] == "id":
-                return "uuid"
-            return chain[0]
+                return HogQLFieldAccess(chain, "event", "uuid", "uuid")
+            return HogQLFieldAccess(chain, "event", chain[0], chain[0])
         elif chain[0].startswith("person_") and chain[0][7:] in EVENT_PERSON_FIELDS:
-            return chain[0]
+            return HogQLFieldAccess(chain, "person", chain[0][7:], chain[0])
         elif chain[0].lower() in KEYWORDS:
-            return chain[0].lower()
+            return HogQLFieldAccess(chain, None, None, chain[0].lower())
         elif chain[0] == "person":
             raise ValueError(f'Can not use the field "person" in an expression')
         else:

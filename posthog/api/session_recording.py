@@ -217,7 +217,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         recordings = recordings + list(persisted_recordings)
 
         remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
-        filter = filter.with_data({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
+        filter = filter.shallow_clone({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs

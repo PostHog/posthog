@@ -4,7 +4,7 @@ import { useActions, useValues, BindLogic } from 'kea'
 import './MergeSplitPerson.scss'
 import { mergeSplitPersonLogic } from './mergeSplitPersonLogic'
 import { pluralize } from 'lib/utils'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function MergeSplitPerson({ person }: { person: PersonType }): JSX.Element {
     const logicProps = { person }

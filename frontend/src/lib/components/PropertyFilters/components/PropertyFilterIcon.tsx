@@ -1,6 +1,6 @@
 import { PropertyFilterType } from '~/types'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconCohort, IconPerson, IconUnverifiedEvent } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCohort, IconPerson, IconUnverifiedEvent } from 'lib/lemon-ui/icons'
 
 export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element {
     let iconElement = <></>

@@ -17,7 +17,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import { PopupProps } from 'lib/components/Popup/Popup'
+import { PopupProps } from 'lib/lemon-ui/Popup/Popup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
@@ -25,9 +25,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode } from './queries/schema'
+import { InsightQueryNode, QuerySchema } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -269,8 +268,6 @@ export interface TeamBasicType {
     timezone: string
     /** Whether the project is private. */
     access_control: boolean
-    /** Effective access level of the user in this specific team. Null if user has no access. */
-    effective_membership_level: OrganizationMembershipLevel | null
 }
 
 export interface CorrelationConfigType {
@@ -298,6 +295,10 @@ export interface TeamType extends TeamBasicType {
     has_group_types: boolean
     primary_dashboard: number // Dashboard shown on the project homepage
     live_events_columns: string[] | null // Custom columns shown on the Live Events page
+
+    /** Effective access level of the user in this specific team. Null if user has no access. */
+    effective_membership_level: OrganizationMembershipLevel | null
+
     /** Used to exclude person properties from correlation analysis results.
      *
      * For example can be used to exclude properties that have trivial causation.
@@ -685,7 +686,8 @@ export type EntityFilter = {
     order?: number
 }
 
-export interface FunnelStepRangeEntityFilter {
+// TODO: Separate FunnelStepRange and FunnelStepRangeEntity filter types
+export interface FunnelStepRangeEntityFilter extends Partial<EntityFilter> {
     funnel_from_step?: number
     funnel_to_step?: number
 }
@@ -878,7 +880,8 @@ export interface RecordingTimeMixinType {
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
     percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    level?: RowStatus.Match | RowStatus.Information // If undefined, by default information row
+    // Can be removed once inspector V1 is removed
+    level?: 'match' | 'information' // If undefined, by default information row
 }
 
 export interface EventsTableRowItem {
@@ -1210,6 +1213,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
+    query?: QuerySchema
 }
 
 export interface DashboardType {

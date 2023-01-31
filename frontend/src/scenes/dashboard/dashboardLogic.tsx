@@ -45,8 +45,8 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
-import { Link } from 'lib/components/Link'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { Link } from 'lib/lemon-ui/Link'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
@@ -230,7 +230,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             filters: values.filters,
-                            no_items_field: true,
                         })
                     } catch (e) {
                         lemonToast.error('Could not update dashboardFilters: ' + e)
@@ -245,7 +244,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, color }],
-                        no_items_field: true,
                     })
                     const matchingTile = values.tiles.find((tile) => tile.id === tileId)
                     if (matchingTile) {
@@ -257,7 +255,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
-                            no_items_field: true,
                         })
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
@@ -282,7 +279,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [newTile],
-                            no_items_field: true,
                         } as Partial<InsightModel>)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + e)
@@ -302,7 +298,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 tile,
                                 toDashboard,
-                                no_items_field: true,
                             }
                         )
                     }
@@ -645,7 +640,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (refresh?: boolean) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
-                        no_items_field: true,
                     })}`
             },
         ],
@@ -861,7 +855,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 tiles: layoutsToUpdate,
-                no_items_field: true,
             })
         },
         moveToDashboardSuccess: ({ payload }) => {

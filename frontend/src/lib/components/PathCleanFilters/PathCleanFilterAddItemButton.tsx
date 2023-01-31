@@ -1,9 +1,9 @@
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
-import { Popup } from 'lib/components/Popup/Popup'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconPlus } from 'lib/components/icons'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
 import { PathRegexPopup } from './PathRegexPopup'
 

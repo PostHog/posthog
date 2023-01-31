@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { IconLightBulb } from 'lib/components/icons'
+import { IconLightBulb } from 'lib/lemon-ui/icons'
 import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
 import clsx from 'clsx'
 import './FunnelsCue.scss'

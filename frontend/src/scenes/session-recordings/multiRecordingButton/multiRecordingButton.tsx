@@ -2,8 +2,8 @@ import { MutableRefObject, ReactNode, useCallback, useState } from 'react'
 import { PlayCircleOutlined, DownOutlined, ArrowRightOutlined } from '@ant-design/icons'
 import { MatchedRecording } from '~/types'
 import { Button } from 'antd'
-import { Popup } from '../../../lib/components/Popup/Popup'
-import { Link } from 'lib/components/Link'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Link } from 'lib/lemon-ui/Link'
 import './multiRecordingButton.scss'
 
 interface MultiRecordingButtonProps {

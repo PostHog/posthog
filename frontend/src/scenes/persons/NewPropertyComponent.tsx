@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Input, Radio } from 'antd'
 import { SaveOutlined, StopOutlined, CheckOutlined, CloseOutlined } from '@ant-design/icons'
 import Modal from 'antd/lib/modal/Modal'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface NewPropertyInterface {
     creating: boolean

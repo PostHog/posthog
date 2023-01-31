@@ -4,7 +4,7 @@ import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
 import { Experiment, ExperimentsTabs, AvailableFeature, ExperimentStatus } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
 
 export const experimentsLogic = kea<experimentsLogicType>({

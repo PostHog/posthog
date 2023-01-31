@@ -6,8 +6,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SignupForm } from './signupForm/SignupForm'
 import { Region } from '~/types'
 import { router } from 'kea-router'
-import { Link } from 'lib/components/Link'
-import { IconCheckCircleOutline } from 'lib/components/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 
 export const scene: SceneExport = {

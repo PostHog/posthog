@@ -1,6 +1,6 @@
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { LemonBadge, LemonBadgeProps } from '@posthog/lemon-ui'
 
 export function SuccessRateBadge({

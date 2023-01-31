@@ -79,6 +79,84 @@ describe('the activity log logic', () => {
             expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
         })
 
+        it('can handle change of insight query', async () => {
+            const logic = await insightTestSetup('test insight', 'updated', [
+                {
+                    type: 'Insight',
+                    action: 'changed',
+                    field: 'query',
+                    after: {
+                        kind: 'TrendsQuery',
+                        properties: {
+                            type: 'AND',
+                            values: [
+                                {
+                                    type: 'OR',
+                                    values: [
+                                        {
+                                            type: 'event',
+                                            key: '$current_url',
+                                            operator: 'exact',
+                                            value: ['https://hedgebox.net/files/'],
+                                        },
+                                        {
+                                            type: 'event',
+                                            key: '$geoip_country_code',
+                                            operator: 'exact',
+                                            value: ['US', 'AU'],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                        filterTestAccounts: false,
+                        interval: 'day',
+                        dateRange: {
+                            date_from: '-7d',
+                        },
+                        series: [
+                            {
+                                kind: 'EventsNode',
+                                name: '$pageview',
+                                custom_name: 'Views',
+                                event: '$pageview',
+                                properties: [
+                                    {
+                                        type: 'event',
+                                        key: '$browser',
+                                        operator: 'exact',
+                                        value: 'Chrome',
+                                    },
+                                    {
+                                        type: 'cohort',
+                                        key: 'id',
+                                        value: 2,
+                                    },
+                                ],
+                                limit: 100,
+                            },
+                        ],
+                        trendsFilter: {
+                            display: 'ActionsAreaGraph',
+                        },
+                        breakdown: {
+                            breakdown: '$geoip_country_code',
+                            breakdown_type: 'event',
+                        },
+                    },
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            const renderedDescription = render(<>{actual[0].description}</>).container
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
+
+            const renderedExtendedDescription = render(<>{actual[0].extendedDescription}</>).container
+            expect(renderedExtendedDescription).toHaveTextContent(
+                "Query summaryAShowing \"Views\"Pageviewcounted by total count where event'sBrowser= equals Chrome and person belongs to cohortID 2FiltersEvent'sCurrent URL= equals https://hedgebox.net/files/or event'sCountry Code= equals US or AUBreakdown byCountry Code"
+            )
+        })
+
         it('can handle change of filters on a retention graph', async () => {
             const logic = await insightTestSetup('test insight', 'updated', [
                 {

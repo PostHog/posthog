@@ -99,9 +99,13 @@ class Filter(
 
     funnel_id: Optional[int] = None
     _data: Dict
+    kwargs: Dict
 
     def __init__(
-        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+        self,
+        data: Optional[Dict[str, Any]] = None,
+        request: Optional[request.Request] = None,
+        **kwargs,
     ) -> None:
 
         if request:
@@ -119,9 +123,9 @@ class Filter(
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
-
         self.kwargs = kwargs
-
-        if "team" in kwargs and not self.is_simplified:
-            simplified_filter = self.simplify(kwargs["team"])
-            self._data = simplified_filter._data
+        if "team" in kwargs:
+            self.team = kwargs["team"]
+            if not self.is_simplified:
+                simplified_filter = self.simplify(kwargs["team"])
+                self._data = simplified_filter._data

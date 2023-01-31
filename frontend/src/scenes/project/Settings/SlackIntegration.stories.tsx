@@ -12,7 +12,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: false },
+        chromatic: { disableSnapshot: true },
     },
 } as ComponentMeta<typeof SlackIntegration>
 

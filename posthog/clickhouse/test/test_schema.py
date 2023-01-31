@@ -13,15 +13,12 @@ from posthog.clickhouse.schema import (
 
 
 @pytest.mark.parametrize("query", CREATE_TABLE_QUERIES, ids=get_table_name)
-def test_create_table_query(query, snapshot, settings):
-    settings.CLICKHOUSE_REPLICATION = False
-
+def test_create_table_query(query, snapshot):
     assert build_query(query) == snapshot
 
 
 @pytest.mark.parametrize("query", CREATE_MERGETREE_TABLE_QUERIES, ids=get_table_name)
 def test_create_table_query_replicated_and_storage(query, snapshot, settings):
-    settings.CLICKHOUSE_REPLICATION = True
     settings.CLICKHOUSE_ENABLE_STORAGE_POLICY = True
 
     assert build_query(query) == snapshot
