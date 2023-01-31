@@ -1,10 +1,10 @@
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.tree.Tree import ParseTree
 
-from posthog.hogql.ast import ast
-from posthog.hogql.ast.parser import parse_expr
+from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
+from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
 
 

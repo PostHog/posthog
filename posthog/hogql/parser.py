@@ -1,9 +1,9 @@
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 
-from posthog.hogql.ast import ast
-from posthog.hogql.ast.util import parse_string_literal
+from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
+from posthog.hogql.util import parse_string_literal
 
 
 def parse_expr(expr: str) -> ast.Expr:
