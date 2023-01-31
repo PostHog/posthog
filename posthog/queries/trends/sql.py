@@ -62,7 +62,7 @@ toDateTime(%(date_from)s, %(timezone)s) AS date_from,
 arrayMap(
     n -> n,
     range(
-        toUInt32(toDateTime({interval}(%(date_from)s))),
+        toUInt32(toDateTime({interval}(date_from))),
         toUInt32(date_to),
         %(bucket_increment_seconds)s
     )
