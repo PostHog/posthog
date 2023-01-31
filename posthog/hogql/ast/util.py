@@ -12,7 +12,7 @@ def parse_string_literal(ctx):
     text = text.replace("\\0", "\0")
     text = text.replace("\\a", "\a")
     text = text.replace("\\v", "\v")
-    text = text.replace("\\\\", "\\")
     text = text.replace("\\'", "'")
+    text = text.replace("\\\\", "\\")
 
     return text
