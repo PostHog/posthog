@@ -114,7 +114,7 @@ class FunnelCorrelation:
         self._base_uri = base_uri
 
         if self._filter.funnel_step is None:
-            self._filter = self._filter.with_data({"funnel_step": 1})
+            self._filter = self._filter.shallow_clone({"funnel_step": 1})
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
@@ -130,7 +130,7 @@ class FunnelCorrelation:
         # NOTE: we always use the final matching event for the recording because this
         # is the the right event for both drop off and successful funnels
         filter_data.update({"include_final_matching_events": self._filter.include_recordings})
-        filter = Filter(data=filter_data)
+        filter = Filter(data=filter_data, hogql_context=self._filter.hogql_context)
 
         funnel_order_actor_class = get_funnel_order_actor_class(filter)
 
@@ -701,11 +701,11 @@ class FunnelCorrelation:
 
     def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
-        # class should need to know these details, but with_data is
+        # class should need to know these details, but shallow_clone is
         # expecting the values as they are serialized in the url
         # TODO: remove url serialization details from this class, it likely
         # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
-        params = self._filter.with_data(
+        params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
@@ -726,7 +726,7 @@ class FunnelCorrelation:
                 "text": first_element["text"],
                 "selector": build_selector(elements),
             }
-            params = self._filter.with_data(
+            params = self._filter.shallow_clone(
                 {
                     "funnel_correlation_person_converted": "true" if success else "false",
                     "funnel_correlation_person_entity": {
@@ -743,7 +743,7 @@ class FunnelCorrelation:
             return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
         event_name, property_name, property_value = event_definition["event"].split("::")
-        params = self._filter.with_data(
+        params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_person_entity": {
@@ -763,7 +763,7 @@ class FunnelCorrelation:
         # event.event will be of the format "{property_name}::{property_value}"
         property_name, property_value = event_definition["event"].split("::")
         prop_type = "group" if self._filter.aggregation_group_type_index else "person"
-        params = self._filter.with_data(
+        params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_property_values": [
@@ -803,7 +803,9 @@ class FunnelCorrelation:
         """
 
         query, params = self.get_contingency_table_query()
-        results_with_total = insight_sync_execute(query, params, query_type="funnel_correlation", filter=self._filter)
+        results_with_total = insight_sync_execute(
+            query, {**params, **self._filter.hogql_context.values}, query_type="funnel_correlation", filter=self._filter
+        )
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]

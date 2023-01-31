@@ -234,10 +234,10 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for funnel_step, custom_steps, expected_count in parameters:
-            filter = base_filter.with_data({"funnel_step": funnel_step})
+            filter = base_filter.shallow_clone({"funnel_step": funnel_step})
             _, results, _ = ClickhouseFunnelActors(filter, self.team).get_actors()
 
-            new_filter = base_filter.with_data({"funnel_custom_steps": custom_steps})
+            new_filter = base_filter.shallow_clone({"funnel_custom_steps": custom_steps})
             _, new_results, _ = ClickhouseFunnelActors(new_filter, self.team).get_actors()
 
             self.assertEqual(new_results, results)
@@ -268,7 +268,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         ]
 
         for custom_steps, expected_count in parameters:
-            new_filter = base_filter.with_data({"funnel_custom_steps": custom_steps})
+            new_filter = base_filter.shallow_clone({"funnel_custom_steps": custom_steps})
             _, new_results, _ = ClickhouseFunnelActors(new_filter, self.team).get_actors()
 
             self.assertEqual(len(new_results), expected_count)
@@ -315,13 +315,13 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "Chrome"}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "Chrome"}), self.team
         ).get_actors()
 
         self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "Safari"}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "Safari"}), self.team
         ).get_actors()
 
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
@@ -346,13 +346,13 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": ["Chrome", "95"]}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": ["Chrome", "95"]}), self.team
         ).get_actors()
 
         self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": ["Safari", "14"]}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": ["Safari", "14"]}), self.team
         ).get_actors()
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
@@ -377,24 +377,24 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual([val["id"] for val in results], [person1.uuid, person2.uuid])
 
         _, results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "EE"}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "EE"}), self.team
         ).get_actors()
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "EE", "funnel_custom_steps": [1, 2, 3]}), self.team
         ).get_actors()
         self.assertEqual(results, custom_step_results)
 
         _, results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "PL"}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "PL"}), self.team
         ).get_actors()
         self.assertCountEqual([val["id"] for val in results], [person1.uuid])
 
         # Check custom_steps give same answers for breakdowns
         _, custom_step_results, _ = ClickhouseFunnelActors(
-            filter.with_data({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}), self.team
+            filter.shallow_clone({"funnel_step_breakdown": "PL", "funnel_custom_steps": [1, 2, 3]}), self.team
         ).get_actors()
         self.assertEqual(results, custom_step_results)
 

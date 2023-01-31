@@ -154,7 +154,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         # Since all props should be pushed down here, there should be no full outer join!
         self.assertTrue("FULL OUTER JOIN" not in q)
@@ -204,7 +204,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -261,7 +261,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -321,7 +321,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual({p2.uuid}, {r[0] for r in res})
 
@@ -398,7 +398,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual({p1.uuid, p2.uuid, p3.uuid}, {r[0] for r in res})
 
@@ -470,7 +470,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -579,7 +579,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -654,7 +654,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p2.uuid], [r[0] for r in res])
 
@@ -691,7 +691,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -733,7 +733,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
         self.assertEqual([p2.uuid], [r[0] for r in res])
         flush_persons_and_events()
 
@@ -763,7 +763,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
         self.assertEqual({p1.uuid, p2.uuid}, {r[0] for r in res})
 
     @snapshot_clickhouse_queries
@@ -807,7 +807,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         # Since all props should be pushed down here, there should be no full outer join!
         self.assertTrue("FULL OUTER JOIN" not in q)
@@ -920,7 +920,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in res])
 
@@ -953,7 +953,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         flush_persons_and_events()
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -1016,7 +1016,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        sync_execute(q, params)
+        sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertTrue("timestamp >= now() - INTERVAL 9 week" in (q % params))
 
@@ -1053,7 +1053,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         query_class = CohortQuery(filter=filter, team=self.team)
         q, params = query_class.get_query()
         self.assertFalse(query_class._restrict_event_query_by_time)
-        sync_execute(q, params)
+        sync_execute(q, {**params, **filter.hogql_context.values})
 
     def test_negation(self):
         _create_person(
@@ -1165,7 +1165,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
         self.assertCountEqual([p3.uuid], [r[0] for r in res])
 
     def test_negation_dynamic_time_bound_with_performed_event(self):
@@ -1262,7 +1262,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p3.uuid, p4.uuid], [r[0] for r in res])
 
@@ -1391,7 +1391,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
         self.assertCountEqual([p3.uuid, p4.uuid, p5.uuid, p6.uuid], [r[0] for r in res])
 
     def test_cohort_filter(self):
@@ -1408,7 +1408,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -1509,7 +1509,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
             # Precalculated cohorts should not be used as is
             # since we want cohort calculation with cohort properties to not be out of sync
             self.assertTrue("cohortpeople" not in q)
-            res = sync_execute(q, params)
+            res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -1544,7 +1544,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             q, params = CohortQuery(filter=filter, team=self.team).get_query()
             self.assertTrue("cohortpeople" not in q)
-            res = sync_execute(q, params)
+            res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
@@ -1589,7 +1589,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p2.uuid], [r[0] for r in res])
 
@@ -1614,7 +1614,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
@@ -1694,7 +1694,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p2.uuid], [r[0] for r in res])
 
@@ -1711,7 +1711,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -1753,7 +1753,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p2.uuid], [r[0] for r in res])
 
@@ -1778,7 +1778,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p1.uuid, p2.uuid], [r[0] for r in res])
 
@@ -1826,7 +1826,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -1890,7 +1890,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual(sorted([p1.uuid, p2.uuid]), sorted([r[0] for r in res]))
 
@@ -1963,7 +1963,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -2061,7 +2061,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -2144,7 +2144,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual([p1.uuid], [r[0] for r in res])
 
@@ -2216,7 +2216,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertEqual({p1.uuid, p2.uuid}, {r[0] for r in res})
 
@@ -2307,7 +2307,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p2.uuid, p3.uuid], [r[0] for r in res])
 
@@ -2409,7 +2409,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p2.uuid], [r[0] for r in res])
 
@@ -2533,7 +2533,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
         )
 
         q, params = CohortQuery(filter=filter, team=self.team).get_query()
-        res = sync_execute(q, params)
+        res = sync_execute(q, {**params, **filter.hogql_context.values})
 
         self.assertCountEqual([p4.uuid], [r[0] for r in res])
 

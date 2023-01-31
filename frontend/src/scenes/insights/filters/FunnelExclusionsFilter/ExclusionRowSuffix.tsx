@@ -1,35 +1,93 @@
-import { useRef } from 'react'
-import { Col, Row, Select } from 'antd'
+import { Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
-import useSize from '@react-hook/size'
-import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, EntityTypes } from '~/types'
+import { FunnelStepRangeEntityFilter, ActionFilter as ActionFilterType, FunnelsFilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/lemon-ui/icons'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { FunnelsQuery } from '~/queries/schema'
+import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelUtils'
 
-function ExclusionRowSuffix({
-    filter,
-    index,
-    onClose,
-    isVertical,
-}: {
-    filter: ActionFilterType | FunnelStepRangeEntityFilter
-    index: number
-    onClose?: () => void
-    isVertical: boolean
-}): JSX.Element | null {
+export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { querySource, insightFilter, exclusionDefaultStepRange } = useValues(funnelDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+
+    const setOneEventExclusionFilter = (eventFilter: FunnelStepRangeEntityFilter, index: number): void => {
+        const exclusions = ((insightFilter as FunnelsFilterType)?.exclusions || []).map((e, e_i) =>
+            e_i === index
+                ? getClampedStepRangeFilterDataExploration({
+                      stepRange: eventFilter,
+                      query: querySource as FunnelsQuery,
+                  })
+                : e
+        )
+
+        updateInsightFilter({
+            exclusions,
+        })
+    }
+
+    return (
+        <ExclusionRowSuffixComponent
+            exclusions={(insightFilter as FunnelsFilterType)?.exclusions}
+            areFiltersValid={(querySource as FunnelsQuery).series.length > 1}
+            numberOfSeries={(querySource as FunnelsQuery).series.length}
+            exclusionDefaultStepRange={exclusionDefaultStepRange}
+            setOneEventExclusionFilter={setOneEventExclusionFilter}
+            {...props}
+        />
+    )
+}
+
+export function ExclusionRowSuffix(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { filters, areFiltersValid, numberOfSeries, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
     const { setOneEventExclusionFilter } = useActions(funnelLogic(insightProps))
 
+    return (
+        <ExclusionRowSuffixComponent
+            exclusions={filters.exclusions}
+            areFiltersValid={areFiltersValid}
+            numberOfSeries={numberOfSeries}
+            exclusionDefaultStepRange={exclusionDefaultStepRange}
+            setOneEventExclusionFilter={setOneEventExclusionFilter}
+            {...props}
+        />
+    )
+}
+
+type ExclusionRowSuffixComponentBaseProps = {
+    filter: ActionFilterType | FunnelStepRangeEntityFilter
+    index: number
+    onClose?: () => void
+    isVertical: boolean
+}
+
+type ExclusionRowSuffixComponentProps = ExclusionRowSuffixComponentBaseProps & {
+    areFiltersValid: boolean
+    numberOfSeries: number
+    exclusionDefaultStepRange: Omit<FunnelStepRangeEntityFilter, 'id' | 'name'>
+    exclusions?: FunnelStepRangeEntityFilter[]
+    setOneEventExclusionFilter: (eventFilter: FunnelStepRangeEntityFilter, index: number) => void
+}
+
+export function ExclusionRowSuffixComponent({
+    filter,
+    index,
+    onClose,
+    isVertical,
+    areFiltersValid,
+    numberOfSeries,
+    exclusionDefaultStepRange,
+    exclusions,
+    setOneEventExclusionFilter,
+}: ExclusionRowSuffixComponentProps): JSX.Element | null {
     const stepRange = {
-        funnel_from_step: filters.exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
-        funnel_to_step: filters.exclusions?.[index]?.funnel_to_step ?? exclusionDefaultStepRange.funnel_to_step,
+        funnel_from_step: exclusions?.[index]?.funnel_from_step ?? exclusionDefaultStepRange.funnel_from_step,
+        funnel_to_step: exclusions?.[index]?.funnel_to_step ?? exclusionDefaultStepRange.funnel_to_step,
     }
 
     const onChange = (
@@ -48,7 +106,6 @@ function ExclusionRowSuffix({
 
     return (
         <Row
-            justify="space-between"
             align="middle"
             wrap={false}
             style={{ margin: `${isVertical ? 4 : 0}px 0`, paddingLeft: 4, width: isVertical ? '100%' : 'auto' }}
@@ -95,7 +152,6 @@ function ExclusionRowSuffix({
                         </Select.Option>
                     ))}
             </Select>
-            <div style={{ flex: 1 }} />
             <LemonButton
                 icon={<IconDelete />}
                 status="primary-alt"
@@ -104,63 +160,5 @@ function ExclusionRowSuffix({
                 title="Delete event exclusion series"
             />
         </Row>
-    )
-}
-
-function ExclusionRow({
-    seriesIndicator,
-    filter,
-    suffix,
-    isVertical,
-}: {
-    seriesIndicator?: JSX.Element | string
-    suffix?: JSX.Element | string
-    filter?: JSX.Element | string
-    isVertical?: boolean
-}): JSX.Element {
-    return (
-        <Row wrap={false} align={isVertical ? 'top' : 'middle'} style={{ width: '100%' }}>
-            <Col style={{ padding: `${isVertical ? 5 : 0}px 8px` }}>{seriesIndicator}</Col>
-            <Col flex="auto">
-                <Row align="middle" wrap={isVertical}>
-                    {filter}
-                    {suffix}
-                </Row>
-            </Col>
-        </Row>
-    )
-}
-
-export function FunnelExclusionsFilter(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const { exclusionFilters, areFiltersValid, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
-    const { setEventExclusionFilters } = useActions(funnelLogic(insightProps))
-    const ref = useRef(null)
-    const [width] = useSize(ref)
-    const isVerticalLayout = !!width && width < 450 // If filter container shrinks below 500px, initiate verticality
-
-    return (
-        <ActionFilter
-            ref={ref}
-            setFilters={setEventExclusionFilters}
-            filters={exclusionFilters}
-            typeKey="funnel-exclusions-filter"
-            addFilterDefaultOptions={{
-                id: '$pageview',
-                name: '$pageview',
-                type: EntityTypes.EVENTS,
-                ...exclusionDefaultStepRange,
-            }}
-            disabled={!areFiltersValid}
-            buttonCopy="Add exclusion"
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
-            mathAvailability={MathAvailability.None}
-            hideFilter
-            hideRename
-            hideDeleteBtn
-            seriesIndicatorType="alpha"
-            renderRow={(props) => <ExclusionRow {...props} isVertical={isVerticalLayout} />}
-            customRowSuffix={(props) => <ExclusionRowSuffix {...props} isVertical={isVerticalLayout} />}
-        />
     )
 }

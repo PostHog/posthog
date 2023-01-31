@@ -91,7 +91,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def adjusted_filter(self, filter: Filter, team: Team) -> Tuple[Filter, Optional[Dict[str, Any]]]:
         cached_result = self.get_cached_result(filter, team)
 
-        new_filter = filter.with_data({"date_from": interval_unit(filter.interval)}) if cached_result else filter
+        new_filter = filter.shallow_clone({"date_from": interval_unit(filter.interval)}) if cached_result else filter
 
         label_to_payload = {}
         if cached_result:
@@ -126,10 +126,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
-            scope.set_context("query", {"sql": sql, "params": params})
+            query_params = {**params, **adjusted_filter.hogql_context.values}
+            scope.set_context("query", {"sql": sql, "params": query_params})
             result = insight_sync_execute(
                 sql,
-                params,
+                query_params,
                 settings={"timeout_before_checking_execution_speed": 60},
                 query_type=query_type,
                 filter=adjusted_filter,
@@ -163,10 +164,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             parse_functions[entity.index] = parse_function
-            sql_statements_with_params[entity.index] = (sql, params)
+            query_params = {**params, **adjusted_filter.hogql_context.values}
+            sql_statements_with_params[entity.index] = (sql, query_params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, params, get_query_tags()),
+                args=(result, entity.index, query_type, sql, query_params, get_query_tags()),
             )
             jobs.append(thread)
 
