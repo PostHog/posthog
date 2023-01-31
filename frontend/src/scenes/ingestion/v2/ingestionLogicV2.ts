@@ -485,7 +485,11 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
     actionToUrl(({ values }) => ({
         setState: () => getUrl(values),
         updateCurrentTeamSuccess: () => {
-            if (router.values.location.pathname.includes('/ingestion')) {
+            if (
+                router.values.location.pathname.includes(
+                    values.showBillingStep ? '/ingestion/billing' : '/ingestion/verify'
+                )
+            ) {
                 return combineUrl(urls.events(), { onboarding_completed: true }).url
             }
         },
@@ -640,8 +644,8 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
         return url + '/billing'
     }
 
-    if (showRecording) {
-        url += '/recording'
+    if (readyToVerify) {
+        url += '/verify'
         return [
             url,
             {
@@ -651,8 +655,8 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
         ]
     }
 
-    if (readyToVerify) {
-        url += '/verify'
+    if (showRecording) {
+        url += '/recording'
         return [
             url,
             {

@@ -26,8 +26,8 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     onChange={(checked) => {
                         updateCurrentTeam({
                             session_recording_opt_in: checked,
-                            capture_console_log_opt_in: true,
-                            capture_performance_opt_in: true,
+                            capture_console_log_opt_in: checked,
+                            capture_performance_opt_in: checked,
                         })
                     }}
                     label="Record user sessions"
