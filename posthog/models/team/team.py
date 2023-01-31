@@ -132,9 +132,7 @@ class Team(UUIDClassicModel):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=True)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True, default=True)
-    capture_performance_opt_in: models.BooleanField = models.BooleanField(
-        null=True, blank=True
-    )  # TODO: add default True when this is released
+    capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True, default=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
