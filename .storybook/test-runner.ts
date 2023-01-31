@@ -1,10 +1,13 @@
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
+import { OptionsParameter } from '@storybook/addons'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
-import { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
+import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
+import type { Mocks } from '~/mocks/utils'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
     interface Parameters {
+        options?: OptionsParameter
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
             /** Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that). **/
@@ -15,6 +18,11 @@ declare module '@storybook/react' {
              */
             excludeNavigationFromSnapshot?: boolean
         }
+        mockDate?: string | number | Date
+        msw?: {
+            mocks?: Mocks
+        }
+        [name: string]: any
     }
 }
 
