@@ -516,10 +516,6 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
         )
         return True
 
-    try:
-        keys_to_override = get_instance_setting("EVENT_PARTITION_KEYS_TO_OVERRIDE")
-    except Exception as e:
-        logger.exception("Error while fetching instance setting, falling back to default", exc=e)
-        keys_to_override = CONSTANCE_CONFIG["EVENT_PARTITION_KEYS_TO_OVERRIDE"][0]
+    keys_to_override = settings.EVENT_PARTITION_KEYS_TO_OVERRIDE
 
     return candidate_partition_key in keys_to_override

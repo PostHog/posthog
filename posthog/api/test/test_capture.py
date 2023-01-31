@@ -119,36 +119,17 @@ class TestCapture(BaseTest):
         )
 
     def test_is_randomly_parititoned(self):
-        """Test is_randomly_partitioned under different conditions of DB, cache, and local config."""
+        """Test is_randomly_partitioned under local configuration."""
+        from posthog.api import capture
+
+        importlib.reload(capture)
+
         distinct_id = 100
         override_key = f"{self.team.pk}:{distinct_id}"
-        patched_config = {self.database_override_key: ([override_key], "a help str", list)}
 
-        # Database query doesn't return results as DB is empty
-        # Default configuration value is returned.
-        with self.assertNumQueries(1):
-            with patch.dict(CONSTANCE_CONFIG, patched_config, clear=True):
-                assert is_randomly_partitioned(override_key) is True
+        assert is_randomly_partitioned(override_key) is False
 
-        # Database query doesn't return results as DB is empty
-        # Default configuration is also empty.
-        with self.assertNumQueries(1):
-            assert is_randomly_partitioned(override_key) is False
-
-        set_instance_setting(self.database_override_key, [override_key])
-
-        # After setting, Redis cache is hit.
-        with self.assertNumQueries(0):
-            assert is_randomly_partitioned(override_key) is True
-
-        cache.clear()
-
-        # DB is queried as we cleared cache.
-        with self.assertNumQueries(1):
-            assert is_randomly_partitioned(override_key) is True
-
-        # Follow up requests hit the cache.
-        with self.assertNumQueries(0):
+        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
             assert is_randomly_partitioned(override_key) is True
 
     def test_cached_is_randomly_partitioned(self):
@@ -176,22 +157,21 @@ class TestCapture(BaseTest):
         start = datetime.utcnow()
 
         with freeze_time(start):
-            # First time we see this key it's passed to instance settings for querying.
+            # First time we see this key it's looked up in local config.
             # The bucket has capacity to serve 1 requests/key, so we are not immediately returning.
-            # Since DB is empty and cache is not populated, this query shouldn't return results.
-            with self.assertNumQueries(1):
+            # Since local config is empty and bucket has capacity, this should not override.
+            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[]):
                 assert capture.is_randomly_partitioned(partition_key) is False
 
-            # The second time we see the key we will have reached the capacity limit of the bucket (1).
-            # Without querying the db we to immediately return that we should randomly partition.
-            # Notice time is frozen so the bucket hasn't been replentished.
-            with self.assertNumQueries(0):
+                # The second time we see the key we will have reached the capacity limit of the bucket (1).
+                # Without looking at the configuration we immediately return that we should randomly partition.
+                # Notice time is frozen so the bucket hasn't been replentished.
                 assert capture.is_randomly_partitioned(partition_key) is True
 
         with freeze_time(start + timedelta(seconds=1)):
-            # Now we have let one second pass so the bucket must have capacity to serve the request
-            # from the DB
-            with self.assertNumQueries(1):
+            # Now we have let one second pass so the bucket must have capacity to serve the request.
+            # We once again look at the local configuration, which is empty.
+            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[]):
                 assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
