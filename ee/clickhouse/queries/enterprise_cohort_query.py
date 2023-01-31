@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Tuple, cast
 
-from posthog.clickhouse.query_fragment import QueryFragment, QueryFragmentLike
+from posthog.clickhouse.query_fragment import QueryFragment, QueryFragmentLike, UniqueName
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
@@ -173,15 +173,14 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         column_name = f"first_time_condition_{prepend}_{idx}"
 
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-        date_param = f"{prepend}_date_{idx}"
         date_interval = validate_interval(prop.time_interval)
 
         self._restrict_event_query_by_time = False
 
         field = QueryFragment(
-            "minIf(timestamp, {entity_query}) >= now() - INTERVAL %({date_param})s {date_interval} AND minIf(timestamp, {entity_query}) < now() as {column_name}",
-            {date_param: date_value},
-        ).format(entity_query=entity_query, date_param=date_param, date_interval=date_interval, column_name=column_name)
+            "minIf(timestamp, {entity_query}) >= now() - INTERVAL %(__date)s {date_interval} AND minIf(timestamp, {entity_query}) < now() as {column_name}",
+            {UniqueName("__date"): date_value},
+        ).format(entity_query=entity_query, date_interval=date_interval, column_name=column_name)
 
         self._fields.append(field)
 
@@ -195,15 +194,9 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         date_interval = validate_interval(prop.time_interval)
 
-        time_value_param = f"{prepend}_time_value_{idx}"
         time_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
-
-        operator_value_param = f"{prepend}_operator_value_{idx}"
         operator_value = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
-
-        min_periods_param = f"{prepend}_min_periods_{idx}"
         min_period_count = parse_and_validate_positive_integer(prop.min_periods, "min_periods")
-
         total_period_count = parse_and_validate_positive_integer(prop.total_periods, "total_periods")
 
         if min_period_count > total_period_count:
@@ -223,37 +216,33 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                         """
                         if(
                             countIf(
-                                {entity_query} and timestamp <= now() - INTERVAL {start_time_value} {date_interval} and timestamp > now() - INTERVAL {end_time_value} {date_interval}
-                            ) {operator} %({operator_value_param})s,
+                                {entity_query} and timestamp <= now() - INTERVAL %(__time_value)s * {period} {date_interval}
+                                AND timestamp > now() - INTERVAL %(__time_value)s * ({period} + 1) {date_interval}
+                            ) {operator} %(__operator_value)s,
                             1,
                             0
                         )
                         """,
                         {
-                            time_value_param: time_value,
-                            operator_value_param: operator_value,
-                            min_periods_param: min_period_count,
+                            UniqueName("__operator_value"): operator_value,
+                            UniqueName("__time_value"): time_value,
                         },
                     ).format(
                         entity_query=entity_query,
-                        start_time_value=f"%({time_value_param})s * {period}",
                         date_interval=date_interval,
-                        end_time_value=f"%({time_value_param})s * ({period} + 1)",
                         operator=get_count_operator(prop.operator),
-                        operator_value_param=operator_value_param,
+                        period=str(period),
                     )
                 )
         earliest_date = (total_period_count * time_value, date_interval)
         self._check_earliest_date(earliest_date)
 
         field = QueryFragment(
-            "{expr} >= %({min_periods_param})s AS {column_name}",
+            "{expr} >= %(__min_periods)s AS {column_name}",
             {
-                time_value_param: time_value,
-                operator_value_param: operator_value,
-                min_periods_param: min_period_count,
+                UniqueName("__min_periods"): min_period_count,
             },
-        ).format(expr=QueryFragment.join("+", periods), min_periods_param=min_periods_param, column_name=column_name)
+        ).format(expr=QueryFragment.join("+", periods), column_name=column_name)
 
         self._fields.append(field)
 

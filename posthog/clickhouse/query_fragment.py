@@ -6,19 +6,9 @@ from typing import Any, Dict, List, Sequence, Tuple, Union, cast
 
 ParamValueType = Union[str, int, float, None, List]
 ParamsType = Dict[str, ParamValueType]
-QueryFragmentLike = Union["QueryFragment", str]
+QueryFragmentLike = Union["QueryFragment", "UniqueName", str]
 
 unique_sequence = itertools.count()
-
-
-@dataclass(frozen=True)
-class UniqueParamName(str):
-    # :CONVENTION: Prefix these variable names with __ to avoid collisions in sql.
-    name: str
-
-    @cached_property
-    def unique_name(self):
-        return f"{self.name}_{next(unique_sequence)}"
 
 
 @dataclass
@@ -57,7 +47,7 @@ class QueryFragment:
     def _update_sql_with_unique_param_names(self):
         self.params = {}
         for key, value in self._params.items():
-            if isinstance(key, UniqueParamName):
+            if isinstance(key, UniqueName):
                 self.sql = re.sub(f"\\b{re.escape(key.name)}\\b", key.unique_name, self.sql)
                 self.params[key.unique_name] = value
             else:
@@ -65,6 +55,16 @@ class QueryFragment:
 
     def __repr__(self):
         return f"QueryFragment({repr(self.sql)}, {repr(self.params)})"
+
+
+@dataclass(frozen=True)
+class UniqueName(str):
+    # :CONVENTION: Prefix these variable names with __ to avoid collisions in sql.
+    name: str
+
+    @cached_property
+    def unique_name(self):
+        return f"{self.name}_{next(unique_sequence)}"
 
 
 def reset_unique_sequence():
@@ -75,5 +75,7 @@ def reset_unique_sequence():
 def _get_sql(fragment: QueryFragmentLike) -> str:
     if isinstance(fragment, QueryFragment):
         return fragment.sql
+    elif isinstance(fragment, UniqueName):
+        return fragment.unique_name
     else:
         return fragment

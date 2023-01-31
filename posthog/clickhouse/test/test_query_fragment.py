@@ -1,4 +1,4 @@
-from posthog.clickhouse.query_fragment import QueryFragment, UniqueParamName
+from posthog.clickhouse.query_fragment import QueryFragment, UniqueName
 
 
 def test_formatting_strings():
@@ -14,8 +14,8 @@ def test_formatting_other_fragments():
 
 
 def test_unique_param_name():
-    __a = UniqueParamName("__a")
-    __ab = UniqueParamName("__ab")
+    __a = UniqueName("__a")
+    __ab = UniqueName("__ab")
     assert QueryFragment("__a + __a + __ab + 3", {__a: 4, __ab: 5}) == QueryFragment(
         "__a_0 + __a_0 + __ab_1 + 3", {"__a_0": 4, "__ab_1": 5}
     )
