@@ -1,13 +1,10 @@
 import { SessionRecordingSettings } from 'scenes/session-recordings/settings/SessionRecordingSettings'
-import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
-import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
+import { CardContainer } from 'scenes/ingestion/v2/CardContainer'
 
 export function RecordingPanel(): JSX.Element {
-    const { setVerify } = useActions(ingestionLogic)
-
     return (
-        <div style={{ maxWidth: 800 }}>
+        <CardContainer nextProps={{ readyToVerify: true }}>
             <h1 className="font-extrabold">Setup Session Recordings</h1>
             <p className="prompt-text">
                 Session recordings allow you to see recordings of how your users are really using your product. It
@@ -24,19 +21,6 @@ export function RecordingPanel(): JSX.Element {
             </p>
 
             <SessionRecordingSettings inModal />
-            <LemonDivider thick dashed className="my-6" />
-            <div>
-                <LemonButton
-                    type="primary"
-                    size="large"
-                    fullWidth
-                    center
-                    className="mb-2"
-                    onClick={() => setVerify(true)}
-                >
-                    Continue
-                </LemonButton>
-            </div>
-        </div>
+        </CardContainer>
     )
 }

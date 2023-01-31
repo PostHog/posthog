@@ -116,7 +116,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
             }
-        case INGESTION_VIEWS.BILLING:
+        case INGESTION_VIEWS.RECORDINGS:
             return {
                 isTechnicalUser: null,
                 hasInvitedMembers: null,
@@ -208,6 +208,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             platform,
             framework,
             readyToVerify,
+            showRecording,
             showBilling,
             isDemoProject,
             generatingDemoData,
@@ -217,11 +218,11 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             platform,
             framework,
             readyToVerify,
+            showRecording,
             showBilling,
             isDemoProject,
             generatingDemoData,
         }),
-        setActiveTab: (tab: string) => ({ tab }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
         setThirdPartySource: (sourceIndex: number) => ({ sourceIndex }),
         openThirdPartyPluginModal: (plugin: PluginTypeWithConfig) => ({ plugin }),
@@ -268,16 +269,16 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 setState: (_, { readyToVerify }) => readyToVerify,
             },
         ],
+        showRecording: [
+            false,
+            {
+                setState: (_, { showRecording }) => showRecording,
+            },
+        ],
         showBilling: [
             false,
             {
                 setState: (_, { showBilling }) => showBilling,
-            },
-        ],
-        activeTab: [
-            'browser',
-            {
-                setActiveTab: (_, { tab }) => tab,
             },
         ],
         instructionsModalOpen: [
@@ -355,6 +356,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 s.platform,
                 s.framework,
                 s.readyToVerify,
+                s.showRecording,
                 s.showBilling,
                 s.isTechnicalUser,
                 s.hasInvitedMembers,
@@ -365,6 +367,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 platform,
                 framework,
                 readyToVerify,
+                showRecording,
                 showBilling,
                 isTechnicalUser,
                 hasInvitedMembers,
@@ -374,6 +377,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 platform,
                 framework,
                 readyToVerify,
+                showRecording,
                 showBilling,
                 isTechnicalUser,
                 hasInvitedMembers,
@@ -388,6 +392,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 platform,
                 framework,
                 readyToVerify,
+                showRecording,
                 showBilling,
                 hasInvitedMembers,
                 isDemoProject,
@@ -402,7 +407,9 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 if (readyToVerify) {
                     return INGESTION_VIEWS.VERIFICATION
                 }
-
+                if (showRecording) {
+                    return INGESTION_VIEWS.RECORDINGS
+                }
                 if (isTechnicalUser) {
                     if (!platform) {
                         return INGESTION_VIEWS.CHOOSE_PLATFORM
@@ -487,6 +494,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
     urlToAction(({ actions, values }) => ({
         '/ingestion': () => actions.goToView(INGESTION_VIEWS.INVITE_TEAM),
         '/ingestion/invites-sent': () => actions.goToView(INGESTION_VIEWS.TEAM_INVITED),
+        '/ingestion/recording': () => actions.goToView(INGESTION_VIEWS.RECORDINGS),
         '/ingestion/billing': () => actions.goToView(INGESTION_VIEWS.BILLING),
         '/ingestion/verify': () => actions.goToView(INGESTION_VIEWS.VERIFICATION),
         '/ingestion/platform': () => actions.goToView(INGESTION_VIEWS.CHOOSE_FRAMEWORK),
@@ -544,6 +552,9 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 case INGESTION_STEPS.BILLING:
                     actions.goToView(INGESTION_VIEWS.BILLING)
                     return
+                case INGESTION_STEPS.RECORDINGS:
+                    actions.goToView(INGESTION_VIEWS.RECORDINGS)
+                    return
                 default:
                     return
             }
@@ -552,12 +563,14 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             switch (values.currentView) {
                 case INGESTION_VIEWS.BILLING:
                     return actions.goToView(INGESTION_VIEWS.VERIFICATION)
+                case INGESTION_VIEWS.RECORDINGS:
+                    return actions.goToView(INGESTION_VIEWS.CHOOSE_FRAMEWORK)
                 case INGESTION_VIEWS.TEAM_INVITED:
                     return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
                 case INGESTION_VIEWS.CHOOSE_PLATFORM:
                     return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
                 case INGESTION_VIEWS.VERIFICATION:
-                    return actions.goToView(INGESTION_VIEWS.CHOOSE_FRAMEWORK)
+                    return actions.goToView(INGESTION_VIEWS.RECORDINGS)
                 case INGESTION_VIEWS.WEB_INSTRUCTIONS:
                     return actions.goToView(INGESTION_VIEWS.CHOOSE_PLATFORM)
                 case INGESTION_VIEWS.CHOOSE_FRAMEWORK:
@@ -610,13 +623,32 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
 ])
 
 function getUrl(values: ingestionLogicV2Type['values']): string | [string, Record<string, undefined | string>] {
-    const { isTechnicalUser, platform, framework, readyToVerify, showBilling, hasInvitedMembers, generatingDemoData } =
-        values
+    const {
+        isTechnicalUser,
+        platform,
+        framework,
+        readyToVerify,
+        showBilling,
+        showRecording,
+        hasInvitedMembers,
+        generatingDemoData,
+    } = values
 
     let url = '/ingestion'
 
     if (showBilling) {
         return url + '/billing'
+    }
+
+    if (showRecording) {
+        url += '/recording'
+        return [
+            url,
+            {
+                platform: platform || undefined,
+                framework: framework?.toLowerCase() || undefined,
+            },
+        ]
     }
 
     if (readyToVerify) {

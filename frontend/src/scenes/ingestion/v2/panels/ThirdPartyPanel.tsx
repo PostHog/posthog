@@ -25,7 +25,7 @@ export function ThirdPartyPanel(): JSX.Element {
     } = useActions(eventUsageLogic)
 
     return (
-        <CardContainer showFooter>
+        <CardContainer nextProps={{ showRecording: true }}>
             <div className="px-6">
                 <h1 className="ingestion-title pb-4">Set up apps</h1>
                 {thirdPartySources.map((source, idx) => {

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogicV2'
+import { ingestionLogicV2, INGESTION_STEPS, IngestionState } from '../ingestionLogicV2'
 import './Panels.scss'
 import { IconArrowLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
@@ -14,7 +14,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 
-export function PanelFooter(): JSX.Element {
+export function PanelFooter({ nextProps }: { nextProps: Partial<IngestionState> }): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
 
     return (
@@ -27,7 +27,7 @@ export function PanelFooter(): JSX.Element {
                     fullWidth
                     center
                     className="mb-2"
-                    onClick={() => next({ readyToVerify: true })}
+                    onClick={() => next(nextProps)}
                 >
                     Continue
                 </LemonButton>
