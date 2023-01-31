@@ -173,10 +173,10 @@ export async function startPluginsServer(
             // Code list in https://kafka.apache.org/0100/protocol.html
             switch (error.code) {
                 case 27: // REBALANCE_IN_PROGRESS
-                    hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
+                    hub!.statsd?.increment(`kafka_consumer_group_rebalancing`) // Prom:kafka_protocol_errors_total
                     return
                 case 22: // ILLEGAL_GENERATION
-                    hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
+                    hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`) // Prom:kafka_protocol_errors_total
                     return
             }
         }

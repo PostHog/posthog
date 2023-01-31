@@ -37,8 +37,8 @@ export async function runInstrumentedFunction<T, E>({
         Sentry.captureException(error)
         throw error
     } finally {
-        server.statsd?.increment(`${statsKey}_total`)
-        server.statsd?.timing(statsKey, timer)
+        server.statsd?.increment(`${statsKey}_total`) // Prom:instrumented_function_duration_seconds_count
+        server.statsd?.timing(statsKey, timer) // Prom:instrumented_function_duration_seconds
         clearTimeout(timeout)
     }
 }
