@@ -11,7 +11,6 @@ import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPaylo
 import { actionsModel } from '~/models/actionsModel'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { ActionType, InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
-import type { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
 
@@ -43,10 +42,10 @@ export const retentionOptionDescriptions = {
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionTableLogic = kea<retentionTableLogicType>({
+export const retentionLogic = kea({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
-    path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
+    path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),

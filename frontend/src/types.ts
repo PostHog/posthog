@@ -1846,7 +1846,7 @@ export interface ChartParams {
     showPersonsModal?: boolean
 }
 
-// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null

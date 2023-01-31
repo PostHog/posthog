@@ -2,7 +2,7 @@ import { Select } from 'antd'
 import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
-import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export function RetentionReferencePicker({ disabled }: { disabled?: boolean }): JSX.Element {
     /*
@@ -10,8 +10,8 @@ export function RetentionReferencePicker({ disabled }: { disabled?: boolean }): 
         options and description found in `enum Reference`
     */
     const { insightProps } = useValues(insightLogic)
-    const { retentionReference } = useValues(retentionTableLogic(insightProps))
-    const { setRetentionReference } = useActions(retentionTableLogic(insightProps))
+    const { retentionReference } = useValues(retentionLogic(insightProps))
+    const { setRetentionReference } = useActions(retentionLogic(insightProps))
 
     return (
         <Select

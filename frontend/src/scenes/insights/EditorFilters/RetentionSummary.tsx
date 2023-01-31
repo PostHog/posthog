@@ -5,8 +5,8 @@ import {
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
-    retentionTableLogic,
-} from 'scenes/retention/retentionTableLogic'
+    retentionLogic,
+} from 'scenes/retention/retentionLogic'
 import { EditorFilterProps, FilterType, InsightLogicProps, QueryEditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
@@ -33,8 +33,8 @@ export function RetentionSummaryDataExploration({ insightProps }: QueryEditorFil
 }
 
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filters } = useValues(retentionTableLogic(insightProps))
-    const { setFilters } = useActions(retentionTableLogic(insightProps))
+    const { filters } = useValues(retentionLogic(insightProps))
+    const { setFilters } = useActions(retentionLogic(insightProps))
     return <RetentionSummaryComponent insightProps={insightProps} setFilters={setFilters} {...filters} />
 }
 
