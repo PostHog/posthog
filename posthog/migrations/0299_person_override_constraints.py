@@ -8,7 +8,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0295_plugin_allow_blank_config_schema"),
+        ("posthog", "0298_add_insight_queries"),
     ]
 
     operations = [
