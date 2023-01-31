@@ -9,6 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.async_migrations.status import async_migrations_ok
+from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
 from posthog.gitsha import GIT_SHA
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.storage import object_storage
@@ -142,9 +143,6 @@ class InstanceStatusViewSet(viewsets.ViewSet):
 
     @action(methods=["GET"], detail=False)
     def navigation(self, request: Request) -> Response:
-        # avoid circluar import
-        from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
-
         return Response(
             {
                 "system_status_ok": (
