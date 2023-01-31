@@ -91,7 +91,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def adjusted_filter(self, filter: Filter, team: Team) -> Tuple[Filter, Optional[Dict[str, Any]]]:
         cached_result = self.get_cached_result(filter, team)
 
-        new_filter = filter.with_data({"date_from": interval_unit(filter.interval)}) if cached_result else filter
+        new_filter = filter.shallow_clone({"date_from": interval_unit(filter.interval)}) if cached_result else filter
 
         label_to_payload = {}
         if cached_result:

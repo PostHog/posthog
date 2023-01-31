@@ -127,7 +127,7 @@ def test_person_query_with_extra_requested_fields(testdata, team, snapshot):
     assert person_query(team, filter) == snapshot
     assert run_query(team, filter) == {"rows": 2, "columns": 2}
 
-    filter = filter.with_data({"breakdown": "email", "breakdown_type": "person"})
+    filter = filter.shallow_clone({"breakdown": "email", "breakdown_type": "person"})
     assert person_query(team, filter) == snapshot
     assert run_query(team, filter) == {"rows": 2, "columns": 2}
 

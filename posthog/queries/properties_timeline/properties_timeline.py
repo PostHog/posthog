@@ -84,7 +84,7 @@ class PropertiesTimeline:
     ) -> PropertiesTimelineResult:
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
             # Search for `offset_time_series_date_by_interval` in the `TrendsActors` class for context on this handling
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {
                     "date_to": offset_time_series_date_by_interval(
                         cast(datetime.datetime, filter.date_from), filter=filter, team=team
