@@ -291,7 +291,7 @@ class FunnelCorrelation:
             """
         else:
             array_join_query = f"""
-                JSONExtractKeysAndValues(properties, 'String') as prop
+                arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
             """
 
         query = f"""
@@ -527,7 +527,7 @@ class FunnelCorrelation:
         if "$all" in cast(list, self._filter.correlation_property_names):
             return (
                 f"""
-                JSONExtractKeysAndValues({aggregation_properties_alias}, 'String') as prop
+                arrayJoin(JSONExtractKeysAndValues({aggregation_properties_alias}, 'String')) as prop
             """,
                 {},
             )
