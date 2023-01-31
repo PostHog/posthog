@@ -484,7 +484,27 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
 
 
 def is_randomly_partitioned(candidate_partition_key: str) -> bool:
-    """Check whether event with given partition key is to be randomly partitioned."""
+    """Check whether event with given partition key is to be randomly partitioned.
+
+    Checking whether an event should be randomly partitioned is a two step process:
+
+    1. Using a token-bucket algorithm, check if the event's candidate key has exceeded
+       the given PARTITION_KEY_BUCKET_CAPACITY. If it has, events with that key could
+       be experiencing a temporary burst in traffic and should be randomly partitioned.
+       Otherwise, go to 2.
+
+    2. Check if the candidate partition key is set in the
+       EVENT_PARTITION_KEYS_TO_OVERRIDE instance setting. If it is, then the event
+       should be randomly partitioned. Otherwise, no random partition should occur and
+       the candidate partition key can be used.
+
+    Args:
+        candidate_partition_key: The partition key that would be used if we decide
+            on no random partitioniong. This is in the format `team_id:distinct_id`.
+
+    Returns:
+        Whether the given partition key should be used.
+    """
     has_capacity = LIMITER.consume(candidate_partition_key)
 
     if has_capacity is False:

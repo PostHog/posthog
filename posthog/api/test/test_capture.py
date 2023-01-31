@@ -151,11 +151,12 @@ class TestCapture(BaseTest):
         with self.assertNumQueries(0):
             assert is_randomly_partitioned(override_key) is True
 
-    def test_partition_key_cache(self):
-        """Assert the behavior of the partition key cache over.
+    def test_cached_is_randomly_partitioned(self):
+        """Assert the behavior of is_randomly_partitioned under certain cache settings.
 
         Setup for this test requires reloading the capture module as we are patching
-        the cache parameters for testing.
+        the cache parameters for testing. In particular, we are tightening the cache
+        settings to test the behavior of is_randomly_partitioned.
         """
         from posthog.api import capture
 
