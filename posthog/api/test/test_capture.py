@@ -162,35 +162,34 @@ class TestCapture(BaseTest):
         distinct_id = 100
         partition_key = f"{self.team.pk}:{distinct_id}"
         patched = {
-            "PARTITION_KEY_CACHE_THRESHOLD": "2",
-            "PARTITION_KEY_CACHE_TIMEOUT": "600",
+            "PARTITION_KEY_BUCKET_CAPACITY": "1",
+            "PARTITION_KEY_BUCKET_REPLENTISH_RATE": "1",
         }
 
         with patch.dict("os.environ", patched):
             importlib.reload(capture)
 
-        assert capture.PARTITION_KEY_CACHE_THRESHOLD == 2
-        assert capture.PARTITION_KEY_CACHE_TIMEOUT == 600
+        assert capture.PARTITION_KEY_BUCKET_CAPACITY == 1
+        assert capture.PARTITION_KEY_BUCKET_REPLENTISH_RATE == 1
 
-        # First time we see this key it's passed to instance settings for querying.
-        # Since db is empty, this query shouldn't return results.
-        with self.assertNumQueries(1):
-            assert capture.is_randomly_partitioned(partition_key) is False
+        start = datetime.utcnow()
 
-        # The second time we see the key it should be cached locally as we have hit the THRESHOLD.
-        # Without querying the db we expect the local cache to hit.
-        with self.assertNumQueries(0):
-            assert capture.is_randomly_partitioned(partition_key) is True
+        with freeze_time(start):
+            # First time we see this key it's passed to instance settings for querying.
+            # The bucket has capacity to serve 1 requests/key, so we are not immediately returning.
+            # Since DB is empty and cache is not populated, this query shouldn't return results.
+            with self.assertNumQueries(1):
+                assert capture.is_randomly_partitioned(partition_key) is False
 
-        # The third time we see the key it should still be cached locally.
-        with self.assertNumQueries(0):
-            assert capture.is_randomly_partitioned(partition_key) is True
+            # The second time we see the key we will have reached the capacity limit of the bucket (1).
+            # Without querying the db we to immediately return that we should randomly partition.
+            # Notice time is frozen so the bucket hasn't been replentished.
+            with self.assertNumQueries(0):
+                assert capture.is_randomly_partitioned(partition_key) is True
 
-        cache.clear()
-
-        # After 10 minutes as given by TIMEOUT parameter, local cache should be cleared.
-        # We are back to querying the database.
-        with freeze_time(datetime.utcnow() + timedelta(seconds=600)):
+        with freeze_time(start + timedelta(seconds=1)):
+            # Now we have let one second pass so the bucket must have capacity to serve the request
+            # from the DB
             with self.assertNumQueries(1):
                 assert capture.is_randomly_partitioned(partition_key) is False
 
