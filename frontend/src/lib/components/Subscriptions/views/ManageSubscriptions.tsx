@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { SubscriptionType } from '~/types'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils'
-import { IconEllipsis, IconSlack } from 'lib/components/icons'
-import { ProfileBubbles } from 'lib/components/ProfilePicture'
+import { IconEllipsis, IconSlack } from 'lib/lemon-ui/icons'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 interface SubscriptionListItemProps {
     subscription: SubscriptionType

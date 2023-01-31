@@ -8,7 +8,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export interface NewDashboardForm {
     name: string

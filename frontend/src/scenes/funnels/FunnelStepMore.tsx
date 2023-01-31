@@ -3,8 +3,8 @@ import { funnelLogic } from './funnelLogic'
 import { useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { urls } from 'scenes/urls'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonButton } from 'lib/components/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 export function FunnelStepMore({ stepIndex }: { stepIndex: number }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)

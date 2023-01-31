@@ -1,5 +1,5 @@
 import { Popconfirm } from 'antd'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 
 interface ExportWithConfirmationProps {
     placement: 'topRight' | 'bottomRight'

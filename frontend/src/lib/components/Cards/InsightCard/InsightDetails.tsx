@@ -15,12 +15,12 @@ import {
     PathsFilterType,
     PropertyGroupFilter,
 } from '~/types'
-import { IconCalculate, IconSubdirectoryArrowRight } from '../../icons'
-import { LemonRow } from '../../LemonRow'
-import { LemonDivider } from '../../LemonDivider'
-import { Lettermark } from '../../Lettermark/Lettermark'
-import { Link } from '../../Link'
-import { ProfilePicture } from '../../ProfilePicture'
+import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { keyMapping, PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -32,6 +32,7 @@ import {
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
+import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -299,8 +300,11 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
 }
 
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    const { filters, created_at, created_by } = insight
-
+    let { filters } = insight
+    const { created_at, created_by } = insight
+    if (!!insight.query && isInsightQueryNode(insight.query)) {
+        filters = filterForQuery(insight.query) as Partial<FilterType>
+    }
     return (
         <div className="InsightDetails" ref={ref}>
             <QuerySummary filters={filters} />

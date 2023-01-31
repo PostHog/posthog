@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 
 export function UserDetails(): JSX.Element {

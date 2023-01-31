@@ -1,6 +1,6 @@
 import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
 import { ItemMode, TrendsFilterType } from '~/types'
 import { useActions, useValues } from 'kea'

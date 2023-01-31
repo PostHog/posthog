@@ -4,8 +4,8 @@ import { forms } from 'kea-forms'
 import api from 'lib/api'
 import type { interfaceJobsLogicType } from './interfaceJobsLogicType'
 import { JobSpec } from '~/types'
-import { lemonToast } from 'lib/components/lemonToast'
-import { validateJson } from '../../../../lib/utils'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { validateJson } from 'lib/utils'
 
 export interface InterfaceJobsProps {
     jobName: string

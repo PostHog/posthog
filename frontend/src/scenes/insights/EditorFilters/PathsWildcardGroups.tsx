@@ -4,7 +4,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { EditorFilterProps, PathsFilterType, QueryEditorFilterProps } from '~/types'
-import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
 
 export function PathsWildcardGroupsDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))

@@ -4,7 +4,7 @@ import { OrganizationInviteType } from '~/types'
 import type { invitesLogicType } from './invitesLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const invitesLogic = kea<invitesLogicType>({
     path: ['scenes', 'organization', 'Settings', 'invitesLogic'],

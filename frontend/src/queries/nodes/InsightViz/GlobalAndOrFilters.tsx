@@ -24,6 +24,7 @@ export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps)
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
         ...(isTrendsQuery(query) ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
 
     return (

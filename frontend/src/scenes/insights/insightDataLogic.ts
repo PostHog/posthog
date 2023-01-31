@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, InsightLogicProps, InsightType, PathType } from '~/types'
+import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { BreakdownFilter, InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
@@ -9,7 +9,17 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { filterForQuery, filterPropertyForQuery, isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
+import {
+    filterForQuery,
+    filterPropertyForQuery,
+    isTrendsQuery,
+    isFunnelsQuery,
+    isRetentionQuery,
+    isPathsQuery,
+    isStickinessQuery,
+    isLifecycleQuery,
+    isUnimplementedQuery,
+} from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
@@ -20,6 +30,7 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 const getCleanedQuery = (
     kind:
         | NodeKind.TrendsQuery
+        | NodeKind.FunnelsQuery
         | NodeKind.PathsQuery
         | NodeKind.StickinessQuery
         | NodeKind.LifecycleQuery
@@ -39,6 +50,23 @@ const getCleanedQuery = (
                     },
                 ],
                 trendsFilter: {},
+            },
+        }
+    } else if (kind === NodeKind.FunnelsQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
             },
         }
     } else if (kind === NodeKind.PathsQuery) {
@@ -140,7 +168,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
-        insightFilter: [(s) => [s.querySource], (querySource) => filterForQuery(querySource)],
+        insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
+        trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
+        funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
+        retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
+        pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
+        stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
+        lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
     }),
 
     listeners(({ actions, values }) => ({
@@ -190,6 +224,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setActiveView: ({ type }) => {
             if (type === InsightType.TRENDS) {
                 actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
+            } else if (type === InsightType.FUNNELS) {
+                actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
             } else if (type === InsightType.PATHS) {
                 actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
             } else if (type === InsightType.STICKINESS) {

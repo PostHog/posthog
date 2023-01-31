@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export interface InlineHogQLEditorProps {

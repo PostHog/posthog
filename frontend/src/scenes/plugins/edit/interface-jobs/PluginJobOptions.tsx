@@ -8,7 +8,7 @@ import {
     PluginJobConfiguration,
 } from './PluginJobConfiguration'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from '../../../../lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface PluginJobOptionsProps {
     pluginId: number

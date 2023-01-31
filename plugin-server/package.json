@@ -73,7 +73,7 @@
         "pino": "^8.6.0",
         "posthog-node": "2.0.2",
         "pretty-bytes": "^5.6.0",
-        "prom-client": "^14.1.0",
+        "prom-client": "^14.1.1",
         "re2": "^1.17.7",
         "safe-stable-stringify": "^2.4.0",
         "snowflake-sdk": "^1.6.10",

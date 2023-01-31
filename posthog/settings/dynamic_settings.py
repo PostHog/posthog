@@ -11,6 +11,11 @@ CONSTANCE_CONFIG = {
         "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
+    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
+        3,
+        "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
+        int,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -149,6 +154,16 @@ CONSTANCE_CONFIG = {
         "Used to enable the running of experimental async migrations",
         bool,
     ),
+    "RATE_LIMIT_ENABLED": (
+        get_from_env("RATE_LIMIT_ENABLED", False, type_cast=str_to_bool),
+        "Whether rate limiting is enabled",
+        bool,
+    ),
+    "RATE_LIMITING_ALLOW_LIST_TEAMS": (
+        get_from_env("RATE_LIMITING_ALLOW_LIST_TEAMS", ""),
+        "Whether teams are on an allow list to bypass rate limiting. Comma separated list of team-ids",
+        str,
+    ),
     "SENTRY_AUTH_TOKEN": (
         get_from_env("SENTRY_AUTH_TOKEN", default=""),
         "Used to enable Sentry error tracking in PostHog",
@@ -163,6 +178,7 @@ CONSTANCE_CONFIG = {
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
+    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
@@ -188,6 +204,8 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_SIGNING_SECRET",
     "PARALLEL_DASHBOARD_ITEM_CACHE",
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
+    "RATE_LIMIT_ENABLED",
+    "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
 )

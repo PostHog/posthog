@@ -3,8 +3,8 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { IconEdit, IconMagnifier } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { IconEdit, IconMagnifier } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from '@posthog/lemon-ui'
 
 export function NewActionButton(): JSX.Element {

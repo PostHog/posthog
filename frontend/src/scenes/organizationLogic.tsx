@@ -3,10 +3,10 @@ import api from 'lib/api'
 import type { organizationLogicType } from './organizationLogicType'
 import { AvailableFeature, OrganizationType } from '~/types'
 import { userLogic } from './userLogic'
-import { getAppContext } from '../lib/utils/getAppContext'
-import { OrganizationMembershipLevel } from '../lib/constants'
+import { getAppContext } from 'lib/utils/getAppContext'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { isUserLoggedIn } from 'lib/utils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export type OrganizationUpdatePayload = Partial<Pick<OrganizationType, 'name' | 'is_member_join_email_enabled'>>
 

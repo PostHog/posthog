@@ -6,7 +6,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { inviteLogicType } from './inviteLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { router } from 'kea-router'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 /** State of a single invite row (with input data) in bulk invite creation. */
 export interface InviteRowState {

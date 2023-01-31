@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
 
 export interface PersonPaginatedResponse {

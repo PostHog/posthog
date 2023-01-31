@@ -315,7 +315,8 @@ export const InsightCard: Story = (args) => {
     const [wasItemRemoved, setWasItemRemoved] = useState(false)
 
     return (
-        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)' }}>
+        // eslint-disable-next-line react/forbid-dom-props
+        <div style={{ display: 'grid', gap: '1rem', gridTemplateColumns: 'repeat(2, 1fr)', minWidth: '50rem' }}>
             {!wasItemRemoved && (
                 <InsightCardComponent
                     insight={{
