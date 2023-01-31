@@ -36,16 +36,8 @@ class FunnelEventQuery(EventQuery):
             f"{aggregation_target} as aggregation_target",
         ]
 
-        _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
-
         if self._using_person_on_events:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
-
-            _fields.extend(
-                f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
-                for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query)
-            )
-
         else:
             if self._should_join_distinct_ids:
                 _fields += [f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id as person_id"]
