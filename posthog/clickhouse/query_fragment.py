@@ -48,7 +48,7 @@ class QueryFragment:
 
     @staticmethod
     def join(by: str, fragments: Sequence[QueryFragmentLike]) -> "QueryFragment":
-        indexed = {str(key): fragment for key, fragment in enumerate(fragments)}
+        indexed = {f"k{key}": fragment for key, fragment in enumerate(fragments)}
         unformatted_sql = by.join("{" + key + "}" for key in indexed.keys())
         return QueryFragment(unformatted_sql).format(**indexed)
 
@@ -63,6 +63,9 @@ class QueryFragment:
             }
         else:
             self.params = cast(ParamsType, self._params)
+
+    def __repr__(self):
+        return f"QueryFragment({repr(self.sql)}, {repr(self.params)})"
 
 
 QF = QueryFragment
