@@ -246,9 +246,6 @@ export const retentionLogic = kea({
         ],
     },
     listeners: ({ actions, values, props }) => ({
-        setProperties: ({ properties }) => {
-            insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, properties }, values.filters))
-        },
         setFilters: ({ filters }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
         },
