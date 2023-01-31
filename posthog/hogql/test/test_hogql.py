@@ -1,8 +1,8 @@
 from posthog.hogql.hogql import HogQLContext, HogQLFieldAccess, translate_hogql
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import BaseTest
 
 
-class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
+class TestHogQLContext(BaseTest):
     # Helper to always translate HogQL with a blank context
     def _translate(self, query: str):
         return translate_hogql(query, HogQLContext())
