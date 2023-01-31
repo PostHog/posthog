@@ -214,8 +214,14 @@ class FunnelStepRangeEntityFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    custom_name: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_to_step: Optional[float] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
 
 
 class FunnelStepReference(str, Enum):
@@ -832,6 +838,7 @@ class RetentionQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -863,6 +870,7 @@ class StickinessQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -900,6 +908,7 @@ class TrendsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -936,6 +945,7 @@ class UnimplementedQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -1340,6 +1350,7 @@ class FunnelsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -1392,6 +1403,7 @@ class LifecycleQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -1427,6 +1439,7 @@ class PathsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
