@@ -7,7 +7,7 @@ declare module '@storybook/react' {
     interface Parameters {
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
-            /** Doesn't jest.skip the story (@storybook/test-runner doesn't allow that), but  makes the test a no-op. */
+            /** Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that). **/
             skip?: boolean
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
