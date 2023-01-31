@@ -1,9 +1,9 @@
 import itertools
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Dict, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Sequence, Tuple, Union, cast
 
-ParamValueType = Union[str, int, float, None]
+ParamValueType = Union[str, int, float, None, List]
 ParamsType = Dict[str, ParamValueType]
 QueryFragmentLike = Union["QueryFragment", str]
 
@@ -11,7 +11,7 @@ unique_sequence = itertools.count()
 
 
 @dataclass
-class UniqueParamName:
+class UniqueParamName(str):
     name: str
 
     @cached_property
@@ -22,15 +22,15 @@ class UniqueParamName:
 class QueryFragment:
     sql: str
     params: ParamsType = {}
-    _params: Dict[Union[str, UniqueParamName], ParamValueType]
+    _params: ParamsType
 
-    def __init__(self, sql: Union[str, "QueryFragment", Tuple[Union[str, UniqueParamName], ParamsType]], params={}):
+    def __init__(self, sql: Union[str, "QueryFragment", Tuple[str, Any]], params: ParamsType = {}):
         if isinstance(sql, str):
             self.sql = sql
             self._params = params
         elif isinstance(sql, QueryFragment):
             self.sql = sql.sql
-            self._params = sql.params
+            self._params = cast(ParamsType, sql.params)
         else:
             self.sql, self._params = sql
 
@@ -62,7 +62,7 @@ class QueryFragment:
                 for key, value in self._params.items()
             }
         else:
-            self.params = cast(ParamsType, self._params)
+            self.params = self._params
 
     def __repr__(self):
         return f"QueryFragment({repr(self.sql)}, {repr(self.params)})"
