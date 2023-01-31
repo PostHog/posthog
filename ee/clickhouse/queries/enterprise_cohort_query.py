@@ -153,7 +153,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             f"countIf(timestamp <= now() - INTERVAL %({date_param})s {date_interval} AND {entity_query.sql})"
         )
         # Then stopped in the event_stopped_period
-        event_stopped_period = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp <= now() - INTERVAL %({seq_date_param})s {seq_date_interval} AND {entity_query})"
+        event_stopped_period = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp <= now() - INTERVAL %({seq_date_param})s {seq_date_interval} AND {entity_query.sql})"
         # Then restarted in the final event_restart_period
         event_restarted_period = f"countIf(timestamp > now() - INTERVAL %({seq_date_param})s {seq_date_interval} AND timestamp <= now() AND {entity_query.sql})"
 
@@ -274,14 +274,14 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             lookup[str(prop.to_dict())] = f"{idx}"
         return lookup
 
-    def _get_sequence_query(self) -> Tuple[str, Dict[str, Any], str]:
+    def _get_sequence_query(self) -> QueryFragment:
         names = ["event", "properties", "distinct_id", "timestamp"]
-        _inner_fields = [
+        _inner_fields: List[QueryFragmentLike] = [
             f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id",
             *names,
         ]
-        _intermediate_fields = ["person_id", *names]
-        _outer_fields = ["person_id"]
+        _intermediate_fields: List[QueryFragmentLike] = ["person_id", *names]
+        _outer_fields: List[QueryFragmentLike] = ["person_id"]
 
         for idx, prop in enumerate(self.sequence_filters_to_query):
             step_cols, intermediate_cols, aggregate_cols = self._get_sequence_filter(prop, idx)
@@ -307,7 +307,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             """
             SELECT {fields}
             FROM events AS {alias}
-            {self._get_distinct_id_query()}
+            {distinct_id_query}
             WHERE team_id = %(team_id)s
             AND event IN %({event_param_name})s
             {date_condition}
@@ -317,6 +317,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         ).format(
             fields=QueryFragment.join(", ", _inner_fields),
             alias=self.EVENT_TABLE_ALIAS,
+            distinct_id_query=self._get_distinct_id_query(),
             event_param_name=event_param_name,
             date_condition=date_condition,
             person_prop_query=person_prop_query,
@@ -358,7 +359,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         if event == seq_event:
             duplicate_event = 1
 
-        aggregate_cols = [
+        aggregate_cols: List[QueryFragmentLike] = [
             QueryFragment(
                 """
                 {negation} max(
@@ -369,23 +370,23 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                 negation="NOT" if prop.negation else "",
                 entity_query=entity_query,
                 event_prepend=event_prepend,
-                seq_date_value=seq_date_value,
+                seq_date_value=str(seq_date_value),
                 seq_date_interval=seq_date_interval,
                 alias=f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}",
             )
         ]
 
-        condition_cols = [
+        condition_cols: List[QueryFragmentLike] = [
             f"{event_prepend}_latest_0",
             f"min({event_prepend}_latest_1) over (PARTITION by person_id ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND {duplicate_event} PRECEDING) {event_prepend}_latest_1",
         ]
 
-        step_cols = [
+        step_cols: List[QueryFragmentLike] = [
             QueryFragment(
                 "if({entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_0"
             ).format(
                 entity_query=entity_query,
-                time_value=time_value,
+                time_value=str(time_value),
                 time_interval=time_interval,
                 event_prepend=event_prepend,
             ),
@@ -394,7 +395,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                 "if({seq_entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_1"
             ).format(
                 seq_entity_query=seq_entity_query,
-                time_value=time_value,
+                time_value=str(time_value),
                 time_interval=time_interval,
                 event_prepend=event_prepend,
             ),
@@ -403,8 +404,8 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         return step_cols, condition_cols, aggregate_cols
 
-    def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-        return f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}", {}
+    def get_performed_event_sequence(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
+        return QueryFragment(f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}")
 
     # Check if negations are always paired with a positive filter
     # raise a value error warning that this is an invalid cohort

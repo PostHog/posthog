@@ -316,7 +316,7 @@ class FOSSCohortQuery(EventQuery):
         event_param_name = f"{self._cohort_pk}_event_ids"
 
         if self._should_join_behavioral_query:
-            _fields = [
+            _fields: List[QueryFragmentLike] = [
                 f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
@@ -336,7 +336,7 @@ class FOSSCohortQuery(EventQuery):
                 """
                 SELECT {fields}
                 FROM events {alias}
-                {distinct_id_query}}
+                {distinct_id_query}
                 WHERE team_id = %(team_id)s
                 AND event IN %({event_param_name})s
                 {date_condition}
@@ -362,7 +362,7 @@ class FOSSCohortQuery(EventQuery):
     def _get_persons_query(self, prepend: str = "") -> QueryFragment:
         if self._should_join_persons:
             return QueryFragment("SELECT *, id AS person_id FROM ({person_query})").format(
-                person_query=self._person_query.get_query(prepend=prepend)
+                person_query=QueryFragment(self._person_query.get_query(prepend=prepend))
             )
         else:
             return QueryFragment("")
@@ -455,7 +455,7 @@ class FOSSCohortQuery(EventQuery):
         self._check_earliest_date((date_value, date_interval))
 
         field = QueryFragment(
-            "countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}}) > 0 AS {column_name}",
+            "countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}",
             {date_param: date_value},
         ).format(
             date_param=date_param,
@@ -482,7 +482,6 @@ class FOSSCohortQuery(EventQuery):
         self._check_earliest_date((date_value, date_interval))
 
         field = QueryFragment(
-            "countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}}) > 0 AS {column_name}",
             """
             countIf(
                 timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}

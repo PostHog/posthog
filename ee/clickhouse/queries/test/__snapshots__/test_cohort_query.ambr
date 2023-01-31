@@ -24,7 +24,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event IN ['$pageview', '$pageview', '$autocapture']
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   INNER JOIN
     (SELECT *,
             id AS person_id
@@ -39,11 +39,11 @@
                AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
+        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
-           OR (performed_event_condition_None_level_level_0_level_0_level_1_0))
-          AND ((first_time_condition_None_level_level_0_level_1_level_0_0))))
+    AND (performed_event_condition_None_level_level_0_level_0_level_0_0
+         OR performed_event_condition_None_level_level_0_level_0_level_1_0
+         AND first_time_condition_None_level_level_0_level_1_level_0_0)
   '
 ---
 # name: TestCohortQuery.test_cohort_filter_with_another_cohort_with_event_sequence
@@ -54,7 +54,7 @@
     (SELECT person_id,
             max(if(event = '$pageview'
                    AND event_0_latest_0 < event_0_latest_1
-                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0,
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0 ,
             max(if(event = '$new_view'
                    AND event_1_latest_0 < event_1_latest_1
                    AND event_1_latest_1 <= event_1_latest_0 + INTERVAL 8 day, 2, 1)) = 2 AS steps_1
@@ -117,8 +117,8 @@
         HAVING max(is_deleted) = 0
         AND (((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND ((((steps_0))
-          AND (steps_1)))
+    AND (steps_0
+         AND steps_1)
   '
 ---
 # name: TestCohortQuery.test_cohort_filter_with_extra
@@ -142,7 +142,7 @@
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   INNER JOIN
     (SELECT *,
             id AS person_id
@@ -157,15 +157,15 @@
                AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))))) person ON person.person_id = behavior_query.person_id
+        AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0)))
+    AND (performed_event_condition_None_level_level_0_level_0_0)
   '
 ---
 # name: TestCohortQuery.test_cohort_filter_with_extra.1
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
@@ -183,7 +183,7 @@
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   FULL OUTER JOIN
     (SELECT *,
             id AS person_id
@@ -193,10 +193,10 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
-          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0))))
+    AND (has(['test'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
+         OR performed_event_condition_None_level_level_0_level_1_level_0_0)
   '
 ---
 # name: TestCohortQuery.test_performed_event_sequence
@@ -243,7 +243,7 @@
              AND timestamp >= now() - INTERVAL 7 day ))
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
-    AND (((steps_0)))
+    AND (steps_0)
   '
 ---
 # name: TestCohortQuery.test_performed_event_sequence_and_clause_with_additional_event
@@ -254,7 +254,7 @@
     (SELECT person_id,
             max(if(event = '$pageview'
                    AND event_0_latest_0 < event_0_latest_1
-                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0,
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0 ,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$new_view') >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
@@ -293,8 +293,8 @@
              AND timestamp >= now() - INTERVAL 1 week ))
      GROUP BY person_id) funnel_query
   WHERE 1 = 1
-    AND (((steps_0)
-          OR (performed_event_multiple_condition_None_level_level_0_level_1_0)))
+    AND (steps_0
+         OR performed_event_multiple_condition_None_level_level_0_level_1_0)
   '
 ---
 # name: TestCohortQuery.test_performed_event_sequence_with_person_properties
@@ -305,7 +305,7 @@
     (SELECT person_id,
             max(if(event = '$pageview'
                    AND event_0_latest_0 < event_0_latest_1
-                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0,
+                   AND event_0_latest_1 <= event_0_latest_0 + INTERVAL 3 day, 2, 1)) = 2 AS steps_0 ,
             countIf(timestamp > now() - INTERVAL 1 week
                     AND timestamp < now()
                     AND event = '$pageview') >= 1 AS performed_event_multiple_condition_None_level_level_0_level_1_0
@@ -359,14 +359,14 @@
         HAVING max(is_deleted) = 0
         AND ((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '')))))) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND (((steps_0)
-          AND (performed_event_multiple_condition_None_level_level_0_level_1_0)))
+    AND (steps_0
+         AND performed_event_multiple_condition_None_level_level_0_level_1_0)
   '
 ---
 # name: TestCohortQuery.test_person
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
@@ -384,7 +384,7 @@
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   FULL OUTER JOIN
     (SELECT *,
             id AS person_id
@@ -394,16 +394,16 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0)
-          OR (has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', '')))))
+    AND (performed_event_condition_None_level_level_0_level_0_0
+         OR has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person_props, '$sample_field'), '^"|"$', '')))
   '
 ---
 # name: TestCohortQuery.test_person_materialized
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
@@ -421,7 +421,7 @@
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   FULL OUTER JOIN
     (SELECT *,
             id AS person_id
@@ -431,60 +431,10 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND (((performed_event_condition_None_level_level_0_level_0_0)
-          OR (has(['test@posthog.com'], "pmat_$sample_field"))))
-  '
----
-# name: TestCohortQuery.test_person_properties_with_pushdowns
-  '
-  
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
-  FROM
-    (SELECT pdi.person_id AS person_id,
-            countIf(timestamp > now() - INTERVAL 1 day
-                    AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_0_0,
-            countIf(timestamp > now() - INTERVAL 2 week
-                    AND timestamp < now()
-                    AND event = '$pageview') > 0 AS performed_event_condition_None_level_level_0_level_0_level_1_0,
-            minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                               AND event = '$autocapture'))) >= now() - INTERVAL 2 week
-     AND minIf(timestamp, ((replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') = 'https://posthog.com/feedback/123'
-                            AND event = '$autocapture'))) < now() as first_time_condition_None_level_level_0_level_1_level_0_0
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     WHERE team_id = 2
-       AND event IN ['$pageview', '$pageview', '$autocapture']
-     GROUP BY person_id) behavior_query
-  FULL OUTER JOIN
-    (SELECT *,
-            id AS person_id
-     FROM
-       (SELECT id,
-               argMax(properties, version) as person_props
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', ''))))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND (((has(['test@posthog.com'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', ''))))))) person ON person.person_id = behavior_query.person_id
-  WHERE 1 = 1
-    AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
-           OR (performed_event_condition_None_level_level_0_level_0_level_1_0)
-           OR (has(['special'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))))
-          AND ((first_time_condition_None_level_level_0_level_1_level_0_0))))
+    AND (performed_event_condition_None_level_level_0_level_0_0
+         OR has(['test@posthog.com'], "pmat_$sample_field"))
   '
 ---
 # name: TestCohortQuery.test_person_props_only
@@ -573,17 +523,17 @@
         GROUP BY id
         HAVING max(is_deleted) = 0)) person
   WHERE 1 = 1
-    AND (((id IN
-             (SELECT person_id as id
-              FROM person_static_cohort
-              WHERE cohort_id = 2
-                AND team_id = 2))))
+    AND (id IN
+           (SELECT person_id as id
+            FROM person_static_cohort
+            WHERE cohort_id = 2
+              AND team_id = 2))
   '
 ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
@@ -601,7 +551,7 @@
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   FULL OUTER JOIN
     (SELECT *,
             id AS person_id
@@ -610,20 +560,20 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND (((id IN
-             (SELECT person_id as id
-              FROM person_static_cohort
-              WHERE cohort_id = 2
-                AND team_id = 2))
-          AND (performed_event_condition_None_level_level_0_level_1_0)))
+    AND (id IN
+           (SELECT person_id as id
+            FROM person_static_cohort
+            WHERE cohort_id = 2
+              AND team_id = 2)
+         AND performed_event_condition_None_level_level_0_level_1_0)
   '
 ---
 # name: TestCohortQuery.test_static_cohort_filter_with_extra.1
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 1 week
@@ -641,7 +591,7 @@
        AND event IN ['$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 1 week
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   FULL OUTER JOIN
     (SELECT *,
             id AS person_id
@@ -650,20 +600,20 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND ((((id IN
-              (SELECT person_id as id
-               FROM person_static_cohort
-               WHERE cohort_id = 2
-                 AND team_id = 2)))
-          OR ((performed_event_condition_None_level_level_0_level_1_level_0_0))))
+    AND (id IN
+           (SELECT person_id as id
+            FROM person_static_cohort
+            WHERE cohort_id = 2
+              AND team_id = 2)
+         OR performed_event_condition_None_level_level_0_level_1_level_0_0)
   '
 ---
 # name: TestCohortQuery.test_unwrapping_static_cohort_filter_hidden_in_layers_of_cohorts
   '
   
-  SELECT if(behavior_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, behavior_query.person_id) AS id
+  SELECT if(funnel_query.person_id = '00000000-0000-0000-0000-000000000000', person.person_id, funnel_query.person_id) AS id
   FROM
     (SELECT pdi.person_id AS person_id,
             countIf(timestamp > now() - INTERVAL 7 day
@@ -684,7 +634,7 @@
        AND event IN ['$new_view', '$pageview']
        AND timestamp <= now()
        AND timestamp >= now() - INTERVAL 7 day
-     GROUP BY person_id) behavior_query
+     GROUP BY person_id) funnel_query
   FULL OUTER JOIN
     (SELECT *,
             id AS person_id
@@ -693,14 +643,14 @@
         FROM person
         WHERE team_id = 2
         GROUP BY id
-        HAVING max(is_deleted) = 0)) person ON person.person_id = behavior_query.person_id
+        HAVING max(is_deleted) = 0)) person ON person.person_id = funnel_query.person_id
   WHERE 1 = 1
-    AND ((((performed_event_condition_None_level_level_0_level_0_level_0_0)
-           AND (id NOT IN
-                  (SELECT person_id as id
-                   FROM person_static_cohort
-                   WHERE cohort_id = 2
-                     AND team_id = 2)))
-          OR (performed_event_condition_None_level_level_0_level_1_0)))
+    AND (performed_event_condition_None_level_level_0_level_0_level_0_0
+         AND id NOT IN
+           (SELECT person_id as id
+            FROM person_static_cohort
+            WHERE cohort_id = 2
+              AND team_id = 2)
+         OR performed_event_condition_None_level_level_0_level_1_0)
   '
 ---
