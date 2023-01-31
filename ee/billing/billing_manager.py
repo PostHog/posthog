@@ -1,6 +1,7 @@
 import calendar
 from datetime import datetime, time, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import jwt
 import pytz
@@ -14,6 +15,7 @@ from rest_framework.exceptions import NotAuthenticated
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.organization import OrganizationUsageInfo
@@ -22,6 +24,60 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
+
+
+class Tier(TypedDict):
+    flat_amount_usd: Decimal
+    unit_amount_usd: Decimal
+    current_amount_usd: Decimal
+    up_to: Optional[int]
+
+
+class CustomerProduct(TypedDict):
+    name: str
+    description: str
+    price_description: Optional[str]
+    image_url: Optional[str]
+    type: str
+    free_allocation: int
+    tiers: List[Tier]
+    tiered: bool
+    unit_amount_usd: Optional[Decimal]
+    current_amount_usd: Decimal
+    current_usage: int
+    usage_limit: Optional[int]
+    has_exceeded_limit: bool
+    percentage_usage: float
+    projected_usage: int
+    projected_amount: Decimal
+
+
+class LicenseInfo(TypedDict):
+    type: str
+
+
+class BillingPeriod(TypedDict):
+    current_period_start: timezone.datetime
+    current_period_end: timezone.datetime
+
+
+class CustomerInfo(TypedDict):
+    customer_id: Optional[str]
+    deactivated: bool
+    has_active_subscription: bool
+    stripe_portal_url: str
+    available_features: List[AvailableFeature]
+    current_total_amount_usd: Optional[str]
+    products: Optional[List[CustomerProduct]]
+    custom_limits_usd: Optional[Dict[str, str]]
+    billing_period: Optional[BillingPeriod]
+    last_reported_usage: Optional[Dict[str, int]]
+    free_trial_until: Optional[timezone.datetime]
+
+
+class BillingStatus(TypedDict):
+    license: LicenseInfo
+    customer: CustomerInfo
 
 
 def build_billing_token(license: License, organization: Organization):
@@ -84,17 +140,39 @@ class BillingManager:
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
         billing_service_response: Dict[str, Any] = {}
 
+        # Get the specified plans from "plan_keys" query param, otherwise get the defaults
+        plans = self._get_plans(plan_keys)
         if organization and self.license and self.license.is_v2_license:
-            billing_service_response = self._get_billing(organization)
-            response = self._process_billing_service_response(organization, billing_service_response)
-            # Get the specified plans from "plan_keys" query param, otherwise get the defaults
-            plans = self._get_plans(plan_keys)
+            billing_service_response: BillingStatus = self._get_billing(organization)
+
+            if not self.license:  # mypy
+                raise Exception("No license found")
+
+            # Ensure the license and org are updated with the latest info
+            if billing_service_response.get("license"):
+                self.update_license_details(billing_service_response)
+            if organization:
+                self.update_org_details(organization, billing_service_response)
+
+            response: Dict[str, Any] = {"available_features": []}
+
+            response["license"] = {"plan": self.license.plan}
+
+            if organization and billing_service_response.get("customer"):
+                response.update(billing_service_response["customer"])
+
+            if not billing_service_response["customer"].get("products"):
+                products = self.get_default_products(organization)
+                response["products"] = products["products"]
+                response["products_enterprise"] = products["products_enterprise"]
+
             response["available_plans"] = plans["plans"]
             return response
         else:
             products = self.get_default_products(organization)
             return {
                 "available_features": [],
+                "available_plans": plans["plans"],
                 "products": products["products"],
                 "products_enterprise": products["products_enterprise"],
             }
@@ -126,11 +204,13 @@ class BillingManager:
             else:
                 product["current_usage"] = 0
 
-        response["products"] = self._process_products(response["products"])
+        for product in response["products"]:
+            usage_limit = product.get("usage_limit", product.get("free_allocation"))
+            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
 
         return response
 
-    def update_license_details(self, data: Dict[str, Any]) -> License:
+    def update_license_details(self, billing_status: BillingStatus) -> License:
         """
         Ensure the license details are up-to-date locally
         """
@@ -138,6 +218,8 @@ class BillingManager:
             raise Exception("No license found")
 
         license_modified = False
+
+        data = billing_status["license"]
 
         if not self.license.valid_until or self.license.valid_until < timezone.now() + timedelta(days=29):
             # NOTE: License validity is a legacy concept. For now we always extend the license validity by 30 days.
@@ -153,7 +235,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(self, organization: Organization) -> Dict[str, Any]:
+    def _get_billing(self, organization: Organization) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -167,35 +249,6 @@ class BillingManager:
         data = res.json()
 
         return data
-
-    def _process_billing_service_response(
-        self, organization: Optional[Organization], billing_service_response: Dict[str, Any]
-    ):
-        if not self.license:  # mypy
-            raise Exception("No license found")
-
-        response: Dict[str, Any] = {"available_features": []}
-
-        response["license"] = {"plan": self.license.plan}
-
-        # Sync the License and Org if we have a valid response
-        if billing_service_response.get("license"):
-            self.update_license_details(billing_service_response["license"])
-        if organization and billing_service_response.get("customer"):
-            response.update(billing_service_response["customer"])
-
-        if billing_service_response["customer"].get("products"):
-            response["products"] = self._process_products(billing_service_response["customer"]["products"])
-        else:
-            products = self.get_default_products(organization)
-            response["products"] = products["products"]
-            response["products_enterprise"] = products["products_enterprise"]
-
-        # Before responding ensure the org is updated with the latest info
-        if organization:
-            self._update_org_details(organization, response)
-
-        return response
 
     def _get_plans(self, plan_keys: Optional[str]):
         res = requests.get(
@@ -223,58 +276,41 @@ class BillingManager:
 
         return res.json()
 
-    def _process_products(self, products: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-
-        # Either way calculate the percentage_used for each product
-        for product in products:
-            usage_limit = product.get("usage_limit", product.get("free_allocation"))
-            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
-
-        return products
-
-    def _update_org_details(self, organization: Organization, data: Dict[str, Any]) -> Organization:
+    def update_org_details(self, organization: Organization, billing_status: BillingStatus) -> Organization:
         """
         Ensure the relevant organization details are up-to-date locally
         """
         org_modified = False
 
+        data = billing_status["customer"]
+
         if data.get("customer_id") and organization.customer_id != data["customer_id"]:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
-        org_usage: Optional[Dict[str, OrganizationUsageInfo]] = None
-        # when updating usage reports, we immediately return an organization_usage object
-        if data.get("organization_usage"):
-            org_usage = data["organization_usage"]
+        org_usage: Dict[str, OrganizationUsageInfo] = {
+            "events": {
+                "usage": None,
+                "limit": None,
+            },
+            "recordings": {
+                "usage": None,
+                "limit": None,
+            },
+            "period": data["billing_period"],
+        }
+
+        if data.get("has_active_subscription"):
+            # If we have a subscription use the correct values from there
+            for product in data["products"]:
+                if product["type"] in org_usage:
+                    org_usage[product["type"]]["usage"] = product["current_usage"]
+                    org_usage[product["type"]]["limit"] = product.get("usage_limit")
         else:
-            org_usage = {
-                "events": {
-                    "usage": None,
-                    "limit": None,
-                },
-                "recordings": {
-                    "usage": None,
-                    "limit": None,
-                },
-            }
-
-            if data.get("has_active_subscription"):
-                # If we have a subscription use the correct values from there
-                for product in data["products"]:
-                    if product["type"] in org_usage:
-                        org_usage[product["type"]]["usage"] = product["current_usage"]
-                        org_usage[product["type"]]["limit"] = product.get("usage_limit")
-            else:
-                # We don't have a subscription so use the calculated usage
-                calculated_usage = self._get_cached_current_usage(organization)
-
-                for key, value in calculated_usage.items():
-                    if key in org_usage:
-                        org_usage[key]["usage"] = value
-
-                for product in data["products"]:
-                    if product["type"] in org_usage:
-                        org_usage[product["type"]]["limit"] = product.get("free_allocation")
+            # If we have a subscription use the correct values from there
+            for key in data["last_reported_usage"].keys():
+                if key in org_usage:
+                    org_usage[key]["usage"] = data["last_reported_usage"][key]
 
         if org_usage and org_usage != organization.usage:
             organization.usage = org_usage

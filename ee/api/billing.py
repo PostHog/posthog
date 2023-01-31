@@ -129,7 +129,6 @@ class BillingViewset(viewsets.GenericViewSet):
             f"{BILLING_SERVICE_URL}/api/billing", headers=BillingManager(license).get_auth_headers(organization)
         )
 
-
         if res.status_code != 200:
             raise ValidationError(
                 {
@@ -137,7 +136,7 @@ class BillingViewset(viewsets.GenericViewSet):
                 }
             )
         data = res.json()
-        BillingManager(license).update_license_details(data["license"])
+        BillingManager(license).update_license_details(data)
         return Response({"success": True})
 
     def _get_org(self) -> Optional[Organization]:

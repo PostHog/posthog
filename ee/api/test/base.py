@@ -13,7 +13,7 @@ class LicensedTestMixin:
     """
 
     CONFIG_LICENSE_KEY: Optional[str] = "12345::67890"
-    CONFIG_LICENSE_PLAN: Optional[str] = "enterprise"
+    CONFIG_LICENSE_PLAN: Optional[str] = "cloud"
     license: License = None  # type: ignore
 
     def license_required_response(
