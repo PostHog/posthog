@@ -328,3 +328,13 @@ class TestConvertParseTree(BaseTest):
             expr_to_ast("this.can.go.on.for.miles"),
             ast.FieldAccessChain(chain=["this", "can", "go", "on", "for", "miles"]),
         )
+
+    def test_calls(self):
+        self.assertEqual(
+            expr_to_ast("avg()"),
+            ast.Call(name="avg", args=[]),
+        )
+        self.assertEqual(
+            expr_to_ast("avg(1,2,3)"),
+            ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
+        )

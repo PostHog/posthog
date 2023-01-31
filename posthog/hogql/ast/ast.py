@@ -79,19 +79,19 @@ class Constant(Expr):
     value: Any
 
 
-class Attribute(Expr):
-    attr: str
-    value: Expr
-
-
-class Call(Expr):
-    func: Expr
-    args: List[Expr]
-
-
 class FieldAccess(Expr):
     field: str
 
 
 class FieldAccessChain(Expr):
     chain: List[str]
+
+
+class Call(Expr):
+    name: str
+    args: List[Expr]
+
+
+class Attribute(Expr):
+    attr: str
+    value: Expr

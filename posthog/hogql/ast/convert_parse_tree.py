@@ -321,23 +321,27 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
-        raise Exception(f"Unsupported node: ColumnExprFunction")
+        if ctx.columnExprList():
+            raise Exception(f"Functions that return functions are not supported")
+        name = ctx.identifier().getText()
+        args = self.visit(ctx.columnArgList()) if ctx.columnArgList() else []
+        return ast.Call(name=name, args=args)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
         raise Exception(f"Unsupported node: ColumnExprAsterisk")
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
-        raise Exception(f"Unsupported node: ColumnArgList")
+        return [self.visit(arg) for arg in ctx.columnArgExpr()]
 
     def visitColumnArgExpr(self, ctx: HogQLParser.ColumnArgExprContext):
-        raise Exception(f"Unsupported node: ColumnArgExpr")
+        return self.visitChildren(ctx)
 
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
         raise Exception(f"Unsupported node: ColumnLambdaExpr")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else None
-        nested = self.visit(ctx.nestedIdentifier())
+        nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else None
 
         if table is None:
             if isinstance(nested, ast.FieldAccess):
