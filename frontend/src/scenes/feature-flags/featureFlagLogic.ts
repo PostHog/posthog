@@ -160,7 +160,10 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
         }
     }
     if (flag.filters && !flag.filters.multivariate) {
-        const cleanedPayloadValue = { true: flag.filters.payloads['true'] }
+        let cleanedPayloadValue = {}
+        if (flag.filters.payloads?.['true']) {
+            cleanedPayloadValue = { true: flag.filters.payloads['true'] }
+        }
         return {
             ...flag,
             filters: {
