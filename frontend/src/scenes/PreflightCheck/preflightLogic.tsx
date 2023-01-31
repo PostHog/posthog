@@ -214,7 +214,10 @@ export const preflightLogic = kea<preflightLogicType>([
         siteUrlMisconfigured: [
             (s) => [s.preflight],
             (preflight): boolean => {
-                return Boolean(preflight && (!preflight.site_url || preflight.site_url != window.location.origin))
+                if (window.location.port === '6006') {
+                    return false // Disable this warning in Storybook
+                }
+                return !!preflight && (!preflight.site_url || preflight.site_url != window.location.origin)
             },
         ],
         configOptions: [
