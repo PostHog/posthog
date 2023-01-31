@@ -78,8 +78,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = 9  # Django session, PostHog user, PostHog team, PostHog org membership,
-        # look up if rate limit is enabled (cached after first lookup), 2x non-cached instance setting (MATERIALIZED_COLUMNS_ENABLED), person and distinct id
+        expected_queries = 8
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
