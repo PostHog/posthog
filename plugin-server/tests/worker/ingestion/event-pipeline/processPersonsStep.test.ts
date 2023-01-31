@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/4-processPersonsStep'
+import { processPersonsStep } from '../../../../src/worker/ingestion/event-pipeline/processPersonsStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { updatePersonState } from '../../../../src/worker/ingestion/person-state'
 
@@ -46,7 +46,7 @@ describe('processPersonsStep()', () => {
     it('forwards event to `prepareEventStep`', async () => {
         const response = await processPersonsStep(runner, pluginEvent, personContainer)
 
-        expect(response).toEqual(['prepareEventStep', pluginEvent, personContainer])
+        expect(response).toEqual([pluginEvent, personContainer])
         expect(jest.mocked(updatePersonState)).toHaveBeenCalled()
     })
 
@@ -66,7 +66,6 @@ describe('processPersonsStep()', () => {
         const response = await processPersonsStep(runner, event, personContainer)
 
         expect(response).toEqual([
-            'prepareEventStep',
             {
                 ...event,
                 properties: {
@@ -99,6 +98,6 @@ describe('processPersonsStep()', () => {
             'hub.personManager',
             personContainer
         )
-        expect(response).toEqual(['prepareEventStep', pluginEvent, updatedContainer])
+        expect(response).toEqual([pluginEvent, updatedContainer])
     })
 })
