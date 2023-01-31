@@ -60,9 +60,9 @@ ACTIVE_USERS_SQL = """
 WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
 toDateTime(%(date_from)s, %(timezone)s) AS date_from,
 arrayMap(
-    n -> toDateTime(n, %(timezone)s),
+    n -> n,
     range(
-        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s)))),
+        toUInt32(toDateTime({interval}(%(date_from)s))),
         toUInt32(date_to),
         %(bucket_increment_seconds)s
     )
@@ -78,10 +78,10 @@ FROM (
         SELECT
             {aggregator} as actor_id,
             arrayMap(
-                n -> toDateTime(n, %(timezone)s),
+                n -> n,
                 range(
-                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))),
-                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}),
+                    toUInt32(toDateTime({rounding_func}(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC')))),
+                    toUInt32(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC') + INTERVAL {prev_interval}),
                     %(grouping_increment_seconds)s
                 )
             ) AS event_buckets
