@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightsNav } from 'scenes/insights/InsightsNav'
 import { ItemMode } from '~/types'
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isInsightVizNode } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
@@ -70,7 +70,9 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                     'insight-wrapper--singlecolumn': isFunnels,
                 })}
             >
-                <EditorFilters query={query.source} setQuery={setQuerySource} />
+                {!!insight.query && isInsightVizNode(insight.query) && (
+                    <EditorFilters query={query.source} setQuery={setQuerySource} />
+                )}
 
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer insightMode={insightMode} />

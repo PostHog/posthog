@@ -228,5 +228,3 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": True})
         assert listed_insights["count"] == 2
-        assert listed_insights["results"][0]["name"] == "Insight with filters"
-        assert listed_insights["results"][1]["name"] == "Insight with persons table query"

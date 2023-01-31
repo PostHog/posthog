@@ -40,6 +40,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { isInsightVizNode } from '~/queries/utils'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -256,7 +257,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
-                            canEditInsight && (
+                            canEditInsight &&
+                            (!!Object.keys(insight.filters || {}).length || isInsightVizNode(insight.query)) && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}

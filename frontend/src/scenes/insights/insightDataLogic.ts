@@ -242,13 +242,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            if (insight.filters) {
+            if (!!insight.query) {
+                actions.setQuery(insight.query)
+            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
                 const query = getQueryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
         },
         loadResultsSuccess: ({ insight }) => {
-            if (insight.filters) {
+            if (!!insight.query) {
+                actions.setQuery(insight.query)
+            } else if (!!insight.filters && !!Object.keys(insight.filters).length) {
                 const query = getQueryFromFilters(insight.filters)
                 actions.setQuery(query)
             }

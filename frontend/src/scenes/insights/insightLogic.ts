@@ -816,7 +816,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if (!values.isUsingDataExploration) {
+                if (!values.isUsingDataExploration && !values.insight?.query) {
                     actions.loadResults()
                 }
             }
@@ -1048,7 +1048,7 @@ export const insightLogic = kea<insightLogicType>([
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (!insight.result && values.filters) {
+            if (!insight.result && !insight.query && values.filters) {
                 actions.loadResults()
             }
         },
@@ -1108,14 +1108,14 @@ export const insightLogic = kea<insightLogicType>([
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
                             actions.reportInsightViewed(insight, insight.filters || {})
-                        } else {
+                        } else if (!insight.query) {
                             actions.loadResults()
                         }
                         return
                     }
                 }
                 if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters) {
+                    if (props.cachedInsight?.filters && !props.cachedInsight?.query) {
                         actions.loadResults()
                     } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)
