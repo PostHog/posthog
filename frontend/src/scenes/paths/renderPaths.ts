@@ -14,6 +14,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
     return d3
         .select(canvasRef.current)
         .append('svg')
+        .classed('Paths__canvas', true)
         .style('background', 'var(--item-background)')
         .style('width', width)
         .style('height', height)
