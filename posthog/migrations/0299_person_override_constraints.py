@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             model_name="personoverride",
             constraint=models.CheckConstraint(
                 check=models.Q(
-                    ("old_person_id__eq", django.db.models.expressions.F("override_person_id")), _negated=True
+                    ("old_person_id__exact", django.db.models.expressions.F("override_person_id")), _negated=True
                 ),
                 name="old_person_id_different_from_override_person_id",
             ),
