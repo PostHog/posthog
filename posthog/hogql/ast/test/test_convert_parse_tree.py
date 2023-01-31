@@ -117,7 +117,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
 
-    def test_comparison_operations(self):
+    def test_math_comparison_operations(self):
         self.assertEqual(
             expr_to_ast("1 = 2"),
             ast.CompareOperation(
@@ -158,6 +158,46 @@ class TestConvertParseTree(BaseTest):
             expr_to_ast("1 >= 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.GtE
+            ),
+        )
+
+    def test_null_comparison_operations(self):
+        self.assertEqual(
+            expr_to_ast("1 is null"),
+            ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationType.Eq
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("1 is not null"),
+            ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationType.NotEq
+            ),
+        )
+
+    def test_like_comparison_operations(self):
+        self.assertEqual(
+            expr_to_ast("1 like 'a%sd'"),
+            ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.Like
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("1 not like 'a%sd'"),
+            ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.NotLike
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("1 ilike 'a%sd'"),
+            ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.ILike
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("1 not ilike 'a%sd'"),
+            ast.CompareOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.NotILike
             ),
         )
 

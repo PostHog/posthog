@@ -255,7 +255,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprLiteral(self, ctx: HogQLParser.ColumnExprLiteralContext):
         if len(ctx.children) == 1:
             return self.visit(ctx.children[0])
-        # raise Exception(f"Unsupported node: ColumnExprLiteral")
         return self.visitChildren(ctx)
 
     def visitColumnExprArray(self, ctx: HogQLParser.ColumnExprArrayContext):
@@ -312,8 +311,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op = ast.CompareOperationType.Gt
         elif ctx.GE():
             op = ast.CompareOperationType.GtE
+        elif ctx.LIKE():
+            if ctx.NOT():
+                op = ast.CompareOperationType.NotLike
+            else:
+                op = ast.CompareOperationType.Like
+        elif ctx.ILIKE():
+            if ctx.NOT():
+                op = ast.CompareOperationType.NotILike
+            else:
+                op = ast.CompareOperationType.ILike
         else:
-            # TODO: support "like", "ilike", "in", "not in", "not like", "not ilike", "global in", "global not in"
+            # TODO: support "in", "not in", "global in", "global not in"
             raise Exception(f"Unsupported ColumnExprPrecedence3: {ctx.getText()}")
         return ast.CompareOperation(left=parse_tree_to_expr(ctx.left), right=parse_tree_to_expr(ctx.right), op=op)
 
@@ -322,8 +331,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
-        raise Exception(f"Unsupported node: ColumnExprIsNull")
-        # return self.visitChildren(ctx)
+        return ast.CompareOperation(
+            left=parse_tree_to_expr(ctx.columnExpr()),
+            right=ast.Constant(value=None),
+            op=ast.CompareOperationType.NotEq if ctx.NOT() else ast.CompareOperationType.Eq,
+        )
 
     def visitColumnExprWinFunctionTarget(self, ctx: HogQLParser.ColumnExprWinFunctionTargetContext):
         raise Exception(f"Unsupported node: ColumnExprWinFunctionTarget")

@@ -59,6 +59,10 @@ class CompareOperationType(str, Enum):
     GtE = ">="
     Lt = "<"
     LtE = "<="
+    Like = "like"
+    ILike = "ilike"
+    NotLike = "not like"
+    NotILike = "not ilike"
 
 
 class CompareOperation(Expr):
