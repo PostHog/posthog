@@ -62,7 +62,7 @@ async function expectLocatorToMatchStorySnapshot(
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
-        jest.retryTimes(3, { logErrorsBeforeRetry: true })
+        jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
     },
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
