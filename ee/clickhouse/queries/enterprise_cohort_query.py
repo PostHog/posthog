@@ -291,23 +291,21 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         else:
             person_prop_query = QueryFragment("")
 
-        event_param_name = f"{self._cohort_pk}_event_ids"
         new_query = QueryFragment(
             """
             SELECT {fields}
             FROM events AS {alias}
             {distinct_id_query}
             WHERE team_id = %(team_id)s
-            AND event IN %({event_param_name})s
+            AND event IN %(__event_ids)s
             {date_condition}
             {person_prop_query}
             """,
-            {"team_id": self._team_id, event_param_name: self._events},
+            {"team_id": self._team_id, UniqueName("__event_ids"): self._events},
         ).format(
             fields=QueryFragment.join(", ", _inner_fields),
             alias=self.EVENT_TABLE_ALIAS,
             distinct_id_query=self._get_distinct_id_query(),
-            event_param_name=event_param_name,
             date_condition=date_condition,
             person_prop_query=person_prop_query,
         )
