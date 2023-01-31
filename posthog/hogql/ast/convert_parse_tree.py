@@ -271,8 +271,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprOr(self, ctx: HogQLParser.ColumnExprOrContext):
-        raise Exception(f"Unsupported node: ColumnExprOr")
-        # return self.visitChildren(ctx)
+        return ast.BooleanOperation(
+            left=parse_tree_to_expr(ctx.columnExpr(0)),
+            right=parse_tree_to_expr(ctx.columnExpr(1)),
+            op=ast.BooleanOperationType.Or,
+        )
 
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
         if ctx.SLASH():
@@ -350,8 +353,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprAnd(self, ctx: HogQLParser.ColumnExprAndContext):
-        raise Exception(f"Unsupported node: ColumnExprAnd")
-        # return self.visitChildren(ctx)
+        return ast.BooleanOperation(
+            left=parse_tree_to_expr(ctx.columnExpr(0)),
+            right=parse_tree_to_expr(ctx.columnExpr(1)),
+            op=ast.BooleanOperationType.And,
+        )
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
         raise Exception(f"Unsupported node: ColumnExprTupleAccess")
@@ -366,8 +372,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprNot(self, ctx: HogQLParser.ColumnExprNotContext):
-        raise Exception(f"Unsupported node: ColumnExprNot")
-        # return self.visitChildren(ctx)
+        return ast.UnaryOperation(expr=parse_tree_to_expr(ctx.columnExpr()), op=ast.UnaryOperationType.Not)
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         raise Exception(f"Unsupported node: ColumnExprWinFunction")

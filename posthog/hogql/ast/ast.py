@@ -43,11 +43,12 @@ class BooleanOperationType(str, Enum):
     Or = "or"
 
 
-class BooleanOpeartion(Expr):
+class BooleanOperation(Expr):
     class Config:
         extra = Extra.forbid
 
-    values: List[Expr]
+    left: Expr
+    right: Expr
     op: BooleanOperationType
 
 
@@ -73,7 +74,7 @@ class UnaryOperationType(str, Enum):
 
 class UnaryOperation(Expr):
     op: UnaryOperationType
-    operand: Expr
+    expr: Expr
 
 
 class Constant(Expr):

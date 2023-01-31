@@ -160,6 +160,58 @@ class TestConvertParseTree(BaseTest):
             ),
         )
 
+    def test_boolean_operations(self):
+        self.assertEqual(
+            expr_to_ast("true or false"),
+            ast.BooleanOperation(
+                left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.Or
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("true and false"),
+            ast.BooleanOperation(
+                left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.And
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("true and not false"),
+            ast.BooleanOperation(
+                left=ast.Constant(value=True),
+                right=ast.UnaryOperation(expr=ast.Constant(value=False), op=ast.UnaryOperationType.Not),
+                op=ast.BooleanOperationType.And,
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("true or false or not true or 2"),
+            ast.BooleanOperation(
+                left=ast.BooleanOperation(
+                    left=ast.BooleanOperation(
+                        left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.Or
+                    ),
+                    right=ast.UnaryOperation(expr=ast.Constant(value=True), op=ast.UnaryOperationType.Not),
+                    op=ast.BooleanOperationType.Or,
+                ),
+                right=ast.Constant(value=2),
+                op=ast.BooleanOperationType.Or,
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("true or false and not true or 2"),
+            ast.BooleanOperation(
+                left=ast.BooleanOperation(
+                    left=ast.Constant(value=True),
+                    right=ast.BooleanOperation(
+                        left=ast.Constant(value=False),
+                        right=ast.UnaryOperation(expr=ast.Constant(value=True), op=ast.UnaryOperationType.Not),
+                        op=ast.BooleanOperationType.And,
+                    ),
+                    op=ast.BooleanOperationType.Or,
+                ),
+                right=ast.Constant(value=2),
+                op=ast.BooleanOperationType.Or,
+            ),
+        )
+
     def test_unary_operations(self):
         self.assertEqual(
             expr_to_ast("not true"),
