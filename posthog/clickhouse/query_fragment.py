@@ -1,4 +1,5 @@
 import itertools
+import re
 from dataclasses import dataclass
 from functools import cached_property
 from typing import Any, Dict, List, Sequence, Tuple, Union, cast
@@ -10,8 +11,9 @@ QueryFragmentLike = Union["QueryFragment", str]
 unique_sequence = itertools.count()
 
 
-@dataclass
+@dataclass(frozen=True)
 class UniqueParamName(str):
+    # :CONVENTION: Prefix these variable names with __ to avoid collisions in sql.
     name: str
 
     @cached_property
@@ -19,10 +21,10 @@ class UniqueParamName(str):
         return f"{self.name}_{next(unique_sequence)}"
 
 
+@dataclass
 class QueryFragment:
     sql: str
-    params: ParamsType = {}
-    _params: ParamsType
+    params: ParamsType
 
     def __init__(self, sql: Union[str, "QueryFragment", Tuple[str, Any]], params: ParamsType = {}):
         if isinstance(sql, str):
@@ -53,16 +55,13 @@ class QueryFragment:
         return QueryFragment(unformatted_sql).format(**indexed)
 
     def _update_sql_with_unique_param_names(self):
-        unique_param_names = [key for key in self._params if isinstance(key, UniqueParamName)]
-
-        if len(unique_param_names) > 0:
-            self.sql = self.sql.format(**{key.name: key.unique_name for key in unique_param_names})
-            self.params = {
-                (key.unique_name if isinstance(key, UniqueParamName) else key): value
-                for key, value in self._params.items()
-            }
-        else:
-            self.params = self._params
+        self.params = {}
+        for key, value in self._params.items():
+            if isinstance(key, UniqueParamName):
+                self.sql = re.sub(f"\\b{re.escape(key.name)}\\b", key.unique_name, self.sql)
+                self.params[key.unique_name] = value
+            else:
+                self.params[key] = value
 
     def __repr__(self):
         return f"QueryFragment({repr(self.sql)}, {repr(self.params)})"
