@@ -7,8 +7,8 @@ export default {
     title: 'Lemon UI/Popup',
     component: Popup,
     parameters: {
-        chromatic: {
-            disableSnapshot: true, // FIXME: This story needs a play test for the popup to show up in snapshots
+        testOptions: {
+            skip: true, // FIXME: This story needs a play test for the popup to show up in snapshots
         },
     },
 } as ComponentMeta<typeof Popup>

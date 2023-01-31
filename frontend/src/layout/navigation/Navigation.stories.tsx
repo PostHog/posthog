@@ -13,7 +13,6 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        testRunner: { includeNavigation: true },
     },
 } as Meta
 

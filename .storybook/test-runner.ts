@@ -2,6 +2,22 @@ import { toMatchImageSnapshot } from 'jest-image-snapshot'
 import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-runner'
 import { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 
+// Extend Storybook interface `Parameters` with Chromatic parameters
+declare module '@storybook/react' {
+    interface Parameters {
+        layout?: 'padded' | 'fullscreen' | 'centered'
+        testOptions?: {
+            /** Doesn't jest.skip the story (@storybook/test-runner doesn't allow that), but  makes the test a no-op. */
+            skip?: boolean
+            /**
+             * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
+             * Warning: Fails if enabled for stories in which navigation is not present.
+             */
+            excludeNavigationFromSnapshot?: boolean
+        }
+    }
+}
+
 const RETRY_TIMES = 3
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
@@ -18,13 +34,11 @@ async function expectStoryToMatchSceneSnapshot(page: Page, context: TestContext)
 async function expectStoryToMatchComponentSnapshot(page: Page, context: TestContext): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('root')
-
         if (rootEl) {
             // don't expand the container element to limit the screenshot
             // to the component's size
             rootEl.style.display = 'inline-block'
         }
-
         // make the body transparent to take the screenshot
         // without background
         document.body.style.background = 'transparent'
@@ -38,7 +52,7 @@ async function expectLocatorToMatchStorySnapshot(
     context: TestContext,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot(options)
+    const image = await locator.screenshot({ timeout: 3000, ...options })
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
         customSnapshotIdentifier: context.id,
@@ -58,13 +72,13 @@ module.exports = {
             document.body.classList.add('dangerously-stop-all-animations')
         })
 
-        if (!storyContext.parameters?.chromatic?.disableSnapshot) {
+        if (!storyContext.parameters?.testOptions?.skip) {
             let expectStoryToMatchSnapshot: (page: Page, context: TestContext) => Promise<void>
             if (storyContext.parameters?.layout === 'fullscreen') {
-                if (storyContext.parameters.testRunner?.includeNavigation) {
-                    expectStoryToMatchSnapshot = expectStoryToMatchFullPageSnapshot
-                } else {
+                if (storyContext.parameters.testOptions?.excludeNavigationFromSnapshot) {
                     expectStoryToMatchSnapshot = expectStoryToMatchSceneSnapshot
+                } else {
+                    expectStoryToMatchSnapshot = expectStoryToMatchFullPageSnapshot
                 }
             } else {
                 expectStoryToMatchSnapshot = expectStoryToMatchComponentSnapshot

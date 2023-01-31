@@ -19,6 +19,9 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
         viewMode: 'story',
     },
     decorators: [

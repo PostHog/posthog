@@ -7,7 +7,7 @@ export default {
     title: 'Lemon UI/Icons/Property Icon',
     component: PropertyIcon,
     parameters: {
-        chromatic: { disableSnapshot: true }, // There are too many icons, the snapshots are huge in table form
+        testOptions: { skip: true }, // There are too many icons, the snapshots are huge in table form
     },
 } as ComponentMeta<typeof PropertyIcon>
 

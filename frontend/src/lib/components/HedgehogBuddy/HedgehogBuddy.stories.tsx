@@ -5,7 +5,7 @@ export default {
     title: 'Components/Hedgehog Buddy',
     component: HedgehogBuddy,
     parameters: {
-        chromatic: { disableSnapshot: true }, // Hedgehogs aren't particularly snapshotable
+        testOptions: { skip: true }, // Hedgehogs aren't particularly snapshotable
     },
 } as ComponentMeta<typeof HedgehogBuddy>
 
