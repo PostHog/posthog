@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName
+from posthog.clickhouse.query_fragment import QueryFragment, QueryFragmentLike
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
@@ -83,20 +84,32 @@ def get_relative_date_arg(relative_date: Relative_Date) -> str:
     return f"-{relative_date[0]}{relative_date[1][0].lower()}"
 
 
-def full_outer_join_query(q: str, alias: str, left_operand: str, right_operand: str) -> str:
+def full_outer_join_query(
+    q: QueryFragmentLike, alias: QueryFragmentLike, left_operand: QueryFragmentLike, right_operand: QueryFragmentLike
+) -> QueryFragment:
     return join_query(q, "FULL OUTER JOIN", alias, left_operand, right_operand)
 
 
-def inner_join_query(q: str, alias: str, left_operand: str, right_operand: str) -> str:
+def inner_join_query(
+    q: QueryFragmentLike, alias: QueryFragmentLike, left_operand: QueryFragmentLike, right_operand: QueryFragmentLike
+) -> QueryFragment:
     return join_query(q, "INNER JOIN", alias, left_operand, right_operand)
 
 
-def join_query(q: str, join: str, alias: str, left_operand: str, right_operand: str) -> str:
-    return f"{join} ({q}) {alias} ON {left_operand} = {right_operand}"
+def join_query(
+    q: QueryFragmentLike,
+    join: QueryFragmentLike,
+    alias: QueryFragmentLike,
+    left_operand: QueryFragmentLike,
+    right_operand: QueryFragmentLike,
+) -> QueryFragment:
+    return QueryFragment("{join} ({q}) {alias} ON {left_operand} = {right_operand}").format(**locals())
 
 
-def if_condition(condition: str, true_res: str, false_res: str) -> str:
-    return f"if({condition}, {true_res}, {false_res})"
+def if_condition(
+    condition: QueryFragmentLike, true_res: QueryFragmentLike, false_res: QueryFragmentLike
+) -> QueryFragment:
+    return QueryFragment("if({condition}, {true_res}, {false_res})").format(**locals())
 
 
 class FOSSCohortQuery(EventQuery):
@@ -104,7 +117,7 @@ class FOSSCohortQuery(EventQuery):
     BEHAVIOR_QUERY_ALIAS = "behavior_query"
     FUNNEL_QUERY_ALIAS = "funnel_query"
     SEQUENCE_FIELD_ALIAS = "steps"
-    _fields: List[str]
+    _fields: List[QueryFragmentLike]
     _events: List[str]
     _earliest_time_for_event_query: Optional[Relative_Date]
     _restrict_event_query_by_time: bool
@@ -234,41 +247,37 @@ class FOSSCohortQuery(EventQuery):
             return self._person_query.get_query(prepend=self._cohort_pk)
 
         # TODO: clean up this kludge. Right now, get_conditions has to run first so that _fields is populated for _get_behavioral_subquery()
-        conditions, condition_params = self._get_conditions()
-        self.params.update(condition_params)
-
-        subq = []
-
-        behavior_subquery, behavior_subquery_params, behavior_query_alias = self._get_behavior_subquery()
-        subq.append((behavior_subquery, behavior_query_alias))
-        self.params.update(behavior_subquery_params)
-
-        person_query, person_params, person_query_alias = self._get_persons_query(prepend=str(self._cohort_pk))
-        subq.append((person_query, person_query_alias))
-        self.params.update(person_params)
+        conditions = self._get_conditions()
 
         # Since we can FULL OUTER JOIN, we may end up with pairs of uuids where one side is blank. Always try to choose the non blank ID
-        q, fields = self._build_sources(subq)
+        q, fields = self._build_sources(
+            [
+                (self._get_behavior_subquery(), self.BEHAVIOR_QUERY_ALIAS),
+                (self._get_persons_query(), self.PERSON_TABLE_ALIAS),
+            ]
+        )
 
-        final_query = f"""
-        SELECT {fields} AS id  FROM
-        {q}
-        WHERE 1 = 1
-        {conditions}
-        """
+        final_query = QueryFragment(
+            """
+            SELECT {fields} AS id
+            FROM {q}
+            WHERE 1 = 1
+            {conditions}
+            """
+        ).format(fields=fields, q=q, conditions=conditions)
 
-        return final_query, self.params
+        return final_query.sql, final_query.params
 
-    def _build_sources(self, subq: List[Tuple[str, str]]) -> Tuple[str, str]:
-        q = ""
+    def _build_sources(self, subq: List[Tuple[QueryFragment, str]]) -> Tuple[QueryFragment, QueryFragment]:
+        q = QueryFragment("")
         filtered_queries = [(q, alias) for (q, alias) in subq if q and len(q)]
 
         prev_alias: Optional[str] = None
-        fields = ""
+        fields = QueryFragment("")
         for idx, (subq_query, subq_alias) in enumerate(filtered_queries):
             if idx == 0:
-                q += f"({subq_query}) {subq_alias}"
-                fields = f"{subq_alias}.person_id"
+                q = QueryFragment("({subq_query}) {subq_alias}").format(subq_query=subq_query, subq_alias=subq_alias)
+                fields = QueryFragment(f"{subq_alias}.person_id")
             elif prev_alias:  # can't join without a previous alias
                 if subq_alias == self.PERSON_TABLE_ALIAS and self.should_pushdown_persons:
                     if self._using_person_on_events:
@@ -276,71 +285,87 @@ class FOSSCohortQuery(EventQuery):
                         # the event query itself
                         continue
 
-                    q = f"{q} {inner_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
-                    fields = f"{subq_alias}.person_id"
+                    q = QueryFragment("{q} {join}").format(
+                        q=q,
+                        join=inner_join_query(
+                            subq_query, subq_alias, f"{subq_alias}.person_id", f"{prev_alias}.person_id"
+                        ),
+                    )
+                    fields = QueryFragment(f"{subq_alias}.person_id")
                 else:
-                    q = f"{q} {full_outer_join_query(subq_query, subq_alias, f'{subq_alias}.person_id', f'{prev_alias}.person_id')}"
+                    q = QueryFragment("{q} {join}").format(
+                        q=q,
+                        join=full_outer_join_query(
+                            subq_query, subq_alias, f"{subq_alias}.person_id", f"{prev_alias}.person_id"
+                        ),
+                    )
                     fields = if_condition(
                         f"{prev_alias}.person_id = '00000000-0000-0000-0000-000000000000'",
                         f"{subq_alias}.person_id",
-                        f"{fields}",
+                        fields,
                     )
 
             prev_alias = subq_alias
 
         return q, fields
 
-    def _get_behavior_subquery(self) -> Tuple[str, Dict[str, Any], str]:
+    def _get_behavior_subquery(self) -> QueryFragment:
         #
         # Get the subquery for the cohort query.
         #
         event_param_name = f"{self._cohort_pk}_event_ids"
 
-        person_prop_query = ""
-        person_prop_params: dict = {}
-
-        query, params = "", {}
         if self._should_join_behavioral_query:
-
             _fields = [
                 f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
             ]
             _fields.extend(self._fields)
 
             if self.should_pushdown_persons and self._using_person_on_events:
-                person_prop_query, person_prop_params = self._get_prop_groups(
-                    self._inner_property_groups,
-                    person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
-                    person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+                person_prop_query = QueryFragment(
+                    self._get_prop_groups(
+                        self._inner_property_groups,
+                        person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
+                        person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
+                    )
                 )
+            else:
+                person_prop_query = QueryFragment("")
 
-            date_condition, date_params = self._get_date_condition()
-            query = f"""
-            SELECT {", ".join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
-            WHERE team_id = %(team_id)s
-            AND event IN %({event_param_name})s
-            {date_condition}
-            {person_prop_query}
-            GROUP BY person_id
-            """
-
-            query, params = (
-                query,
-                {"team_id": self._team_id, event_param_name: self._events, **date_params, **person_prop_params},
+            query = QueryFragment(
+                """
+                SELECT {fields}
+                FROM events {alias}
+                {distinct_id_query}}
+                WHERE team_id = %(team_id)s
+                AND event IN %({event_param_name})s
+                {date_condition}
+                {person_prop_query}
+                GROUP BY person_id
+                """,
+                {
+                    "team_id": self._team_id,
+                    event_param_name: self._events,
+                },
             )
+            return query.format(
+                fields=QueryFragment.join(", ", _fields),
+                alias=self.EVENT_TABLE_ALIAS,
+                distinct_id_query=self._get_distinct_id_query(),
+                event_param_name=event_param_name,
+                date_condition=self._get_date_condition(),
+                person_prop_query=person_prop_query,
+            )
+        else:
+            return QueryFragment("")
 
-        return query, params, self.BEHAVIOR_QUERY_ALIAS
-
-    def _get_persons_query(self, prepend: str = "") -> Tuple[str, Dict[str, Any], str]:
-        query, params = "", {}
+    def _get_persons_query(self, prepend: str = "") -> QueryFragment:
         if self._should_join_persons:
-            person_query, person_params = self._person_query.get_query(prepend=prepend)
-            person_query = f"SELECT *, id AS person_id FROM ({person_query})"
-
-            query, params = person_query, person_params
-
-        return query, params, self.PERSON_TABLE_ALIAS
+            return QueryFragment("SELECT *, id AS person_id FROM ({person_query})").format(
+                person_query=self._person_query.get_query(prepend=prepend)
+            )
+        else:
+            return QueryFragment("")
 
     @cached_property
     def should_pushdown_persons(self) -> bool:
@@ -348,16 +373,15 @@ class FOSSCohortQuery(EventQuery):
             prop.type for prop in getattr(self._outer_property_groups, "flat", [])
         ] and "static-cohort" not in [prop.type for prop in getattr(self._outer_property_groups, "flat", [])]
 
-    def _get_date_condition(self) -> Tuple[str, Dict[str, Any]]:
-        date_query = ""
-        date_params: Dict[str, Any] = {}
-        earliest_time_param = f"earliest_time_{self._cohort_pk}"
-
+    def _get_date_condition(self) -> QueryFragment:
         if self._earliest_time_for_event_query and self._restrict_event_query_by_time:
-            date_params = {earliest_time_param: self._earliest_time_for_event_query[0]}
-            date_query = f"AND timestamp <= now() AND timestamp >= now() - INTERVAL %({earliest_time_param})s {self._earliest_time_for_event_query[1]}"
-
-        return date_query, date_params
+            earliest_time_param = f"earliest_time_{self._cohort_pk}"
+            return QueryFragment(
+                f"AND timestamp <= now() AND timestamp >= now() - INTERVAL %({earliest_time_param})s {self._earliest_time_for_event_query[1]}",
+                {earliest_time_param: self._earliest_time_for_event_query[0]},
+            )
+        else:
+            return QueryFragment("")
 
     def _check_earliest_date(self, relative_date: Relative_Date) -> None:
         if self._earliest_time_for_event_query is None:
@@ -365,86 +389,90 @@ class FOSSCohortQuery(EventQuery):
         elif relative_date_is_greater(relative_date, self._earliest_time_for_event_query):
             self._earliest_time_for_event_query = relative_date
 
-    def _get_conditions(self) -> Tuple[str, Dict[str, Any]]:
+    def _get_conditions(self) -> QueryFragment:
         def build_conditions(prop: Optional[Union[PropertyGroup, Property]], prepend="level", num=0):
             if not prop:
-                return "", {}
+                return QueryFragment("")
 
             if isinstance(prop, PropertyGroup):
-                params = {}
                 conditions = []
                 for idx, p in enumerate(prop.values):
-                    q, q_params = build_conditions(p, f"{prepend}_level_{num}", idx)  # type: ignore
-                    if q != "":
-                        conditions.append(q)
-                        params.update(q_params)
+                    fragment = build_conditions(p, f"{prepend}_level_{num}", idx)  # type: ignore
+                    if fragment.sql != "":
+                        conditions.append(fragment)
 
-                return f"({f' {prop.type} '.join(conditions)})", params
+                return QueryFragment.join(f" {prop.type} ", conditions)
             else:
                 return self._get_condition_for_property(prop, prepend, num)
 
-        conditions, params = build_conditions(self._outer_property_groups, prepend=f"{self._cohort_pk}_level", num=0)
-        return f"AND ({conditions})" if conditions else "", params
+        conditions = build_conditions(self._outer_property_groups, prepend=f"{self._cohort_pk}_level", num=0)
+        return QueryFragment("AND ({conditions})" if conditions else "").format(conditions=conditions)
 
     # Implemented in /ee
-    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
-
-        res: str = ""
-        params: Dict[str, Any] = {}
-
+    def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
         if prop.type == "behavioral":
             if prop.value == "performed_event":
-                res, params = self.get_performed_event_condition(prop, prepend, idx)
+                return self.get_performed_event_condition(prop, prepend, idx)
             elif prop.value == "performed_event_multiple":
-                res, params = self.get_performed_event_multiple(prop, prepend, idx)
+                return self.get_performed_event_multiple(prop, prepend, idx)
         elif prop.type == "person":
-            res, params = self.get_person_condition(prop, prepend, idx)
+            return self.get_person_condition(prop, prepend, idx)
         elif (
             prop.type == "static-cohort"
         ):  # "cohort" and "precalculated-cohort" are handled by flattening during initialization
-            res, params = self.get_static_cohort_condition(prop, prepend, idx)
+            return self.get_static_cohort_condition(prop, prepend, idx)
         else:
             raise ValueError(f"Invalid property type for Cohort queries: {prop.type}")
 
-        return res, params
+        return QueryFragment("")
 
-    def get_person_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_person_condition(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
         if self._outer_property_groups and len(self._outer_property_groups.flat):
-            return prop_filter_json_extract(
-                prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
+            return QueryFragment(
+                prop_filter_json_extract(
+                    prop, idx, prepend, prop_var="person_props", allow_denormalized_props=True, property_operator=""
+                )
             )
         else:
-            return "", {}
+            return QueryFragment("")
 
-    def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_static_cohort_condition(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        query, params = format_static_cohort_query(cast(int, prop.value), idx, prepend)
-        return f"id {'NOT' if prop.negation else ''} IN ({query})", params
+        query = QueryFragment(format_static_cohort_query(cast(int, prop.value), idx, prepend))
+        return QueryFragment(f"id {'NOT' if prop.negation else ''} IN ({{query}})").format(query=query)
 
-    def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
         event = (prop.event_type, prop.key)
         column_name = f"performed_event_condition_{prepend}_{idx}"
 
-        entity_query, entity_params = self._get_entity(event, prepend, idx)
+        entity_query = self._get_entity(event, prepend, idx)
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
         date_param = f"{prepend}_date_{idx}"
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) > 0 AS {column_name}"
+        field = QueryFragment(
+            "countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}}) > 0 AS {column_name}",
+            {date_param: date_value},
+        ).format(
+            date_param=date_param,
+            date_interval=date_interval,
+            entity_query=entity_query,
+            column_name=column_name,
+        )
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
-        return f"{'NOT' if prop.negation else ''} {column_name}", {f"{date_param}": date_value, **entity_params}
+        return QueryFragment(f"{'NOT' if prop.negation else ''} {column_name}")
 
-    def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:
+    def get_performed_event_multiple(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
         event = (prop.event_type, prop.key)
         column_name = f"performed_event_multiple_condition_{prepend}_{idx}"
 
-        entity_query, entity_params = self._get_entity(event, prepend, idx)
+        entity_query = self._get_entity(event, prepend, idx)
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
@@ -453,14 +481,29 @@ class FOSSCohortQuery(EventQuery):
 
         self._check_earliest_date((date_value, date_interval))
 
-        field = f"countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}) {get_count_operator(prop.operator)} %({operator_value_param})s AS {column_name}"
+        field = QueryFragment(
+            "countIf(timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}}) > 0 AS {column_name}",
+            """
+            countIf(
+                timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}
+            ) {operator} %({operator_value_param})s AS {column_name}
+            """,
+            {
+                date_param: date_value,
+                operator_value_param: count,
+            },
+        ).format(
+            date_param=date_param,
+            date_interval=date_interval,
+            entity_query=entity_query,
+            operator=get_count_operator(prop.operator),
+            operator_value_param=operator_value_param,
+            column_name=column_name,
+        )
         self._fields.append(field)
 
         # Negation is handled in the where clause to ensure the right result if a full join occurs where the joined person did not perform the event
-        return (
-            f"{'NOT' if prop.negation else ''} {column_name}",
-            {f"{operator_value_param}": count, f"{date_param}": date_value, **entity_params},
-        )
+        return QueryFragment(f"{'NOT' if prop.negation else ''} {column_name}")
 
     def _determine_should_join_distinct_ids(self) -> None:
         self._should_join_distinct_ids = not self._using_person_on_events
@@ -496,27 +539,26 @@ class FOSSCohortQuery(EventQuery):
 
     def _get_entity(
         self, event: Tuple[Optional[str], Optional[Union[int, str]]], prepend: str, idx: int
-    ) -> Tuple[str, Dict[str, Any]]:
-        res: str = ""
-        params: Dict[str, Any] = {}
-
+    ) -> QueryFragment:
         if event[0] is None or event[1] is None:
             raise ValueError("Event type and key must be specified")
 
         if event[0] == "actions":
             self._add_action(int(event[1]))
-            res, params = get_entity_query(
-                None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}", self._filter.hogql_context
+            return QueryFragment(
+                get_entity_query(
+                    None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}", self._filter.hogql_context
+                )
             )
         elif event[0] == "events":
             self._add_event(str(event[1]))
-            res, params = get_entity_query(
-                str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}", self._filter.hogql_context
+            return QueryFragment(
+                get_entity_query(
+                    str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}", self._filter.hogql_context
+                )
             )
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
-
-        return res, params
 
     def _add_action(self, action_id: int) -> None:
         action = Action.objects.get(id=action_id)
