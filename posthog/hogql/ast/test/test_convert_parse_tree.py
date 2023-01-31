@@ -53,6 +53,12 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
+            expr_to_ast("1 + -2"),
+            ast.BinaryOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.BinaryOperationType.Add
+            ),
+        )
+        self.assertEqual(
             expr_to_ast("1 - 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Sub
