@@ -64,6 +64,7 @@ class TestLicensedPerformanceEvents(APILicensedTest):
             f"/api/projects/@current/performance_events?session_id={session_id}&date_from=2021-01-01T00:00:00Z&date_to=2021-01-02T00:00:00Z"
         )
         assert res.status_code == 200
+        # NOTE: this test can be oddly flakey
         assert len(res.json()["results"]) == 3
 
     @freeze_time("2021-01-01T12:00:00Z")

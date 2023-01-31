@@ -2815,7 +2815,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -2825,6 +2826,7 @@
                       AND event IN ['paid', 'user signed up']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -2899,7 +2901,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -2917,6 +2920,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -2975,7 +2979,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -2993,6 +2998,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3051,7 +3057,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3069,6 +3076,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3127,7 +3135,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3145,6 +3154,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3203,7 +3213,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3213,6 +3224,7 @@
                       AND event IN ['paid', 'user signed up']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3288,7 +3300,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3298,6 +3311,7 @@
                       AND event IN ['paid', 'user signed up']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3372,7 +3386,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3390,6 +3405,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3448,7 +3464,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3466,6 +3483,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3524,7 +3542,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3542,6 +3561,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3600,7 +3620,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3618,6 +3639,7 @@
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3676,7 +3698,8 @@
                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
                  FROM
                    (SELECT e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target ,
+                           e."$group_0" as aggregation_target,
+                           e.person_id as person_id ,
                            if(event = 'user signed up', 1, 0) as step_0,
                            if(step_0 = 1, timestamp, null) as latest_0,
                            if(event = 'paid', 1, 0) as step_1,
@@ -3686,6 +3709,7 @@
                       AND event IN ['paid', 'user signed up']
                       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND notEmpty(e.person_id)
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
