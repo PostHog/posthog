@@ -397,11 +397,11 @@ class FOSSCohortQuery(EventQuery):
             if isinstance(prop, PropertyGroup):
                 conditions = []
                 for idx, p in enumerate(prop.values):
-                    fragment = build_conditions(p, f"{prepend}_level_{num}", idx)  # type: ignore
+                    fragment = build_conditions(cast(Union[PropertyGroup, Property], p), f"{prepend}_level_{num}", idx)
                     if fragment.sql != "":
                         conditions.append(fragment)
 
-                return QueryFragment.join(f" {prop.type} ", conditions)
+                return QueryFragment("({condition})").format(condition=QueryFragment.join(f" {prop.type} ", conditions))
             else:
                 return self._get_condition_for_property(prop, prepend, num)
 
