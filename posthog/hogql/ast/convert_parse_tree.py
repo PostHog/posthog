@@ -372,7 +372,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprNot(self, ctx: HogQLParser.ColumnExprNotContext):
-        return ast.UnaryOperation(expr=parse_tree_to_expr(ctx.columnExpr()), op=ast.UnaryOperationType.Not)
+        return ast.NotOperation(expr=parse_tree_to_expr(ctx.columnExpr()))
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         raise Exception(f"Unsupported node: ColumnExprWinFunction")
@@ -459,6 +459,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.STRING_LITERAL():
             text = ctx.getText()
             text = text[1:-1]
+            text = text.replace("''", "'")
             return ast.Constant(value=text)
         return self.visitChildren(ctx)
 

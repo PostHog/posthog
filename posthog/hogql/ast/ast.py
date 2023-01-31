@@ -67,13 +67,7 @@ class CompareOperation(Expr):
     op: CompareOperationType
 
 
-class UnaryOperationType(str, Enum):
-    Not = "not"
-    USub = "-"
-
-
-class UnaryOperation(Expr):
-    op: UnaryOperationType
+class NotOperation(Expr):
     expr: Expr
 
 

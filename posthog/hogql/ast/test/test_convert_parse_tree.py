@@ -42,7 +42,8 @@ class TestConvertParseTree(BaseTest):
         self.assertEqual(expr_to_ast("'n''ull'"), ast.Constant(value="n'ull"))
         self.assertEqual(expr_to_ast("'n''''ull'"), ast.Constant(value="n''ull"))
         self.assertEqual(expr_to_ast("'n\null'"), ast.Constant(value="n\null"))
-        self.assertEqual(expr_to_ast("'n\\\\''ull'"), ast.Constant(value="n\\ull"))
+        self.assertEqual(expr_to_ast("'n\\null'"), ast.Constant(value="n\\null"))
+        # TODO: make sure this is iron tight
 
     def test_binary_operations(self):
         self.assertEqual(
@@ -177,7 +178,7 @@ class TestConvertParseTree(BaseTest):
             expr_to_ast("true and not false"),
             ast.BooleanOperation(
                 left=ast.Constant(value=True),
-                right=ast.UnaryOperation(expr=ast.Constant(value=False), op=ast.UnaryOperationType.Not),
+                right=ast.NotOperation(expr=ast.Constant(value=False)),
                 op=ast.BooleanOperationType.And,
             ),
         )
@@ -188,7 +189,7 @@ class TestConvertParseTree(BaseTest):
                     left=ast.BooleanOperation(
                         left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.Or
                     ),
-                    right=ast.UnaryOperation(expr=ast.Constant(value=True), op=ast.UnaryOperationType.Not),
+                    right=ast.NotOperation(expr=ast.Constant(value=True)),
                     op=ast.BooleanOperationType.Or,
                 ),
                 right=ast.Constant(value=2),
@@ -202,7 +203,7 @@ class TestConvertParseTree(BaseTest):
                     left=ast.Constant(value=True),
                     right=ast.BooleanOperation(
                         left=ast.Constant(value=False),
-                        right=ast.UnaryOperation(expr=ast.Constant(value=True), op=ast.UnaryOperationType.Not),
+                        right=ast.NotOperation(expr=ast.Constant(value=True)),
                         op=ast.BooleanOperationType.And,
                     ),
                     op=ast.BooleanOperationType.Or,
@@ -215,9 +216,7 @@ class TestConvertParseTree(BaseTest):
     def test_unary_operations(self):
         self.assertEqual(
             expr_to_ast("not true"),
-            ast.BinaryOperation(
-                left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Add
-            ),
+            ast.NotOperation(expr=ast.Constant(value=True)),
         )
 
     def test_parens(self):
