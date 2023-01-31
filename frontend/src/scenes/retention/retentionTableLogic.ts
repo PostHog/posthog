@@ -120,7 +120,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
                 //
                 // If `retentionReference` is not "previous" we want to calculate the percentages
                 // of the sizes compared to the first value. If we have "previous" we want to
-                // go further and translate thhese numbers into percentage of the previous value
+                // go further and translate these numbers into percentage of the previous value
                 // so we get some idea for the rate of convergence.
 
                 return results.map((cohortRetention, datasetIndex) => {
