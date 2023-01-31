@@ -1,8 +1,9 @@
 # mypy: allow-untyped-defs
-import ast
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional, cast
+
+from posthog.hogql.ast import ast
 
 # fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]

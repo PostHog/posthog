@@ -1,19 +1,21 @@
-from antlr4 import ParseTreeVisitor
-from antlr4.tree.Tree import ParseTree
+from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 
 from posthog.hogql.ast import ast
 from posthog.hogql.ast.util import parse_string_literal
+from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 
 
-def convert_parse_tree(parse_tree: ParseTree) -> ast.AST:
+def parse_expr(expr: str) -> ast.Expr:
+    parse_tree = get_parser(expr).columnExpr()
     return HogQLParseTreeConverter().visit(parse_tree)
 
 
-def parse_tree_to_expr(parse_tree: ParseTree) -> ast.Expr:
-    response = HogQLParseTreeConverter().visit(parse_tree)
-    # TODO: raise if not expr
-    return response
+def get_parser(query: str) -> HogQLParser:
+    input_stream = InputStream(query)
+    lexer = HogQLLexer(input_stream)
+    stream = CommonTokenStream(lexer)
+    return HogQLParser(stream)
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):

@@ -2,7 +2,7 @@ from antlr4 import CommonTokenStream, InputStream
 from antlr4.tree.Tree import ParseTree
 
 from posthog.hogql.ast import ast
-from posthog.hogql.ast.convert_parse_tree import parse_tree_to_expr
+from posthog.hogql.ast.parser import parse_expr
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.test.base import BaseTest
@@ -16,74 +16,70 @@ def string_to_parse_tree_expr(query: str) -> ParseTree:
     return parser.columnExpr()
 
 
-def expr_to_ast(expr: str) -> ast.Expr:
-    return parse_tree_to_expr(string_to_parse_tree_expr(expr))
-
-
-class TestConvertParseTree(BaseTest):
+class TestParser(BaseTest):
     def test_numbers(self):
-        self.assertEqual(expr_to_ast("1"), ast.Constant(value=1))
-        self.assertEqual(expr_to_ast("1.2"), ast.Constant(value=1.2))
-        self.assertEqual(expr_to_ast("-1"), ast.Constant(value=-1))
-        self.assertEqual(expr_to_ast("-1.1"), ast.Constant(value=-1.1))
-        self.assertEqual(expr_to_ast("0"), ast.Constant(value=0))
-        self.assertEqual(expr_to_ast("0.0"), ast.Constant(value=0))
+        self.assertEqual(parse_expr("1"), ast.Constant(value=1))
+        self.assertEqual(parse_expr("1.2"), ast.Constant(value=1.2))
+        self.assertEqual(parse_expr("-1"), ast.Constant(value=-1))
+        self.assertEqual(parse_expr("-1.1"), ast.Constant(value=-1.1))
+        self.assertEqual(parse_expr("0"), ast.Constant(value=0))
+        self.assertEqual(parse_expr("0.0"), ast.Constant(value=0))
 
     def test_booleans(self):
-        self.assertEqual(expr_to_ast("true"), ast.Constant(value=True))
-        self.assertEqual(expr_to_ast("TRUE"), ast.Constant(value=True))
-        self.assertEqual(expr_to_ast("false"), ast.Constant(value=False))
+        self.assertEqual(parse_expr("true"), ast.Constant(value=True))
+        self.assertEqual(parse_expr("TRUE"), ast.Constant(value=True))
+        self.assertEqual(parse_expr("false"), ast.Constant(value=False))
 
     def test_null(self):
-        self.assertEqual(expr_to_ast("null"), ast.Constant(value=None))
+        self.assertEqual(parse_expr("null"), ast.Constant(value=None))
 
     def test_strings(self):
-        self.assertEqual(expr_to_ast("'null'"), ast.Constant(value="null"))
-        self.assertEqual(expr_to_ast("'n''ull'"), ast.Constant(value="n'ull"))
-        self.assertEqual(expr_to_ast("'n''''ull'"), ast.Constant(value="n''ull"))
-        self.assertEqual(expr_to_ast("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
-        self.assertEqual(expr_to_ast("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
-        self.assertEqual(expr_to_ast("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
+        self.assertEqual(parse_expr("'null'"), ast.Constant(value="null"))
+        self.assertEqual(parse_expr("'n''ull'"), ast.Constant(value="n'ull"))
+        self.assertEqual(parse_expr("'n''''ull'"), ast.Constant(value="n''ull"))
+        self.assertEqual(parse_expr("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
+        self.assertEqual(parse_expr("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
+        self.assertEqual(parse_expr("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
 
     def test_binary_operations(self):
         self.assertEqual(
-            expr_to_ast("1 + 2"),
+            parse_expr("1 + 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Add
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 + -2"),
+            parse_expr("1 + -2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=-2), op=ast.BinaryOperationType.Add
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 - 2"),
+            parse_expr("1 - 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Sub
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 * 2"),
+            parse_expr("1 * 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Mult
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 / 2"),
+            parse_expr("1 / 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Div
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 % 2"),
+            parse_expr("1 % 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Mod
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 + 2 + 2"),
+            parse_expr("1 + 2 + 2"),
             ast.BinaryOperation(
                 left=ast.BinaryOperation(
                     left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Add
@@ -93,7 +89,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 * 1 * 2"),
+            parse_expr("1 * 1 * 2"),
             ast.BinaryOperation(
                 left=ast.BinaryOperation(
                     left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Mult
@@ -103,7 +99,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 + 1 * 2"),
+            parse_expr("1 + 1 * 2"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1),
                 right=ast.BinaryOperation(
@@ -113,7 +109,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 * 1 + 2"),
+            parse_expr("1 * 1 + 2"),
             ast.BinaryOperation(
                 left=ast.BinaryOperation(
                     left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Mult
@@ -125,43 +121,43 @@ class TestConvertParseTree(BaseTest):
 
     def test_math_comparison_operations(self):
         self.assertEqual(
-            expr_to_ast("1 = 2"),
+            parse_expr("1 = 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Eq
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 == 2"),
+            parse_expr("1 == 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Eq
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 != 2"),
+            parse_expr("1 != 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.NotEq
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 < 2"),
+            parse_expr("1 < 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Lt
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 <= 2"),
+            parse_expr("1 <= 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.LtE
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 > 2"),
+            parse_expr("1 > 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.Gt
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 >= 2"),
+            parse_expr("1 >= 2"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.CompareOperationType.GtE
             ),
@@ -169,13 +165,13 @@ class TestConvertParseTree(BaseTest):
 
     def test_null_comparison_operations(self):
         self.assertEqual(
-            expr_to_ast("1 is null"),
+            parse_expr("1 is null"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationType.Eq
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 is not null"),
+            parse_expr("1 is not null"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=None), op=ast.CompareOperationType.NotEq
             ),
@@ -183,25 +179,25 @@ class TestConvertParseTree(BaseTest):
 
     def test_like_comparison_operations(self):
         self.assertEqual(
-            expr_to_ast("1 like 'a%sd'"),
+            parse_expr("1 like 'a%sd'"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.Like
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 not like 'a%sd'"),
+            parse_expr("1 not like 'a%sd'"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.NotLike
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 ilike 'a%sd'"),
+            parse_expr("1 ilike 'a%sd'"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.ILike
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 not ilike 'a%sd'"),
+            parse_expr("1 not ilike 'a%sd'"),
             ast.CompareOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value="a%sd"), op=ast.CompareOperationType.NotILike
             ),
@@ -209,19 +205,19 @@ class TestConvertParseTree(BaseTest):
 
     def test_boolean_operations(self):
         self.assertEqual(
-            expr_to_ast("true or false"),
+            parse_expr("true or false"),
             ast.BooleanOperation(
                 left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.Or
             ),
         )
         self.assertEqual(
-            expr_to_ast("true and false"),
+            parse_expr("true and false"),
             ast.BooleanOperation(
                 left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.And
             ),
         )
         self.assertEqual(
-            expr_to_ast("true and not false"),
+            parse_expr("true and not false"),
             ast.BooleanOperation(
                 left=ast.Constant(value=True),
                 right=ast.NotOperation(expr=ast.Constant(value=False)),
@@ -229,7 +225,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("true or false or not true or 2"),
+            parse_expr("true or false or not true or 2"),
             ast.BooleanOperation(
                 left=ast.BooleanOperation(
                     left=ast.BooleanOperation(
@@ -243,7 +239,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("true or false and not true or 2"),
+            parse_expr("true or false and not true or 2"),
             ast.BooleanOperation(
                 left=ast.BooleanOperation(
                     left=ast.Constant(value=True),
@@ -261,17 +257,17 @@ class TestConvertParseTree(BaseTest):
 
     def test_unary_operations(self):
         self.assertEqual(
-            expr_to_ast("not true"),
+            parse_expr("not true"),
             ast.NotOperation(expr=ast.Constant(value=True)),
         )
 
     def test_parens(self):
         self.assertEqual(
-            expr_to_ast("(1)"),
+            parse_expr("(1)"),
             ast.Parens(expr=ast.Constant(value=1)),
         )
         self.assertEqual(
-            expr_to_ast("(1 + 1)"),
+            parse_expr("(1 + 1)"),
             ast.Parens(
                 expr=ast.BinaryOperation(
                     left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
@@ -279,7 +275,7 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("1 + (1 + 1)"),
+            parse_expr("1 + (1 + 1)"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1),
                 right=ast.Parens(
@@ -293,11 +289,11 @@ class TestConvertParseTree(BaseTest):
 
     def test_field_access(self):
         self.assertEqual(
-            expr_to_ast("event"),
+            parse_expr("event"),
             ast.FieldAccess(field="event"),
         )
         self.assertEqual(
-            expr_to_ast("event like '$%'"),
+            parse_expr("event like '$%'"),
             ast.CompareOperation(
                 left=ast.FieldAccess(field="event"), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
             ),
@@ -305,7 +301,7 @@ class TestConvertParseTree(BaseTest):
 
     def test_property_access(self):
         self.assertEqual(
-            expr_to_ast("properties.something == 1"),
+            parse_expr("properties.something == 1"),
             ast.CompareOperation(
                 left=ast.FieldAccessChain(chain=["properties", "something"]),
                 right=ast.Constant(value=1),
@@ -313,42 +309,42 @@ class TestConvertParseTree(BaseTest):
             ),
         )
         self.assertEqual(
-            expr_to_ast("properties.something"),
+            parse_expr("properties.something"),
             ast.FieldAccessChain(chain=["properties", "something"]),
         )
         self.assertEqual(
-            expr_to_ast("properties.$something"),
+            parse_expr("properties.$something"),
             ast.FieldAccessChain(chain=["properties", "$something"]),
         )
         self.assertEqual(
-            expr_to_ast("person.properties.something"),
+            parse_expr("person.properties.something"),
             ast.FieldAccessChain(chain=["person", "properties", "something"]),
         )
         self.assertEqual(
-            expr_to_ast("this.can.go.on.for.miles"),
+            parse_expr("this.can.go.on.for.miles"),
             ast.FieldAccessChain(chain=["this", "can", "go", "on", "for", "miles"]),
         )
 
     def test_calls(self):
         self.assertEqual(
-            expr_to_ast("avg()"),
+            parse_expr("avg()"),
             ast.Call(name="avg", args=[]),
         )
         self.assertEqual(
-            expr_to_ast("avg(1,2,3)"),
+            parse_expr("avg(1,2,3)"),
             ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
 
     def test_column_alias(self):
         self.assertEqual(
-            expr_to_ast("1 as asd"),
+            parse_expr("1 as asd"),
             ast.Column(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
-            expr_to_ast("1 as 'asd'"),
+            parse_expr("1 as 'asd'"),
             ast.Column(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
-            expr_to_ast("1 as '🍄'"),
+            parse_expr("1 as '🍄'"),
             ast.Column(alias="🍄", expr=ast.Constant(value=1)),
         )
