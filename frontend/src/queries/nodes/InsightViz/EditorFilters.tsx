@@ -17,15 +17,14 @@ import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import {
     isTrendsQuery,
     isFunnelsQuery,
-    isRetentionQuery,
     isPathsQuery,
     isStickinessQuery,
+    isRetentionQuery,
     isLifecycleQuery,
 } from '~/queries/utils'
 
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
-import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
@@ -75,7 +74,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
             display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
-    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
 
@@ -151,28 +149,18 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
-                          key: 'properties',
-                          label: 'Filters',
-                          position: 'right',
-                          component: LifecycleGlobalFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
-                isLifecycle
-                    ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
                           position: 'right',
                           component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
                       }
                     : null,
-                hasPropertyFilters
-                    ? {
-                          key: 'properties',
-                          label: 'Filters',
-                          position: 'right',
-                          component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
+                {
+                    key: 'properties',
+                    label: 'Filters',
+                    position: 'right',
+                    component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
+                },
             ]),
         },
         {

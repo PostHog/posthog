@@ -1,5 +1,4 @@
 import { useValues, useActions, useMountedLogic } from 'kea'
-
 import { groupsModel } from '~/models/groupsModel'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -116,6 +115,7 @@ export function FunnelsQueryStepsComponent({
                     ...groupsTaxonomicTypes,
                     TaxonomicFilterGroupType.Cohorts,
                     TaxonomicFilterGroupType.Elements,
+                    TaxonomicFilterGroupType.HogQLExpression,
                 ]}
             />
             <div className="mt-4 space-y-4">

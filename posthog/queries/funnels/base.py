@@ -68,6 +68,8 @@ class ClickhouseFunnelBase(ABC):
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
 
+        self._filter.hogql_context.using_person_on_events = team.person_on_events_querying_enabled
+
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
             self._filter = self._filter.with_data({FUNNEL_WINDOW_INTERVAL: 14, FUNNEL_WINDOW_INTERVAL_UNIT: "day"})
@@ -140,10 +142,20 @@ class ClickhouseFunnelBase(ABC):
         #
         # Once multi property breakdown is implemented in Trends this becomes unnecessary
 
-        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in ["person", "event", None]:
+        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in [
+            "person",
+            "event",
+            "hogql",
+            None,
+        ]:
             data.update({"breakdown": [b.get("property") for b in self._filter.breakdowns]})
 
-        if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
+        if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in [
+            "person",
+            "event",
+            "hogql",
+            None,
+        ]:
             boxed_breakdown: List[Union[str, int]] = box_value(self._filter.breakdown)
             data.update({"breakdown": boxed_breakdown})
 
@@ -246,7 +258,7 @@ class ClickhouseFunnelBase(ABC):
         query = self.get_query()
         return insight_sync_execute(
             query,
-            self.params,
+            {**self.params, **self._filter.hogql_context.values},
             query_type=self.QUERY_TYPE,
             filter=self._filter,
         )
@@ -522,6 +534,7 @@ class ClickhouseFunnelBase(ABC):
                 if self._team.person_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias="person_id",
+                hogql_context=self._filter.hogql_context,
             )
             if action_query == "":
                 return ""
@@ -545,6 +558,7 @@ class ClickhouseFunnelBase(ABC):
             if self._team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="person_id",
+            hogql_context=self._filter.hogql_context,
         )
         self.params.update(prop_filter_params)
         return prop_filters
@@ -730,6 +744,16 @@ class ClickhouseFunnelBase(ABC):
                 expression, _ = get_property_string_expr(
                     table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
                 )
+            basic_prop_selector = f"{expression} AS prop_basic"
+        elif self._filter.breakdown_type == "hogql":
+            from posthog.hogql.hogql import translate_hogql
+
+            breakdown = self._filter.breakdown
+            if isinstance(breakdown, list):
+                expressions = [translate_hogql(exp, self._filter.hogql_context) for exp in breakdown]
+                expression = f"array({','.join(expressions)})"
+            else:
+                expression = translate_hogql(cast(str, breakdown), self._filter.hogql_context)
             basic_prop_selector = f"{expression} AS prop_basic"
 
         # TODO: simplify once array and string breakdowns are sorted

@@ -198,7 +198,9 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = insight_sync_execute(query, params, filter=filter, query_type="person_list")
+        raw_result = insight_sync_execute(
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+        )
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
