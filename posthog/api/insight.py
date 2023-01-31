@@ -867,7 +867,7 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         #  backwards compatibility
         if filter.path_type:
-            filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
+            filter = filter.shallow_clone({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp, "timezone": team.timezone}

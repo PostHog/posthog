@@ -190,7 +190,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         team = self.team
         filter = Filter(request=request, team=self.team)
         if not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
+            filter = filter.shallow_clone({LIMIT: 100})
 
         entity = get_target_entity(filter)
 
