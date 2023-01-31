@@ -1054,7 +1054,7 @@
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
             events.event as event_name,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
+            JSONExtractKeys(properties) as prop_keys,
             arrayMap(x -> replaceRegexpAll(JSONExtractRaw(properties, x), '^"|"$', ''), prop_keys) as prop_values,
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
@@ -1145,7 +1145,7 @@
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
             events.event as event_name,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
+            JSONExtractKeys(properties) as prop_keys,
             arrayMap(x -> replaceRegexpAll(JSONExtractRaw(properties, x), '^"|"$', ''), prop_keys) as prop_values,
             arrayJoin(arrayZip(prop_keys, prop_values)) as prop
      FROM events AS event
@@ -2282,7 +2282,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            JSONExtractKeys(groups_0.group_properties_0) as person_prop_keys,
             arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
      FROM funnel_actors
      INNER JOIN
@@ -2755,7 +2755,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            JSONExtractKeys(groups_0.group_properties_0) as person_prop_keys,
             arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
      FROM funnel_actors
      INNER JOIN
@@ -3228,7 +3228,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            JSONExtractKeys(groups_0.group_properties_0) as person_prop_keys,
             arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
      FROM funnel_actors
      INNER JOIN
@@ -3701,7 +3701,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
+            JSONExtractKeys(groups_0.group_properties_0) as person_prop_keys,
             arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
      FROM funnel_actors
      INNER JOIN
