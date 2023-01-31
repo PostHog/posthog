@@ -16,7 +16,7 @@ class UniqueParamName:
 
     @cached_property
     def unique_name(self):
-        return f"{self.name}::{next(unique_sequence)}"
+        return f"{self.name}_{next(unique_sequence)}"
 
 
 class QueryFragment:
