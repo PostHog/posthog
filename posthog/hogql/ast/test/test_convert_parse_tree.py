@@ -348,3 +348,7 @@ class TestConvertParseTree(BaseTest):
             expr_to_ast("1 as 'asd'"),
             ast.Column(alias="asd", expr=ast.Constant(value=1)),
         )
+        self.assertEqual(
+            expr_to_ast("1 as '🍄'"),
+            ast.Column(alias="🍄", expr=ast.Constant(value=1)),
+        )
