@@ -47,5 +47,7 @@ const instrumentedFunctionDuration = new Histogram({
     name: 'instrumented_function_duration_seconds',
     help: 'Processing time and success status of internal functions',
     labelNames: ['function', 'success'],
-    buckets: exponentialBuckets(0.025, 2, 12), // Saturates at 51 seconds
+    // We need to cover a pretty wide range, so buckets are set pretty coarse for now
+    // and cover 25ms -> 102seconds. We can revisit them later on.
+    buckets: exponentialBuckets(0.025, 4, 7),
 })
