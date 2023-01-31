@@ -8,7 +8,10 @@ import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } fr
 import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { RetentionDatePicker } from './RetentionDatePicker'
-import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
+import {
+    FunnelDisplayLayoutPicker,
+    FunnelDisplayLayoutPickerDataExploration,
+} from './views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
 import { ReferencePicker as RetentionReferencePicker } from './filters/ReferencePicker'
 import { Tooltip } from 'antd'
@@ -172,7 +175,11 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 {isFunnels && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <ConfigFilter>
-                            <FunnelDisplayLayoutPicker />
+                            {isUsingDataExploration ? (
+                                <FunnelDisplayLayoutPickerDataExploration />
+                            ) : (
+                                <FunnelDisplayLayoutPicker />
+                            )}
                         </ConfigFilter>
                     </>
                 )}

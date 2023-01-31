@@ -254,6 +254,8 @@ interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    /** Groups aggregation */
+    aggregation_group_type_index?: number
 }
 
 export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
