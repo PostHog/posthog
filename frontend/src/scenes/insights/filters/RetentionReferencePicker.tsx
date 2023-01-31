@@ -4,7 +4,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 
-export function ReferencePicker({ disabled }: { disabled?: boolean }): JSX.Element {
+export function RetentionReferencePicker({ disabled }: { disabled?: boolean }): JSX.Element {
     /*
         Reference picker specifies how retention values should be displayed,
         options and description found in `enum Reference`
