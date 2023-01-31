@@ -68,7 +68,7 @@ export function SignupLeftContainer(): JSX.Element {
             description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
         },
         {
-            benefit: 'Join industry leaders who run their product on PostHog',
+            benefit: 'Join industry leaders that run on PostHog',
             description:
                 'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust Posthog as their Product OS.',
         },
