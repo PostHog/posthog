@@ -349,6 +349,13 @@ export type InsightFilter =
     | LifecycleFilter
 export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
 
+export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
+    if (!source) {
+        return undefined
+    }
+    return { date_from: source.date_from, date_to: source.date_to }
+}
+
 export interface TimeToSeeDataSessionsQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataSessionsQuery
 
