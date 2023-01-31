@@ -292,7 +292,7 @@ class FunnelCorrelation:
             """
         else:
             array_join_query = f"""
-                arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
+                JSONExtractKeys(properties) as prop_keys,
                 arrayMap(x -> {trim_quotes_expr("JSONExtractRaw(properties, x)")}, prop_keys) as prop_values,
                 arrayJoin(arrayZip(prop_keys, prop_values)) as prop
             """
@@ -531,7 +531,7 @@ class FunnelCorrelation:
             map_expr = trim_quotes_expr(f"JSONExtractRaw({aggregation_properties_alias}, x)")
             return (
                 f"""
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw({aggregation_properties_alias})) as person_prop_keys,
+            JSONExtractKeys({aggregation_properties_alias}) as person_prop_keys,
             arrayJoin(
                 arrayZip(
                     person_prop_keys,
