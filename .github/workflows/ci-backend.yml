@@ -133,6 +133,11 @@ jobs:
               run: |
                   npm run schema:build:python && git diff --exit-code
 
+            - name: Check if antlr definitions are up to date
+              run: |
+                  sudo apt-get install antlr
+                  npm run antlr:generate && git diff --exit-code
+
     check-migrations:
         needs: changes
         timeout-minutes: 5
