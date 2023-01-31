@@ -128,8 +128,8 @@
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['user did things', 'user signed up']
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-23 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-30 23:59:59', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-24 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-01-31 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
@@ -289,7 +289,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestInsight.test_insight_trend_hogql_global_filters.1
@@ -331,7 +331,7 @@
                AND (like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%')))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized
@@ -357,7 +357,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestInsight.test_insight_trend_hogql_global_filters_materialized.1
@@ -399,7 +399,7 @@
                AND (like("pmat_fish", '%fish%')))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestInsight.test_insight_trend_hogql_local_filters
@@ -441,7 +441,7 @@
                AND like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%'))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestInsight.test_insight_trend_hogql_local_filters_materialized
@@ -483,7 +483,7 @@
                AND like("pmat_fish", '%fish%'))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1
