@@ -54,7 +54,6 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        e.uuid AS uuid,
                         pdi.person_id as person_id ,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -124,7 +123,6 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        e.uuid AS uuid,
                         pdi.person_id as person_id ,
                         if(event = 'step two', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
@@ -194,7 +192,6 @@
               FROM
                 (SELECT e.timestamp as timestamp,
                         pdi.person_id as aggregation_target,
-                        e.uuid AS uuid,
                         pdi.person_id as person_id ,
                         if(event = 'step three', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
