@@ -1,7 +1,7 @@
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.clickhouse.query_fragment import QueryFragment, QueryFragmentLike
+from posthog.clickhouse.query_fragment import QueryFragment, QueryFragmentLike, UniqueName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter, Team
 from posthog.models.action import Action
@@ -313,8 +313,6 @@ class FOSSCohortQuery(EventQuery):
         #
         # Get the subquery for the cohort query.
         #
-        event_param_name = f"{self._cohort_pk}_event_ids"
-
         if self._should_join_behavioral_query:
             _fields: List[QueryFragmentLike] = [
                 f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id AS person_id"
@@ -338,21 +336,20 @@ class FOSSCohortQuery(EventQuery):
                 FROM events {alias}
                 {distinct_id_query}
                 WHERE team_id = %(team_id)s
-                AND event IN %({event_param_name})s
+                AND event IN %(__event_ids)s
                 {date_condition}
                 {person_prop_query}
                 GROUP BY person_id
                 """,
                 {
                     "team_id": self._team_id,
-                    event_param_name: self._events,
+                    UniqueName("__event_ids"): self._events,
                 },
             )
             return query.format(
                 fields=QueryFragment.join(", ", _fields),
                 alias=self.EVENT_TABLE_ALIAS,
                 distinct_id_query=self._get_distinct_id_query(),
-                event_param_name=event_param_name,
                 date_condition=self._get_date_condition(),
                 person_prop_query=person_prop_query,
             )
@@ -476,27 +473,23 @@ class FOSSCohortQuery(EventQuery):
         count = parse_and_validate_positive_integer(prop.operator_value, "operator_value")
         date_value = parse_and_validate_positive_integer(prop.time_value, "time_value")
         date_interval = validate_interval(prop.time_interval)
-        date_param = f"{prepend}_date_{idx}"
-        operator_value_param = f"{prepend}_operator_value_{idx}"
 
         self._check_earliest_date((date_value, date_interval))
 
         field = QueryFragment(
             """
             countIf(
-                timestamp > now() - INTERVAL %({date_param})s {date_interval} AND timestamp < now() AND {entity_query}
-            ) {operator} %({operator_value_param})s AS {column_name}
+                timestamp > now() - INTERVAL %(__date)s {date_interval} AND timestamp < now() AND {entity_query}
+            ) {operator} %(__operator_value)s AS {column_name}
             """,
             {
-                date_param: date_value,
-                operator_value_param: count,
+                UniqueName("__date"): date_value,
+                UniqueName("__operator_value"): count,
             },
         ).format(
-            date_param=date_param,
             date_interval=date_interval,
             entity_query=entity_query,
             operator=get_count_operator(prop.operator),
-            operator_value_param=operator_value_param,
             column_name=column_name,
         )
         self._fields.append(field)
