@@ -937,19 +937,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         res = self._get_cohortpeople(cohort1)
         self.assertEqual(len(res), 0)
 
-    def test_cohortpeople_with_cyclic_cohort_filter(self):
-        # Getting in such a state shouldn't be possible anymore.
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"})
-
-        cohort1: Cohort = Cohort.objects.create(team=self.team, groups=[], name="cohort1")
-        cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
-        cohort1.save()
-
-        # raised via simplify trying to simplify cyclic cohort filters. This should be impossible via API,
-        # which now has validation.
-        self.assertRaises(RecursionError, lambda: cohort1.calculate_people_ch(pending_version=0))
-
     def test_clickhouse_empty_query(self):
         cohort2 = Cohort.objects.create(
             team=self.team,
