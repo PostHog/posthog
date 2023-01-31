@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import { PlanInterface } from '~/types'
 import clsx from 'clsx'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { IconLock } from 'lib/components/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { billingLogic } from './billingLogic'
 import { useActions, useValues } from 'kea'
 

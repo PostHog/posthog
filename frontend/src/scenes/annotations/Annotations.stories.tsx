@@ -8,7 +8,13 @@ import annotations from './__mocks__/annotations.json'
 
 export default {
     title: 'Scenes-App/Annotations',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+
+        mockDate: '2023-01-28', // To stabilize relative dates
+    },
     decorators: [
         mswDecorator({
             get: {

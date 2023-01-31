@@ -45,6 +45,7 @@ async function expectLocatorToMatchStorySnapshot(
 module.exports = {
     setup() {
         expect.extend({ toMatchImageSnapshot })
+        jest.retryTimes(3, { logErrorsBeforeRetry: true })
     },
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
@@ -54,20 +55,23 @@ module.exports = {
             document.body.classList.add('dangerously-stop-all-animations')
         })
 
-        // Wait for the network to be idle for up to 500 ms, to allow assets like images to load. This is suboptimal,
-        // because `networkidle` is not resolved reliably here, so we might wait for the full timeout - but it works.
-        await Promise.race([page.waitForLoadState('networkidle'), page.waitForTimeout(500)])
-
         if (!storyContext.parameters?.chromatic?.disableSnapshot) {
+            let expectStoryToMatchSnapshot: (page: Page, context: TestContext) => Promise<void>
             if (storyContext.parameters?.layout === 'fullscreen') {
                 if (storyContext.parameters.testRunner?.includeNavigation) {
-                    await expectStoryToMatchFullPageSnapshot(page, context)
+                    expectStoryToMatchSnapshot = expectStoryToMatchFullPageSnapshot
                 } else {
-                    await expectStoryToMatchSceneSnapshot(page, context)
+                    expectStoryToMatchSnapshot = expectStoryToMatchSceneSnapshot
                 }
             } else {
-                await expectStoryToMatchComponentSnapshot(page, context)
+                expectStoryToMatchSnapshot = expectStoryToMatchComponentSnapshot
             }
+
+            // You'd expect that the 'load' state which @storybook/test-runner waits for would already mean
+            // the story is ready, and definitely that 'networkidle' would indicate all assets to be ready.
+            // But that's not the case, so we need to introduce a bit of a delay.
+            await page.waitForTimeout(200)
+            await expectStoryToMatchSnapshot(page, context) // Don't retry when updating
         }
     },
 } as TestRunnerConfig

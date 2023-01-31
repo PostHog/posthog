@@ -1,4 +1,4 @@
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import React from 'react'
 import { RecordingConsoleLogBase, RRWebRecordingConsoleLogPayload } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'

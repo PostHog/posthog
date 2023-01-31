@@ -7,7 +7,7 @@ import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
 import { objectsEqual } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconPlusMini } from '../icons'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 interface PropertyFiltersProps {
     endpoint?: string | null

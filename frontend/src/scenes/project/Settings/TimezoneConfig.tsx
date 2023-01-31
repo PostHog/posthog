@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
-import { LemonDialog } from 'lib/components/LemonDialog'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonSelectMultiple } from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 export function TimezoneConfig(): JSX.Element {
     const { preflight } = useValues(preflightLogic)

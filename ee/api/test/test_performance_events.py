@@ -51,11 +51,14 @@ class TestLicensedPerformanceEvents(APILicensedTest):
     @freeze_time("2021-01-01T12:00:00Z")
     def test_performance_lists_events_by_session_id(self):
         session_id = str(uuid.uuid4())
+        now = datetime.datetime.now()
 
-        create_performance_event(self.team.id, "user_1", session_id, current_url="https://posthog.com")
-        create_performance_event(self.team.id, "user_1", session_id, current_url="https://posthog.com")
-        create_performance_event(self.team.id, "user_1", session_id, current_url="https://posthog.com")
-        create_performance_event(self.team.id, "user_2", session_id + "2", current_url="https://posthog.com")
+        create_performance_event(self.team.id, "user_1", session_id, current_url="https://posthog.com", timestamp=now)
+        create_performance_event(self.team.id, "user_1", session_id, current_url="https://posthog.com", timestamp=now)
+        create_performance_event(self.team.id, "user_1", session_id, current_url="https://posthog.com", timestamp=now)
+        create_performance_event(
+            self.team.id, "user_2", session_id + "2", current_url="https://posthog.com", timestamp=now
+        )
 
         res = self.client.get(
             f"/api/projects/@current/performance_events?session_id={session_id}&date_from=2021-01-01T00:00:00Z&date_to=2021-01-02T00:00:00Z"

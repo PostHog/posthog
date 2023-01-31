@@ -14,7 +14,7 @@ import { canConfigurePlugins } from '../../../access'
 import { userLogic } from 'scenes/userLogic'
 import { SortableContainer, SortableElement, SortableHandle } from 'react-sortable-hoc'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 type HandleProps = { children?: JSX.Element }
 

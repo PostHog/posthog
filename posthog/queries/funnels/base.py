@@ -409,7 +409,7 @@ class ClickhouseFunnelBase(ABC):
         for prop in self._include_properties:
             extra_fields.append(prop)
 
-        inner_query, params = FunnelEventQuery(
+        funnel_events_query, params = FunnelEventQuery(
             filter=self._filter,
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
@@ -445,14 +445,13 @@ class ClickhouseFunnelBase(ABC):
         if self._filter.breakdown:
             if self._filter.breakdown_type == "cohort":
                 extra_join = self._get_cohort_breakdown_join()
-
             else:
                 values = self._get_breakdown_conditions()
                 self.params.update({"breakdown_values": values})
 
         extra_select_fields = f", {', '.join(all_step_cols)}" if all_step_cols else ""
 
-        inner_query = inner_query.format(
+        funnel_events_query = funnel_events_query.format(
             extra_select_fields=extra_select_fields,
             extra_join=extra_join,
             step_filter="AND ({})".format(steps_conditions),
@@ -460,9 +459,9 @@ class ClickhouseFunnelBase(ABC):
 
         if self._filter.breakdown and self._filter.breakdown_attribution_type != BreakdownAttributionType.ALL_EVENTS:
             # ALL_EVENTS attribution is the old default, which doesn't need the subquery
-            return self._add_breakdown_attribution_subquery(inner_query)
+            return self._add_breakdown_attribution_subquery(funnel_events_query)
 
-        return inner_query
+        return funnel_events_query
 
     def _add_breakdown_attribution_subquery(self, inner_query: str) -> str:
         if self._filter.breakdown_attribution_type in [

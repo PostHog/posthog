@@ -1,4 +1,3 @@
-import json
 import re
 from functools import lru_cache
 from typing import Any, List, Optional
@@ -7,10 +6,9 @@ import posthoganalytics
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.core.cache import cache
 from django.core.validators import MinLengthValidator
 from django.db import models
-from sentry_sdk import capture_exception
+from django.db.models.signals import post_delete, post_save
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -20,10 +18,13 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.signals import mutable_receiver
 from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
+
+from .team_caching import get_team_in_cache, set_team_in_cache
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
@@ -183,14 +184,6 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        set_team_in_cache(self.api_token, self)
-
-    def delete(self, *args, **kwargs):
-        super().delete(*args, **kwargs)
-        set_team_in_cache(self.api_token, None)
-
     @property
     def person_on_events_querying_enabled(self) -> bool:
         result = self._person_on_events_querying_enabled
@@ -269,37 +262,14 @@ class Team(UUIDClassicModel):
     __repr__ = sane_repr("uuid", "name", "api_token")
 
 
-def set_team_in_cache(token: str, team: Optional[Team] = None) -> None:
-    from posthog.api.team import CachingTeamSerializer
-
-    if not team:
-        try:
-            team = Team.objects.get(api_token=token)
-        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
-            cache.delete(f"team_token:{token}")
-            return
-
-    serialized_team = CachingTeamSerializer(team).data
-
-    cache.set(f"team_token:{token}", json.dumps(serialized_team), None)
+@mutable_receiver(post_save, sender=Team)
+def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
+    set_team_in_cache(instance.api_token, instance)
 
 
-def get_team_in_cache(token: str) -> Optional[Team]:
-    try:
-        team_data = cache.get(f"team_token:{token}")
-    except Exception:
-        # redis is unavailable
-        return None
-
-    if team_data:
-        try:
-            parsed_data = json.loads(team_data)
-            return Team(**parsed_data)
-        except Exception as e:
-            capture_exception(e)
-            return None
-
-    return None
+@mutable_receiver(post_delete, sender=Team)
+def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
+    set_team_in_cache(instance.api_token, None)
 
 
 def groups_on_events_querying_enabled():

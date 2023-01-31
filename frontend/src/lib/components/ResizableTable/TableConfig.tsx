@@ -10,9 +10,9 @@ import clsx from 'clsx'
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconClose, IconLock, IconTuning, SortableDragIcon } from 'lib/components/icons'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconClose, IconLock, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import {
     SortableContainer as sortableContainer,
     SortableElement as sortableElement,

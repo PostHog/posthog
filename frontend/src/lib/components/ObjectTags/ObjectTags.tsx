@@ -7,7 +7,7 @@ import { useActions, useValues } from 'kea'
 import { objectTagsLogic } from 'lib/components/ObjectTags/objectTagsLogic'
 import { AvailableFeature } from '~/types'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import clsx from 'clsx'
 
 interface ObjectTagsPropsBase {

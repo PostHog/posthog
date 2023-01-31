@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import { retentionTableLogic } from './retentionTableLogic'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'

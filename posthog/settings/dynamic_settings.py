@@ -11,6 +11,11 @@ CONSTANCE_CONFIG = {
         "Number of weeks recordings will be kept before removing them (for all projects). Storing recordings for a shorter timeframe can help reduce Clickhouse disk usage.",
         int,
     ),
+    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS": (
+        3,
+        "Number of weeks recording performance events will be kept before removing them (for all projects). Storing performance events for a shorter timeframe can help reduce Clickhouse disk usage.",
+        int,
+    ),
     "MATERIALIZED_COLUMNS_ENABLED": (
         get_from_env("MATERIALIZED_COLUMNS_ENABLED", True, type_cast=str_to_bool),
         "Whether materialized columns should be created or used at query time.",
@@ -163,6 +168,7 @@ CONSTANCE_CONFIG = {
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
     "RECORDINGS_TTL_WEEKS",
+    "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS",
     "AUTO_START_ASYNC_MIGRATIONS",
     "AGGREGATE_BY_DISTINCT_IDS_TEAMS",
     "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",

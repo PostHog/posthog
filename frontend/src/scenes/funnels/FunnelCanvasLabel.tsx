@@ -7,10 +7,10 @@ import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
 import { FunnelVizType, InsightType } from '~/types'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import React from 'react'
-import { IconInfo } from 'lib/components/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, activeView } = useValues(insightLogic)

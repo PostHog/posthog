@@ -1,4 +1,4 @@
-import { GithubIcon, GitlabIcon, GoogleIcon, IconKey } from 'lib/components/icons'
+import { GithubIcon, GitlabIcon, GoogleIcon, IconKey } from 'lib/lemon-ui/icons'
 import { SSOProviders } from '~/types'
 
 export const SocialLoginIcon = (provider: SSOProviders): JSX.Element | undefined => {

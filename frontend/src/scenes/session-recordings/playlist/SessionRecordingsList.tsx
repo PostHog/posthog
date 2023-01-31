@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { IconUnfoldLess, IconUnfoldMore, IconInfo } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { range } from 'lib/utils'
 import React, { Fragment, useState } from 'react'
 import { SessionRecordingType } from '~/types'
@@ -12,7 +12,7 @@ import {
 } from './SessionRecordingsPlaylistItem'
 import { useActions, useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
-import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SessionRecordingsListProps = {

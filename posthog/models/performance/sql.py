@@ -1,6 +1,6 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
@@ -108,6 +108,7 @@ PERFORMANCE_EVENTS_TABLE_SQL = lambda: (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL()
     + """PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+{ttl_period}
 {storage_policy}
 """
 ).format(
@@ -116,6 +117,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    ttl_period=ttl_period(field="timestamp"),
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -151,7 +153,7 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
-        data_table="sharded_performance_events",
+        data_table=PERFORMANCE_EVENT_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
     ),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
@@ -162,7 +164,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQ
     table_name="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(
-        data_table="sharded_performance_events",
+        data_table=PERFORMANCE_EVENT_DATA_TABLE(),
         sharding_key="sipHash64(session_id)",
     ),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
@@ -198,3 +200,7 @@ order by timestamp desc
 """
 
 TRUNCATE_PERFORMANCE_EVENTS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {PERFORMANCE_EVENT_DATA_TABLE()}"
+
+UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL = lambda: (
+    f"ALTER TABLE {PERFORMANCE_EVENT_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(timestamp) + toIntervalWeek(%(weeks)s)"
+)

@@ -14,14 +14,13 @@ import {
     KAFKA_SESSION_RECORDING_EVENTS,
 } from '../../src/config/kafka-topics'
 import { PluginsServerConfig } from '../../src/types'
-import { UUIDT } from '../../src/utils/utils'
 import { KAFKA_EVENTS_DEAD_LETTER_QUEUE } from './../../src/config/kafka-topics'
 
 /** Clear the Kafka queue and return Kafka object */
 export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig>): Promise<Kafka> {
     const config = { ...overrideWithEnv(defaultConfig, process.env), ...extraServerConfig }
     const kafka = new Kafka({
-        clientId: `plugin-server-test-${new UUIDT()}`,
+        clientId: `plugin-server-test`,
         brokers: (config.KAFKA_HOSTS || '').split(','),
         logLevel: logLevel.WARN,
     })

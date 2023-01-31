@@ -7,9 +7,9 @@ import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
 import { Properties } from '@posthog/plugin-scaffold'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { pluralize } from 'lib/utils'
-import { LemonTableProps } from 'lib/components/LemonTable'
+import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import ReactJson from 'react-json-view'
 
 const { TabPane } = Tabs

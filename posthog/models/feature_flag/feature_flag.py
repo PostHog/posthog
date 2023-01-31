@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, cast
 
 from django.core.cache import cache
 from django.db import models
-from django.db.models.signals import pre_delete
+from django.db.models.signals import post_delete, post_save, pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
@@ -13,6 +13,8 @@ from posthog.models.experiment import Experiment
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
+
+FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
 
 class FeatureFlag(models.Model):
@@ -37,14 +39,6 @@ class FeatureFlag(models.Model):
     performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
-
-    def save(self, *args, **kwargs):
-        super().save(*args, **kwargs)
-        set_feature_flags_for_team_in_cache(self.team_id)
-
-    def delete(self, *args, **kwargs):
-        super().delete(*args, **kwargs)
-        set_feature_flags_for_team_in_cache(self.team_id)
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
@@ -235,6 +229,11 @@ def delete_experiment_flags(sender, instance, **kwargs):
     FeatureFlag.objects.filter(experiment=instance).update(deleted=True)
 
 
+@mutable_receiver([post_save, post_delete], sender=FeatureFlag)
+def refresh_flag_cache_on_updates(sender, instance, **kwargs):
+    set_feature_flags_for_team_in_cache(instance.team_id)
+
+
 class FeatureFlagHashKeyOverride(models.Model):
     class Meta:
         constraints = [
@@ -280,7 +279,7 @@ def set_feature_flags_for_team_in_cache(
 
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
-    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), None)
+    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), FIVE_DAYS)
 
     return all_feature_flags
 

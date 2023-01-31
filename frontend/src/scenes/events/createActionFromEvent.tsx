@@ -1,7 +1,7 @@
 import { router } from 'kea-router'
 import api from 'lib/api'
 import { autoCaptureEventToDescription } from 'lib/utils'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import {
     ActionStepType,
     ActionStepUrlMatching,
@@ -13,7 +13,7 @@ import {
     TeamType,
 } from '~/types'
 import { CLICK_TARGETS, elementToSelector, matchesDataAttribute } from 'lib/actionUtils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 
 export function recurseSelector(elements: ElementType[], parts: string, index: number): string {
