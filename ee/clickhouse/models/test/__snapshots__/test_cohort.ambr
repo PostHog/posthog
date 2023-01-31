@@ -96,7 +96,7 @@
           AND event IN ['$pageview']
           AND timestamp <= now()
           AND timestamp >= now() - INTERVAL 2 year
-        GROUP BY person_id) behavior_query
+        GROUP BY person_id) funnel_query
      INNER JOIN
        (SELECT *,
                id AS person_id
@@ -111,7 +111,7 @@
                   AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))))) )
            GROUP BY id
            HAVING max(is_deleted) = 0
-           AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
+           AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = funnel_query.person_id
      WHERE 1 = 1
        AND ((((performed_event_condition_5_level_level_0_level_0_level_0_0)))) ) as person
   UNION ALL
@@ -161,7 +161,7 @@
                       AND event IN ['$pageview']
                       AND timestamp <= now()
                       AND timestamp >= now() - INTERVAL 2 year
-                    GROUP BY person_id) behavior_query
+                    GROUP BY person_id) funnel_query
                  INNER JOIN
                    (SELECT *,
                            id AS person_id
@@ -176,7 +176,7 @@
                               AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))))) )
                        GROUP BY id
                        HAVING max(is_deleted) = 0
-                       AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
+                       AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = funnel_query.person_id
                  WHERE 1 = 1
                    AND ((((performed_event_condition_7_level_level_0_level_0_level_0_0)))) ) ))
   '
@@ -191,7 +191,7 @@
          1 AS sign,
          0 AS version
   FROM
-    (SELECT behavior_query.person_id AS id
+    (SELECT funnel_query.person_id AS id
      FROM
        (SELECT pdi.person_id AS person_id,
                minIf(timestamp, event = 'signup') >= now() - INTERVAL 15 day
@@ -206,7 +206,7 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event IN ['signup']
-        GROUP BY person_id) behavior_query
+        GROUP BY person_id) funnel_query
      WHERE 1 = 1
        AND (((first_time_condition_8_level_level_0_level_0_0))) ) as person
   UNION ALL
@@ -232,7 +232,7 @@
          1 AS sign,
          0 AS version
   FROM
-    (SELECT behavior_query.person_id AS id
+    (SELECT funnel_query.person_id AS id
      FROM
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
@@ -250,7 +250,7 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event IN ['$pageview', 'signup']
-        GROUP BY person_id) behavior_query
+        GROUP BY person_id) funnel_query
      WHERE 1 = 1
        AND ((((performed_event_condition_9_level_level_0_level_0_level_0_0))
              AND ((((NOT first_time_condition_9_level_level_0_level_1_level_0_level_0_level_0_0)))))) ) as person
