@@ -138,6 +138,7 @@ columnExpr
 
     // FIXME(ilezhankin): this part looks very ugly, maybe there is another way to express it
     | columnExpr LBRACKET columnExpr RBRACKET                                             # ColumnExprArrayAccess
+    // Removed(mariusandra): not sure we want/need this? caused s
     | columnExpr DOT DECIMAL_LITERAL                                                      # ColumnExprTupleAccess
     | DASH columnExpr                                                                     # ColumnExprNegate
     | left=columnExpr ( operator=ASTERISK                                                               // multiply
@@ -183,7 +184,7 @@ columnLambdaExpr:
     ARROW columnExpr
     ;
 columnIdentifier: (tableIdentifier DOT)? nestedIdentifier;
-nestedIdentifier: identifier (DOT identifier)?;
+nestedIdentifier: identifier (DOT identifier)*;
 
 // Tables
 

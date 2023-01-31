@@ -89,5 +89,9 @@ class Call(Expr):
     args: List[Expr]
 
 
-class Name(Expr):
-    id: str
+class FieldAccess(Expr):
+    field: str
+
+
+class FieldAccessChain(Expr):
+    chain: List[str]

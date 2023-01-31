@@ -271,8 +271,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprOr(self, ctx: HogQLParser.ColumnExprOrContext):
         return ast.BooleanOperation(
-            left=parse_tree_to_expr(ctx.columnExpr(0)),
-            right=parse_tree_to_expr(ctx.columnExpr(1)),
+            left=self.visit(ctx.columnExpr(0)),
+            right=self.visit(ctx.columnExpr(1)),
             op=ast.BooleanOperationType.Or,
         )
 
@@ -285,7 +285,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op = ast.BinaryOperationType.Mod
         else:
             raise Exception(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
-        return ast.BinaryOperation(left=parse_tree_to_expr(ctx.left), right=parse_tree_to_expr(ctx.right), op=op)
+        return ast.BinaryOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
         if ctx.PLUS():
@@ -296,7 +296,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise Exception(f"Yet unsupported text concat operation: {ctx.operator.text}")
         else:
             raise Exception(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
-        return ast.BinaryOperation(left=parse_tree_to_expr(ctx.left), right=parse_tree_to_expr(ctx.right), op=op)
+        return ast.BinaryOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():
@@ -324,7 +324,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             # TODO: support "in", "not in", "global in", "global not in"
             raise Exception(f"Unsupported ColumnExprPrecedence3: {ctx.getText()}")
-        return ast.CompareOperation(left=parse_tree_to_expr(ctx.left), right=parse_tree_to_expr(ctx.right), op=op)
+        return ast.CompareOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
 
     def visitColumnExprInterval(self, ctx: HogQLParser.ColumnExprIntervalContext):
         raise Exception(f"Unsupported node: ColumnExprInterval")
@@ -332,7 +332,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
-            left=parse_tree_to_expr(ctx.columnExpr()),
+            left=self.visit(ctx.columnExpr()),
             right=ast.Constant(value=None),
             op=ast.CompareOperationType.NotEq if ctx.NOT() else ast.CompareOperationType.Eq,
         )
@@ -358,7 +358,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
-        return ast.Parens(expr=parse_tree_to_expr(ctx.columnExpr()))
+        return ast.Parens(expr=self.visit(ctx.columnExpr()))
 
     def visitColumnExprTimestamp(self, ctx: HogQLParser.ColumnExprTimestampContext):
         raise Exception(f"Unsupported node: ColumnExprTimestamp")
@@ -366,8 +366,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprAnd(self, ctx: HogQLParser.ColumnExprAndContext):
         return ast.BooleanOperation(
-            left=parse_tree_to_expr(ctx.columnExpr(0)),
-            right=parse_tree_to_expr(ctx.columnExpr(1)),
+            left=self.visit(ctx.columnExpr(0)),
+            right=self.visit(ctx.columnExpr(1)),
             op=ast.BooleanOperationType.And,
         )
 
@@ -384,7 +384,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprNot(self, ctx: HogQLParser.ColumnExprNotContext):
-        return ast.NotOperation(expr=parse_tree_to_expr(ctx.columnExpr()))
+        return ast.NotOperation(expr=self.visit(ctx.columnExpr()))
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         raise Exception(f"Unsupported node: ColumnExprWinFunction")
@@ -414,10 +414,40 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
-        return self.visitChildren(ctx)
+        table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else None
+        nested = self.visit(ctx.nestedIdentifier())
+
+        if table is None:
+            if isinstance(nested, ast.FieldAccess):
+                text = ctx.getText().lower()
+                if text == "true":
+                    return ast.Constant(value=True)
+                if text == "false":
+                    return ast.Constant(value=False)
+            return nested
+
+        chain = []
+        if isinstance(table, ast.FieldAccess):
+            chain.append(table.field)
+        elif isinstance(table, ast.FieldAccessChain):
+            chain.extend(table.chain)
+        else:
+            raise Exception(f"Unsupported property access: {ctx.getText()}")
+
+        if isinstance(nested, ast.FieldAccess):
+            chain.append(nested.field)
+        elif isinstance(nested, ast.FieldAccessChain):
+            chain.extend(nested.chain)
+        else:
+            raise Exception(f"Unsupported property access: {ctx.getText()}")
+
+        return ast.FieldAccessChain(chain=chain)
 
     def visitNestedIdentifier(self, ctx: HogQLParser.NestedIdentifierContext):
-        return self.visitChildren(ctx)
+        chain = [identifier.getText() for identifier in ctx.identifier()]
+        if len(chain) == 1:
+            return ast.FieldAccess(field=chain[0])
+        return ast.FieldAccessChain(chain=chain)
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
         raise Exception(f"Unsupported node: TableExprIdentifier")
@@ -440,8 +470,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitTableIdentifier(self, ctx: HogQLParser.TableIdentifierContext):
-        raise Exception(f"Unsupported node: TableIdentifier")
-        # return self.visitChildren(ctx)
+        identifier = ctx.identifier().getText()
+        if ctx.databaseIdentifier():
+            return ast.FieldAccessChain(chain=[ctx.databaseIdentifier().getText(), identifier])
+        return ast.FieldAccess(field=identifier)
 
     def visitTableArgList(self, ctx: HogQLParser.TableArgListContext):
         raise Exception(f"Unsupported node: TableArgList")
@@ -452,8 +484,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitDatabaseIdentifier(self, ctx: HogQLParser.DatabaseIdentifierContext):
-        raise Exception(f"Unsupported node: DatabaseIdentifier")
-        # return self.visitChildren(ctx)
+        return ast.FieldAccess(field=ctx.identifier().getText())
 
     def visitFloatingLiteral(self, ctx: HogQLParser.FloatingLiteralContext):
         raise Exception(f"Unsupported node: visitFloatingLiteral")
@@ -492,12 +523,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
-        text = ctx.getText().lower()
-        if text == "true":
-            return ast.Constant(value=True)
-        if text == "false":
-            return ast.Constant(value=False)
-        raise Exception(f"Unsupported Identifier: {text}")
+        return ast.FieldAccess(field=ctx.getText())
 
     def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):
         raise Exception(f"Unsupported node: IdentifierOrNull")

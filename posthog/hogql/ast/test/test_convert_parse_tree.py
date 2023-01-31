@@ -290,3 +290,41 @@ class TestConvertParseTree(BaseTest):
                 op=ast.BinaryOperationType.Add,
             ),
         )
+
+    def test_field_access(self):
+        self.assertEqual(
+            expr_to_ast("event"),
+            ast.FieldAccess(field="event"),
+        )
+        self.assertEqual(
+            expr_to_ast("event like '$%'"),
+            ast.CompareOperation(
+                left=ast.FieldAccess(field="event"), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
+            ),
+        )
+
+    def test_property_access(self):
+        self.assertEqual(
+            expr_to_ast("properties.something == 1"),
+            ast.CompareOperation(
+                left=ast.FieldAccessChain(chain=["properties", "something"]),
+                right=ast.Constant(value=1),
+                op=ast.CompareOperationType.Eq,
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("properties.something"),
+            ast.FieldAccessChain(chain=["properties", "something"]),
+        )
+        self.assertEqual(
+            expr_to_ast("properties.$something"),
+            ast.FieldAccessChain(chain=["properties", "$something"]),
+        )
+        self.assertEqual(
+            expr_to_ast("person.properties.something"),
+            ast.FieldAccessChain(chain=["person", "properties", "something"]),
+        )
+        self.assertEqual(
+            expr_to_ast("this.can.go.on.for.miles"),
+            ast.FieldAccessChain(chain=["this", "can", "go", "on", "for", "miles"]),
+        )
