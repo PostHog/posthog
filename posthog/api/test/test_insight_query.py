@@ -206,3 +206,27 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         listed_insights = self.dashboard_api.list_insights()
         assert listed_insights["count"] == 1
         assert listed_insights["results"][0]["name"] == "Insight with filters"
+
+    def test_can_list_insights_including_those_with_only_queries(self) -> None:
+        self.dashboard_api.create_insight({"name": "Insight with filters"})
+        self.dashboard_api.create_insight(
+            {
+                "name": "Insight with persons table query",
+                "query": {
+                    "kind": "DataTableNode",
+                    "columns": ["person", "id", "created_at", "person.$delete"],
+                    "source": {
+                        "kind": "PersonsNode",
+                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                    },
+                },
+            },
+        )
+
+        created_insights: List[Insight] = list(Insight.objects.all())
+        assert len(created_insights) == 2
+
+        listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": True})
+        assert listed_insights["count"] == 2
+        assert listed_insights["results"][0]["name"] == "Insight with filters"
+        assert listed_insights["results"][1]["name"] == "Insight with persons table query"

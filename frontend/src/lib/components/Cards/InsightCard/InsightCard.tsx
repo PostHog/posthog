@@ -226,6 +226,22 @@ function InsightMeta({
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
 
+    const summary = !!name
+        ? null
+        : !!Object.keys(insight.filters).length
+        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+        : !!insight.query
+        ? isInsightVizNode(insight.query)
+            ? summarizeInsightQuery(
+                  (insight.query as InsightVizNode).source,
+                  aggregationLabel,
+                  cohortsById,
+                  mathDefinitions
+              )
+            : // TODO summarise other kinds of query too
+              'query: ' + insight.query.kind
+        : null
+
     return (
         <CardMeta
             setPrimaryHeight={setPrimaryHeight}
@@ -238,35 +254,11 @@ function InsightMeta({
             topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    {!!insight.query ? (
+                    <Link to={urls.insightView(short_id)}>
                         <h4 title={name} data-attr="insight-card-title">
-                            {name ||
-                                (isInsightVizNode(insight.query)
-                                    ? summarizeInsightQuery(
-                                          (insight.query as InsightVizNode).source,
-                                          aggregationLabel,
-                                          cohortsById,
-                                          mathDefinitions
-                                      )
-                                    : // TODO summarize non insight queries
-                                      'query: ' + insight.query.kind)}
+                            {name || summary}
                         </h4>
-                    ) : (
-                        <Link to={urls.insightView(short_id)}>
-                            <h4 title={name} data-attr="insight-card-title">
-                                {name || (
-                                    <i>
-                                        {summarizeInsightFilters(
-                                            filters,
-                                            aggregationLabel,
-                                            cohortsById,
-                                            mathDefinitions
-                                        )}
-                                    </i>
-                                )}
-                            </h4>
-                        </Link>
-                    )}
+                    </Link>
 
                     {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
