@@ -11,35 +11,32 @@ https://docs.djangoproject.com/en/2.2/ref/settings/
 """
 # isort: skip_file
 
-import os
-from typing import Dict, List
-
-# :TRICKY: Imported before anything else to support overloads
-from posthog.settings.overrides import *
-
-from posthog.settings.logs import *
-from posthog.settings.base_variables import *
+from typing import Dict
 
 from posthog.settings.access import *
 from posthog.settings.async_migrations import *
+from posthog.settings.base_variables import *
 from posthog.settings.celery import *
 from posthog.settings.data_stores import *
+from posthog.settings.demo import *
 from posthog.settings.dynamic_settings import *
 from posthog.settings.ee import *
-from posthog.settings.ingestion import *
 from posthog.settings.feature_flags import *
 from posthog.settings.geoip import *
+from posthog.settings.ingestion import *
+from posthog.settings.logs import *
+from posthog.settings.object_storage import *
+
+# :TRICKY: Imported before anything else to support overloads
+from posthog.settings.overrides import *
+from posthog.settings.prometheus import *
 from posthog.settings.schedules import *
 from posthog.settings.sentry import *
-from posthog.settings.shell_plus import *
 from posthog.settings.service_requirements import *
+from posthog.settings.shell_plus import *
 from posthog.settings.statsd import *
-from posthog.settings.object_storage import *
-from posthog.settings.demo import *
-from posthog.settings.web import *
-
 from posthog.settings.utils import get_from_env, str_to_bool
-
+from posthog.settings.web import *
 
 # Instance configuration preferences
 # https://posthog.com/docs/self-host/configure/environment-variables
