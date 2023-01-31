@@ -75,7 +75,10 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        with self.assertNumQueries(11):
+        expected_queries = 12  # Django session, PostHog user, PostHog team, PostHog org membership,
+        # look up if rate limit is enabled (cached after first lookup), 2x non-cached instance setting (MATERIALIZED_COLUMNS_ENABLED), person and distinct id
+
+        with self.assertNumQueries(expected_queries):
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?properties=%s"
                 % (json.dumps([{"key": "$browser", "value": "Safari"}]))
