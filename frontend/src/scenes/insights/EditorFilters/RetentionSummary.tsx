@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { InfoCircleOutlined } from '@ant-design/icons'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
 import {
     dateOptionPlurals,
     dateOptions,
     retentionOptionDescriptions,
     retentionOptions,
-    retentionLogic,
-} from 'scenes/retention/retentionLogic'
+} from 'scenes/retention/constants'
 import { EditorFilterProps, FilterType, InsightLogicProps, QueryEditorFilterProps, RetentionType } from '~/types'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
