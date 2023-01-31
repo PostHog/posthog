@@ -41,9 +41,9 @@ class TestConvertParseTree(BaseTest):
         self.assertEqual(expr_to_ast("'null'"), ast.Constant(value="null"))
         self.assertEqual(expr_to_ast("'n''ull'"), ast.Constant(value="n'ull"))
         self.assertEqual(expr_to_ast("'n''''ull'"), ast.Constant(value="n''ull"))
-        self.assertEqual(expr_to_ast("'n\null'"), ast.Constant(value="n\null"))
-        self.assertEqual(expr_to_ast("'n\\null'"), ast.Constant(value="n\\null"))
-        # TODO: make sure this is iron tight
+        self.assertEqual(expr_to_ast("'n\null'"), ast.Constant(value="n\null"))  # newline passed into string
+        self.assertEqual(expr_to_ast("'n\\null'"), ast.Constant(value="n\null"))  # slash and 'n' passed into string
+        self.assertEqual(expr_to_ast("'n\\\\ull'"), ast.Constant(value="n\\ull"))  # slash and 'n' passed into string
 
     def test_binary_operations(self):
         self.assertEqual(

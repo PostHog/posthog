@@ -9,44 +9,12 @@ else:
 # This class defines a complete listener for a parse tree produced by HogQLParser.
 class HogQLParserListener(ParseTreeListener):
 
-    # Enter a parse tree produced by HogQLParser#queryStmt.
-    def enterQueryStmt(self, ctx: HogQLParser.QueryStmtContext):
+    # Enter a parse tree produced by HogQLParser#selectQuery.
+    def enterSelectQuery(self, ctx: HogQLParser.SelectQueryContext):
         pass
 
-    # Exit a parse tree produced by HogQLParser#queryStmt.
-    def exitQueryStmt(self, ctx: HogQLParser.QueryStmtContext):
-        pass
-
-    # Enter a parse tree produced by HogQLParser#query.
-    def enterQuery(self, ctx: HogQLParser.QueryContext):
-        pass
-
-    # Exit a parse tree produced by HogQLParser#query.
-    def exitQuery(self, ctx: HogQLParser.QueryContext):
-        pass
-
-    # Enter a parse tree produced by HogQLParser#ctes.
-    def enterCtes(self, ctx: HogQLParser.CtesContext):
-        pass
-
-    # Exit a parse tree produced by HogQLParser#ctes.
-    def exitCtes(self, ctx: HogQLParser.CtesContext):
-        pass
-
-    # Enter a parse tree produced by HogQLParser#namedQuery.
-    def enterNamedQuery(self, ctx: HogQLParser.NamedQueryContext):
-        pass
-
-    # Exit a parse tree produced by HogQLParser#namedQuery.
-    def exitNamedQuery(self, ctx: HogQLParser.NamedQueryContext):
-        pass
-
-    # Enter a parse tree produced by HogQLParser#columnAliases.
-    def enterColumnAliases(self, ctx: HogQLParser.ColumnAliasesContext):
-        pass
-
-    # Exit a parse tree produced by HogQLParser#columnAliases.
-    def exitColumnAliases(self, ctx: HogQLParser.ColumnAliasesContext):
+    # Exit a parse tree produced by HogQLParser#selectQuery.
+    def exitSelectQuery(self, ctx: HogQLParser.SelectQueryContext):
         pass
 
     # Enter a parse tree produced by HogQLParser#selectUnionStmt.

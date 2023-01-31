@@ -2,6 +2,7 @@ from antlr4 import ParseTreeVisitor
 from antlr4.tree.Tree import ParseTree
 
 from posthog.hogql.ast import ast
+from posthog.hogql.ast.util import parse_string_literal
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 
 
@@ -16,20 +17,8 @@ def parse_tree_to_expr(parse_tree: ParseTree) -> ast.Expr:
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
-    def visitQueryStmt(self, ctx: HogQLParser.QueryStmtContext):
-        raise Exception(f"Unsupported node: QueryStmt")
-
-    def visitQuery(self, ctx: HogQLParser.QueryContext):
-        raise Exception(f"Unsupported node: Query")
-
-    def visitCtes(self, ctx: HogQLParser.CtesContext):
-        raise Exception(f"Unsupported node: Ctes")
-
-    def visitNamedQuery(self, ctx: HogQLParser.NamedQueryContext):
-        raise Exception(f"Unsupported node: NamedQuery")
-
-    def visitColumnAliases(self, ctx: HogQLParser.ColumnAliasesContext):
-        raise Exception(f"Unsupported node: ColumnAliases")
+    def visitSelectQuery(self, ctx: HogQLParser.SelectQueryContext):
+        raise Exception(f"Unsupported node: SelectQuery")
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
         raise Exception(f"Unsupported node: SelectUnionStmt")
@@ -187,7 +176,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         elif ctx.identifier():
             alias = ctx.identifier().getText()
         elif ctx.STRING_LITERAL():
-            alias = self._parse_string_literal(ctx.STRING_LITERAL())
+            alias = parse_string_literal(ctx.STRING_LITERAL())
         else:
             raise Exception(f"Must specify an alias.")
 
@@ -426,7 +415,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.NULL_SQL():
             return ast.Constant(value=None)
         if ctx.STRING_LITERAL():
-            text = self._parse_string_literal(ctx)
+            text = parse_string_literal(ctx)
             return ast.Constant(value=text)
         return self.visitChildren(ctx)
 
@@ -450,10 +439,3 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitEnumValue(self, ctx: HogQLParser.EnumValueContext):
         raise Exception(f"Unsupported node: EnumValue")
-
-    def _parse_string_literal(self, ctx):
-        # TODO: make sure this works well!
-        text = ctx.getText()
-        text = text[1:-1]
-        text = text.replace("''", "'")
-        return text

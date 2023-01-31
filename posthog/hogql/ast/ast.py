@@ -90,8 +90,3 @@ class FieldAccessChain(Expr):
 class Call(Expr):
     name: str
     args: List[Expr]
-
-
-class Attribute(Expr):
-    attr: str
-    value: Expr

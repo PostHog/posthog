@@ -4,29 +4,8 @@ options {
     tokenVocab = HogQLLexer;
 }
 
-// Top-level statements
-
-queryStmt: query (INTO OUTFILE STRING_LITERAL)? (FORMAT identifierOrNull)? (SEMICOLON)?;
-query
-    : selectUnionStmt
-    | ctes? selectStmt
-    ;
-
-// CTE statement
-ctes
-    : WITH namedQuery (',' namedQuery)*
-    ;
-
-namedQuery
-    : name=identifier (columnAliases)? AS '(' query ')'
-    ;
-
-columnAliases
-    : '(' identifier (',' identifier)* ')'
-    ;
-
-
 // SELECT statement
+selectQuery: selectUnionStmt | selectStmt;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
 selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
@@ -165,6 +144,7 @@ columnExpr
     // TODO(ilezhankin): `BETWEEN a AND b AND c` is parsed in a wrong way: `BETWEEN (a AND b) AND c`
     | columnExpr NOT? BETWEEN columnExpr AND columnExpr                                   # ColumnExprBetween
     | <assoc=right> columnExpr QUERY columnExpr COLON columnExpr                          # ColumnExprTernaryOp
+    // Note: difference with Clickhouse: we also support "AS STRING_LITERAL" as a shortcut for naming columns
     | columnExpr (alias | AS identifier | AS STRING_LITERAL)                              # ColumnExprAlias
 
     | (tableIdentifier DOT)? ASTERISK                                                     # ColumnExprAsterisk  // single-column only
@@ -182,11 +162,13 @@ columnLambdaExpr:
     )
     ARROW columnExpr
     ;
+
+// This is slightly different in HogQL compared to ClickHouse SQL
+// HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
+// We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
+// to just one ast.FieldAccessChain(chain=['a','b','columnIdentifier','on','and','on']).
 columnIdentifier: (tableIdentifier DOT)? nestedIdentifier;
 nestedIdentifier: identifier (DOT identifier)*;
-
-// Tables
-
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
     | tableFunctionExpr                  # TableExprFunction

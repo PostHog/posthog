@@ -215,8 +215,21 @@ OCTAL_LITERAL: '0' OCT_DIGIT+;
 DECIMAL_LITERAL: DEC_DIGIT+;
 HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+;
 
+// copied from clickhouse_driver/util/escape.py
+ESCAPE_CHAR
+    : BACKSLASH B
+    | BACKSLASH F
+    | BACKSLASH R
+    | BACKSLASH N
+    | BACKSLASH T
+    | BACKSLASH '0'
+    | BACKSLASH A
+    | BACKSLASH V
+    | BACKSLASH BACKSLASH
+    | BACKSLASH QUOTE_SINGLE;
+
 // It's important that quote-symbol is a single character.
-STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | (BACKSLASH .) | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
+STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
 
 // Alphabet and allowed symbols
 

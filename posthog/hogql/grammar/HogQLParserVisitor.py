@@ -11,24 +11,8 @@ else:
 
 class HogQLParserVisitor(ParseTreeVisitor):
 
-    # Visit a parse tree produced by HogQLParser#queryStmt.
-    def visitQueryStmt(self, ctx: HogQLParser.QueryStmtContext):
-        return self.visitChildren(ctx)
-
-    # Visit a parse tree produced by HogQLParser#query.
-    def visitQuery(self, ctx: HogQLParser.QueryContext):
-        return self.visitChildren(ctx)
-
-    # Visit a parse tree produced by HogQLParser#ctes.
-    def visitCtes(self, ctx: HogQLParser.CtesContext):
-        return self.visitChildren(ctx)
-
-    # Visit a parse tree produced by HogQLParser#namedQuery.
-    def visitNamedQuery(self, ctx: HogQLParser.NamedQueryContext):
-        return self.visitChildren(ctx)
-
-    # Visit a parse tree produced by HogQLParser#columnAliases.
-    def visitColumnAliases(self, ctx: HogQLParser.ColumnAliasesContext):
+    # Visit a parse tree produced by HogQLParser#selectQuery.
+    def visitSelectQuery(self, ctx: HogQLParser.SelectQueryContext):
         return self.visitChildren(ctx)
 
     # Visit a parse tree produced by HogQLParser#selectUnionStmt.
