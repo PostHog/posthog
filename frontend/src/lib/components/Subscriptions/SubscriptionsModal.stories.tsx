@@ -16,6 +16,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
+        mockDate: '2023-01-31 12:00:00',
     },
 } as ComponentMeta<typeof SubscriptionsModal>
 
