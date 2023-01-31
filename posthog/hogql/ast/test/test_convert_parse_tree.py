@@ -1,5 +1,3 @@
-from unittest import TestCase
-
 from antlr4 import CommonTokenStream, InputStream
 from antlr4.tree.Tree import ParseTree
 
@@ -7,6 +5,7 @@ from posthog.hogql.ast import ast
 from posthog.hogql.ast.convert_parse_tree import parse_tree_to_expr
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
+from posthog.test.base import BaseTest
 
 
 def string_to_parse_tree_expr(query: str) -> ParseTree:
@@ -21,7 +20,7 @@ def expr_to_ast(expr: str) -> ast.Expr:
     return parse_tree_to_expr(string_to_parse_tree_expr(expr))
 
 
-class TestConvertParseTree(TestCase):
+class TestConvertParseTree(BaseTest):
     def test_numbers(self):
         self.assertEqual(expr_to_ast("1"), ast.Constant(value=1))
         self.assertEqual(expr_to_ast("1.2"), ast.Constant(value=1.2))
@@ -166,5 +165,31 @@ class TestConvertParseTree(TestCase):
             expr_to_ast("not true"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1), right=ast.Constant(value=2), op=ast.BinaryOperationType.Add
+            ),
+        )
+
+    def test_parens(self):
+        self.assertEqual(
+            expr_to_ast("(1)"),
+            ast.Parens(expr=ast.Constant(value=1)),
+        )
+        self.assertEqual(
+            expr_to_ast("(1 + 1)"),
+            ast.Parens(
+                expr=ast.BinaryOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
+                )
+            ),
+        )
+        self.assertEqual(
+            expr_to_ast("1 + (1 + 1)"),
+            ast.BinaryOperation(
+                left=ast.Constant(value=1),
+                right=ast.Parens(
+                    expr=ast.BinaryOperation(
+                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
+                    )
+                ),
+                op=ast.BinaryOperationType.Add,
             ),
         )

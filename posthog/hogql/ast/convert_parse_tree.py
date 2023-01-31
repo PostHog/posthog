@@ -343,8 +343,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         # return self.visitChildren(ctx)
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
-        raise Exception(f"Unsupported node: ColumnExprParens")
-        # return self.visitChildren(ctx)
+        return ast.Parens(expr=parse_tree_to_expr(ctx.columnExpr()))
 
     def visitColumnExprTimestamp(self, ctx: HogQLParser.ColumnExprTimestampContext):
         raise Exception(f"Unsupported node: ColumnExprTimestamp")

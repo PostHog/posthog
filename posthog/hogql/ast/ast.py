@@ -15,6 +15,10 @@ class Expr(AST):
     pass
 
 
+class Parens(Expr):
+    expr: Expr
+
+
 class Column(AST):
     expr: Expr
     alias: Optional[str] = None

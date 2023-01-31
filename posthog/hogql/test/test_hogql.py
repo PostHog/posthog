@@ -1,4 +1,4 @@
-from unittest import TestCase
+from django.test.testcases import TestCase
 
 from posthog.hogql.hogql import HogQLContext, HogQLFieldAccess, translate_hogql
 
