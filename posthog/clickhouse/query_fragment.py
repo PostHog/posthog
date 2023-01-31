@@ -68,9 +68,6 @@ class QueryFragment:
         return f"QueryFragment({repr(self.sql)}, {repr(self.params)})"
 
 
-QF = QueryFragment
-
-
 def reset_unique_sequence():
     global unique_sequence
     unique_sequence = itertools.count()
