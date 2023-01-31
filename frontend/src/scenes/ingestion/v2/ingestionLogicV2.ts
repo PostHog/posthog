@@ -529,6 +529,17 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             teamLogic.actions.updateCurrentTeam({
                 completed_snippet_onboarding: true,
             })
+            if (
+                !values.currentTeam?.session_recording_opt_in ||
+                !values.currentTeam?.capture_console_log_opt_in ||
+                !values.currentTeam?.capture_performance_opt_in
+            ) {
+                eventUsageLogic.actions.reportIngestionRecordingsTurnedOff(
+                    !!values.currentTeam?.session_recording_opt_in,
+                    !!values.currentTeam?.capture_console_log_opt_in,
+                    !!values.currentTeam?.capture_performance_opt_in
+                )
+            }
         },
         openThirdPartyPluginModal: ({ plugin }) => {
             pluginsLogic.actions.editPlugin(plugin.id)
