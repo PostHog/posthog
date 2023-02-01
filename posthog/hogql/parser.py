@@ -8,7 +8,7 @@ from posthog.hogql.util import parse_string_literal
 
 
 def parse_expr(expr: str) -> ast.Expr:
-    parse_tree = get_parser(expr).columnExpr()
+    parse_tree = get_parser(expr).column()
     return HogQLParseTreeConverter().visit(parse_tree)
 
 
@@ -180,6 +180,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprTernaryOp")
+
+    # Visit a parse tree produced by HogQLParser#column.
+    def visitColumn(self, ctx: HogQLParser.ColumnContext):
+        return self.visit(ctx.columnExpr())
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         if ctx.alias():

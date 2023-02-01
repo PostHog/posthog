@@ -272,8 +272,8 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             response = f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{node.name}(...)'")
-    elif isinstance(node, ast.Parens):
-        response = f"({translate_ast(node.expr, stack, context)})"
+    elif isinstance(node, ast.Column):
+        response = translate_ast(node.expr, stack, context)
     else:
         raise ValueError(f"Unknown AST node {type(node).__name__}")
 

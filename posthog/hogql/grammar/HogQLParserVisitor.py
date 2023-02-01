@@ -175,6 +175,10 @@ class HogQLParserVisitor(ParseTreeVisitor):
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
         return self.visitChildren(ctx)
 
+    # Visit a parse tree produced by HogQLParser#column.
+    def visitColumn(self, ctx: HogQLParser.ColumnContext):
+        return self.visitChildren(ctx)
+
     # Visit a parse tree produced by HogQLParser#ColumnTypeExprSimple.
     def visitColumnTypeExprSimple(self, ctx: HogQLParser.ColumnTypeExprSimpleContext):
         return self.visitChildren(ctx)

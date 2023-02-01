@@ -5,7 +5,7 @@ options {
 }
 
 // SELECT statement
-selectQuery: selectUnionStmt | selectStmt;
+selectQuery: (selectUnionStmt | selectStmt) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
 selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;
@@ -86,6 +86,7 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | number
 
 
 // Columns
+column: columnExpr EOF;
 
 columnTypeExpr
     : identifier                                                                             # ColumnTypeExprSimple   // UInt64
