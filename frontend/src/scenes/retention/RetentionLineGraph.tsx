@@ -1,13 +1,16 @@
 import { useState } from 'react'
-import { retentionLogic } from './retentionLogic'
-import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { useActions, useValues } from 'kea'
-import { InsightEmptyState } from '../insights/EmptyStates'
-import { GraphType, GraphDataset } from '~/types'
-import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { RetentionModal } from './RetentionModal'
+import { retentionLogic } from './retentionLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
+
+import { GraphType, GraphDataset } from '~/types'
 import { roundToDecimal } from 'lib/utils'
+import { LineGraph } from '../insights/views/LineGraph/LineGraph'
+import { InsightEmptyState } from '../insights/EmptyStates'
+import { RetentionTablePayload, RetentionTablePeoplePayload } from './types'
+import { RetentionModal } from './RetentionModal'
 
 interface RetentionLineGraphProps {
     inSharedMode?: boolean
@@ -15,21 +18,19 @@ interface RetentionLineGraphProps {
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = retentionLogic(insightProps)
     const {
         results: _results,
         filters,
         trendSeries,
-        people: _people,
-        peopleLoading,
-        loadingMore,
         aggregationTargetLabel,
         incompletenessOffsetFromEnd,
-    } = useValues(logic)
+    } = useValues(retentionLogic(insightProps))
+    const { people: _people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
 
-    const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
 

@@ -1,33 +1,33 @@
 import { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
-import { retentionLogic } from './retentionLogic'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { RetentionTablePayload, RetentionTablePeoplePayload } from 'scenes/retention/types'
 import clsx from 'clsx'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
-import './RetentionTable.scss'
 
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { retentionLogic } from './retentionLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
+
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { RetentionTablePayload, RetentionTablePeoplePayload } from './types'
 import { RetentionModal } from './RetentionModal'
+import './RetentionTable.scss'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const logic = retentionLogic(insightProps)
     const {
         results: _results,
         resultsLoading,
-        peopleLoading,
-        people: _people,
-        loadingMore,
         filters: { period, date_to },
         aggregationTargetLabel,
         tableHeaders,
         tableRows,
-    } = useValues(logic)
+    } = useValues(retentionLogic(insightProps))
+    const { people: _people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+
     const results = _results as RetentionTablePayload[]
     const people = _people as RetentionTablePeoplePayload
 
-    const { loadPeople, loadMorePeople } = useActions(logic)
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
     const [isLatestPeriod, setIsLatestPeriod] = useState(false)

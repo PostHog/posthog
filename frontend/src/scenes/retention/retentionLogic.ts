@@ -1,20 +1,21 @@
 import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
-import api from 'lib/api'
-import { range, toParams } from 'lib/utils'
+import { range } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isRetentionFilter } from 'scenes/insights/sharedUtils'
-import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPayload } from 'scenes/retention/types'
+import { RetentionTablePayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { ActionType, InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 
+import type { retentionLogicType } from './retentionLogicType'
+
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
-export const retentionLogic = kea({
+export const retentionLogic = kea<retentionLogicType>({
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLogic', key],
@@ -27,39 +28,13 @@ export const retentionLogic = kea({
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({
         setFilters: (filters: Partial<RetentionFilterType>) => ({ filters }),
         setRetentionReference: (retentionReference: RetentionFilterType['retention_reference']) => ({
             retentionReference,
         }),
-        loadMorePeople: true,
-        updatePeople: (people: RetentionTablePeoplePayload) => ({ people }),
-        clearPeople: true,
     }),
-    loaders: ({ values }) => ({
-        people: {
-            __default: {} as RetentionTablePeoplePayload,
-            loadPeople: async (rowIndex: number) => {
-                const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
-                return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
-            },
-        },
-    }),
-    reducers: {
-        people: {
-            clearPeople: () => ({}),
-            updatePeople: (_, { people }) => people,
-        },
-        loadingMore: [
-            false,
-            {
-                loadMorePeople: () => true,
-                updatePeople: () => false,
-            },
-        ],
-    },
     selectors: {
         filters: [
             (s) => [s.inflightFilters],
@@ -228,20 +203,6 @@ export const retentionLogic = kea({
                 // casing of the server
                 retention_reference: retentionReference,
             })
-        },
-        loadResultsSuccess: async () => {
-            actions.clearPeople()
-        },
-        loadMorePeople: async () => {
-            if (values.people.next) {
-                const peopleResult: RetentionTablePeoplePayload = await api.get(values.people.next)
-                const newPeople: RetentionTablePeoplePayload = {
-                    result: [...(values.people.result || []), ...(peopleResult.result || [])],
-                    next: peopleResult.next,
-                    missing_persons: (peopleResult.missing_persons || 0) + (values.people.missing_persons || 0),
-                }
-                actions.updatePeople(newPeople)
-            }
         },
     }),
 })
