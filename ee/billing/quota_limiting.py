@@ -24,7 +24,7 @@ class QuotaResource(Enum):
     RECORDINGS = "recordings"
 
 
-def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, float]) -> None:
     pipe = get_client().pipeline()
     pipe.zremrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", "-inf", "+inf")
     if tokens:
@@ -121,6 +121,6 @@ def update_all_org_billing_quotas(
 
     if not dry_run:
         for field in rate_limited_teams:
-            replace_limited_teams(field, rate_limited_teams[field])
+            replace_limited_teams(QuotaResource(field), rate_limited_teams[field])
 
     return rate_limited_orgs
