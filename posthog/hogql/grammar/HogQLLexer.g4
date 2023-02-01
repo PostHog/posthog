@@ -281,6 +281,7 @@ EQ_DOUBLE: '==';
 EQ_SINGLE: '=';
 GE: '>=';
 GT: '>';
+HASH: '#';
 LBRACE: '{';
 LBRACKET: '[';
 LE: '<=';

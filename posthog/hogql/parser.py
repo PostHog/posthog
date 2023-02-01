@@ -227,7 +227,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             op = ast.BinaryOperationType.Mod
         else:
             raise NotImplementedError(f"Unsupported ColumnExprPrecedence1: {ctx.operator.text}")
-        return ast.BinaryOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
+        left = self.visit(ctx.left)
+        right = self.visit(ctx.right)
+        return ast.BinaryOperation(left=left, right=right, op=op)
 
     def visitColumnExprPrecedence2(self, ctx: HogQLParser.ColumnExprPrecedence2Context):
         if ctx.PLUS():
@@ -238,7 +240,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Yet unsupported text concat operation: {ctx.operator.text}")
         else:
             raise NotImplementedError(f"Unsupported ColumnExprPrecedence2: {ctx.operator.text}")
-        return ast.BinaryOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
+        left = self.visit(ctx.left)
+        right = self.visit(ctx.right)
+        return ast.BinaryOperation(left=left, right=right, op=op)
 
     def visitColumnExprPrecedence3(self, ctx: HogQLParser.ColumnExprPrecedence3Context):
         if ctx.EQ_SINGLE() or ctx.EQ_DOUBLE():

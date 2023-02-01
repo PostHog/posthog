@@ -149,10 +149,10 @@ class TestHogQLContext(TestCase):
         self._assert_error("())", "line 1, column 1: no viable alternative at input '()'")
         self._assert_error("['properties']['value']", "Unsupported node: ColumnExprArray")
         self._assert_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
-        self._assert_error("select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>")
+        self._assert_error("select query from events", "line 1, column 13: mismatched input 'from' expecting")
         self._assert_error("this makes little sense", "2 validation errors for Column")
         self._assert_error("event makes little sense", "2 validation errors for Column")
-        self._assert_error("1;2", "line 1, column 1: mismatched input ';' expecting <EOF>")
+        self._assert_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
     def test_hogql_returned_properties(self):
@@ -250,6 +250,10 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("event not like 'E'", context), "not(like(event, %(hogql_val_7)s))")
         self.assertEqual(self._translate("event ilike 'E'", context), "ilike(event, %(hogql_val_8)s)")
         self.assertEqual(self._translate("event not ilike 'E'", context), "not(ilike(event, %(hogql_val_9)s))")
+
+    def test_hogql_comments(self):
+        context = HogQLContext()
+        self.assertEqual(self._translate("event # something", context), "event")
 
     def test_hogql_special_root_properties(self):
         self.assertEqual(
