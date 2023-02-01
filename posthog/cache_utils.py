@@ -1,6 +1,6 @@
+import threading
 from datetime import timedelta
 from functools import wraps
-import threading
 from typing import no_type_check
 
 from django.utils.timezone import now
@@ -20,7 +20,8 @@ def cache_for(cache_time: timedelta, background_refresh=False):
             key = (args, frozenset(sorted(kwargs.items())))
 
             def refresh():
-                memoized_fn._cache[key] = (current_time, fn(*args, **kwargs))
+                value = fn(*args, **kwargs)
+                memoized_fn._cache[key] = (now(), value)
                 memoized_fn._refreshing[key] = None
 
             if key not in memoized_fn._cache:
