@@ -12,6 +12,8 @@ amqp==2.6.0
     # via
     #   -r requirements.in
     #   kombu
+antlr4-python3-runtime==4.11.1
+    # via -r requirements.in
 asgiref==3.3.2
     # via django
 async-generator==1.10

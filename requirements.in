@@ -4,6 +4,7 @@
 # - `pip-compile --rebuild requirements.in`
 # - `pip-compile --rebuild requirements-dev.in`
 #
+antlr4-python3-runtime==4.11.1
 amqp==2.6.0
 boto3==1.21.29
 celery==4.4.7
