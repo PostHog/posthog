@@ -5,6 +5,8 @@ import { NodeKind, TimeToSeeDataNode } from '~/queries/schema'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { Trace } from './Trace/Trace'
+import { TimeToSeeSessionNode } from './types'
 
 let uniqueNode = 0
 
@@ -41,7 +43,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataNode }): JSX.Element 
                     )}
                 </AutoSizer>
             ) : (
-                <>trace placeholder</>
+                <Trace timeToSeeSession={response as TimeToSeeSessionNode} />
             )}
         </>
     )
