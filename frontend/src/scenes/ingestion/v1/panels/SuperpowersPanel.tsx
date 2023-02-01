@@ -4,6 +4,7 @@ import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { useState } from 'react'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function SuperpowersPanel(): JSX.Element {
     const { setVerify } = useActions(ingestionLogic)
@@ -51,10 +52,12 @@ export function SuperpowersPanel(): JSX.Element {
                 </p>
             </div>
             <div>
-                <div className="flex justify-between w-full">
-                    <p className="text-base font-semibold m-0">Autocapture frontend interactions</p>
-                    <LemonSwitch data-attr="opt-in-autocapture-switch" checked={true} disabled={true} />
-                </div>
+                <Tooltip title="Autocapture can be disabled by customizing your JS snippet." placement="topRight">
+                    <div className="flex justify-between w-full">
+                        <p className="text-base font-semibold m-0">Autocapture frontend interactions</p>
+                        <LemonSwitch data-attr="opt-in-autocapture-switch" checked={true} disabled={true} />
+                    </div>
+                </Tooltip>
                 <p className="prompt-text ml-0">
                     If you use our JavaScript or React Native libraries, we'll automagically capture frontend
                     interactions like pageviews, clicks, and more.{' '}
