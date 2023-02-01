@@ -39,6 +39,7 @@ export enum NodeKind {
     ActionsNode = 'ActionsNode',
     NewEntityNode = 'NewEntityNode',
     EventsQuery = 'EventsQuery',
+    HogQLNode = 'HogQLNode',
     PersonsNode = 'PersonsNode',
 
     // Interface nodes
@@ -65,7 +66,7 @@ export enum NodeKind {
     UnimplementedQuery = 'UnimplementedQuery',
 }
 
-export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLNode
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -100,6 +101,10 @@ export interface Node {
 export interface DataNode extends Node {
     /** Cached query response */
     response?: Record<string, any>
+}
+
+export interface HogQLNode extends DataNode {
+    query: string
 }
 
 export interface EntityNode extends DataNode {

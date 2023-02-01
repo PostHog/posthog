@@ -263,6 +263,28 @@ class LifecycleToggle(str, Enum):
     dormant = "dormant"
 
 
+class NodeKind(str, Enum):
+    EventsNode = "EventsNode"
+    ActionsNode = "ActionsNode"
+    NewEntityNode = "NewEntityNode"
+    EventsQuery = "EventsQuery"
+    HogQLNode = "HogQLNode"
+    PersonsNode = "PersonsNode"
+    DataTableNode = "DataTableNode"
+    InsightVizNode = "InsightVizNode"
+    LegacyQuery = "LegacyQuery"
+    TrendsQuery = "TrendsQuery"
+    FunnelsQuery = "FunnelsQuery"
+    RetentionQuery = "RetentionQuery"
+    PathsQuery = "PathsQuery"
+    StickinessQuery = "StickinessQuery"
+    LifecycleQuery = "LifecycleQuery"
+    TimeToSeeDataSessionsQuery = "TimeToSeeDataSessionsQuery"
+    TimeToSeeDataQuery = "TimeToSeeDataQuery"
+    RecentPerformancePageViewNode = "RecentPerformancePageViewNode"
+    UnimplementedQuery = "UnimplementedQuery"
+
+
 class PathCleaningFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -517,6 +539,15 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: str = Field("group", const=True)
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
+
+
+class HogQLNode(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: NodeKind
+    query: str
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -1490,7 +1521,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode],
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLNode],
     ]
 
 

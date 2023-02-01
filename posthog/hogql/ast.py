@@ -85,3 +85,10 @@ class FieldAccessChain(Expr):
 class Call(Expr):
     name: str
     args: List[Expr]
+
+
+class Select(Expr):
+    columns: List[Column]
+    where: Optional[Expr] = None
+    prewhere: Optional[Expr] = None
+    having: Optional[Expr] = None

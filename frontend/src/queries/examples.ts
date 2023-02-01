@@ -5,6 +5,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    HogQLNode,
     LegacyQuery,
     LifecycleQuery,
     Node,
@@ -273,6 +274,11 @@ const TimeToSeeData: TimeToSeeDataQuery = {
     kind: NodeKind.TimeToSeeDataQuery,
 }
 
+const HogQL: HogQLNode = {
+    kind: NodeKind.HogQLNode,
+    query: 'select 1, 2',
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
@@ -292,6 +298,7 @@ export const examples: Record<string, Node> = {
     InsightLifecycleQuery,
     TimeToSeeDataSessions,
     TimeToSeeData,
+    HogQL,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

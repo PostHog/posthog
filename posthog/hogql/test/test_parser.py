@@ -4,7 +4,7 @@ from antlr4.tree.Tree import ParseTree
 from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_statement
 from posthog.test.base import BaseTest
 
 
@@ -338,4 +338,69 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("1 as '🍄'"),
             ast.Column(alias="🍄", expr=ast.Constant(value=1)),
+        )
+
+    def test_select_columns(self):
+        self.assertEqual(parse_statement("select 1"), ast.Select(columns=[ast.Column(expr=ast.Constant(value=1))]))
+
+    def test_select_where(self):
+        self.assertEqual(
+            parse_statement("select 1 where true"),
+            ast.Select(columns=[ast.Column(expr=ast.Constant(value=1))], where=ast.Constant(value=True)),
+        )
+        self.assertEqual(
+            parse_statement("select 1 where 1 == 2"),
+            ast.Select(
+                columns=[ast.Column(expr=ast.Constant(value=1))],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+            ),
+        )
+
+    def test_select_prewhere(self):
+        self.assertEqual(
+            parse_statement("select 1 prewhere true"),
+            ast.Select(columns=[ast.Column(expr=ast.Constant(value=1))], prewhere=ast.Constant(value=True)),
+        )
+        self.assertEqual(
+            parse_statement("select 1 prewhere 1 == 2"),
+            ast.Select(
+                columns=[ast.Column(expr=ast.Constant(value=1))],
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+            ),
+        )
+
+    def test_select_having(self):
+        self.assertEqual(
+            parse_statement("select 1 having true"),
+            ast.Select(columns=[ast.Column(expr=ast.Constant(value=1))], having=ast.Constant(value=True)),
+        )
+        self.assertEqual(
+            parse_statement("select 1 having 1 == 2"),
+            ast.Select(
+                columns=[ast.Column(expr=ast.Constant(value=1))],
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+            ),
+        )
+
+    def test_select_complex(self):
+        self.assertEqual(
+            parse_statement("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
+            ast.Select(
+                columns=[ast.Column(expr=ast.Constant(value=1))],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationType.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+                ),
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationType.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
+                ),
+            ),
         )

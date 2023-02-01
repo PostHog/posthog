@@ -11,11 +11,12 @@ from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.hogql.parser import parse_statement
 from posthog.models import Team
 from posthog.models.event.query_event_list import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.schema import EventsQuery
+from posthog.schema import EventsQuery, HogQLNode
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -81,5 +82,21 @@ def process_query(team: Team, query_json: Dict) -> Dict:
             "results": query_result.results,
             "hasMore": query_result.hasMore,
         }
+    elif query_kind == "HogQLNode":
+        try:
+            hogql_node = HogQLNode.parse_obj(query_json)
+            ast_node = parse_statement(hogql_node.query)
+            return {
+                "query": hogql_node.query,
+                "parsed": True,
+                "select": ast_node.dict(),
+            }
+        except Exception as e:
+            return {
+                "query": query_json.get("query"),
+                "parsed": False,
+                "error": str(e),
+            }
+
     else:
         raise ValidationError("Unsupported query kind: %s" % query_kind)
