@@ -138,15 +138,10 @@ class BillingManager:
         self.license = license or License.objects.first_valid()
 
     def get_billing(self, organization: Optional[Organization], plan_keys: Optional[str]) -> Dict[str, Any]:
-        billing_service_response: Dict[str, Any] = {}
-
         # Get the specified plans from "plan_keys" query param, otherwise get the defaults
         plans = self._get_plans(plan_keys)
         if organization and self.license and self.license.is_v2_license:
-            billing_service_response: BillingStatus = self._get_billing(organization)
-
-            if not self.license:  # mypy
-                raise Exception("No license found")
+            billing_service_response = self._get_billing(organization)
 
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
@@ -178,9 +173,6 @@ class BillingManager:
             }
 
     def update_billing(self, organization: Organization, data: Dict[str, Any]) -> None:
-        if not self.license:  # mypy
-            raise Exception("No license found")
-
         res = requests.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization),
@@ -362,5 +354,7 @@ class BillingManager:
         return usage
 
     def get_auth_headers(self, organization: Organization):
+        if not self.license:  # mypy
+            raise Exception("No license found")
         billing_service_token = build_billing_token(self.license, organization)
         return {"Authorization": f"Bearer {billing_service_token}"}
