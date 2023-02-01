@@ -10,6 +10,7 @@ import { retentionPeopleLogic } from './retentionPeopleLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { RetentionModal } from './RetentionModal'
 import './RetentionTable.scss'
+import { retentionTableLogic } from './retentionTableLogic'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -18,9 +19,8 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
         resultsLoading,
         filters: { period, date_to },
         aggregationTargetLabel,
-        tableHeaders,
-        tableRows,
     } = useValues(retentionLogic(insightProps))
+    const { tableHeaders, tableRows } = useValues(retentionTableLogic(insightProps))
     const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
 

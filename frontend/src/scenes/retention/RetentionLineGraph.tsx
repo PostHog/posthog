@@ -29,6 +29,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
     if (trendSeries.length === 0) {
         return null
     }
+
     return trendSeries ? (
         <>
             <LineGraph
