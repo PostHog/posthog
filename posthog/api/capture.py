@@ -212,7 +212,6 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
     limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
 
-    print("wat", settings.QUOTA_LIMITING_ENABLED)
     for event in events:
         if event.get("event") == "$snapshot":
             if token in limited_tokens_recordings:
