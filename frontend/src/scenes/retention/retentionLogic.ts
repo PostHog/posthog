@@ -26,10 +26,6 @@ export const retentionLogic = kea<retentionLogicType>({
             (inflightFilters): Partial<RetentionFilterType> =>
                 inflightFilters && isRetentionFilter(inflightFilters) ? inflightFilters : {},
         ],
-        loadedFilters: [
-            (s) => [s.insight],
-            ({ filters }): Partial<RetentionFilterType> => (filters && isRetentionFilter(filters) ? filters : {}),
-        ],
         results: [
             // Take the insight result, and cast it to `RetentionTablePayload[]`
             (s) => [s.insight],
