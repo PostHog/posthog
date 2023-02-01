@@ -8,25 +8,21 @@ import { retentionLogic } from './retentionLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { RetentionTablePayload, RetentionTablePeoplePayload } from './types'
 import { RetentionModal } from './RetentionModal'
 import './RetentionTable.scss'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const {
-        results: _results,
+        results,
         resultsLoading,
         filters: { period, date_to },
         aggregationTargetLabel,
         tableHeaders,
         tableRows,
     } = useValues(retentionLogic(insightProps))
-    const { people: _people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-
-    const results = _results as RetentionTablePayload[]
-    const people = _people as RetentionTablePeoplePayload
 
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)

@@ -9,7 +9,6 @@ import { GraphType, GraphDataset } from '~/types'
 import { roundToDecimal } from 'lib/utils'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { InsightEmptyState } from '../insights/EmptyStates'
-import { RetentionTablePayload, RetentionTablePeoplePayload } from './types'
 import { RetentionModal } from './RetentionModal'
 
 interface RetentionLineGraphProps {
@@ -18,18 +17,11 @@ interface RetentionLineGraphProps {
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const {
-        results: _results,
-        filters,
-        trendSeries,
-        aggregationTargetLabel,
-        incompletenessOffsetFromEnd,
-    } = useValues(retentionLogic(insightProps))
-    const { people: _people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { results, filters, trendSeries, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(
+        retentionLogic(insightProps)
+    )
+    const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-
-    const results = _results as RetentionTablePayload[]
-    const people = _people as RetentionTablePeoplePayload
 
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, selectRow] = useState(0)
