@@ -246,6 +246,10 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("event >= 'E'", context), "greaterOrEquals(event, %(hogql_val_3)s)")
         self.assertEqual(self._translate("event < 'E'", context), "less(event, %(hogql_val_4)s)")
         self.assertEqual(self._translate("event <= 'E'", context), "lessOrEquals(event, %(hogql_val_5)s)")
+        self.assertEqual(self._translate("event like 'E'", context), "like(event, %(hogql_val_6)s)")
+        self.assertEqual(self._translate("event not like 'E'", context), "not(like(event, %(hogql_val_7)s))")
+        self.assertEqual(self._translate("event ilike 'E'", context), "ilike(event, %(hogql_val_8)s)")
+        self.assertEqual(self._translate("event not ilike 'E'", context), "not(ilike(event, %(hogql_val_9)s))")
 
     def test_hogql_special_root_properties(self):
         self.assertEqual(

@@ -215,6 +215,14 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             response = f"less({left}, {right})"
         elif node.op == ast.CompareOperationType.LtE:
             response = f"lessOrEquals({left}, {right})"
+        elif node.op == ast.CompareOperationType.Like:
+            response = f"like({left}, {right})"
+        elif node.op == ast.CompareOperationType.ILike:
+            response = f"ilike({left}, {right})"
+        elif node.op == ast.CompareOperationType.NotLike:
+            response = f"not(like({left}, {right}))"
+        elif node.op == ast.CompareOperationType.NotILike:
+            response = f"not(ilike({left}, {right}))"
         else:
             raise ValueError(f"Unknown CompareOperationType: {type(node.op)}")
     elif isinstance(node, ast.Constant):

@@ -4,7 +4,7 @@ from antlr4.error.ErrorListener import ErrorListener
 from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.util import parse_string_literal
+from posthog.hogql.parser_utils import parse_string_literal
 
 
 def parse_expr(expr: str) -> ast.Expr:
