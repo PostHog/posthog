@@ -149,9 +149,10 @@ class TestHogQLContext(TestCase):
         self._assert_error("())", "line 1, column 1: no viable alternative at input '()'")
         self._assert_error("['properties']['value']", "Unsupported node: ColumnExprArray")
         self._assert_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
+        self._assert_error("select query", "Unsupported node: ColumnExprAliasContext")
         self._assert_error("select query from events", "line 1, column 13: mismatched input 'from' expecting")
-        self._assert_error("this makes little sense", "2 validation errors for Column")
-        self._assert_error("event makes little sense", "2 validation errors for Column")
+        self._assert_error("this makes little sense", "Unsupported node: ColumnExprAliasContext")
+        self._assert_error("event makes little sense", "Unsupported node: ColumnExprAliasContext")
         self._assert_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 

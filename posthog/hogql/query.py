@@ -1,10 +1,12 @@
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 from pydantic import BaseModel, Extra
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext, translate_hogql
 from posthog.hogql.parser import parse_statement
+from posthog.models import Team
 from posthog.queries.insight import insight_sync_execute
 
 
@@ -21,17 +23,25 @@ class QueryResult(BaseModel):
     error: Optional[str] = None
 
 
-def execute_hogql_query(query, team) -> QueryResult:
+def execute_hogql_query(
+    query: Union[str, ast.SelectQuery],
+    team: Team,
+    query_type: str = "unlabeled_hogql_query",
+    workload: Workload = Workload.OFFLINE,
+) -> QueryResult:
     try:
-        ast_node = parse_statement(query)
+        if isinstance(query, ast.SelectQuery):
+            ast_node = query
+        else:
+            ast_node = parse_statement(str(query))
         hogql_context = HogQLContext(select_team_id=team.pk)
         clickhouse_sql = translate_hogql(query, hogql_context)
         results, types = insight_sync_execute(
             clickhouse_sql,
             hogql_context.values,
             with_column_types=True,
-            query_type="hogql_query",
-            workload=Workload.ONLINE,
+            query_type=query_type,
+            workload=workload,
         )
         return QueryResult(
             query=query,

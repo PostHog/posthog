@@ -8,8 +8,9 @@ from posthog.hogql.parser_utils import parse_string_literal
 
 
 def parse_expr(expr: str) -> ast.Expr:
-    parse_tree = get_parser(expr).column()
-    return HogQLParseTreeConverter().visit(parse_tree)
+    parse_tree = get_parser(expr).columnExprWithComment()
+    node = HogQLParseTreeConverter().visit(parse_tree)
+    return node
 
 
 def parse_statement(statement: str) -> ast.Expr:
@@ -47,8 +48,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
-        columns = [self.visit(column) for column in ctx.columnExprList().columnsExpr()] if ctx.columnExprList() else []
-        columns = [column if isinstance(column, ast.Column) else ast.Column(expr=column) for column in columns]
+        select = [self.visit(column) for column in ctx.columnExprList().columnsExpr()] if ctx.columnExprList() else []
         where = self.visit(ctx.whereClause()) if ctx.whereClause() else None
         prewhere = self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None
         having = self.visit(ctx.havingClause()) if ctx.havingClause() else None
@@ -74,8 +74,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         if ctx.settingsClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.settingsClause()")
 
-        return ast.Select(
-            columns=columns,
+        return ast.SelectQuery(
+            select=select,
             where=where,
             prewhere=prewhere,
             having=having,
@@ -226,16 +226,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
-        if ctx.alias():
-            alias = ctx.alias().getText()
-        elif ctx.identifier():
-            alias = ctx.identifier().getText()
-        elif ctx.STRING_LITERAL():
-            alias = parse_string_literal(ctx.STRING_LITERAL())
-        else:
-            raise NotImplementedError(f"Must specify an alias.")
-        expr = self.visit(ctx.columnExpr())
-        return ast.Column(expr=expr, alias=alias)
+        raise NotImplementedError(f"Unsupported node: ColumnExprAliasContext")
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprExtract")

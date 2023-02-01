@@ -3,123 +3,15 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.constants import (
+    CLICKHOUSE_FUNCTIONS,
+    EVENT_FIELDS,
+    EVENT_PERSON_FIELDS,
+    HOGQL_AGGREGATIONS,
+    KEYWORDS,
+    SELECT_STAR_FROM_EVENTS_FIELDS,
+)
 from posthog.hogql.parser import parse_expr, parse_statement
-
-# fields you can select from in the events query
-EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id", "team_id"]
-# "person.*" fields you can select from in the events query
-EVENT_PERSON_FIELDS = ["id", "created_at", "properties"]
-
-# HogQL -> ClickHouse allowed transformations
-CLICKHOUSE_FUNCTIONS = {
-    # arithmetic
-    "abs": "abs",
-    "max2": "max2",
-    "min2": "min2",
-    # type conversions
-    "toInt": "toInt64OrNull",
-    "toFloat": "toFloat64OrNull",
-    "toDecimal": "toDecimal64OrNull",
-    "toDate": "toDateOrNull",
-    "toDateTime": "parseDateTimeBestEffort",
-    "toIntervalSecond": "toIntervalSecond",
-    "toIntervalMinute": "toIntervalMinute",
-    "toIntervalHour": "toIntervalHour",
-    "toIntervalDay": "toIntervalDay",
-    "toIntervalWeek": "toIntervalWeek",
-    "toIntervalMonth": "toIntervalMonth",
-    "toIntervalQuarter": "toIntervalQuarter",
-    "toIntervalYear": "toIntervalYear",
-    "toString": "toString",
-    # date functions
-    "now": "now",
-    "toMonday": "toMonday",
-    "toStartOfYear": "toStartOfYear",
-    "toStartOfQuarter": "toStartOfQuarter",
-    "toStartOfMonth": "toStartOfMonth",
-    "toStartOfWeek": "toStartOfWeek",
-    "toStartOfDay": "toStartOfDay",
-    "toStartOfHour": "toStartOfHour",
-    "toStartOfMinute": "toStartOfMinute",
-    "toStartOfSecond": "toStartOfSecond",
-    "toStartOfFiveMinutes": "toStartOfFiveMinutes",
-    "toStartOfTenMinutes": "toStartOfTenMinutes",
-    "toStartOfFifteenMinutes": "toStartOfFifteenMinutes",
-    "toTimezone": "toTimezone",
-    "age": "age",
-    "dateDiff": "dateDiff",
-    "dateTrunc": "dateTrunc",
-    "formatDateTime": "formatDateTime",
-    # string functions
-    "length": "lengthUTF8",
-    "empty": "empty",
-    "notEmpty": "notEmpty",
-    "leftPad": "leftPad",
-    "rightPad": "rightPad",
-    "lower": "lower",
-    "upper": "upper",
-    "repeat": "repeat",
-    "format": "format",
-    "concat": "concat",
-    "coalesce": "coalesce",
-    "substring": "substringUTF8",
-    "appendTrailingCharIfAbsent": "appendTrailingCharIfAbsent",
-    "endsWith": "endsWith",
-    "startsWith": "startsWith",
-    "trim": "trimBoth",
-    "trimLeft": "trimLeft",
-    "trimRight": "trimRight",
-    "extractTextFromHTML": "extractTextFromHTML",
-    "like": "like",
-    "ilike": "ilike",
-    "notLike": "notLike",
-    "replace": "replace",
-    "replaceOne": "replaceOne",
-    # array functions
-    "tuple": "tuple",
-    # conditional
-    "ifElse": "if",
-    "multiIf": "multiIf",
-    # rounding
-    "round": "round",
-    "floor": "floor",
-    "ceil": "ceil",
-    "trunc": "trunc",
-}
-# Permitted HogQL aggregations
-HOGQL_AGGREGATIONS = {
-    "count": 0,
-    "countIf": 1,
-    "countDistinct": 1,
-    "countDistinctIf": 2,
-    "min": 1,
-    "minIf": 2,
-    "max": 1,
-    "maxIf": 2,
-    "sum": 1,
-    "sumIf": 2,
-    "avg": 1,
-    "avgIf": 2,
-    "any": 1,
-    "anyIf": 2,
-}
-# Keywords passed to ClickHouse without transformation
-KEYWORDS = ["true", "false", "null"]
-
-# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
-SELECT_STAR_FROM_EVENTS_FIELDS = [
-    "uuid",
-    "event",
-    "properties",
-    "timestamp",
-    "team_id",
-    "distinct_id",
-    "elements_chain",
-    "created_at",
-    "person_id",
-    "person_created_at",
-    "person_properties",
-]
 
 
 @dataclass
@@ -171,11 +63,11 @@ def translate_hogql(query: str, context: HogQLContext) -> str:
 def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
-    if isinstance(node, ast.Select):
+    if isinstance(node, ast.SelectQuery):
         if not context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
-        columns = [translate_ast(column, stack, context) for column in node.columns] if node.columns else None
+        columns = [translate_ast(column, stack, context) for column in node.columns] if node.columns else ["1"]
 
         team_clause: ast.Expr = ast.CompareOperation(
             left=ast.FieldAccess(field="team_id"),
@@ -192,12 +84,14 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             where = team_clause
         where = translate_ast(where, stack, context)
 
+        group_by = [translate_ast(column, stack, context) for column in node.group_by] if node.group_by else None
         having = translate_ast(node.having, stack, context) if node.having else None
         prewhere = translate_ast(node.prewhere, stack, context) if node.prewhere else None
         clauses = [
             f"SELECT {', '.join(columns)}",
             "FROM events",
             "WHERE " + where if where else None,
+            f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
             "PREWHERE " + prewhere if prewhere else None,
         ]
@@ -319,8 +213,6 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             response = f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{node.name}(...)'")
-    elif isinstance(node, ast.Column):
-        response = translate_ast(node.expr, stack, context)
     else:
         raise ValueError(f"Unknown AST node {type(node).__name__}")
 
