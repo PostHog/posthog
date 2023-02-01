@@ -1,10 +1,13 @@
-from typing import Union
+from typing import Any, Union
 
 from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
-from posthog.models import Action
+from posthog.hogql.parser import parse_expr
+from posthog.models import Action, Property
+from posthog.models.property import PropertyGroup
+from posthog.schema import PropertyOperator
 
 
 def has_aggregation(expr: ast.AST) -> bool:
@@ -19,5 +22,85 @@ def action_to_expr(action: Action) -> ast.Expr:
     raise NotImplementedError("action_to_expr not implemented")
 
 
-def property_to_expr(properties: Union[BaseModel, dict]) -> ast.Expr:
-    raise NotImplementedError("property_to_expr not implemented")
+def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) -> ast.Expr:
+    if isinstance(property, dict):
+        property = Property(**property)
+    elif isinstance(property, Property):
+        pass
+    elif isinstance(property, PropertyGroup):
+        raise NotImplementedError("PropertyGroup not implemented")
+    elif isinstance(property, BaseModel):
+        property = Property(**property.dict())
+    else:
+        raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
+
+    if (
+        property.type == "event"
+        or property.type == "feature"
+        or (type is None and property.key is not None and property.key != "")
+    ):
+        op, value = property_operator_to_compare_operator_type(
+            property.operator or PropertyOperator.exact, property.value
+        )
+        return ast.CompareOperation(
+            op=op,
+            left=ast.FieldAccessChain(chain=["properties", property.key]),
+            right=ast.Constant(value=value),
+        )
+    elif property.type == "person":
+        op, value = property_operator_to_compare_operator_type(
+            property.operator or PropertyOperator.exact, property.value
+        )
+        return ast.CompareOperation(
+            op=op,
+            left=ast.FieldAccessChain(chain=["person", "properties", property.key]),
+            right=ast.Constant(value=value),
+        )
+    elif property.type == "hogql":
+        return parse_expr(property.key)
+    elif property.type is None:
+        return ast.Constant(value=True)
+
+    # "cohort",
+    # "element",
+    # "static-cohort",
+    # "precalculated-cohort",
+    # "group",
+    # "recording",
+    # "behavioral",
+    # "session",
+
+    raise NotImplementedError(f"property_to_expr not implemented for filter type {type(property).__name__}")
+
+
+def property_operator_to_compare_operator_type(
+    operator: PropertyOperator, value: Any
+) -> (ast.CompareOperationType, Any):
+    if operator == PropertyOperator.exact or operator == PropertyOperator.is_set:
+        return ast.CompareOperationType.Eq, value
+    elif operator == PropertyOperator.is_not or operator == PropertyOperator.is_not_set:
+        return ast.CompareOperationType.NotEq, value
+    elif operator == PropertyOperator.lt:
+        return ast.CompareOperationType.Lt, value
+    elif operator == PropertyOperator.gt:
+        return ast.CompareOperationType.Gt, value
+    elif operator == PropertyOperator.lte:
+        return ast.CompareOperationType.LtE, value
+    elif operator == PropertyOperator.gte:
+        return ast.CompareOperationType.GtE, value
+    elif operator == PropertyOperator.icontains:
+        return ast.CompareOperationType.ILike, f"%{value}%"
+    elif operator == PropertyOperator.not_icontains:
+        return ast.CompareOperationType.NotILike, f"%{value}%"
+
+    #     regex = "regex"
+    #     not_regex = "not_regex"
+    #     is_date_exact = "is_date_exact"
+    #     is_date_before = "is_date_before"
+    #     is_date_after = "is_date_after"
+    #     between = "between"
+    #     not_between = "not_between"
+    #     min = "min"
+    #     max = "max"
+
+    raise NotImplementedError(f"PropertyOperator f{operator} not implemented")

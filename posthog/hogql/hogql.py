@@ -124,7 +124,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         elif node.op == ast.BooleanOperationType.Or:
             response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
         else:
-            raise ValueError(f"Unknown BooleanOperationType: {type(node.op)}")
+            raise ValueError(f"Unknown BooleanOperationType: {type(node.op).__name__}")
     elif isinstance(node, ast.NotOperation):
         response = f"not({translate_ast(node.expr, stack, context)})"
     elif isinstance(node, ast.CompareOperation):
@@ -157,7 +157,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         elif node.op == ast.CompareOperationType.NotILike:
             response = f"not(ilike({left}, {right}))"
         else:
-            raise ValueError(f"Unknown CompareOperationType: {type(node.op)}")
+            raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
     elif isinstance(node, ast.Constant):
         key = f"hogql_val_{len(context.values)}"
         if isinstance(node.value, bool) and node.value is True:
@@ -173,7 +173,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         elif node.value is None:
             response = "null"
         else:
-            raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
+            raise ValueError(
+                f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
+            )
     elif isinstance(node, ast.FieldAccess):
         field_access = parse_field_access([node.field], context)
         context.field_access_logs.append(field_access)
