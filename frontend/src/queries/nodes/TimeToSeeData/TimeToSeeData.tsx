@@ -4,17 +4,16 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TimeToSeeDataQuery } from '~/queries/schema'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { timeToSeeDataLogic } from './timeToSeeDataLogic'
 import { TimeToSeeNode } from './types'
-import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { dayjs } from 'lib/dayjs'
+import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
 let uniqueNode = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
 export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element {
     const [key] = useState(() => `TimeToSeeData.${uniqueNode++}`)
-    const logic = timeToSeeDataLogic({ query: props.query, key })
+    const logic = dataNodeLogic({ query: props.query, key })
     const { response, responseLoading } = useValues(logic)
 
     if (responseLoading) {
@@ -29,68 +28,8 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
         return <div className="text-2xl">No session found.</div>
     }
 
-    const columns: LemonTableColumns<TimeToSeeNode> = [
-        {
-            title: 'Type',
-            dataIndex: 'type',
-            render: (_, node) => {
-                if (node.type == 'event' || node.type == 'interaction') {
-                    return `${node.data.action ?? 'load'} in ${node.data.context}`
-                }
-                return 'ClickHouse query'
-            },
-        },
-        {
-            title: 'Context',
-            render: (_, node) => {
-                if (node.type == 'event' || node.type == 'interaction') {
-                    return node.data.context
-                }
-            },
-        },
-        {
-            title: 'Action',
-            render: (_, node) => {
-                if (node.type == 'event' || node.type == 'interaction') {
-                    return node.data.action
-                }
-            },
-        },
-        {
-            title: 'Page',
-            render: (_, node) => {
-                return (node.type == 'event' || node.type == 'interaction') && node.data.current_url
-            },
-        },
-        {
-            title: 'Cache hit ratio',
-            render: (_, node) => {
-                if (node.type == 'event' || node.type == 'interaction') {
-                    const ratio = node.data.insights_fetched_cached / node.data.insights_fetched
-                    return `${Math.round(ratio * 100)}%`
-                }
-            },
-        },
-        {
-            title: 'Duration',
-            render: (_, node) => {
-                const duration = getDurationMs(node)
-                return `${duration}ms`
-            },
-        },
-    ]
-
     return (
         <>
-            <LemonTable
-                dataSource={response.children}
-                columns={columns}
-                expandable={{
-                    expandedRowRender: (node) => <RenderHierarchy depth={0} node={node} rootNode={node} />,
-                    isRowExpanded: () => true,
-                }}
-            />
-
             <AutoSizer disableWidth>
                 {({ height }) => (
                     <MonacoEditor
