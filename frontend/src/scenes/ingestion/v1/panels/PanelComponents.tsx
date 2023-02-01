@@ -9,7 +9,7 @@ import { IconArrowLeft } from 'lib/lemon-ui/icons'
 
 export function PanelFooterToRecordingStep(): JSX.Element {
     const { platform } = useValues(ingestionLogic)
-    const { setPlatform, setRecording } = useActions(ingestionLogic)
+    const { setPlatform, setSuperpowers } = useActions(ingestionLogic)
     const { reportIngestionTryWithBookmarkletClicked } = useActions(eventUsageLogic)
 
     return (
@@ -24,7 +24,7 @@ export function PanelFooterToRecordingStep(): JSX.Element {
                         center
                         onClick={() => {
                             reportIngestionTryWithBookmarkletClicked()
-                            setRecording(true)
+                            setSuperpowers(true)
                         }}
                     >
                         Try PostHog with the exploration bookmarklet
@@ -48,7 +48,7 @@ export function PanelFooterToRecordingStep(): JSX.Element {
                         fullWidth
                         center
                         className="mb-2"
-                        onClick={() => setRecording(true)}
+                        onClick={() => setSuperpowers(true)}
                     >
                         Continue
                     </LemonButton>
@@ -58,7 +58,7 @@ export function PanelFooterToRecordingStep(): JSX.Element {
                         fullWidth
                         center
                         type="secondary"
-                        onClick={() => setRecording(true)}
+                        onClick={() => setSuperpowers(true)}
                     >
                         Skip for now
                     </LemonButton>

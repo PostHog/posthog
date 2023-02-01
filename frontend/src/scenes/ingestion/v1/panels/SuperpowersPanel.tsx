@@ -5,7 +5,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { useState } from 'react'
 
-export function RecordingPanel(): JSX.Element {
+export function SuperpowersPanel(): JSX.Element {
     const { setVerify } = useActions(ingestionLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const [sessionRecordingsChecked, setSessionRecordingsChecked] = useState(true)

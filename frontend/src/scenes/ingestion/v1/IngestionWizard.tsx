@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import './IngestionWizard.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/v1/panels/VerificationPanel'
-import { RecordingPanel } from 'scenes/ingestion/v1/panels/RecordingPanel'
+import { SuperpowersPanel } from 'scenes/ingestion/v1/panels/SuperpowersPanel'
 import { InstructionsPanel } from 'scenes/ingestion/v1/panels/InstructionsPanel'
 import { MOBILE, BACKEND, WEB, BOOKMARKLET, THIRD_PARTY } from 'scenes/ingestion/v1/constants'
 import { useValues, useActions } from 'kea'
@@ -23,7 +23,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { PanelHeader } from './panels/PanelComponents'
 
 export function IngestionWizardV1(): JSX.Element {
-    const { platform, framework, verify, addBilling, recording } = useValues(ingestionLogic)
+    const { platform, framework, verify, addBilling, superpowers } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -40,10 +40,10 @@ export function IngestionWizardV1(): JSX.Element {
         )
     }
 
-    if (recording) {
+    if (superpowers) {
         return (
             <IngestionContainer>
-                <RecordingPanel />
+                <SuperpowersPanel />
             </IngestionContainer>
         )
     }

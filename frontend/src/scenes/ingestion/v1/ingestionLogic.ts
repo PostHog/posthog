@@ -28,7 +28,7 @@ import { urls } from 'scenes/urls'
 export enum INGESTION_STEPS {
     START = 'Get started',
     CONNECT_PRODUCT = 'Connect your product',
-    RECORDINGS = 'Setup session recordings',
+    SUPERPOWERS = 'Enable superpowers',
     VERIFY = 'Listen for events',
     BILLING = 'Add payment method',
     DONE = 'Done!',
@@ -37,7 +37,7 @@ export enum INGESTION_STEPS {
 export enum INGESTION_STEPS_WITHOUT_BILLING {
     START = 'Get started',
     CONNECT_PRODUCT = 'Connect your product',
-    RECORDINGS = 'Setup session recordings',
+    SUPERPOWERS = 'Enable superpowers',
     VERIFY = 'Listen for events',
     DONE = 'Done!',
 }
@@ -61,19 +61,19 @@ export const ingestionLogic = kea<ingestionLogicType>([
         setPlatform: (platform: PlatformType) => ({ platform }),
         setFramework: (framework: Framework) => ({ framework: framework as Framework }),
         setVerify: (verify: boolean) => ({ verify }),
-        setRecording: (recording: boolean) => ({ recording }),
+        setSuperpowers: (superpowers: boolean) => ({ superpowers }),
         setAddBilling: (addBilling: boolean) => ({ addBilling }),
         setState: (
             platform: PlatformType,
             framework: string | null,
             verify: boolean,
-            recording: boolean,
+            superpowers: boolean,
             addBilling: boolean
         ) => ({
             platform,
             framework,
             verify,
-            recording,
+            superpowers,
             addBilling,
         }),
         setInstructionsModal: (isOpen: boolean) => ({ isOpen }),
@@ -103,15 +103,15 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setState: (_, { framework }) => (framework ? (framework.toUpperCase() as Framework) : null),
             },
         ],
-        recording: [
+        superpowers: [
             false,
             {
                 setPlatform: () => false,
                 setFramework: () => false,
                 setAddBilling: () => false,
                 setVerify: () => false,
-                setState: (_, { recording }) => recording,
-                setRecording: (_, { recording }) => recording,
+                setState: (_, { superpowers }) => superpowers,
+                setSuperpowers: (_, { superpowers }) => superpowers,
             },
         ],
         verify: [
@@ -120,7 +120,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setPlatform: () => false,
                 setFramework: () => false,
                 setAddBilling: () => false,
-                setRecording: () => false,
+                setSuperpowers: () => false,
                 setVerify: (_, { verify }) => verify,
                 setState: (_, { verify }) => verify,
             },
@@ -131,7 +131,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 setPlatform: () => false,
                 setFramework: () => false,
                 setVerify: () => false,
-                setRecording: () => false,
+                setSuperpowers: () => false,
                 setAddBilling: (_, { addBilling }) => addBilling,
                 setState: (_, { addBilling }) => addBilling,
             },
@@ -164,13 +164,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
     }),
     selectors(() => ({
         currentStep: [
-            (s) => [s.platform, s.framework, s.verify, s.recording, s.addBilling],
-            (platform, framework, verify, recording, addBilling) => {
+            (s) => [s.platform, s.framework, s.verify, s.superpowers, s.addBilling],
+            (platform, framework, verify, superpowers, addBilling) => {
                 if (addBilling) {
                     return INGESTION_STEPS.BILLING
                 }
-                if (recording) {
-                    return INGESTION_STEPS.RECORDINGS
+                if (superpowers) {
+                    return INGESTION_STEPS.SUPERPOWERS
                 }
                 if (verify) {
                     return INGESTION_STEPS.VERIFY
@@ -220,7 +220,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
     actionToUrl(({ values }) => {
         function _actionToUrl(): string | [string, Record<string, undefined | string>] {
-            const { platform, framework, verify, addBilling, recording } = values
+            const { platform, framework, verify, addBilling, superpowers } = values
 
             let url = '/ingestion'
 
@@ -228,8 +228,8 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 return url + '/billing'
             }
 
-            if (recording) {
-                url += '/recording'
+            if (superpowers) {
+                url += '/superpowers'
                 return [
                     url,
                     {
@@ -320,7 +320,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
             setPlatform: _actionToUrl,
             setFramework: _actionToUrl,
             setVerify: _actionToUrl,
-            setRecording: _actionToUrl,
+            setSuperpowers: _actionToUrl,
             setAddBilling: _actionToUrl,
             setState: _actionToUrl,
             updateCurrentTeamSuccess: () => {
@@ -335,7 +335,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
     urlToAction(({ actions }) => ({
         '/ingestion': () => actions.setState(null, null, false, false, false),
-        '/ingestion/recording': (_: any, { platform, framework }) => {
+        '/ingestion/superpowers': (_: any, { platform, framework }) => {
             actions.setState(
                 platform === 'mobile'
                     ? MOBILE
@@ -446,13 +446,13 @@ export const ingestionLogic = kea<ingestionLogicType>([
                         actions.setPlatform(values.platform)
                     }
                     return
-                case INGESTION_STEPS.RECORDINGS:
+                case INGESTION_STEPS.SUPERPOWERS:
                     if (values.platform) {
-                        actions.setRecording(true)
+                        actions.setSuperpowers(true)
                     }
                     return
                 case INGESTION_STEPS.VERIFY:
-                    if (values.recording) {
+                    if (values.superpowers) {
                         actions.setVerify(true)
                     }
                     return
@@ -470,7 +470,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 case INGESTION_STEPS.BILLING:
                     actions.setState(values.platform, values.framework, true, false, false)
                     return
-                case INGESTION_STEPS.RECORDINGS:
+                case INGESTION_STEPS.SUPERPOWERS:
                     actions.setState(values.platform, values.framework, false, false, false)
                     return
                 case INGESTION_STEPS.VERIFY:
