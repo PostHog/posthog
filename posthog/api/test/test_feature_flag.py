@@ -1890,8 +1890,8 @@ class TestFeatureFlag(APIBaseTest):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("posthog.rate_limit.PassThroughFeatureFlagThrottle.rate", new="7/minute")
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.FeatureFlagThrottle.rate", new="7/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):

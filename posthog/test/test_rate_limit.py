@@ -27,7 +27,7 @@ class TestUserAPI(APIBaseTest):
         cache.clear()
         return super().tearDown()
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_default_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
@@ -35,9 +35,8 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Does not actually block the request, but increments the counter
         response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         # mock_calls call object is a tuple of (function, args, kwargs)
         # so the incremented metric is args[0]
@@ -52,7 +51,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.rate_limit.PassThroughSustainedRateThrottle.rate", new="5/hour")
+    @patch("posthog.rate_limit.SustainedRateThrottle.rate", new="5/hour")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_default_sustained_rate_limit(self, rate_limit_enabled_mock, incr_mock):
@@ -64,10 +63,9 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         with freeze_time(base_time):
-            # Does not actually block the request, but increments the counter
             for _ in range(2):
                 response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
             self.assertEqual(
                 len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 2
             )
@@ -81,7 +79,7 @@ class TestUserAPI(APIBaseTest):
                 },
             )
 
-    @patch("posthog.rate_limit.PassThroughClickHouseBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.ClickHouseBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_clickhouse_burst_rate_limit(self, rate_limit_enabled_mock, incr_mock):
@@ -95,9 +93,8 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.pk}/events")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # Does not actually block the request, but increments the counter
         response = self.client.get(f"/api/projects/{self.team.pk}/events")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.assert_any_call(
@@ -110,7 +107,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_are_based_on_the_team_not_user(self, rate_limit_enabled_mock, incr_mock):
@@ -120,7 +117,7 @@ class TestUserAPI(APIBaseTest):
 
         # First user gets rate limited
         response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.assert_any_call(
             "rate_limit_exceeded",
@@ -140,7 +137,7 @@ class TestUserAPI(APIBaseTest):
 
         # Second user gets rate limited after a single request
         response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.assert_any_call(
@@ -164,7 +161,7 @@ class TestUserAPI(APIBaseTest):
 
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_work_on_non_team_endpoints(self, rate_limit_enabled_mock, incr_mock):
@@ -173,7 +170,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.assert_any_call(
@@ -186,7 +183,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_unauthenticated_users(self, rate_limit_enabled_mock, incr_mock):
@@ -196,9 +193,8 @@ class TestUserAPI(APIBaseTest):
             response = self.client.post(f"/api/login")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        # Does not actually block the request, but increments the counter
         response = self.client.post(f"/api/login")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
 
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.assert_any_call(
@@ -211,7 +207,7 @@ class TestUserAPI(APIBaseTest):
             },
         )
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -222,7 +218,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_rate_limit_decide_endpoints(self, rate_limit_enabled_mock, incr_mock):
@@ -240,7 +236,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=False)
     def test_does_not_rate_limit_if_rate_limit_disabled(self, rate_limit_enabled_mock, incr_mock):
@@ -249,7 +245,7 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_call_get_instance_setting_for_every_request(self, rate_limit_enabled_mock, incr_mock):
@@ -268,7 +264,7 @@ class TestUserAPI(APIBaseTest):
                         self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
                     assert wrapped_get_instance_setting.call_count == 2
 
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_allow_list_works_as_expected(self, rate_limit_enabled_mock, incr_mock):

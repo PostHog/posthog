@@ -27,7 +27,7 @@ from posthog.models.feature_flag import (
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.rate_limit import PassThroughFeatureFlagThrottle
+from posthog.rate_limit import FeatureFlagThrottle
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -302,7 +302,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         return Response(flags)
 
-    @action(methods=["GET"], detail=False, throttle_classes=[PassThroughFeatureFlagThrottle])
+    @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
