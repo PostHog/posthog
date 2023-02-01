@@ -207,50 +207,45 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("true or false"),
             ast.BooleanOperation(
-                left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.Or
+                values=[ast.Constant(value=True), ast.Constant(value=False)], op=ast.BooleanOperationType.Or
             ),
         )
         self.assertEqual(
             parse_expr("true and false"),
             ast.BooleanOperation(
-                left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.And
+                values=[ast.Constant(value=True), ast.Constant(value=False)], op=ast.BooleanOperationType.And
             ),
         )
         self.assertEqual(
             parse_expr("true and not false"),
             ast.BooleanOperation(
-                left=ast.Constant(value=True),
-                right=ast.NotOperation(expr=ast.Constant(value=False)),
+                values=[ast.Constant(value=True), ast.NotOperation(expr=ast.Constant(value=False))],
                 op=ast.BooleanOperationType.And,
             ),
         )
         self.assertEqual(
             parse_expr("true or false or not true or 2"),
             ast.BooleanOperation(
-                left=ast.BooleanOperation(
-                    left=ast.BooleanOperation(
-                        left=ast.Constant(value=True), right=ast.Constant(value=False), op=ast.BooleanOperationType.Or
-                    ),
-                    right=ast.NotOperation(expr=ast.Constant(value=True)),
-                    op=ast.BooleanOperationType.Or,
-                ),
-                right=ast.Constant(value=2),
+                values=[
+                    ast.Constant(value=True),
+                    ast.Constant(value=False),
+                    ast.NotOperation(expr=ast.Constant(value=True)),
+                    ast.Constant(value=2),
+                ],
                 op=ast.BooleanOperationType.Or,
             ),
         )
         self.assertEqual(
             parse_expr("true or false and not true or 2"),
             ast.BooleanOperation(
-                left=ast.BooleanOperation(
-                    left=ast.Constant(value=True),
-                    right=ast.BooleanOperation(
-                        left=ast.Constant(value=False),
-                        right=ast.NotOperation(expr=ast.Constant(value=True)),
+                values=[
+                    ast.Constant(value=True),
+                    ast.BooleanOperation(
+                        values=[ast.Constant(value=False), ast.NotOperation(expr=ast.Constant(value=True))],
                         op=ast.BooleanOperationType.And,
                     ),
-                    op=ast.BooleanOperationType.Or,
-                ),
-                right=ast.Constant(value=2),
+                    ast.Constant(value=2),
+                ],
                 op=ast.BooleanOperationType.Or,
             ),
         )
