@@ -205,13 +205,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprCast(self, ctx: HogQLParser.ColumnExprCastContext):
         raise Exception(f"Unsupported node: ColumnExprCast")
 
-    def visitColumnExprOr(self, ctx: HogQLParser.ColumnExprOrContext):
-        return ast.BooleanOperation(
-            left=self.visit(ctx.columnExpr(0)),
-            right=self.visit(ctx.columnExpr(1)),
-            op=ast.BooleanOperationType.Or,
-        )
-
     def visitColumnExprPrecedence1(self, ctx: HogQLParser.ColumnExprPrecedence1Context):
         if ctx.SLASH():
             op = ast.BinaryOperationType.Div
@@ -282,22 +275,62 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise Exception(f"Unsupported node: ColumnExprTuple")
 
     def visitColumnExprArrayAccess(self, ctx: HogQLParser.ColumnExprArrayAccessContext):
-        raise Exception(f"Unsupported node: ColumnExprArrayAccess")
+        object = self.visit(ctx.columnExpr(0))
+        property = self.visit(ctx.columnExpr(1))
+        if not isinstance(property, ast.Constant):
+            raise Exception(f"Array access must be performed with a constant.")
+        if isinstance(object, ast.FieldAccess):
+            return ast.FieldAccessChain(chain=[object.field, property.value])
+        if isinstance(object, ast.FieldAccessChain):
+            return ast.FieldAccessChain(chain=object.chain + [property.value])
+
+        raise Exception(
+            f"Unsupported combination for ColumnExprArrayAccess: {object.__class__.__name__}[{property.__class__.__name__}]"
+        )
 
     def visitColumnExprBetween(self, ctx: HogQLParser.ColumnExprBetweenContext):
         raise Exception(f"Unsupported node: ColumnExprBetween")
 
     def visitColumnExprParens(self, ctx: HogQLParser.ColumnExprParensContext):
-        return ast.Parens(expr=self.visit(ctx.columnExpr()))
+        return self.visit(ctx.columnExpr())
 
     def visitColumnExprTimestamp(self, ctx: HogQLParser.ColumnExprTimestampContext):
         raise Exception(f"Unsupported node: ColumnExprTimestamp")
 
     def visitColumnExprAnd(self, ctx: HogQLParser.ColumnExprAndContext):
+        left = self.visit(ctx.columnExpr(0))
+        if isinstance(left, ast.BooleanOperation) and left.op == ast.BooleanOperationType.And:
+            left_array = left.values
+        else:
+            left_array = [left]
+
+        right = self.visit(ctx.columnExpr(1))
+        if isinstance(right, ast.BooleanOperation) and right.op == ast.BooleanOperationType.And:
+            right_array = right.values
+        else:
+            right_array = [right]
+
         return ast.BooleanOperation(
-            left=self.visit(ctx.columnExpr(0)),
-            right=self.visit(ctx.columnExpr(1)),
+            values=left_array + right_array,
             op=ast.BooleanOperationType.And,
+        )
+
+    def visitColumnExprOr(self, ctx: HogQLParser.ColumnExprOrContext):
+        left = self.visit(ctx.columnExpr(0))
+        if isinstance(left, ast.BooleanOperation) and left.op == ast.BooleanOperationType.Or:
+            left_array = left.values
+        else:
+            left_array = [left]
+
+        right = self.visit(ctx.columnExpr(1))
+        if isinstance(right, ast.BooleanOperation) and right.op == ast.BooleanOperationType.Or:
+            right_array = right.values
+        else:
+            right_array = [right]
+
+        return ast.BooleanOperation(
+            values=left_array + right_array,
+            op=ast.BooleanOperationType.Or,
         )
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):

@@ -47,9 +47,8 @@ class BooleanOperation(Expr):
     class Config:
         extra = Extra.forbid
 
-    left: Expr
-    right: Expr
     op: BooleanOperationType
+    values: List[Expr]
 
 
 class CompareOperationType(str, Enum):

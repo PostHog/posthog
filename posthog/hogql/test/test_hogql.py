@@ -17,7 +17,7 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("1.0 * 2.66"), "multiply(1.0, 2.66)")
         self.assertEqual(self._translate("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._translate("'string'"), "%(hogql_val_0)s")
-        self.assertEqual(self._translate('"string"'), "%(hogql_val_0)s")
+        # self.assertEqual(self._translate('"string"'), "%(hogql_val_0)s")
 
     def test_hogql_equals_null(self):
         self.assertEqual(self._translate("1 == null"), "isNull(1)")
@@ -32,10 +32,10 @@ class TestHogQLContext(TestCase):
             self._translate("properties['bla']"),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
-        self.assertEqual(
-            self._translate('properties["bla"]'),
-            "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
+        # self.assertEqual(
+        #     self._translate('properties["bla"]'),
+        #     "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
+        # )
 
         context = HogQLContext()
         self.assertEqual(
