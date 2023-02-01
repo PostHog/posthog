@@ -292,7 +292,11 @@ def get_event(request):
         else:
             events = [data]
 
-        events = drop_events_over_quota(token, events)
+        try:
+            events = drop_events_over_quota(token, events)
+        except Exception as e:
+            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+            capture_exception(e)
 
         try:
             events = preprocess_session_recording_events_for_clickhouse(events)
