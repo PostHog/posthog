@@ -10,13 +10,15 @@ export function RetentionReferencePicker({ disabled }: { disabled?: boolean }): 
         options and description found in `enum Reference`
     */
     const { insightProps } = useValues(insightLogic)
-    const { retentionReference } = useValues(retentionLogic(insightProps))
-    const { setRetentionReference } = useActions(retentionLogic(insightProps))
+    const { filters } = useValues(retentionLogic(insightProps))
+    const { setFilters } = useActions(retentionLogic(insightProps))
 
     return (
         <Select
-            value={retentionReference}
-            onChange={setRetentionReference}
+            value={filters.retention_reference || 'total'}
+            onChange={(retention_reference) => {
+                setFilters({ retention_reference })
+            }}
             bordered={false}
             dropdownMatchSelectWidth={false}
             data-attr="reference-selector"

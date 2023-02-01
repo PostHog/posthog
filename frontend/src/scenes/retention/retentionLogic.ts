@@ -25,9 +25,6 @@ export const retentionLogic = kea<retentionLogicType>({
     }),
     actions: () => ({
         setFilters: (filters: Partial<RetentionFilterType>) => ({ filters }),
-        setRetentionReference: (retentionReference: RetentionFilterType['retention_reference']) => ({
-            retentionReference,
-        }),
     }),
     selectors: {
         filters: [
@@ -51,22 +48,10 @@ export const retentionLogic = kea<retentionLogicType>({
             (s) => [s.actions],
             (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
         ],
-        retentionReference: [
-            (selectors) => [selectors.filters],
-            ({ retention_reference }) => retention_reference ?? 'total',
-        ],
     },
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ values, props }) => ({
         setFilters: ({ filters }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filters, ...filters }, values.filters))
-        },
-        setRetentionReference: ({ retentionReference }) => {
-            actions.setFilters({
-                ...values.filters,
-                // NOTE: we use lower case here to accommodate the expected
-                // casing of the server
-                retention_reference: retentionReference,
-            })
         },
     }),
 })
