@@ -1,4 +1,4 @@
-from typing import Any, Union
+from typing import Any, Tuple, Union, cast
 
 from pydantic import BaseModel
 
@@ -34,13 +34,9 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
     else:
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
-    if (
-        property.type == "event"
-        or property.type == "feature"
-        or (type is None and property.key is not None and property.key != "")
-    ):
+    if property.type == "event" or cast(Any, property.type) == "feature":
         op, value = property_operator_to_compare_operator_type(
-            property.operator or PropertyOperator.exact, property.value
+            cast(PropertyOperator, property.operator or PropertyOperator.exact), property.value
         )
         return ast.CompareOperation(
             op=op,
@@ -49,7 +45,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
         )
     elif property.type == "person":
         op, value = property_operator_to_compare_operator_type(
-            property.operator or PropertyOperator.exact, property.value
+            cast(PropertyOperator, property.operator or PropertyOperator.exact), property.value
         )
         return ast.CompareOperation(
             op=op,
@@ -58,8 +54,6 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
         )
     elif property.type == "hogql":
         return parse_expr(property.key)
-    elif property.type is None:
-        return ast.Constant(value=True)
 
     # "cohort",
     # "element",
@@ -75,7 +69,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
 
 def property_operator_to_compare_operator_type(
     operator: PropertyOperator, value: Any
-) -> (ast.CompareOperationType, Any):
+) -> Tuple[ast.CompareOperationType, Any]:
     if operator == PropertyOperator.exact or operator == PropertyOperator.is_set:
         return ast.CompareOperationType.Eq, value
     elif operator == PropertyOperator.is_not or operator == PropertyOperator.is_not_set:
