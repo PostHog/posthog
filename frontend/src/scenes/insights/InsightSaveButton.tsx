@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 
 export function InsightSaveButton({
     saveAs,

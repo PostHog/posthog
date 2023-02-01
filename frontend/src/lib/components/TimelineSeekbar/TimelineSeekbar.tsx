@@ -3,8 +3,8 @@ import clsx from 'clsx'
 import { Dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import { AlignType } from 'rc-trigger/lib/interface'
-import { Spinner } from '../Spinner/Spinner'
-import { Tooltip } from '../Tooltip'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import './TimelineSeekbar.scss'
 
 export interface TimelinePoint {

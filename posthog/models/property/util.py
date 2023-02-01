@@ -2,7 +2,16 @@ import re
 from collections import Counter
 from typing import Any, Callable
 from typing import Counter as TCounter
-from typing import Dict, List, Literal, Optional, Tuple, Union, cast
+from typing import (
+    Dict,
+    Iterable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+    cast,
+)
 
 from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
@@ -10,7 +19,7 @@ from rest_framework import exceptions
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
-from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.hogql import HogQLContext, translate_hogql
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -55,7 +64,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
-    hogql_context: Optional[HogQLContext] = None,
+    hogql_context: HogQLContext,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -156,19 +165,19 @@ def parse_prop_clauses(
             else:
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
                     person_id_query, cohort_filter_params = format_filter_query(
-                        cohort, idx, custom_match_field=person_id_joined_alias
+                        cohort, idx, hogql_context, custom_match_field=person_id_joined_alias
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
@@ -759,7 +768,19 @@ def build_selector_regex(selector: Selector) -> str:
 
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
-    return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
+    counters: List[tuple] = []
+    for prop in props:
+        if prop.type == "hogql":
+            context = HogQLContext()
+            translate_hogql(prop.key, context)
+            for field_access in context.field_access_logs:
+                if field_access.type == "event.properties":
+                    counters.append((field_access.field, "event", None))
+                elif field_access.type == "person.properties":
+                    counters.append((field_access.field, "person", None))
+        else:
+            counters.append((prop.key, prop.type, prop.group_type_index))
+    return Counter(cast(Iterable, counters))
 
 
 def get_session_property_filter_statement(prop: Property, idx: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:

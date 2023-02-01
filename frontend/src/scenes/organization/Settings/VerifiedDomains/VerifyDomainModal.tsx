@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { PureField } from 'lib/forms/Field'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 

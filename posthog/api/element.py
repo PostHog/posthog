@@ -83,7 +83,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             statsd.incr("toolbar_element_stats_unpaginated_api_request_tombstone", tags={"team_id": self.team_id})
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
         )
         result = sync_execute(
             GET_ELEMENTS.format(
@@ -95,6 +95,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 **prop_filter_params,
                 **date_params,
                 "filter_event_types": events_filter,
+                **filter.hogql_context.values,
             },
         )
         serialized_elements = [

@@ -4,14 +4,14 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconPlusMini } from 'lib/components/icons'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 export interface TaxonomicBreakdownButtonProps {
     breakdownType?: TaxonomicFilterGroupType
@@ -38,7 +38,9 @@ export function TaxonomicBreakdownButton({
               TaxonomicFilterGroupType.EventFeatureFlags,
               ...groupsTaxonomicTypes,
               TaxonomicFilterGroupType.CohortsWithAllUsers,
-          ].concat(includeSessions ? [TaxonomicFilterGroupType.Sessions] : [])
+              ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
+              TaxonomicFilterGroupType.HogQLExpression,
+          ]
 
     return (
         <Popup

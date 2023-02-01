@@ -2,7 +2,7 @@ import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 import { LemonSnack } from '@posthog/lemon-ui'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import { midEllipsis } from 'lib/utils'
 
 import { PathRegexPopup } from './PathRegexPopup'

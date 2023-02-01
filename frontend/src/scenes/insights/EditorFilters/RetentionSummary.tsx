@@ -9,10 +9,10 @@ import {
 } from 'scenes/retention/retentionTableLogic'
 import { Input, Select } from 'antd'
 import { EditorFilterProps, FilterType, RetentionType } from '~/types'
-import { IconOpenInNew } from 'lib/components/icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
-import { Tooltip } from 'lib/components/Tooltip'
-import { AggregationSelect } from 'scenes/insights/filters/AggregationSelect'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { AggregationSelectComponent } from 'scenes/insights/filters/AggregationSelect'
 import { groupsModel } from '~/models/groupsModel'
 import { MathAvailability } from '../filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
@@ -28,7 +28,7 @@ export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Eleme
             <div>
                 Show{' '}
                 {showGroupsOptions ? (
-                    <AggregationSelect
+                    <AggregationSelectComponent
                         aggregationGroupTypeIndex={filters.aggregation_group_type_index}
                         onChange={(groupTypeIndex) => setFilters({ aggregation_group_type_index: groupTypeIndex })}
                     />

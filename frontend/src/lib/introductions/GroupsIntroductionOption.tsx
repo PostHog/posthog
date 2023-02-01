@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { LockOutlined } from '@ant-design/icons'
 import Select from 'rc-select'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
 // TODO: Remove, but de-ant FeatureFlagReleaseConditions first

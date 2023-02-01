@@ -1,5 +1,5 @@
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconBookmarkBorder } from 'lib/components/icons'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
 import equal from 'fast-deep-equal'

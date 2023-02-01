@@ -12,7 +12,12 @@ import { SessionRecordingPlayer } from 'scenes/session-recordings/player/Session
 
 export default {
     title: 'Scenes-App/Recordings',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+        chromatic: { disableSnapshot: true },
+    },
     decorators: [
         mswDecorator({
             get: {

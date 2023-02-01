@@ -87,6 +87,18 @@ class InstanceSettingsSerializer(serializers.Serializer):
 
             sync_execute(UPDATE_RECORDINGS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
 
+        if instance.key == "RECORDINGS_PERFORMANCE_EVENTS_TTL_WEEKS":
+            if is_cloud():
+                # On cloud the TTL is set on the performance_events_sharded table,
+                # so this command should never be run
+                raise serializers.ValidationError("This setting cannot be updated on cloud.")
+
+            # TODO: Move to top-level imports once CH is moved out of `ee`
+            from posthog.client import sync_execute
+            from posthog.models.performance.sql import UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL
+
+            sync_execute(UPDATE_PERFORMANCE_EVENTS_TABLE_TTL_SQL(), {"weeks": new_value_parsed})
+
         set_instance_setting_raw(instance.key, new_value_parsed)
         instance.value = new_value_parsed
 

@@ -1,7 +1,7 @@
 import { PropertyOperator, RecordingDurationFilter } from '~/types'
 import { Row, Space } from 'antd'
 import { OperatorSelect } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import { durationFilterLogic } from './durationFilterLogic'
 import { useActions, useValues } from 'kea'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'

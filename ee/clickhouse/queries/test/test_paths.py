@@ -49,7 +49,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
 
     def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
-        person_filter = filter.with_data(
+        person_filter = filter.shallow_clone(
             {"path_start_key": path_start, "path_end_key": path_end, "path_dropoff_key": path_dropoff}
         )
         _, serialized_actors, _ = PathsActors(person_filter, self.team, funnel_filter).get_actors()
@@ -792,7 +792,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         # passing group properties to funnel filter defeats purpose of test
-        path_filter = PathFilter(data=data).with_data(
+        path_filter = PathFilter(data=data).shallow_clone(
             {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
         )
         response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
@@ -1520,7 +1520,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data({"include_event_types": ["$screen"]})
+        filter = filter.shallow_clone({"include_event_types": ["$screen"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
@@ -1531,7 +1531,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data({"include_event_types": ["custom_event"]})
+        filter = filter.shallow_clone({"include_event_types": ["custom_event"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
@@ -1542,7 +1542,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
+        filter = filter.shallow_clone({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
@@ -1550,12 +1550,12 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             [{"source": "1_/custom1", "target": "2_/custom2", "value": 1, "average_conversion_time": ONE_MINUTE}],
         )
 
-        filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom3", "blah"]})
+        filter = filter.shallow_clone({"include_event_types": [], "include_custom_events": ["/custom3", "blah"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(response, [])
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
         )
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -1572,7 +1572,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "include_event_types": ["$pageview", "$screen", "custom_event"],
                 "include_custom_events": [],
@@ -1686,7 +1686,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE}]
         )
 
-        filter = filter.with_data({"path_groupings": ["/xxx/invalid/*"]})
+        filter = filter.shallow_clone({"path_groupings": ["/xxx/invalid/*"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(len(response), 6)
@@ -1759,7 +1759,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data({"include_event_types": ["$pageview", "$screen"]})
+        filter = filter.shallow_clone({"include_event_types": ["$pageview", "$screen"]})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
 
         self.assertEqual(
@@ -1773,7 +1773,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"include_event_types": ["$pageview", "$screen"], "include_custom_events": ["/custom2"]}
         )
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -1790,7 +1790,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "include_event_types": ["$pageview", "custom_event"],
                 "include_custom_events": [],
@@ -2058,7 +2058,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertCountEqual(self._get_people_at_path(filter, "1_/5", "2_/about"), [p1.uuid, p2.uuid])
 
         # test aggregation for long paths
-        filter = filter.with_data({"start_point": "/2", "step_limit": 4})
+        filter = filter.shallow_clone({"start_point": "/2", "step_limit": 4})
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
@@ -2085,15 +2085,15 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         filter = PathFilter({"include_event_types": ["$screen"]})
         self.assertEqual(should_query_list(filter), (False, True))
 
-        filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
+        filter = filter.shallow_clone({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
         self.assertEqual(should_query_list(filter), (False, False))
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
         )
         self.assertEqual(should_query_list(filter), (True, True))
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {
                 "include_event_types": ["$pageview", "$screen", "custom_event"],
                 "include_custom_events": [],
@@ -2102,7 +2102,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(should_query_list(filter), (True, True))
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"include_event_types": [], "include_custom_events": [], "exclude_events": ["$pageview"]}
         )
         self.assertEqual(should_query_list(filter), (False, True))
@@ -2578,7 +2578,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        path_filter = path_filter.with_data({"edge_limit": 2})
+        path_filter = path_filter.shallow_clone({"edge_limit": 2})
         response = Paths(team=self.team, filter=path_filter).run()
         self.assertCountEqual(
             response,
@@ -2602,7 +2602,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        path_filter = path_filter.with_data({"edge_limit": 20, "max_edge_weight": 11, "min_edge_weight": 6})
+        path_filter = path_filter.shallow_clone({"edge_limit": 20, "max_edge_weight": 11, "min_edge_weight": 6})
         response = Paths(team=self.team, filter=path_filter).run()
         self.assertCountEqual(
             response,
@@ -2724,7 +2724,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
         )
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -2737,7 +2737,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 1}]}
         )
         response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -2858,7 +2858,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
             )
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
@@ -2876,7 +2876,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 1}]}
             )
             response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)

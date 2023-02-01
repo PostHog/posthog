@@ -138,7 +138,7 @@ class DashboardAPI:
         if team_id is None:
             team_id = self.team.id
 
-        if "filters" not in data:
+        if "filters" not in data and "query" not in data:
             data["filters"] = {"events": [{"id": "$pageview"}]}
 
         response = self.client.post(

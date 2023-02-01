@@ -36,10 +36,10 @@ class Retention:
         )
         result = insight_sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
+            {**actor_query_params, **filter.hogql_context.values},
             settings={"timeout_before_checking_execution_speed": 60},
             filter=filter,
             query_type="retention_by_breakdown_values",
-            args=actor_query_params,
         )
 
         result_dict = {
@@ -145,7 +145,7 @@ def build_returning_event_query(
     retention_events_query=RetentionEventsQuery,
 ) -> Tuple[str, Dict[str, Any]]:
     returning_event_query_templated, returning_event_params = retention_events_query(
-        filter=filter.with_data({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
+        filter=filter.shallow_clone({"breakdowns": []}),  # Avoid pulling in breakdown values from returning event query
         team=team,
         event_query_type=RetentionQueryType.RETURNING,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,

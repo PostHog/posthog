@@ -1,9 +1,9 @@
 import { useActions } from 'kea'
 import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { IconChevronRight } from 'lib/components/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IconChevronRight } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DemoProjectButton } from './PanelComponents'
 

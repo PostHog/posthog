@@ -31,7 +31,7 @@ def hostname_in_allowed_url_list(allowed_url_list: Optional[List[str]], hostname
     if not hostname:
         return False
 
-    permitted_domains = ["127.0.0.1", "localhost"]
+    permitted_domains = []
     if allowed_url_list:
         for url in allowed_url_list:
             host = parse_domain(url)

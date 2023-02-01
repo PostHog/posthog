@@ -5,8 +5,8 @@ import { SocialLoginIcon } from './SocialLoginIcon'
 import { SSOProviders } from '~/types'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LemonButton } from '../LemonButton'
-import { LemonDivider } from '../LemonDivider'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { router } from 'kea-router'
 
 interface SharedProps {

@@ -18,7 +18,7 @@ import {
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
     filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,
@@ -57,7 +57,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
-import { legacyInsightQuery } from '~/queries/query'
+import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -696,31 +696,38 @@ export const insightLogic = kea<insightLogicType>([
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                    return {
-                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                            filterTrendsClientSideParams(params)
-                        )}`,
-                        filename,
-                    }
-                } else if (isRetentionFilter(filters)) {
-                    return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
-                } else if (isFunnelsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/funnel`,
-                        body: params,
-                    }
-                } else if (isPathsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/path`,
-                        body: params,
-                    }
+                if (!!insight.query) {
+                    return { ...queryExportContext(insight.query), filename }
                 } else {
-                    return null
+                    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+                        return {
+                            path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                                filterTrendsClientSideParams(params)
+                            )}`,
+                            filename,
+                        }
+                    } else if (isRetentionFilter(filters)) {
+                        return {
+                            filename,
+                            path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
+                        }
+                    } else if (isFunnelsFilter(filters)) {
+                        return {
+                            filename,
+                            method: 'POST',
+                            path: `api/projects/${currentTeamId}/insights/funnel`,
+                            body: params,
+                        }
+                    } else if (isPathsFilter(filters)) {
+                        return {
+                            filename,
+                            method: 'POST',
+                            path: `api/projects/${currentTeamId}/insights/path`,
+                            body: params,
+                        }
+                    } else {
+                        return null
+                    }
                 }
             },
         ],
@@ -756,6 +763,7 @@ export const insightLogic = kea<insightLogicType>([
                 return (
                     !!featureDataExploration &&
                     (isTrendsFilter(filters) ||
+                        isFunnelsFilter(filters) ||
                         isPathsFilter(filters) ||
                         isStickinessFilter(filters) ||
                         isLifecycleFilter(filters))

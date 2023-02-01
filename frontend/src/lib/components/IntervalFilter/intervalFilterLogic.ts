@@ -8,7 +8,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { FunnelsQuery, InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
-import { lemonToast } from '../lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({

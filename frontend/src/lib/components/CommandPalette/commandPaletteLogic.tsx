@@ -44,8 +44,8 @@ import {
     IconTools,
     IconTrendingFlat,
     IconTrendingUp,
-} from '../icons'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+} from 'lib/lemon-ui/icons'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void

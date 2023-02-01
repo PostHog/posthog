@@ -42,10 +42,14 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter, **kwargs) -> List:
         query, params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, allow_denormalized_props=True, team_id=self.team.pk, **kwargs
+            property_group=filter.property_groups,
+            allow_denormalized_props=True,
+            team_id=self.team.pk,
+            hogql_context=filter.hogql_context,
+            **kwargs,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+        return sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
 
     def test_prop_person(self):
 
@@ -422,6 +426,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             property_group=outer_properties,
             allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_context=filter.hogql_context,
         )
         joins = ""
         if join_person_tables:
@@ -436,7 +441,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field
         self.assertNotIn("json", final_query.lower())
-        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+        return sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
 
     def test_prop_event_denormalized(self):
         _create_event(
@@ -605,7 +610,12 @@ def test_parse_prop_clauses_defaults(snapshot):
     )
 
     assert (
-        parse_prop_grouped_clauses(property_group=filter.property_groups, allow_denormalized_props=False, team_id=1)
+        parse_prop_grouped_clauses(
+            property_group=filter.property_groups,
+            allow_denormalized_props=False,
+            team_id=1,
+            hogql_context=filter.hogql_context,
+        )
         == snapshot
     )
     assert (
@@ -614,6 +624,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
             team_id=1,
+            hogql_context=filter.hogql_context,
         )
         == snapshot
     )
@@ -623,6 +634,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
+            hogql_context=filter.hogql_context,
         )
         == snapshot
     )
@@ -636,15 +648,16 @@ def test_parse_prop_clauses_precalculated_cohort(snapshot):
     team = Team.objects.create(organization=org)
     cohort = Cohort.objects.create(team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
 
-    f = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]}, team=team)
+    filter = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]}, team=team)
 
     assert (
         parse_prop_grouped_clauses(
             team_id=1,
-            property_group=f.property_groups,
+            property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
             allow_denormalized_props=False,
             person_id_joined_alias="pdi.person_id",
+            hogql_context=filter.hogql_context,
         )
         == snapshot
     )
@@ -659,7 +672,11 @@ def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
 
     assert (
         parse_prop_grouped_clauses(
-            property_group=filter.property_groups, allow_denormalized_props=False, team_id=1, prepend="PREPEND"
+            property_group=filter.property_groups,
+            allow_denormalized_props=False,
+            team_id=1,
+            prepend="PREPEND",
+            hogql_context=filter.hogql_context,
         )
         == snapshot
     )
@@ -676,6 +693,7 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=True,
+            hogql_context=filter.hogql_context,
         )
         == snapshot
     )
@@ -1315,24 +1333,24 @@ def test_session_property_validation():
     # Property key not valid for type session
     with pytest.raises(ValidationError):
         filter = Filter(data={"properties": [{"type": "session", "key": "some_prop", "value": 0, "operator": "gt"}]})
-        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_context=filter.hogql_context)
 
     # Operator not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
             data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "is_set"}]}
         )
-        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_context=filter.hogql_context)
 
     # Value not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
             data={"properties": [{"type": "session", "key": "$session_duration", "value": "hey", "operator": "gt"}]}
         )
-        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_context=filter.hogql_context)
 
     # Valid property values
     filter = Filter(
         data={"properties": [{"type": "session", "key": "$session_duration", "value": "100", "operator": "gt"}]}
     )
-    parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+    parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_context=filter.hogql_context)

@@ -9,14 +9,14 @@ import {
     IconTerminal,
     IconUnverifiedEvent,
     IconPause,
-} from 'lib/components/icons'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+} from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
-import { IconWindow } from '../icons'
+import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from './playerInspectorLogic'

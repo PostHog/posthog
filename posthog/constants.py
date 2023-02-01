@@ -193,7 +193,7 @@ AGGREGATION_GROUP_TYPE_INDEX = "aggregation_group_type_index"
 BREAKDOWN_HISTOGRAM_BIN_COUNT = "breakdown_histogram_bin_count"
 BREAKDOWN_NORMALIZE_URL = "breakdown_normalize_url"
 
-BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session"]
+BREAKDOWN_TYPES = Literal["event", "person", "cohort", "group", "session", "hogql"]
 
 
 class FunnelOrderType(str, Enum):

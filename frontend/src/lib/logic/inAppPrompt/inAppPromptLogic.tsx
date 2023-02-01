@@ -6,7 +6,7 @@ import { router, urlToAction } from 'kea-router'
 import {
     LemonActionableTooltip,
     LemonActionableTooltipProps,
-} from 'lib/components/LemonActionableTooltip/LemonActionableTooltip'
+} from 'lib/lemon-ui/LemonActionableTooltip/LemonActionableTooltip'
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
@@ -27,8 +27,8 @@ import {
     IconTools,
     IconCoffee,
     IconTrendUp,
-} from 'lib/components/icons'
-import { Lettermark } from 'lib/components/Lettermark/Lettermark'
+} from 'lib/lemon-ui/icons'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
 
 /** To be extended with other types of notifications e.g. modals, bars */
 export type PromptType = 'tooltip'

@@ -4,20 +4,20 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import {
     getReasonForAccessLevelChangeProhibition,
     organizationMembershipLevelIntegers,
     membershipLevelToName,
 } from 'lib/utils/permissioning'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonButton } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonInput } from '@posthog/lemon-ui'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)

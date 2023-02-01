@@ -6,7 +6,7 @@ import { Breadcrumb, FeatureFlagType } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
-import { LemonSelectOption } from 'lib/components/LemonSelect'
+import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export enum FeatureFlagsTabs {
     OVERVIEW = 'overview',

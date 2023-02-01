@@ -7,12 +7,12 @@ import {
 import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { More } from 'lib/components/LemonButton/More'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 
 export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {

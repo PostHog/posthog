@@ -1,8 +1,8 @@
 import './CompactList.scss'
-import { LemonDivider } from '../LemonDivider'
-import { LemonButton } from '../LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { EmptyMessage, EmptyMessageProps } from '../EmptyMessage/EmptyMessage'
-import { LemonSkeleton } from '../LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 interface CompactListProps {
     title: string

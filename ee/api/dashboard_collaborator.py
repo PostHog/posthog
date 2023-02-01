@@ -8,8 +8,9 @@ from rest_framework.request import Request
 from ee.models.dashboard_privilege import DashboardPrivilege
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import Dashboard, Team, User
+from posthog.models import Dashboard, User
 from posthog.permissions import TeamMemberAccessPermission
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class CanEditDashboardCollaborator(BasePermission):
@@ -22,10 +23,11 @@ class CanEditDashboardCollaborator(BasePermission):
             dashboard: Dashboard = Dashboard.objects.get(id=view.parents_query_dict["dashboard_id"])
         except Dashboard.DoesNotExist:
             raise exceptions.NotFound("Dashboard not found.")
-        return dashboard.can_user_edit(cast(User, request.user).id)
+
+        return view.user_permissions.dashboard(dashboard).can_edit
 
 
-class DashboardCollaboratorSerializer(serializers.ModelSerializer):
+class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     user = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(read_only=True)
 
@@ -46,7 +48,8 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         dashboard: Dashboard = self.context["dashboard"]
-        if dashboard.effective_restriction_level <= Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+        dashboard_permissions = self.user_permissions.dashboard(dashboard)
+        if dashboard_permissions.effective_restriction_level <= Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             raise exceptions.ValidationError("Cannot add collaborators to a dashboard on the lowest restriction level.")
         attrs = super().validate(attrs)
         level = attrs.get("level")
@@ -61,9 +64,14 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
             validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             raise serializers.ValidationError("User does not exist.")
-        if cast(Team, dashboard.team).get_effective_membership_level(validated_data["user"].id) is None:
+
+        modified_user_permissions = UserPermissions(
+            user=validated_data["user"],
+            team=self.context["view"].team,
+        )
+        if modified_user_permissions.current_team.effective_membership_level is None:
             raise exceptions.ValidationError("Cannot add collaborators that have no access to the project.")
-        if dashboard.can_user_restrict(validated_data["user"].id):
+        if modified_user_permissions.dashboard(dashboard).can_restrict:
             raise exceptions.ValidationError(
                 "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
             )
@@ -99,7 +107,10 @@ class DashboardCollaboratorViewSet(
 
     def perform_destroy(self, instance) -> None:
         dashboard = cast(Dashboard, instance.dashboard)
-        if dashboard.effective_restriction_level <= Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
+        if (
+            self.user_permissions.dashboard(dashboard).effective_restriction_level
+            <= Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        ):
             raise exceptions.ValidationError(
                 "Cannot remove collaborators from a dashboard on the lowest restriction level."
             )

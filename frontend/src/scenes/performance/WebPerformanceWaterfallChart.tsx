@@ -2,7 +2,7 @@ import { PointInTimeMarker, ResourceTiming, webPerformanceLogic } from 'scenes/p
 import { Typography } from 'antd'
 import { areObjectValuesEmpty, humanFriendlyMilliseconds, humanizeBytes } from 'lib/utils'
 import { ReactNode, useState } from 'react'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
@@ -12,10 +12,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import './WebPerformance.scss'
 import { getSeriesColor } from 'lib/colors'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconErrorOutline, IconInfo } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming

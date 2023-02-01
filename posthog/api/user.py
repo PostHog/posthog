@@ -28,6 +28,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
 from posthog.tasks.email import send_email_change_emails
+from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 
 
@@ -226,6 +227,9 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         if not self.request.user.is_staff:
             queryset = queryset.filter(id=self.request.user.id)
         return queryset
+
+    def get_serializer_context(self):
+        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
 
 
 @authenticate_secondarily

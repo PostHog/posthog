@@ -92,41 +92,10 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
-  '
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
   '
   SELECT (1) AS "a"
   FROM "posthog_grouptypemapping"
@@ -134,7 +103,7 @@
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
   '
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
@@ -145,7 +114,7 @@
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
   '
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
@@ -156,7 +125,7 @@
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -182,7 +151,7 @@
   LIMIT 21
   '
 ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
   '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -201,6 +170,22 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
+  '
+---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
+  '
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.9
@@ -313,41 +298,10 @@
          "posthog_organization"."domain_whitelist"
   FROM "posthog_organizationmembership"
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDecide.test_web_app_queries.3
-  '
-  SELECT "posthog_organizationmembership"."id",
-         "posthog_organizationmembership"."organization_id",
-         "posthog_organizationmembership"."user_id",
-         "posthog_organizationmembership"."level",
-         "posthog_organizationmembership"."joined_at",
-         "posthog_organizationmembership"."updated_at",
-         "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
-  FROM "posthog_organizationmembership"
-  INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
-  WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
-         AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
-# name: TestDecide.test_web_app_queries.4
   '
   SELECT (1) AS "a"
   FROM "posthog_grouptypemapping"
@@ -355,7 +309,7 @@
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_web_app_queries.5
+# name: TestDecide.test_web_app_queries.4
   '
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
@@ -366,7 +320,7 @@
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_web_app_queries.6
+# name: TestDecide.test_web_app_queries.5
   '
   SELECT "posthog_instancesetting"."id",
          "posthog_instancesetting"."key",
@@ -377,7 +331,7 @@
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_web_app_queries.7
+# name: TestDecide.test_web_app_queries.6
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -401,6 +355,22 @@
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
   LIMIT 21
+  '
+---
+# name: TestDecide.test_web_app_queries.7
+  '
+  SELECT "posthog_pluginconfig"."id",
+         "posthog_pluginconfig"."web_token",
+         "posthog_pluginsourcefile"."updated_at",
+         "posthog_plugin"."updated_at",
+         "posthog_pluginconfig"."updated_at"
+  FROM "posthog_pluginconfig"
+  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
+  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
+  WHERE ("posthog_pluginconfig"."enabled"
+         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
+         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
+         AND "posthog_pluginconfig"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_web_app_queries.8

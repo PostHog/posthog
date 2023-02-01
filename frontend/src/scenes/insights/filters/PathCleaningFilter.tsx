@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { EditorFilterProps, PathsFilterType, QueryEditorFilterProps } from '~/types'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function PathCleaningFilterDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))

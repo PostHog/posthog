@@ -1,15 +1,15 @@
 import { AppErrorSummary, AppMetrics, appMetricsSceneLogic, AppMetricsTab } from './appMetricsSceneLogic'
 import { DescriptionColumns } from './constants'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { humanFriendlyDuration, humanFriendlyNumber } from 'lib/utils'
 import { AppMetricsGraph } from './AppMetricsGraph'
-import { LemonSelect } from 'lib/components/LemonSelect'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { useActions, useValues } from 'kea'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/components/Link'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconInfo } from 'lib/components/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 export interface MetricsTabProps {
     tab: AppMetricsTab

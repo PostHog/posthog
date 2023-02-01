@@ -1,7 +1,7 @@
 import { ActivityLogItem, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 export function personActivityDescriber(logItem: ActivityLogItem): HumanizedChange {

@@ -30,26 +30,19 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (NOT has([''], "$group_0"))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -86,27 +79,20 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND ((NOT has([''], "$group_0"))
-                           AND (NOT has([''], "$group_0"))) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND ((NOT has([''], "$group_0"))
+                        AND (NOT has([''], "$group_0")))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -150,27 +136,20 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (NOT has([''], "$group_0")) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (NOT has([''], "$group_0"))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -207,28 +186,21 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        e."$group_0" as aggregation_target ,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           e."$group_0" as aggregation_target,
-                           e."$group_0" as "$group_0"
-                    FROM events e
-                    WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND ((NOT has([''], "$group_0"))
-                           AND (NOT has([''], "$group_0"))) ) events
-                 WHERE (step_0 = 1
+                 FROM events e
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND ((NOT has([''], "$group_0"))
+                        AND (NOT has([''], "$group_0")))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -272,34 +244,27 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           pdi.person_id as person_id
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -336,34 +301,27 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up'
                            AND (has(['org:5'], "$group_0")), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           e."$group_0" as "$group_0",
-                           pdi.person_id as person_id
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -407,41 +365,34 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT group_key,
+                           argMax(group_properties, _timestamp) AS group_properties_0
+                    FROM groups
+                    WHERE team_id = 2
+                      AND group_type_index = 0
+                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -478,41 +429,34 @@
                      min(latest_1) over (PARTITION by aggregation_target
                                          ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'user signed up', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id,
-                           groups_0.group_properties_0 as group_properties_0
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN
-                      (SELECT group_key,
-                              argMax(group_properties, _timestamp) AS group_properties_0
-                       FROM groups
-                       WHERE team_id = 2
-                         AND group_type_index = 0
-                       GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
-                      AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 INNER JOIN
+                   (SELECT group_key,
+                           argMax(group_properties, _timestamp) AS group_properties_0
+                    FROM groups
+                    WHERE team_id = 2
+                      AND group_type_index = 0
+                    GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+                 WHERE team_id = 2
+                   AND event IN ['paid', 'user signed up']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                   AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+                   AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,

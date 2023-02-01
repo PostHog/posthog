@@ -14,7 +14,7 @@ import {
 } from '~/types'
 import { teamLogic } from '../teamLogic'
 import { dayjs, now } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import equal from 'fast-deep-equal'

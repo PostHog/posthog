@@ -1,12 +1,12 @@
 import { useState } from 'react'
 import { useActions } from 'kea'
 import { AsyncMigrationModalProps, asyncMigrationsLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationsLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { asyncMigrationParameterFormLogic } from 'scenes/instance/AsyncMigrations/asyncMigrationParameterFormLogic'
 import { Field, Form } from 'kea-forms'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
-import { LemonModal } from 'lib/components/LemonModal'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 export function AsyncMigrationParametersModal(props: AsyncMigrationModalProps): JSX.Element {
     const { closeAsyncMigrationsModal } = useActions(asyncMigrationsLogic)
