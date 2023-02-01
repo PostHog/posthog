@@ -48,8 +48,6 @@ SELECT {aggregate_operation} as data FROM (
 )
 """
 
-# This query performs poorly due to aggregation happening outside of subqueries.
-# :TODO: Fix this!
 # Query intuition:
 # 1. Derive all the buckets we care about
 # 2. Query all events within the specified range
@@ -57,10 +55,11 @@ SELECT {aggregate_operation} as data FROM (
 #    Note that this can be a bit confusing. For hourly intervals, we round to the
 #    start of the hour and look 7/30 days into the future
 ACTIVE_USERS_SQL = """
-WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
-toDateTime(%(date_from)s, %(timezone)s) AS date_from,
+WITH
+toTimeZone(toDateTime(%(date_to)s, %(timezone)s), 'UTC') AS date_to,
+toTimeZone(toDateTime(%(date_from)s, %(timezone)s), 'UTC') AS date_from,
 arrayMap(
-    n -> toDateTime(n),
+    n-> toTimeZone(toDateTime(n), %(timezone)s),
     range(
         toUInt32(toDateTime({interval}(date_from))),
         toUInt32(date_to),
@@ -78,10 +77,10 @@ FROM (
         SELECT
             {aggregator} as actor_id,
             arrayMap(
-                n -> toDateTime(n),
+                n-> toTimeZone(toDateTime(n), %(timezone)s),
                 range(
-                    toUInt32(toDateTime({rounding_func}(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC')))),
-                    toUInt32(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC') + INTERVAL {prev_interval}),
+                    toUInt32(toDateTime({rounding_func}(if(greater(timestamp, date_from), timestamp, date_from)))),
+                    toUInt32(if(greater(timestamp, date_to), date_to, timestamp) + INTERVAL {prev_interval}),
                     %(grouping_increment_seconds)s
                 )
             ) AS event_buckets
@@ -91,7 +90,6 @@ FROM (
     GROUP BY timestamp
     HAVING
         has(buckets, timestamp)
-        {parsed_date_from} {parsed_date_to}
     ORDER BY timestamp
 )
 """
