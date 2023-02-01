@@ -12,7 +12,7 @@ import {
     FunnelDisplayLayoutPickerDataExploration,
 } from './views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
-import { RetentionDatePicker } from './RetentionDatePicker'
+import { RetentionDatePicker, RetentionDatePickerDataExploration } from './RetentionDatePicker'
 import { RetentionReferencePicker } from './filters/RetentionReferencePicker'
 import { Tooltip } from 'antd'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
@@ -136,7 +136,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
 
                 {isRetentionFilter(filters) && (
                     <ConfigFilter>
-                        <RetentionDatePicker />
+                        {isUsingDataExploration ? <RetentionDatePickerDataExploration /> : <RetentionDatePicker />}
                         <RetentionReferencePicker />
                     </ConfigFilter>
                 )}

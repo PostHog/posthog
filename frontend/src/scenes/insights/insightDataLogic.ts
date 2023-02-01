@@ -3,6 +3,7 @@ import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType } f
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
+    DateRange,
     InsightFilter,
     InsightNodeKind,
     InsightQueryNode,
@@ -170,6 +171,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: (query: Node) => ({ query }),
         updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
+        updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
     }),
 
@@ -184,6 +186,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
+
+        dateRange: [(s) => [s.querySource], (q) => q.dateRange],
+
         insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
         funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
@@ -194,6 +199,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        updateDateRange: ({ dateRange }) => {
+            const newQuerySource = { ...values.querySource, dateRange }
+            actions.updateQuerySource(newQuerySource)
+        },
         updateBreakdown: ({ breakdown }) => {
             const newQuerySource = { ...values.querySource, breakdown }
             actions.updateQuerySource(newQuerySource)
