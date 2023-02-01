@@ -10,6 +10,7 @@ import { roundToDecimal } from 'lib/utils'
 import { LineGraph } from '../insights/views/LineGraph/LineGraph'
 import { InsightEmptyState } from '../insights/EmptyStates'
 import { RetentionModal } from './RetentionModal'
+import { retentionLineGraphLogic } from './retentionLineGraphLogic'
 
 interface RetentionLineGraphProps {
     inSharedMode?: boolean
@@ -17,14 +18,13 @@ interface RetentionLineGraphProps {
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { results, filters, trendSeries, aggregationTargetLabel, incompletenessOffsetFromEnd } = useValues(
-        retentionLogic(insightProps)
-    )
+    const { results, filters, aggregationTargetLabel } = useValues(retentionLogic(insightProps))
+    const { trendSeries, incompletenessOffsetFromEnd } = useValues(retentionLineGraphLogic(insightProps))
     const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
 
     const [modalVisible, setModalVisible] = useState(false)
-    const [selectedRow, selectRow] = useState(0)
+    const [selectedRow, setSelectedRow] = useState(0)
 
     if (trendSeries.length === 0) {
         return null
@@ -64,7 +64,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                         : points.pointsIntersectingLine[0].dataset.index
                     if (datasetIndex) {
                         loadPeople(datasetIndex) // start from 0
-                        selectRow(datasetIndex)
+                        setSelectedRow(datasetIndex)
                     }
                     setModalVisible(true)
                 }}

@@ -25,7 +25,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
     const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
 
     const [modalVisible, setModalVisible] = useState(false)
-    const [selectedRow, selectRow] = useState(0)
+    const [selectedRow, setSelectedRow] = useState(0)
     const [isLatestPeriod, setIsLatestPeriod] = useState(false)
 
     useEffect(() => {
@@ -53,7 +53,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                                 if (!inCardView && rowIndex !== undefined) {
                                     loadPeople(rowIndex)
                                     setModalVisible(true)
-                                    selectRow(rowIndex)
+                                    setSelectedRow(rowIndex)
                                 }
                             }}
                         >
