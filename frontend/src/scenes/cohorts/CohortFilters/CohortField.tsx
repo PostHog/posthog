@@ -56,7 +56,7 @@ export function CohortSelectorField({
             status="stealth"
             sideIcon={undefined}
             data-attr={`cohort-selector-field-${fieldKey}`}
-            popover={{
+            dropdown={{
                 className: 'Popover__CohortField',
                 placement: 'bottom-start',
                 overlay: (

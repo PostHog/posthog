@@ -459,7 +459,7 @@ export function EventsTable({
                             )}
                             {showExport && (
                                 <LemonButtonWithDropdown
-                                    popover={{
+                                    dropdown={{
                                         sameWidth: false,
                                         closeOnClickInside: false,
                                         overlay: [

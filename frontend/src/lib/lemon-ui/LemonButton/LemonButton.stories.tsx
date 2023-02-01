@@ -265,9 +265,9 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithPopoverToTheRight = PopoverTemplate.bind({})
-WithPopoverToTheRight.args = {
-    popover: {
+export const WithDropdownToTheRight = PopoverTemplate.bind({})
+WithDropdownToTheRight.args = {
+    dropdown: {
         overlay: (
             <>
                 <LemonButton status="stealth" fullWidth>
@@ -288,9 +288,9 @@ WithPopoverToTheRight.args = {
     },
 }
 
-export const WithPopoverToTheBottom = PopoverTemplate.bind({})
-WithPopoverToTheBottom.args = {
-    popover: {
+export const WithDropdownToTheBottom = PopoverTemplate.bind({})
+WithDropdownToTheBottom.args = {
+    dropdown: {
         overlay: (
             <>
                 <LemonButton status="stealth" fullWidth>
@@ -314,7 +314,7 @@ WithPopoverToTheBottom.args = {
 
 export const WithVeryLongPopoverToTheBottom = PopoverTemplate.bind({})
 WithVeryLongPopoverToTheBottom.args = {
-    popover: {
+    dropdown: {
         overlay: (
             <>
                 {range(200).map((n) => (

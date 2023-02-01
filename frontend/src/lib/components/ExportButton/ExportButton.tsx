@@ -21,7 +21,7 @@ export function ExportButton({ items, ...buttonProps }: ExportButtonProps): JSX.
             status="stealth"
             data-attr="export-button"
             {...buttonProps}
-            popover={{
+            dropdown={{
                 actionable: true,
                 placement: 'right-start',
                 closeParentPopoverOnClickInside: true,

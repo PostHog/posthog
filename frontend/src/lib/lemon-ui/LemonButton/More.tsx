@@ -15,7 +15,7 @@ export function More({ overlay, placement = 'bottom-end', className, 'data-attr'
             data-attr={dataAttr ?? 'more-button'}
             icon={<IconEllipsis />}
             status="stealth"
-            popover={{
+            dropdown={{
                 placement,
                 actionable: true,
                 overlay,

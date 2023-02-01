@@ -28,7 +28,7 @@ import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 export interface UniversalSearchPopoverProps<ValueType = TaxonomicFilterValue>
-    extends Omit<LemonButtonWithDropdownProps, 'popover' | 'value' | 'onChange' | 'placeholder'> {
+    extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange?: (value: ValueType, groupType: TaxonomicFilterGroupType, item: SearchDefinitionTypes) => void

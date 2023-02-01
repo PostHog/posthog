@@ -283,7 +283,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     data-attr="dashboard-add-graph-header"
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
-                                        popover: {
+                                        dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>

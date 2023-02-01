@@ -108,7 +108,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                 type={'secondary'}
                 status="stealth"
                 data-attr="chart-aggregation-axis-format"
-                popover={{
+                dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],
                     visible: isVisible,

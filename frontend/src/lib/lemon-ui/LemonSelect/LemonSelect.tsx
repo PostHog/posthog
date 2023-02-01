@@ -159,7 +159,7 @@ export function LemonSelect<T>({
             <LemonButtonWithDropdown
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 onKeyDown={(e) => handleKeyboardEvents(e)}
-                popover={{
+                dropdown={{
                     ref: popover?.ref,
                     overlay: sections.map((section, i) => (
                         <div key={i}>
@@ -271,7 +271,7 @@ function LemonSelectOptionRowInternal<T>(
             fullWidth
             data-attr={option['data-attr']}
             active={doOptionsContainActiveValue(option.options, activeValue)}
-            popover={{
+            dropdown={{
                 overlay: (
                     <div className="space-y-px">
                         {option.options.map((option, index) => (

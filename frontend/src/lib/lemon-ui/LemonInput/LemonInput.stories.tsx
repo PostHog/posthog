@@ -27,7 +27,7 @@ WithPrefixAndSuffixAction.args = {
     suffix: (
         <LemonButtonWithDropdown
             noPadding
-            popover={{
+            dropdown={{
                 overlay: 'Surprise! 😱',
             }}
             type="tertiary"

@@ -127,7 +127,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                                 onClick={(event) => {
                                     event.stopPropagation()
                                 }}
-                                popover={{
+                                dropdown={{
                                     placement: 'bottom-end',
                                     overlay: sections.map((section, i) => (
                                         <React.Fragment key={i}>

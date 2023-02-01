@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { IconClose, IconEllipsis } from 'lib/lemon-ui/icons'
 import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
-import { LemonButtonPopover } from 'lib/lemon-ui/LemonButton/LemonButton'
+import { LemonButtonDropdown } from 'lib/lemon-ui/LemonButton/LemonButton'
 import './LemonTag.scss'
 
 export type LemonTagPropsType = 'highlight' | 'warning' | 'danger' | 'success' | 'default' | 'purple' | 'none'
@@ -11,7 +11,7 @@ interface LemonTagProps extends React.HTMLAttributes<HTMLDivElement> {
     icon?: JSX.Element
     closable?: boolean
     onClose?: () => void
-    popover?: LemonButtonPopover
+    popover?: LemonButtonDropdown
 }
 
 export function LemonTag({
@@ -30,7 +30,7 @@ export function LemonTag({
             {children}
             {popover?.overlay && (
                 <LemonButtonWithDropdown
-                    popover={popover}
+                    dropdown={popover}
                     status="stealth"
                     size="small"
                     className="LemonTag__right-button"

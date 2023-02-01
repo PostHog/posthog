@@ -59,7 +59,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
 
     return (
         <LemonButtonWithDropdown
-            popover={{
+            dropdown={{
                 sameWidth: false,
                 closeOnClickInside: false,
                 overlay: [

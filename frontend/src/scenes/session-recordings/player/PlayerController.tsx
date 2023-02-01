@@ -43,7 +43,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                     <Tooltip title={'Playback speed'}>
                         <LemonButtonWithDropdown
                             data-attr="session-recording-speed-select"
-                            popover={{
+                            dropdown={{
                                 overlay: (
                                     <div className="space-y-px">
                                         {PLAYBACK_SPEEDS.map((speedToggle) => (

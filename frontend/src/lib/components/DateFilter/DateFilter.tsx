@@ -150,7 +150,7 @@ export function DateFilter({
             size={size ?? 'small'}
             type={'secondary'}
             status="stealth"
-            popover={{
+            dropdown={{
                 onClickOutside: close,
                 visible: isVisible,
                 overlay: popoverOverlay,

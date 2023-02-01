@@ -111,7 +111,7 @@ export function TextCardInternal(
                         {moveToDashboard && otherDashboards.length > 0 && (
                             <LemonButtonWithDropdown
                                 status="stealth"
-                                popover={{
+                                dropdown={{
                                     overlay: otherDashboards.map((otherDashboard) => (
                                         <LemonButton
                                             key={otherDashboard.id}

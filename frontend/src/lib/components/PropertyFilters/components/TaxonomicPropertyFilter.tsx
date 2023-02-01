@@ -160,7 +160,7 @@ export function TaxonomicPropertyFilter({
                     )}
                     <div className="TaxonomicPropertyFilter__row__items">
                         <LemonButtonWithDropdown
-                            popover={{
+                            dropdown={{
                                 overlay: dropdownOpen ? taxonomicFilter : null,
                                 visible: dropdownOpen,
                                 placement: 'bottom',

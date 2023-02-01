@@ -298,7 +298,7 @@ function InsightMeta({
                     {editable && updateColor && (
                         <LemonButtonWithDropdown
                             status="stealth"
-                            popover={{
+                            dropdown={{
                                 overlay: Object.values(InsightColor).map((availableColor) => (
                                     <LemonButton
                                         key={availableColor}
@@ -330,7 +330,7 @@ function InsightMeta({
                     {editable && moveToDashboard && otherDashboards.length > 0 && (
                         <LemonButtonWithDropdown
                             status="stealth"
-                            popover={{
+                            dropdown={{
                                 overlay: otherDashboards.map((otherDashboard) => (
                                     <LemonButton
                                         key={otherDashboard.id}

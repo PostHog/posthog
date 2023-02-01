@@ -26,7 +26,7 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
             sideAction={{
                 icon: <IconEllipsis />,
 
-                popover: {
+                dropdown: {
                     overlay: (
                         <>
                             {onDelete && (

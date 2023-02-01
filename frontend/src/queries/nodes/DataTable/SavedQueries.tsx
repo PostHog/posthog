@@ -39,7 +39,7 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
 
     return (
         <LemonButtonWithDropdown
-            popover={{
+            dropdown={{
                 sameWidth: false,
                 overlay: Object.entries(eventsQueries).map(([title, eventsQuery]) => (
                     <LemonButton

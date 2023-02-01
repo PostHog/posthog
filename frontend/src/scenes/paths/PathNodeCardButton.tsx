@@ -61,7 +61,7 @@ export function PathNodeCardButton({
                     size="small"
                     status="muted"
                     icon={<IconEllipsis />}
-                    popover={{
+                    dropdown={{
                         overlay: (
                             <>
                                 <LemonButton size="small" fullWidth status="stealth" onClick={setAsPathStart}>

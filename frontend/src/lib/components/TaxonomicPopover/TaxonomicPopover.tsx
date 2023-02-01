@@ -11,7 +11,7 @@ import {
 import { IconArrowDropDown, IconClose } from 'lib/lemon-ui/icons'
 
 export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
-    extends Omit<LemonButtonWithDropdownProps, 'popover' | 'value' | 'onChange' | 'placeholder'> {
+    extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType) => void
@@ -57,7 +57,7 @@ export function TaxonomicPopover({
         <LemonButtonWithDropdown
             data-attr={dataAttr}
             status="stealth"
-            popover={{
+            dropdown={{
                 onClickOutside: () => setVisible(false),
                 overlay: (
                     <TaxonomicFilter
@@ -124,11 +124,11 @@ export function LemonTaxonomicPopover({
     return (
         <div className="LemonButtonWithSideAction">
             {/* TODO: This is nasty. We embed a button in the sideicon which should be a big no-no.
-            We should merge WithPopover and WithSideaction as this is a common use case */}
+            We should merge WithDropdown and WithSideaction as this is a common use case */}
             <LemonButtonWithDropdown
                 className="TaxonomicPopover__button"
                 data-attr={dataAttr}
-                popover={{
+                dropdown={{
                     overlay: (
                         <TaxonomicFilter
                             groupType={groupType}

@@ -34,7 +34,7 @@ export function SideBarApps(): JSX.Element {
                             ? {
                                   identifier: 'app-menu',
                                   onClick: () => setOpenAppMenu(openAppMenu === id ? null : id),
-                                  popover: {
+                                  dropdown: {
                                       visible: openAppMenu === id,
                                       onClickOutside: () => setOpenAppMenu(null),
                                       onClickInside: () => {

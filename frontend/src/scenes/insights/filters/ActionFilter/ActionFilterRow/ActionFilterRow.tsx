@@ -194,7 +194,7 @@ export function ActionFilterRow({
         <LemonButtonWithDropdown
             data-attr={'trend-element-subject-' + index}
             fullWidth
-            popover={{
+            dropdown={{
                 overlay: (
                     <TaxonomicFilter
                         groupType={

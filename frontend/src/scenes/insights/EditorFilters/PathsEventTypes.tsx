@@ -83,7 +83,7 @@ export function PathsEventTypesComponent({
             status="stealth"
             fullWidth
             type="secondary"
-            popover={{
+            dropdown={{
                 sameWidth: true,
                 closeOnClickInside: false,
                 overlay: options.map((option) => (

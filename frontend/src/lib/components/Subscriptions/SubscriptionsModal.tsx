@@ -69,7 +69,7 @@ export function SubscribeButton(props: SubscriptionBaseProps): JSX.Element {
         <LemonButtonWithDropdown
             status="stealth"
             fullWidth
-            popover={{
+            dropdown={{
                 actionable: true,
                 closeParentPopoverOnClickInside: true,
                 placement: 'right-start',

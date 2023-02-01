@@ -57,7 +57,7 @@ export function HeatmapStats(): JSX.Element {
                             disabledReason={
                                 canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                             }
-                            getPopupContainer={getShadowRootPopoverContainer}
+                            getTooltipPopupContainer={getShadowRootPopoverContainer}
                         >
                             Load more
                         </LemonButton>
