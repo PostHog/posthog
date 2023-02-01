@@ -32,8 +32,7 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
 
-        with freeze_time("2022-01-10T02:01:00Z"):
-            result = update_all_org_billing_quotas()
+        result = update_all_org_billing_quotas()
         assert result["events"] == {}
         assert result["recordings"] == {}
 
@@ -58,11 +57,10 @@ class TestQuotaLimiting(BaseTest):
                     team=self.team,
                 )
 
-        with freeze_time("2022-01-10T02:01:00Z"):
-            result = update_all_org_billing_quotas()
-            org_id = str(self.organization.id)
-            assert result["events"] == {org_id: now().timestamp()}
-            assert result["recordings"] == {}
+        result = update_all_org_billing_quotas()
+        org_id = str(self.organization.id)
+        assert result["events"] == {org_id: now().timestamp()}
+        assert result["recordings"] == {}
 
-            assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == [org_id.encode("UTF-8")]
-            assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == [org_id.encode("UTF-8")]
+        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []

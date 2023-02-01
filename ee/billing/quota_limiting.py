@@ -96,6 +96,7 @@ def update_all_org_billing_quotas(
 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
         if org.usage:
+
             # for each organization, we check if the current usage + today's unreported usage is over the limit
             for field in ["events", "recordings"]:
                 usage = org.usage.get(field, {}).get("usage", 0)
@@ -117,7 +118,7 @@ def update_all_org_billing_quotas(
         for field in rate_limited_orgs:
             # TODO: Check for specific field on organization to force quota limits on
             if str(team.organization.id) in rate_limited_orgs[field]:
-                rate_limited_teams[field][team.api_token] = rate_limited_orgs[field].pop(str(team.organization.id))
+                rate_limited_teams[field][team.api_token] = rate_limited_orgs[field][str(team.organization.id)]
 
     if not dry_run:
         for field in rate_limited_teams:
