@@ -23,7 +23,7 @@ def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, int]) ->
     pipe.execute()
 
 
-@cache_for(timedelta(seconds=30))
+@cache_for(timedelta(seconds=5), background_refresh=True)
 def list_limited_teams(resource: QuotaResource) -> List[str]:
     now = timezone.now()
     redis_client = get_client()

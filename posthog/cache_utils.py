@@ -1,5 +1,6 @@
 from datetime import timedelta
 from functools import wraps
+import threading
 from typing import no_type_check
 
 from django.utils.timezone import now
@@ -7,7 +8,7 @@ from django.utils.timezone import now
 from posthog.settings import TEST
 
 
-def cache_for(cache_time: timedelta):
+def cache_for(cache_time: timedelta, background_refresh=False):
     def wrapper(fn):
         @wraps(fn)
         @no_type_check
@@ -16,13 +17,27 @@ def cache_for(cache_time: timedelta):
                 return fn(*args, **kwargs)
 
             current_time = now()
-
             key = (args, frozenset(sorted(kwargs.items())))
-            if key not in memoized_fn._cache or current_time - memoized_fn._cache[key][0] > cache_time:
+
+            def refresh():
                 memoized_fn._cache[key] = (current_time, fn(*args, **kwargs))
+                memoized_fn._refreshing[key] = None
+
+            if key not in memoized_fn._cache:
+                refresh()
+            elif current_time - memoized_fn._cache[key][0] > cache_time:
+                if background_refresh:
+                    if not memoized_fn._refreshing.get(key):
+                        memoized_fn._refreshing[key] = current_time
+                        t = threading.Thread(target=refresh)
+                        t.start()
+                else:
+                    refresh()
+
             return memoized_fn._cache[key][1]
 
         memoized_fn._cache = {}
+        memoized_fn._refreshing = {}
         return memoized_fn
 
     return wrapper

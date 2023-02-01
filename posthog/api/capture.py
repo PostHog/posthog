@@ -208,7 +208,6 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     from ee.billing.quota_limiting import QuotaResource, list_limited_teams
 
     results = []
-    # TODO: these function calls should have a timeout wrapper
     limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
     limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
 
