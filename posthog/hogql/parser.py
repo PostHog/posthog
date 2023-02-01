@@ -222,8 +222,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprTernaryOp")
 
-    # Visit a parse tree produced by HogQLParser#column.
-    def visitColumn(self, ctx: HogQLParser.ColumnContext):
+    def visitColumnExprWithComment(self, ctx: HogQLParser.ColumnExprWithCommentContext):
         return self.visit(ctx.columnExpr())
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):

@@ -8868,7 +8868,7 @@ class HogQLParser(Parser):
     RULE_winFrameExtend = 33
     RULE_winFrameBound = 34
     RULE_columnComment = 35
-    RULE_column = 36
+    RULE_columnExprWithComment = 36
     RULE_columnTypeExpr = 37
     RULE_columnExprList = 38
     RULE_columnsExpr = 39
@@ -8932,7 +8932,7 @@ class HogQLParser(Parser):
         "winFrameExtend",
         "winFrameBound",
         "columnComment",
-        "column",
+        "columnExprWithComment",
         "columnTypeExpr",
         "columnExprList",
         "columnsExpr",
@@ -11817,7 +11817,7 @@ class HogQLParser(Parser):
             self.exitRule()
         return localctx
 
-    class ColumnContext(ParserRuleContext):
+    class ColumnExprWithCommentContext(ParserRuleContext):
         __slots__ = "parser"
 
         def __init__(self, parser, parent: ParserRuleContext = None, invokingState: int = -1):
@@ -11834,18 +11834,18 @@ class HogQLParser(Parser):
             return self.getTypedRuleContext(HogQLParser.ColumnCommentContext, 0)
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_column
+            return HogQLParser.RULE_columnExprWithComment
 
         def accept(self, visitor: ParseTreeVisitor):
-            if hasattr(visitor, "visitColumn"):
-                return visitor.visitColumn(self)
+            if hasattr(visitor, "visitColumnExprWithComment"):
+                return visitor.visitColumnExprWithComment(self)
             else:
                 return visitor.visitChildren(self)
 
-    def column(self):
+    def columnExprWithComment(self):
 
-        localctx = HogQLParser.ColumnContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 72, self.RULE_column)
+        localctx = HogQLParser.ColumnExprWithCommentContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 72, self.RULE_columnExprWithComment)
         self._la = 0  # Token type
         try:
             self.enterOuterAlt(localctx, 1)

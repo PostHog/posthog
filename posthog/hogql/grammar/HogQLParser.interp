@@ -507,7 +507,7 @@ winFrameClause
 winFrameExtend
 winFrameBound
 columnComment
-column
+columnExprWithComment
 columnTypeExpr
 columnExprList
 columnsExpr
