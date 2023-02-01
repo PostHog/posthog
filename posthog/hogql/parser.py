@@ -12,7 +12,7 @@ def parse_expr(expr: str) -> ast.Expr:
 
 
 def get_parser(query: str) -> HogQLParser:
-    input_stream = InputStream(query)
+    input_stream = InputStream(data=query)
     lexer = HogQLLexer(input_stream)
     stream = CommonTokenStream(lexer)
     return HogQLParser(stream)
@@ -181,8 +181,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             alias = parse_string_literal(ctx.STRING_LITERAL())
         else:
             raise Exception(f"Must specify an alias.")
-
-        return ast.Column(expr=self.visit(ctx.columnExpr()), alias=alias)
+        expr = self.visit(ctx.columnExpr())
+        return ast.Column(expr=expr, alias=alias)
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
         raise Exception(f"Unsupported node: ColumnExprExtract")

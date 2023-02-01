@@ -143,17 +143,19 @@ class HogQLContext:
     using_person_on_events: bool = True
 
 
-def translate_hogql(hql: str, context: HogQLContext) -> str:
+def translate_hogql(query: str, context: HogQLContext) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
-    if hql == "*":
+    if query == "":
+        raise ValueError("Empty query")
+    if query == "*":
         return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
 
     # The expression "person" can't be used in a query, just top level
-    if hql == "person":
-        hql = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+    if query == "person":
+        query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
 
     try:
-        node = parse_expr(hql)
+        node = parse_expr(query)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
     return translate_ast(node, [], context)
