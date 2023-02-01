@@ -20,7 +20,7 @@ import { retentionModalLogic } from './retentionModalLogic'
 export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { results } = useValues(retentionLogic(insightProps))
-    const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
     const { aggregationTargetLabel, isVisible, selectedRow } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
@@ -138,7 +138,7 @@ export function RetentionModal(): JSX.Element | null {
                         </table>
                         <div className="m-4 flex justify-center">
                             {people.next ? (
-                                <LemonButton type="primary" onClick={loadMorePeople} loading={loadingMore}>
+                                <LemonButton type="primary" onClick={loadMorePeople} loading={peopleLoadingMore}>
                                     Load more {aggregationTargetLabel.plural}
                                 </LemonButton>
                             ) : null}

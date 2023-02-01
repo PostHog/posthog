@@ -20,9 +20,9 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({
-        loadMorePeople: true,
-        updatePeople: (people: RetentionTablePeoplePayload) => ({ people }),
         clearPeople: true,
+        loadMorePeople: true,
+        loadMorePeopleSuccess: (payload: RetentionTablePeoplePayload) => ({ payload }),
     }),
     loaders: ({ values }) => ({
         people: {
@@ -36,29 +36,31 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
     reducers: {
         people: {
             clearPeople: () => ({}),
-            updatePeople: (_, { people }) => people,
+            loadPeople: () => ({}),
+            loadMorePeopleSuccess: (_, { payload }) => payload,
         },
-        loadingMore: [
+        peopleLoadingMore: [
             false,
             {
                 loadMorePeople: () => true,
-                updatePeople: () => false,
+                loadMorePeopleSuccess: () => false,
             },
         ],
     },
     listeners: ({ actions, values }) => ({
         loadResultsSuccess: async () => {
+            // clear people when changing the insight filters
             actions.clearPeople()
         },
         loadMorePeople: async () => {
             if (values.people.next) {
                 const peopleResult: RetentionTablePeoplePayload = await api.get(values.people.next)
-                const newPeople: RetentionTablePeoplePayload = {
+                const newPayload: RetentionTablePeoplePayload = {
                     result: [...(values.people.result || []), ...(peopleResult.result || [])],
                     next: peopleResult.next,
                     missing_persons: (peopleResult.missing_persons || 0) + (values.people.missing_persons || 0),
                 }
-                actions.updatePeople(newPeople)
+                actions.loadMorePeopleSuccess(newPayload)
             }
         },
     }),
