@@ -3,19 +3,36 @@ import { PercentageOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
+import { RetentionFilter } from '~/queries/schema'
+import { insightDataLogic } from '../insightDataLogic'
+
+export function RetentionReferencePickerDataExploration(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { retentionFilter } = useValues(insightDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
+
+    return <RetentionReferencePickerComponent {...retentionFilter} setFilters={updateInsightFilter} />
+}
 
 export function RetentionReferencePicker(): JSX.Element {
-    /*
-        Reference picker specifies how retention values should be displayed,
-        options and description found in `enum Reference`
-    */
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(retentionLogic(insightProps))
     const { setFilters } = useActions(retentionLogic(insightProps))
 
+    return <RetentionReferencePickerComponent {...filters} setFilters={setFilters} />
+}
+
+type RetentionReferencePickerComponentProps = {
+    setFilters: (filters: Partial<RetentionFilter>) => void
+} & RetentionFilter
+
+export function RetentionReferencePickerComponent({
+    retention_reference,
+    setFilters,
+}: RetentionReferencePickerComponentProps): JSX.Element {
     return (
         <Select
-            value={filters.retention_reference || 'total'}
+            value={retention_reference || 'total'}
             onChange={(retention_reference) => {
                 setFilters({ retention_reference })
             }}

@@ -13,7 +13,7 @@ import {
 } from './views/Funnels/FunnelDisplayLayoutPicker'
 import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
 import { RetentionDatePicker, RetentionDatePickerDataExploration } from './RetentionDatePicker'
-import { RetentionReferencePicker } from './filters/RetentionReferencePicker'
+import { RetentionReferencePicker, RetentionReferencePickerDataExploration } from './filters/RetentionReferencePicker'
 import { Tooltip } from 'antd'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -137,7 +137,11 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 {isRetentionFilter(filters) && (
                     <ConfigFilter>
                         {isUsingDataExploration ? <RetentionDatePickerDataExploration /> : <RetentionDatePicker />}
-                        <RetentionReferencePicker />
+                        {isUsingDataExploration ? (
+                            <RetentionReferencePickerDataExploration />
+                        ) : (
+                            <RetentionReferencePicker />
+                        )}
                     </ConfigFilter>
                 )}
 
