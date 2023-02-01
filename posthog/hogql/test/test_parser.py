@@ -264,24 +264,20 @@ class TestParser(BaseTest):
     def test_parens(self):
         self.assertEqual(
             parse_expr("(1)"),
-            ast.Parens(expr=ast.Constant(value=1)),
+            ast.Constant(value=1),
         )
         self.assertEqual(
             parse_expr("(1 + 1)"),
-            ast.Parens(
-                expr=ast.BinaryOperation(
-                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
-                )
+            ast.BinaryOperation(
+                left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
             ),
         )
         self.assertEqual(
             parse_expr("1 + (1 + 1)"),
             ast.BinaryOperation(
                 left=ast.Constant(value=1),
-                right=ast.Parens(
-                    expr=ast.BinaryOperation(
-                        left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
-                    )
+                right=ast.BinaryOperation(
+                    left=ast.Constant(value=1), right=ast.Constant(value=1), op=ast.BinaryOperationType.Add
                 ),
                 op=ast.BinaryOperationType.Add,
             ),

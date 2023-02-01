@@ -129,32 +129,32 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("toFloat('1.3')", context), "toFloat64OrNull(%(hogql_val_1)s)")
 
     def test_hogql_expr_parse_errors(self):
-        self._assert_value_error("", "Empty query")
-        self._assert_value_error("avg(bla)", "Unknown event field 'bla'")
-        self._assert_value_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
-        self._assert_value_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
-        self._assert_value_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
-        self._assert_value_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
-        self._assert_value_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
-        self._assert_value_error("mad(bla)", "Unsupported function call 'mad(...)'")
-        self._assert_value_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
-        self._assert_value_error("chipotle", "Unknown event field 'chipotle'")
-        self._assert_value_error("person.chipotle", "Unknown person field 'chipotle'")
-        self._assert_value_error(
+        self._assert_error("", "Empty query")
+        self._assert_error("avg(bla)", "Unknown event field 'bla'")
+        self._assert_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
+        self._assert_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
+        self._assert_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
+        self._assert_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
+        self._assert_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
+        self._assert_error("mad(bla)", "Unsupported function call 'mad(...)'")
+        self._assert_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
+        self._assert_error("chipotle", "Unknown event field 'chipotle'")
+        self._assert_error("person.chipotle", "Unknown person field 'chipotle'")
+        self._assert_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
 
     def test_hogql_expr_syntax_errors(self):
-        self._assert_value_error("(", "Unknown AST node NoneType")
-        self._assert_value_error("())", "Unknown AST node NoneType")
-        # self._assert_value_error("this makes little sense", "SyntaxError: invalid syntax")
-        # self._assert_value_error(
+        self._assert_error("(", "line 1, column 1: no viable alternative at input '('")
+        self._assert_error("())", "line 1, column 1: no viable alternative at input '()'")
+        self._assert_error("['properties']['value']", "Unsupported node: ColumnExprArray")
+        self._assert_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
+        self._assert_error("select query from events", "Module body must contain only one 'Expr'")
+        self._assert_error("this makes little sense", "SyntaxError: invalid syntax")
+        self._assert_error("1;2", "Module body must contain only one 'Expr'")
+        # self._assert_error(
         #     "bla.avg(bla)", "Can only call simple functions like 'avg(properties.bla)' or 'count()'"
         # )
-        self._assert_value_error("['properties']['value']", "Unsupported node: ColumnExprArray")
-        self._assert_value_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
-        self._assert_value_error("1;2", "Module body must contain only one 'Expr'")
-        self._assert_value_error("select query from events", "Module body must contain only one 'Expr'")
 
     def test_hogql_returned_properties(self):
         context = HogQLContext()
@@ -259,7 +259,7 @@ class TestHogQLContext(TestCase):
             "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_1)s), '^\"|\"$', ''))",
         )
         self.assertEqual(context.values, {"hogql_val_0": "name", "hogql_val_1": "email"})
-        self._assert_value_error("person + 1", 'Can not use the field "person" in an expression')
+        self._assert_error("person + 1", 'Can not use the field "person" in an expression')
 
     def test_hogql_values(self):
         context = HogQLContext()
@@ -271,7 +271,7 @@ class TestHogQLContext(TestCase):
         )
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
-    def _assert_value_error(self, expr, expected_error):
+    def _assert_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
             self._translate(expr)
         if expected_error not in str(context.exception):

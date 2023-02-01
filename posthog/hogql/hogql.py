@@ -158,6 +158,8 @@ def translate_hogql(query: str, context: HogQLContext) -> str:
         node = parse_expr(query)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
+    except NotImplementedError as err:
+        raise ValueError(f"NotImplementedError: {err}")
     return translate_ast(node, [], context)
 
 
