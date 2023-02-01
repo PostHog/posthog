@@ -27,6 +27,7 @@ from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
 from rest_framework import status
 
+from posthog.api import capture
 from posthog.api.capture import get_distinct_id, is_randomly_partitioned
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
@@ -120,10 +121,6 @@ class TestCapture(BaseTest):
 
     def test_is_randomly_parititoned(self):
         """Test is_randomly_partitioned under local configuration."""
-        from posthog.api import capture
-
-        importlib.reload(capture)
-
         distinct_id = 100
         override_key = f"{self.team.pk}:{distinct_id}"
 
@@ -139,20 +136,15 @@ class TestCapture(BaseTest):
         the cache parameters for testing. In particular, we are tightening the cache
         settings to test the behavior of is_randomly_partitioned.
         """
-        from posthog.api import capture
-
         distinct_id = 100
         partition_key = f"{self.team.pk}:{distinct_id}"
         patched = {
-            "PARTITION_KEY_BUCKET_CAPACITY": "1",
-            "PARTITION_KEY_BUCKET_REPLENTISH_RATE": "1",
+            "PARTITION_KEY_BUCKET_CAPACITY": 1,
+            "PARTITION_KEY_BUCKET_REPLENTISH_RATE": 1,
         }
 
-        with patch.dict("os.environ", patched):
+        with self.settings(**patched):
             importlib.reload(capture)
-
-        assert capture.PARTITION_KEY_BUCKET_CAPACITY == 1
-        assert capture.PARTITION_KEY_BUCKET_REPLENTISH_RATE == 1
 
         start = datetime.utcnow()
 
@@ -160,7 +152,7 @@ class TestCapture(BaseTest):
             # First time we see this key it's looked up in local config.
             # The bucket has capacity to serve 1 requests/key, so we are not immediately returning.
             # Since local config is empty and bucket has capacity, this should not override.
-            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[]):
+            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[], PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED=True):
                 assert capture.is_randomly_partitioned(partition_key) is False
 
                 # The second time we see the key we will have reached the capacity limit of the bucket (1).
@@ -171,7 +163,7 @@ class TestCapture(BaseTest):
         with freeze_time(start + timedelta(seconds=1)):
             # Now we have let one second pass so the bucket must have capacity to serve the request.
             # We once again look at the local configuration, which is empty.
-            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[]):
+            with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[], PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED=True):
                 assert capture.is_randomly_partitioned(partition_key) is False
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")

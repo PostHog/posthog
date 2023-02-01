@@ -1,6 +1,5 @@
 import hashlib
 import json
-import os
 import re
 import time
 from datetime import datetime
@@ -39,11 +38,9 @@ from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
 
-PARTITION_KEY_BUCKET_CAPACITY = int(os.getenv("PARTITION_KEY_BUCKET_CAPACITY", default=100))
-PARTITION_KEY_BUCKET_REPLENTISH_RATE = int(os.getenv("PARTITION_KEY_BUCKET_REPLENTISH_RATE", default=3600))
 LIMITER = Limiter(
-    rate=PARTITION_KEY_BUCKET_REPLENTISH_RATE,
-    capacity=PARTITION_KEY_BUCKET_CAPACITY,
+    rate=settings.PARTITION_KEY_BUCKET_REPLENTISH_RATE,
+    capacity=settings.PARTITION_KEY_BUCKET_CAPACITY,
     storage=MemoryStorage(),
 )
 
@@ -498,6 +495,9 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
        should be randomly partitioned. Otherwise, no random partition should occur and
        the candidate partition key can be used.
 
+    Token-bucket algorithm (step 1) is ignored if the
+    PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED setting is set to False.
+
     Args:
         candidate_partition_key: The partition key that would be used if we decide
             on no random partitioniong. This is in the format `team_id:distinct_id`.
@@ -505,16 +505,18 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
     Returns:
         Whether the given partition key should be used.
     """
-    has_capacity = LIMITER.consume(candidate_partition_key)
+    if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
 
-    if has_capacity is False:
-        statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
-        logger.warning(
-            "Partition key %s overriden as bucket capacity of %s tokens exceeded",
-            candidate_partition_key,
-            LIMITER._capacity,
-        )
-        return True
+        has_capacity = LIMITER.consume(candidate_partition_key)
+
+        if has_capacity is False:
+            statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
+            logger.warning(
+                "Partition key %s overriden as bucket capacity of %s tokens exceeded",
+                candidate_partition_key,
+                LIMITER._capacity,
+            )
+            return True
 
     keys_to_override = settings.EVENT_PARTITION_KEYS_TO_OVERRIDE
 
