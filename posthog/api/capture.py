@@ -43,6 +43,11 @@ LIMITER = Limiter(
     capacity=settings.PARTITION_KEY_BUCKET_CAPACITY,
     storage=MemoryStorage(),
 )
+LOG_RATE_LIMITER = Limiter(
+    rate=1 / 60,
+    capacity=1,
+    storage=MemoryStorage(),
+)
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -510,6 +515,11 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
         has_capacity = LIMITER.consume(candidate_partition_key)
 
         if has_capacity is False:
+
+            if not LOG_RATE_LIMITER.consume(candidate_partition_key):
+                # Return early if we have logged this key already.
+                return True
+
             statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
             logger.warning(
                 "Partition key %s overriden as bucket capacity of %s tokens exceeded",
