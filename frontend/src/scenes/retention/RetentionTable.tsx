@@ -24,11 +24,8 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
 
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, setSelectedRow] = useState(0)
-    const [isLatestPeriod, setIsLatestPeriod] = useState(false)
 
-    useEffect(() => {
-        setIsLatestPeriod(periodIsLatest(date_to || null, period || null))
-    }, [date_to, period])
+    const isLatestPeriod = periodIsLatest(date_to || null, period || null)
 
     if (resultsLoading || !results?.length) {
         return null
