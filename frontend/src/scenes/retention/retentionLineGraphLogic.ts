@@ -16,13 +16,13 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [retentionLogic(props), ['filters', 'results', 'retentionReference']],
+        values: [retentionLogic(props), ['filters', 'results']],
     }),
 
     selectors: {
         trendSeries: [
-            (s) => [s.results, s.filters, s.retentionReference],
-            (results, filters, retentionReference): RetentionTrendPayload[] => {
+            (s) => [s.results, s.filters],
+            (results, filters): RetentionTrendPayload[] => {
                 // If the retention reference option is specified as previous,
                 // then translate retention rates to relative to previous,
                 // otherwise, just use what the result was originally.
@@ -32,7 +32,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                 //   Cohort 1 | 1000 | 120 | 190 | 170 | 140
                 //   Cohort 2 | 6003 | 300 | 100 | 120 | 50
                 //
-                // If `retentionReference` is not "previous" we want to calculate the percentages
+                // If `filters.retention_reference` is not "previous" we want to calculate the percentages
                 // of the sizes compared to the first value. If we have "previous" we want to
                 // go further and translate these numbers into percentage of the previous value
                 // so we get some idea for the rate of convergence.
@@ -66,7 +66,7 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                                 : dayjs.utc(cohortRetention.date).format('MMM D')
                             : cohortRetention.label,
                         data:
-                            retentionReference === 'previous'
+                            filters.retention_reference === 'previous'
                                 ? retentionPercentages
                                       // Zip together the current a previous values, filling
                                       // in with 100 for the first index

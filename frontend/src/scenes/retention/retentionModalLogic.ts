@@ -14,12 +14,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionModalLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [
-            retentionLogic(props),
-            ['filters', 'results', 'retentionReference'],
-            groupsModel,
-            ['aggregationLabel'],
-        ],
+        values: [retentionLogic(props), ['filters'], groupsModel, ['aggregationLabel']],
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     }),
     actions: () => ({
