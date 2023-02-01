@@ -173,7 +173,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
     stack.append(node)
     if isinstance(node, ast.Select):
         if not context.select_team_id:
-            raise ValueError("SELECT queries are not allowed if select_team_id is not set")
+            raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
         columns = [translate_ast(column, stack, context) for column in node.columns] if node.columns else None
 
@@ -195,12 +195,15 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         having = translate_ast(node.having, stack, context) if node.having else None
         prewhere = translate_ast(node.prewhere, stack, context) if node.prewhere else None
         clauses = [
-            f"SELECT {','.join(columns)}" "FROM events",
+            f"SELECT {', '.join(columns)}",
+            "FROM events",
             "WHERE " + where if where else None,
             "HAVING " + having if having else None,
             "PREWHERE " + prewhere if prewhere else None,
         ]
         response = " ".join([clause for clause in clauses if clause])
+        if len(stack) > 1:
+            response = f"({response})"
 
     elif isinstance(node, ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:

@@ -214,7 +214,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnsExprAsterisk")
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
-        raise NotImplementedError(f"Unsupported node: ColumnsExprSubquery")
+        return self.visit(ctx.selectUnionStmt())
 
     def visitColumnsExprColumn(self, ctx: HogQLParser.ColumnsExprColumnContext):
         return self.visit(ctx.columnExpr())
@@ -245,7 +245,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprNegate")
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprSubquery")
+        return self.visit(ctx.selectUnionStmt())
 
     def visitColumnExprLiteral(self, ctx: HogQLParser.ColumnExprLiteralContext):
         return self.visitChildren(ctx)
