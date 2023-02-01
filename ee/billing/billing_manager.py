@@ -18,7 +18,6 @@ from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
-from posthog.models.organization import OrganizationUsageInfo
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -57,8 +56,8 @@ class LicenseInfo(TypedDict):
 
 
 class BillingPeriod(TypedDict):
-    current_period_start: timezone.datetime
-    current_period_end: timezone.datetime
+    current_period_start: str
+    current_period_end: str
 
 
 class CustomerInfo(TypedDict):
@@ -66,13 +65,14 @@ class CustomerInfo(TypedDict):
     deactivated: bool
     has_active_subscription: bool
     stripe_portal_url: str
+    billing_period: BillingPeriod
     available_features: List[AvailableFeature]
     current_total_amount_usd: Optional[str]
     products: Optional[List[CustomerProduct]]
     custom_limits_usd: Optional[Dict[str, str]]
-    billing_period: Optional[BillingPeriod]
     last_reported_usage: Optional[Dict[str, int]]
-    free_trial_until: Optional[timezone.datetime]
+    free_trial_until: Optional[str]
+    usage_summary: Optional[Dict[str, str]]  # TODO: Type this better
 
 
 class BillingStatus(TypedDict):
@@ -280,33 +280,17 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
-        org_usage: Dict[str, OrganizationUsageInfo] = {
-            "events": {
-                "usage": None,
-                "limit": None,
-            },
-            "recordings": {
-                "usage": None,
-                "limit": None,
-            },
-            "period": data["billing_period"],
-        }
+        if data.get("usage_summary"):
+            # TODO: Add the usage summary info to Billing
+            org_usage = data["usage_summary"]
+            org_usage["period"] = [
+                data["billing_period"]["current_period_start"],
+                data["billing_period"]["current_period_end"],
+            ]
 
-        if data.get("has_active_subscription"):
-            # If we have a subscription use the correct values from there
-            for product in data["products"]:
-                if product["type"] in org_usage:
-                    org_usage[product["type"]]["usage"] = product["current_usage"]
-                    org_usage[product["type"]]["limit"] = product.get("usage_limit")
-        else:
-            # If we have a subscription use the correct values from there
-            for key in data["last_reported_usage"].keys():
-                if key in org_usage:
-                    org_usage[key]["usage"] = data["last_reported_usage"][key]
-
-        if org_usage and org_usage != organization.usage:
-            organization.usage = org_usage
-            org_modified = True
+            if org_usage and org_usage != organization.usage:
+                organization.usage = org_usage
+                org_modified = True
 
         available_features = data.get("available_features", None)
         if available_features and available_features != organization.available_features:
