@@ -57,7 +57,7 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                     : points.pointsIntersectingLine[0].dataset.index
 
                 // we should always have a rowIndex, but adding a guard nonetheless
-                if (rowIndex) {
+                if (rowIndex !== undefined) {
                     openModal(rowIndex)
                 }
             }}

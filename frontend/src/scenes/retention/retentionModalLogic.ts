@@ -27,17 +27,11 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
         closeModal: true,
     }),
     reducers: {
-        isVisible: [
-            false,
-            {
-                openModal: () => true,
-                closeModal: () => false,
-            },
-        ],
         selectedRow: [
             null as number | null,
             {
                 openModal: (_, { rowIndex }) => rowIndex,
+                closeModal: () => null,
             },
         ],
     },

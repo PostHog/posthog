@@ -22,16 +22,18 @@ export function RetentionModal(): JSX.Element | null {
     const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
-    const { aggregationTargetLabel, isVisible, selectedRow } = useValues(retentionModalLogic(insightProps))
+    const { aggregationTargetLabel, selectedRow } = useValues(retentionModalLogic(insightProps))
     const { closeModal } = useActions(retentionModalLogic(insightProps))
 
-    if (!results) {
+    if (!results || selectedRow === null) {
         return null
     }
 
+    const row = results[selectedRow]
+    const isEmpty = row.values[0]?.count === 0
     return (
         <LemonModal
-            isOpen={isVisible}
+            isOpen // always open, as we simply don't mount otherwise
             onClose={closeModal}
             footer={
                 <>
@@ -44,7 +46,7 @@ export function RetentionModal(): JSX.Element | null {
                             triggerExport({
                                 export_format: ExporterFormat.CSV,
                                 export_context: {
-                                    path: results[selectedRow]?.people_url,
+                                    path: row?.people_url,
                                     max_limit: 10000,
                                 },
                             })
@@ -54,8 +56,8 @@ export function RetentionModal(): JSX.Element | null {
                     </LemonButton>
                 </>
             }
-            width={results[selectedRow]?.values[0]?.count === 0 ? undefined : '90%'}
-            title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
+            width={isEmpty ? undefined : '90%'}
+            title={dayjs(row.date).format('MMMM D, YYYY')}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
@@ -63,7 +65,7 @@ export function RetentionModal(): JSX.Element | null {
             <div className="min-h-20">
                 {peopleLoading ? (
                     <SpinnerOverlay />
-                ) : results[selectedRow]?.values[0]?.count === 0 ? (
+                ) : isEmpty ? (
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
                 ) : (
                     <>
@@ -71,7 +73,7 @@ export function RetentionModal(): JSX.Element | null {
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
-                                    {results[selectedRow]?.values?.map((data: any, index: number) => (
+                                    {row.values?.map((data: any, index: number) => (
                                         <th key={index}>
                                             <div>{results[index].label}</div>
                                             <div>
@@ -79,11 +81,7 @@ export function RetentionModal(): JSX.Element | null {
                                                 &nbsp;
                                                 {data.count > 0 && (
                                                     <span className="text-muted">
-                                                        (
-                                                        {percentage(
-                                                            data.count / results[selectedRow]?.values[0]['count']
-                                                        )}
-                                                        )
+                                                        ({percentage(data.count / row?.values[0]['count'])})
                                                     </span>
                                                 )}
                                             </div>
@@ -120,14 +118,14 @@ export function RetentionModal(): JSX.Element | null {
                                                 )}
                                             </td>
                                             {personAppearances.appearances.map((appearance: number, index: number) => {
+                                                const hasAppearance = !!appearance
                                                 return (
                                                     <td key={index}>
                                                         <div
-                                                            className={clsx('RetentionTable__Tab')}
-                                                            style={{
-                                                                opacity: appearance ? 1 : 0.2,
-                                                                color: appearance ? 'var(--white)' : 'var(--default)',
-                                                            }}
+                                                            className={clsx(
+                                                                'RetentionTable__Tab',
+                                                                hasAppearance ? 'opacity-100' : 'opacity-20'
+                                                            )}
                                                         />
                                                     </td>
                                                 )
