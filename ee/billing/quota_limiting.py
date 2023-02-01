@@ -26,7 +26,7 @@ class QuotaResource(Enum):
 
 def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, float]) -> None:
     pipe = get_client().pipeline()
-    pipe.zremrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", "-inf", "+inf")
+    pipe.delete(f"{RATE_LIMITER_CACHE_KEY}{resource.value}")
     if tokens:
         pipe.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
