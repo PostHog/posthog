@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 from time import sleep
 from typing import Optional
 from unittest.mock import Mock
@@ -9,7 +9,7 @@ from posthog.test.base import APIBaseTest
 mocked_dependency = Mock()
 mocked_dependency.return_value = 1
 
-order_of_events = Mock(side_effect=lambda x: print(x))
+order_of_events = Mock(side_effect=lambda x: print(x))  # noqa T201
 
 
 @cache_for(timedelta(seconds=1))
