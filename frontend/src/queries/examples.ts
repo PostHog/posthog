@@ -5,7 +5,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
-    HogQLNode,
+    HogQLQuery,
     LegacyQuery,
     LifecycleQuery,
     Node,
@@ -274,8 +274,8 @@ const TimeToSeeData: TimeToSeeDataQuery = {
     kind: NodeKind.TimeToSeeDataQuery,
 }
 
-const HogQL: HogQLNode = {
-    kind: NodeKind.HogQLNode,
+const HogQL: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
     query: 'select 1, 2',
 }
 

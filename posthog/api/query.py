@@ -16,7 +16,7 @@ from posthog.models import Team
 from posthog.models.event.query_event_list import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
-from posthog.schema import EventsQuery, HogQLNode
+from posthog.schema import EventsQuery, HogQLQuery
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -82,14 +82,14 @@ def process_query(team: Team, query_json: Dict) -> Dict:
             "results": query_result.results,
             "hasMore": query_result.hasMore,
         }
-    elif query_kind == "HogQLNode":
+    elif query_kind == "HogQLQuery":
         try:
-            hogql_node = HogQLNode.parse_obj(query_json)
+            hogql_node = HogQLQuery.parse_obj(query_json)
             ast_node = parse_statement(hogql_node.query)
             return {
                 "query": hogql_node.query,
                 "parsed": True,
-                "select": ast_node.dict(),
+                "ast": {"select": ast_node.dict()},
             }
         except Exception as e:
             return {

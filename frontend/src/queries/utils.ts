@@ -5,7 +5,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
-    HogQLNode,
+    HogQLQuery,
     InsightFilter,
     InsightFilterProperty,
     InsightQueryNode,
@@ -28,7 +28,7 @@ import {
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
-    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLNode(node)
+    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
@@ -59,8 +59,8 @@ export function isLegacyQuery(node?: Node): node is LegacyQuery {
     return node?.kind === NodeKind.LegacyQuery
 }
 
-export function isHogQLNode(node?: Node): node is HogQLNode {
-    return node?.kind === NodeKind.HogQLNode
+export function isHogQLQuery(node?: Node): node is HogQLQuery {
+    return node?.kind === NodeKind.HogQLQuery
 }
 /*
  * Insight Queries

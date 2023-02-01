@@ -82,7 +82,7 @@
                     "$ref": "#/definitions/PersonsNode"
                 },
                 {
-                    "$ref": "#/definitions/HogQLNode"
+                    "$ref": "#/definitions/HogQLQuery"
                 }
             ]
         },
@@ -1926,7 +1926,7 @@
         "HogQLExpression": {
             "type": "string"
         },
-        "HogQLNode": {
+        "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
                 "kind": {
@@ -2110,7 +2110,7 @@
                 "ActionsNode",
                 "NewEntityNode",
                 "EventsQuery",
-                "HogQLNode",
+                "HogQLQuery",
                 "PersonsNode",
                 "DataTableNode",
                 "InsightVizNode",

@@ -8,7 +8,7 @@ import {
     isTimeToSeeDataQuery,
     isRecentPerformancePageViewNode,
     isDataTableNode,
-    isHogQLNode,
+    isHogQLQuery,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -46,7 +46,7 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString(),
             },
         }
-    } else if (isHogQLNode(query)) {
+    } else if (isHogQLQuery(query)) {
         return { path: api.queryURL(), method: 'POST', body: query }
     } else if (isPersonsNode(query)) {
         return { path: getPersonsEndpoint(query) }
@@ -106,7 +106,7 @@ export async function query<N extends DataNode = DataNode>(
             }
         }
         return await api.query({ after: now().subtract(1, 'year').toISOString(), ...query }, methodOptions)
-    } else if (isHogQLNode(query)) {
+    } else if (isHogQLQuery(query)) {
         return api.query(query, methodOptions)
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query), methodOptions)

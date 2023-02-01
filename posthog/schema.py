@@ -268,7 +268,7 @@ class NodeKind(str, Enum):
     ActionsNode = "ActionsNode"
     NewEntityNode = "NewEntityNode"
     EventsQuery = "EventsQuery"
-    HogQLNode = "HogQLNode"
+    HogQLQuery = "HogQLQuery"
     PersonsNode = "PersonsNode"
     DataTableNode = "DataTableNode"
     InsightVizNode = "InsightVizNode"
@@ -541,7 +541,7 @@ class GroupPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
-class HogQLNode(BaseModel):
+class HogQLQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
@@ -1521,7 +1521,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLNode],
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery],
     ]
 
 
