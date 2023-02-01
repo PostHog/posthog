@@ -11,7 +11,7 @@ brew install antlr
 Then either run
 
 ```bash
-pnpm run antlr:generate
+pnpm run antlr:build
 ```
 
 Or mess around with:

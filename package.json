@@ -33,7 +33,7 @@
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
         "schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'frontend/src/*.ts' --type 'QuerySchema' --no-type-check > frontend/src/queries/schema.json && prettier --write frontend/src/queries/schema.json",
         "schema:build:python": "datamodel-codegen --collapse-root-models --disable-timestamp --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py && black posthog/schema.py",
-        "antlr:generate": "cd posthog/hogql/grammar && antlr4 -Dlanguage=Python3 HogQLLexer.g4 && antlr4 -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4 && black . && isort .",
+        "antlr:build": "cd posthog/hogql/grammar && antlr4 -Dlanguage=Python3 HogQLLexer.g4 && antlr4 -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4 && black . && isort .",
         "packages:build": "pnpm packages:build:apps-common && pnpm packages:build:lemon-ui",
         "packages:build:apps-common": "cd frontend/@posthog/apps-common && pnpm i && pnpm build",
         "packages:build:lemon-ui": "cd frontend/@posthog/lemon-ui && pnpm i && pnpm build",
