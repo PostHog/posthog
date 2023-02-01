@@ -134,28 +134,4 @@ describe('Trends', () => {
         cy.contains('All Users*').click()
         cy.get('[data-attr=trend-line-graph]').should('exist')
     })
-
-    it('Save to dashboard', () => {
-        // apply random filter
-        cy.get('[data-attr=insight-filters-add-filter-group]').click()
-        cy.get('[data-attr=property-select-toggle-0]').click()
-        cy.get('[data-attr=taxonomic-filter-searchfield]').click()
-        cy.get('[data-attr=prop-filter-event_properties-1]').click({ force: true })
-        cy.get('[data-attr=prop-val]').click({ force: true })
-        // cypress is odd and even though when a human clicks this the right dropdown opens
-        // in the test that doesn't happen
-        cy.get('body').then(($body) => {
-            if ($body.find('[data-attr=prop-val-0]').length === 0) {
-                cy.get('[data-attr=taxonomic-value-select]').click()
-            }
-        })
-
-        cy.get('[data-attr=insight-save-button]').click()
-        cy.get('[data-attr=save-to-dashboard-button]').click()
-        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
-
-        cy.wait(200)
-        cy.get('[data-attr=success-toast]').contains('Insight added to dashboard').should('exist')
-    })
 })

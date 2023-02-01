@@ -1,6 +1,7 @@
 import {
     ActionsNode,
     DataTableNode,
+    DateRange,
     EventsNode,
     EventsQuery,
     FunnelsQuery,
@@ -119,6 +120,38 @@ export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
 
 export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
     return node?.kind === NodeKind.RecentPerformancePageViewNode
+}
+
+export function dateRangeFor(node?: Node): DateRange | undefined {
+    if (isInsightQueryNode(node)) {
+        return node.dateRange
+    } else if (isTimeToSeeDataQuery(node)) {
+        return {
+            date_from: node.sessionStart,
+            date_to: node.sessionEnd,
+        }
+    } else if (isRecentPerformancePageViewNode(node)) {
+        return undefined // convert from number of days to date range
+    } else if (isTimeToSeeDataSessionsQuery(node)) {
+        return node.dateRange
+    } else if (isLegacyQuery(node)) {
+        return {
+            date_from: node.filters?.date_from,
+            date_to: node.filters?.date_to,
+        }
+    } else if (isActionsNode(node)) {
+        return undefined
+    } else if (isEventsNode(node)) {
+        return undefined
+    } else if (isPersonsNode(node)) {
+        return undefined
+    } else if (isDataTableNode(node)) {
+        return undefined
+    } else if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    }
+
+    return undefined
 }
 
 const nodeKindToFilterProperty: Record<SupportedNodeKind, InsightFilterProperty> = {

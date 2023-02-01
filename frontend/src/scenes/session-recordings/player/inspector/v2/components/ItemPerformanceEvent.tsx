@@ -4,7 +4,7 @@ import { dayjs, Dayjs } from 'lib/dayjs'
 import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Fragment } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 

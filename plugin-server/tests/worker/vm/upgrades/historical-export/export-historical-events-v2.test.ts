@@ -13,7 +13,7 @@ import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import {
     addHistoricalEventsExportCapabilityV2,
-    EVENTS_PER_RUN,
+    EVENTS_PER_RUN_SMALL,
     EXPORT_COORDINATION_KEY,
     EXPORT_PARAMETERS_KEY,
     ExportHistoricalEventsJobPayload,
@@ -669,22 +669,22 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         it('increases only offset if more in current time range', () => {
-            expect(nextCursor(defaultPayload, EVENTS_PER_RUN)).toEqual({
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN_SMALL)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor,
                 fetchTimeInterval: ONE_HOUR,
-                offset: EVENTS_PER_RUN,
+                offset: EVENTS_PER_RUN_SMALL,
             })
         })
         it('increases only offset if more in current time range on a late page', () => {
-            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, EVENTS_PER_RUN)).toEqual({
+            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN_SMALL }, EVENTS_PER_RUN_SMALL)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor,
                 fetchTimeInterval: ONE_HOUR,
-                offset: 6 * EVENTS_PER_RUN,
+                offset: 6 * EVENTS_PER_RUN_SMALL,
             })
         })
 
         it('returns existing fetchTimeInterval if time range mostly full', () => {
-            expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.9)).toEqual({
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN_SMALL * 0.9)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                 fetchTimeInterval: ONE_HOUR,
                 offset: 0,
@@ -692,7 +692,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('increases fetchTimeInterval if time range mostly empty', () => {
-            expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.1)).toEqual({
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN_SMALL * 0.1)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                 fetchTimeInterval: ONE_HOUR * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 offset: 0,
@@ -704,7 +704,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 ...defaultPayload,
                 fetchTimeInterval: 11.5 * 60 * 60 * 1000, // 11.5 hours
             }
-            expect(nextCursor(payload, EVENTS_PER_RUN * 0.1)).toEqual({
+            expect(nextCursor(payload, EVENTS_PER_RUN_SMALL * 0.1)).toEqual({
                 timestampCursor: payload.timestampCursor + payload.fetchTimeInterval,
                 fetchTimeInterval: 12 * 60 * 60 * 1000,
                 offset: 0,
@@ -712,7 +712,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('decreases fetchTimeInterval if on a late page and no more to fetch', () => {
-            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, 10)).toEqual({
+            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN_SMALL }, 10)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                 fetchTimeInterval: ONE_HOUR / hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 offset: 0,
@@ -722,7 +722,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('does not decrease fetchTimeInterval below 10 minutes', () => {
             const payload = {
                 ...defaultPayload,
-                offset: 5 * EVENTS_PER_RUN,
+                offset: 5 * EVENTS_PER_RUN_SMALL,
                 fetchTimeInterval: 10.5 * 60 * 1000, // 10.5 minutes
             }
 
@@ -749,24 +749,40 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
         })
 
-        it('specifically for the S3 exporter, make sure to use a larger than default batch size', () => {
+        it('make sure to use a larger batch size if the plugin recommends it', () => {
             // NOTE: this doesn't actually check that this value is used in the
             // requests to ClickHouse, but :fingercrossed: it's good enough.
             createVM()
+
+            // When no settings are returned, the default small batch size is used
             let eventsPerRun = addHistoricalEventsExportCapabilityV2(
+                hub,
+                { plugin: { name: 'S3 Export Plugin' } } as any,
+                vm
+            ).eventsPerRun
+            expect(eventsPerRun).toEqual(5000)
+
+            // Set the handlesLargeBatches flag to true and expect a big batch size
+            vm.methods.getSettings = jest.fn().mockReturnValue({
+                handlesLargeBatches: true,
+            })
+            eventsPerRun = addHistoricalEventsExportCapabilityV2(
                 hub,
                 { plugin: { name: 'S3 Export Plugin' } } as any,
                 vm
             ).eventsPerRun
             expect(eventsPerRun).toEqual(10000)
 
-            // Otherwise it should be the default, 500
+            // Keep the default of 500 if the flag is false
+            vm.methods.getSettings = jest.fn().mockReturnValue({
+                handlesLargeBatches: false,
+            })
             eventsPerRun = addHistoricalEventsExportCapabilityV2(
                 hub,
                 { plugin: { name: 'foo' } } as any,
                 vm
             ).eventsPerRun
-            expect(eventsPerRun).toEqual(500)
+            expect(eventsPerRun).toEqual(5000)
         })
     })
 

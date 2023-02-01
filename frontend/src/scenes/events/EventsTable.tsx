@@ -1,36 +1,28 @@
 import { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
-import { autoCaptureEventToDescription } from 'lib/utils'
+import { autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import {
-    ActionType,
-    AnyPropertyFilter,
-    ChartDisplayType,
-    ColumnChoice,
-    EventsTableRowItem,
-    InsightType,
-    TrendsFilterType,
-} from '~/types'
+import { ActionType, AnyPropertyFilter, ColumnChoice, EventsTableRowItem } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
-import { TableCellRepresentation } from 'lib/components/LemonTable/types'
-import { IconExport, IconPlayCircle, IconSync } from 'lib/components/icons'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { TableCellRepresentation } from 'lib/lemon-ui/LemonTable/types'
+import { IconExport, IconPlayCircle, IconSync } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -337,46 +329,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
 
-                    let insightParams: Partial<TrendsFilterType> | undefined
-                    if (event.event === '$pageview') {
-                        insightParams = {
-                            insight: InsightType.TRENDS,
-                            interval: 'day',
-                            display: ChartDisplayType.ActionsLineGraph,
-                            actions: [],
-                            events: [
-                                {
-                                    id: '$pageview',
-                                    name: '$pageview',
-                                    type: 'events',
-                                    order: 0,
-                                    properties: [
-                                        {
-                                            key: '$current_url',
-                                            value: event.properties.$current_url,
-                                            type: 'event',
-                                        },
-                                    ],
-                                },
-                            ],
-                        }
-                    } else if (event.event !== '$autocapture') {
-                        insightParams = {
-                            insight: InsightType.TRENDS,
-                            interval: 'day',
-                            display: ChartDisplayType.ActionsLineGraph,
-                            actions: [],
-                            events: [
-                                {
-                                    id: event.event,
-                                    name: event.event,
-                                    type: 'events',
-                                    order: 0,
-                                    properties: [],
-                                },
-                            ],
-                        }
-                    }
+                    const insightUrl = insightUrlForEvent(event)
 
                     return (
                         <More
@@ -415,10 +368,10 @@ export function EventsTable({
                                             View recording
                                         </LemonButton>
                                     )}
-                                    {insightParams && (
+                                    {insightUrl && (
                                         <LemonButton
+                                            to={insightUrl}
                                             status="stealth"
-                                            to={urls.insightNew(insightParams)}
                                             fullWidth
                                             data-attr="events-table-usage"
                                         >

@@ -1,5 +1,4 @@
 import json
-from datetime import timedelta
 from typing import Dict, List
 
 import requests
@@ -10,7 +9,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.cache_utils import cache_for
+from posthog.logging.timing import timed
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
@@ -25,6 +24,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
         try:
             github_response = requests.get(validated_data["url"])
             template: Dict = github_response.json()
+            template["github_url"] = validated_data["url"]
         except Exception as e:
             logger.error(
                 "dashboard_templates.api.could_not_load_template_from_github",
@@ -34,9 +34,13 @@ class DashboardTemplateSerializer(serializers.Serializer):
             raise ValidationError(f"Could not load template from GitHub. {e}")
 
         if "template_name" not in template or template["template_name"] != validated_data["name"]:
-            raise ValidationError(detail="The requested URL does not match the requested template.")
+            raise ValidationError(
+                detail=f'The requested template "{validated_data["name"]}" does not match the requested template URL which loaded the template "{template.get("template_name", "no template name loaded from github")}"'
+            )
 
-        return DashboardTemplate.objects.create(team_id=validated_data["team_id"], **template)
+        return DashboardTemplate.objects.update_or_create(
+            team_id=validated_data["team_id"], template_name=template.get("template_name"), defaults=template
+        )[0]
 
 
 class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -52,6 +56,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         serializer.save(team_id=self.team_id)
         return response.Response(data="", status=status.HTTP_200_OK)
 
+    @timed("dashboard_templates.api_repository_load")
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs) -> response.Response:
         loaded_templates = self._load_repository_listing()
@@ -60,27 +65,32 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         annotated_templates = []
         for template in loaded_templates:
-            if template["name"] in installed_templates:
-                annotated_templates.append({**template, "installed": True})
-            else:
-                annotated_templates.append({**template, "installed": False})
+            is_installed = template["name"] in installed_templates.keys()
+
+            has_new_version = False
+            if is_installed and template.get("url"):
+                installed_url = installed_templates.get(template["name"], None)
+                if installed_url:
+                    has_new_version = template["url"] != installed_url
+
+            annotated_templates.append({**template, "installed": is_installed, "has_new_version": has_new_version})
 
         return response.Response(annotated_templates)
 
-    @cache_for(timedelta(seconds=5))
-    def _load_repository_listing(self) -> List[Dict]:
-        """
-        The repository in GitHub will change infrequently,
-        there is no point loading it over-the-wire on every request
-        """
+    @staticmethod
+    def _load_repository_listing() -> List[Dict]:
         url = "https://raw.githubusercontent.com/PostHog/templates-repository/main/dashboards/dashboards.json"
         loaded_templates: List[Dict] = json.loads(requests.get(url).text)
         return loaded_templates
 
     @staticmethod
-    def _current_installed_templates() -> List[str]:
-        installed_templates: List[str] = [
-            x for x in DashboardTemplate.objects.values_list("template_name", flat=True).all() if x
-        ]
-        installed_templates.append(str(DashboardTemplate.original_template().template_name))
+    def _current_installed_templates() -> Dict[str, str]:
+        installed_templates = {
+            dt.template_name: dt.github_url
+            for dt in DashboardTemplate.objects.only("template_name", "github_url").all()
+        }
+
+        if DashboardTemplate.original_template().template_name not in installed_templates:
+            installed_templates[DashboardTemplate.original_template().template_name] = None
+
         return installed_templates

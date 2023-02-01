@@ -30,7 +30,7 @@ export class StorybookStoryPage {
 
     async goto(storyId: string): Promise<void> {
         const storyUrl = `${STORYBOOK_URL}/iframe.html?id=${storyId}&viewMode=story`
-        await this.page.goto(storyUrl)
+        await this.page.goto(storyUrl, { waitUntil: 'networkidle' })
     }
 
     async resizeToMobile(): Promise<void> {

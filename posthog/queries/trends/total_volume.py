@@ -37,7 +37,7 @@ from posthog.queries.trends.util import (
     parse_response,
     process_math,
 )
-from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch, start_of_week_fix
+from posthog.queries.util import TIME_IN_SECONDS, get_interval_func_ch, get_trunc_func_ch
 from posthog.utils import encode_get_request_params
 
 
@@ -79,7 +79,6 @@ class TrendsTotalVolume:
                 content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
                     event_query_base=event_query_base,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
@@ -107,7 +106,6 @@ class TrendsTotalVolume:
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
@@ -121,7 +119,6 @@ class TrendsTotalVolume:
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="first_seen_timestamp",
                     event_query_base=f"FROM ({cumulative_sql})",
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
@@ -129,7 +126,6 @@ class TrendsTotalVolume:
                 # (only including actors with at least one matching event in a period)
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
                     event_query_base=event_query_base,
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     aggregator=determine_aggregator(entity, team),
                     **content_sql_params,
                 )
@@ -138,22 +134,16 @@ class TrendsTotalVolume:
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
                     event_query_base=event_query_base,
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="timestamp",
                     event_query_base=event_query_base,
-                    start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
 
-            null_sql = NULL_SQL.format(
-                trunc_func=trunc_func,
-                interval_func=interval_func,
-                start_of_week_fix=start_of_week_fix(filter.interval),
-            )
+            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
             params["interval"] = filter.interval
 
             # If we have a smoothing interval > 1 then add in the sql to

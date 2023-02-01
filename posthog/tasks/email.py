@@ -11,6 +11,7 @@ from posthog.celery import app
 from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
+from posthog.user_permissions import UserPermissions
 
 logger = structlog.get_logger(__name__)
 
@@ -105,7 +106,7 @@ def send_fatal_plugin_error(
 ) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
-    plugin_config: PluginConfig = PluginConfig.objects.select_related("plugin", "team").get(id=plugin_config_id)
+    plugin_config: PluginConfig = PluginConfig.objects.prefetch_related("plugin", "team").get(id=plugin_config_id)
     plugin: Plugin = plugin_config.plugin
     team: Team = plugin_config.team
     campaign_key: str = f"plugin_disabled_email_plugin_config_{plugin_config_id}_updated_at_{plugin_config_updated_at}"
@@ -115,17 +116,22 @@ def send_fatal_plugin_error(
         template_name="fatal_plugin_error",
         template_context={"plugin": plugin, "team": team, "error": error, "is_system_error": is_system_error},
     )
-
-    memberships_to_email = [
-        membership
-        for membership in OrganizationMembership.objects.select_related("user", "organization").filter(
-            organization_id=team.organization_id
-        )
+    memberships_to_email = []
+    memberships = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id
+    )
+    for membership in memberships:
+        if not membership.user.notification_settings["plugin_disabled"]:
+            continue
+        team_permissions = UserPermissions(membership.user).team(team)
         # Only send the email to users who have access to the affected project
         # Those without access have `effective_membership_level` of `None`
-        if team.get_effective_membership_level_for_parent_membership(membership) is not None
-        and membership.user.notification_settings["plugin_disabled"]
-    ]
+        if (
+            team_permissions.effective_membership_level_for_parent_membership(membership.organization, membership)
+            is not None
+        ):
+            memberships_to_email.append(membership)
+
     if memberships_to_email:
         for membership in memberships_to_email:
             message.add_recipient(email=membership.user.email, name=membership.user.first_name)

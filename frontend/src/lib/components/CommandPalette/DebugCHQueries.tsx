@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { Modal } from 'antd'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { LemonButton } from '../LemonButton'
-import { LemonTable } from '../LemonTable'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { CodeSnippet, Language } from '../CodeSnippet'
 
 interface Query {
     timestamp: number
@@ -32,16 +33,21 @@ function QueryCol({ item }: { item: Query }): JSX.Element {
     const has5lines = nthChar(item.query, '\n', 5)
     if (has5lines === -1) {
         return (
-            <pre className="code" style={{ maxWidth: 600, fontSize: 10, padding: 10 }}>
+            <CodeSnippet language={Language.SQL} copyDescription="Copy query" style={{ maxWidth: 600, fontSize: 12 }}>
                 {item.query}
-            </pre>
+            </CodeSnippet>
         )
     }
     return (
         <>
-            <pre className="code" style={{ maxWidth: 600, fontSize: 10, padding: 10 }}>
+            <CodeSnippet
+                hideCopyButton={!expanded}
+                language={Language.SQL}
+                copyDescription="Copy query"
+                style={{ maxWidth: 600, fontSize: 12 }}
+            >
                 {expanded ? item.query : item.query.slice(0, has5lines)}
-            </pre>
+            </CodeSnippet>
             <LemonButton size="small" onClick={() => setExpanded(!expanded)}>
                 {expanded ? 'Show less' : 'Show more'}
             </LemonButton>
@@ -115,6 +121,9 @@ export async function debugCHQueries(): Promise<void> {
         title: 'ClickHouse queries recently executed for this user',
         icon: null,
         content: <ModalContent origResult={results} />,
+        closable: true,
+        maskClosable: true,
+        okText: 'Close',
     })
     setTimeout(() => document?.querySelector('.ant-modal-wrap')?.scrollTo(0, 0), 200)
 }

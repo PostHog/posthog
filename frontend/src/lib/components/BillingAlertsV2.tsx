@@ -3,7 +3,7 @@ import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { billingV2Logic } from 'scenes/billing/v2/billingV2Logic'
 import { urls } from 'scenes/urls'
-import { AlertMessage } from './AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function BillingAlertsV2(): JSX.Element | null {
     const { billingAlert, billingVersion } = useValues(billingV2Logic)

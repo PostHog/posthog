@@ -1,14 +1,14 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
 import { SortableContainer, SortableElement } from 'react-sortable-hoc'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconPlus } from '../icons'
-import { LemonSnack } from '../LemonSnack/LemonSnack'
+import { IconPlus } from 'lib/lemon-ui/icons'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import clsx from 'clsx'
 import { useState } from 'react'
 
-interface PersonPropertySelectProps {
+export interface PersonPropertySelectProps {
     addText: string
     onChange: (names: string[]) => void
     selectedProperties: string[]

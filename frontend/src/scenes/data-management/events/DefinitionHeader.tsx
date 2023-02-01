@@ -7,13 +7,13 @@ import {
     IconUnverifiedEvent,
     IconVerifiedEvent,
     VerifiedPropertyIcon,
-} from 'lib/components/icons'
+} from 'lib/lemon-ui/icons'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getSingularType } from 'lib/components/DefinitionPopup/utils'
 import clsx from 'clsx'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import {
     eventTaxonomicGroupProps,
@@ -161,7 +161,7 @@ export function PropertyDefinitionHeader({
                 getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getFullDetailUrl: (propertyDefinition: PropertyDefinition) =>
-                    urls.eventPropertyDefinition(propertyDefinition.id),
+                    urls.propertyDefinition(propertyDefinition.id),
                 ...propertyTaxonomicGroupProps(),
             }}
             {...props}

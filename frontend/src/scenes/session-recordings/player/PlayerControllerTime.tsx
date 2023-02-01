@@ -9,14 +9,12 @@ import {
 import { seekbarLogic } from './seekbarLogic'
 import { LemonButton } from '@posthog/lemon-ui'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
-import { IconSkipBackward } from 'lib/components/icons'
+import { IconSkipBackward } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 
-export function Timestamp({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { currentPlayerTime, sessionPlayerData } = useValues(
-        sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
-    )
-    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
+export function Timestamp(props: SessionRecordingPlayerLogicProps): JSX.Element {
+    const { currentPlayerTime, sessionPlayerData } = useValues(sessionRecordingPlayerLogic(props))
+    const { isScrubbing, scrubbingTime } = useValues(seekbarLogic(props))
 
     const startTimeSeconds = ((isScrubbing ? scrubbingTime : currentPlayerTime) ?? 0) / 1000
     const endTimeSeconds = Math.floor((sessionPlayerData?.metadata?.recordingDurationMs ?? 0) / 1000)

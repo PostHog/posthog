@@ -1,6 +1,6 @@
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { JSSnippet } from 'lib/components/JSSnippet'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'

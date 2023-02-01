@@ -66,11 +66,11 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.EventPropertyDefinitions]: {
+    [Scene.PropertyDefinitions]: {
         projectBased: true,
         name: 'Data Management',
     },
-    [Scene.EventPropertyDefinition]: {
+    [Scene.PropertyDefinition]: {
         projectBased: true,
         name: 'Data Management',
     },
@@ -263,8 +263,8 @@ export const redirects: Record<
     '/events/actions': urls.actions(), // TODO: change to urls.eventDefinitions() when "simplify-actions" FF is released
     '/events/stats': urls.eventDefinitions(),
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
-    '/events/properties': urls.eventPropertyDefinitions(),
-    '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
+    '/events/properties': urls.propertyDefinitions(),
+    '/events/properties/:id': ({ id }) => urls.propertyDefinition(id),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
             // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
@@ -294,8 +294,8 @@ export const routes: Record<string, Scene> = {
     [urls.actions()]: Scene.Actions, // TODO: remove when "simplify-actions" FF is released
     [urls.eventDefinitions()]: Scene.EventDefinitions,
     [urls.eventDefinition(':id')]: Scene.EventDefinition,
-    [urls.eventPropertyDefinitions()]: Scene.EventPropertyDefinitions,
-    [urls.eventPropertyDefinition(':id')]: Scene.EventPropertyDefinition,
+    [urls.propertyDefinitions()]: Scene.PropertyDefinitions,
+    [urls.propertyDefinition(':id')]: Scene.PropertyDefinition,
     [urls.events()]: Scene.Events,
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,

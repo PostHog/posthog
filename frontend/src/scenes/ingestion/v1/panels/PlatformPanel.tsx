@@ -1,9 +1,9 @@
 import { useActions } from 'kea'
 import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
 import { THIRD_PARTY, BOOKMARKLET, platforms } from 'scenes/ingestion/v1/constants'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export function PlatformPanel(): JSX.Element {
     const { setPlatform } = useActions(ingestionLogic)

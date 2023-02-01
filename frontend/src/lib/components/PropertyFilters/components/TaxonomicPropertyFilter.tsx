@@ -45,6 +45,7 @@ export function TaxonomicPropertyFilter({
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
@@ -73,7 +74,7 @@ export function TaxonomicPropertyFilter({
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline =
         !disablePopover &&
-        ((!filter?.type && !filter?.key) ||
+        ((!filter?.type && (!filter || !(filter as any)?.key)) ||
             filter?.type === PropertyFilterType.Cohort ||
             filter?.type === PropertyFilterType.HogQL)
     const showOperatorValueSelect =

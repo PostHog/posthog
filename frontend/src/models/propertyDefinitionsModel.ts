@@ -11,7 +11,7 @@ import type { propertyDefinitionsModelType } from './propertyDefinitionsModelTyp
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
-import { captureTimeToSeeData } from '../lib/internalMetrics'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
 import { teamLogic } from '../scenes/teamLogic'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>

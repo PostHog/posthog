@@ -32,6 +32,9 @@
                         },
                         {
                             "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
                         }
                     ]
                 },
@@ -63,6 +66,22 @@
         "AggregationAxisFormat": {
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
             "type": "string"
+        },
+        "AnyDataNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
+                }
+            ]
         },
         "AnyPartialFilterType": {
             "anyOf": [
@@ -170,6 +189,12 @@
                         },
                         "interval": {
                             "$ref": "#/definitions/IntervalType"
+                        },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
                         },
                         "properties": {
                             "anyOf": [
@@ -287,6 +312,12 @@
                         },
                         "interval": {
                             "$ref": "#/definitions/IntervalType"
+                        },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
                         },
                         "properties": {
                             "anyOf": [
@@ -603,7 +634,7 @@
                         },
                         "local_path_cleaning_filters": {
                             "items": {
-                                "type": "object"
+                                "$ref": "#/definitions/PathCleaningFilter"
                             },
                             "type": "array"
                         },
@@ -612,6 +643,12 @@
                         },
                         "min_edge_weight": {
                             "type": "number"
+                        },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
                         },
                         "path_dropoff_key": {
                             "type": "string"
@@ -729,6 +766,12 @@
                         "interval": {
                             "$ref": "#/definitions/IntervalType"
                         },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
                         "period": {
                             "type": "string"
                         },
@@ -837,6 +880,12 @@
                         "interval": {
                             "$ref": "#/definitions/IntervalType"
                         },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
                         "properties": {
                             "anyOf": [
                                 {
@@ -929,6 +978,12 @@
                         "interval": {
                             "$ref": "#/definitions/IntervalType"
                         },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
                         "properties": {
                             "anyOf": [
                                 {
@@ -950,187 +1005,34 @@
         "AnyPropertyFilter": {
             "anyOf": [
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "event",
-                            "description": "Event properties",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/EventPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "person",
-                            "description": "Person properties",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/PersonPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "enum": ["tag_name", "text", "href", "selector"],
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "element",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/ElementPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "const": "$session_duration",
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "session",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/SessionPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "const": "id",
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "type": {
-                            "const": "cohort",
-                            "type": "string"
-                        },
-                        "value": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/CohortPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "const": "duration",
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "recording",
-                            "type": "string"
-                        },
-                        "value": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/RecordingDurationFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "group_type_index": {
-                            "type": ["number", "null"]
-                        },
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "group",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/GroupPropertyFilter"
                 },
                 {
-                    "additionalProperties": false,
-                    "properties": {
-                        "key": {
-                            "type": "string"
-                        },
-                        "label": {
-                            "type": "string"
-                        },
-                        "operator": {
-                            "$ref": "#/definitions/PropertyOperator"
-                        },
-                        "type": {
-                            "const": "feature",
-                            "description": "Event property with \"$feature/\" prepended",
-                            "type": "string"
-                        },
-                        "value": {
-                            "$ref": "#/definitions/PropertyFilterValue"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/FeaturePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/HogQLPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/EmptyPropertyFilter"
                 }
             ]
         },
@@ -1243,6 +1145,28 @@
             ],
             "type": "string"
         },
+        "CohortPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "const": "id",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "cohort",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "type", "value"],
+            "type": "object"
+        },
         "CountPerActorMathType": {
             "enum": [
                 "avg_count_per_actor",
@@ -1300,6 +1224,10 @@
                     "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
+                "showDateRange": {
+                    "description": "Show date range selector",
+                    "type": "boolean"
+                },
                 "showElapsedTime": {
                     "description": "Show the time it takes to run a query",
                     "type": "boolean"
@@ -1324,6 +1252,10 @@
                     "description": "Show a reload button",
                     "type": "boolean"
                 },
+                "showSavedQueries": {
+                    "description": "Shows a list of saved queries",
+                    "type": "boolean"
+                },
                 "showSearch": {
                     "description": "Include a free text search field (PersonsNode only)",
                     "type": "boolean"
@@ -1338,6 +1270,9 @@
                         },
                         {
                             "$ref": "#/definitions/PersonsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/RecentPerformancePageViewNode"
                         }
                     ],
                     "description": "Source of the events"
@@ -1356,6 +1291,31 @@
                     "type": ["string", "null"]
                 }
             },
+            "type": "object"
+        },
+        "ElementPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "enum": ["tag_name", "text", "href", "selector"],
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "element",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "ElementType": {
@@ -1398,9 +1358,52 @@
             "required": ["attributes", "tag_name"],
             "type": "object"
         },
+        "EmptyPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "not": {}
+                },
+                "operator": {
+                    "not": {}
+                },
+                "type": {
+                    "not": {}
+                },
+                "value": {
+                    "not": {}
+                }
+            },
+            "type": "object"
+        },
         "EntityType": {
             "enum": ["actions", "events", "new_entity"],
             "type": "string"
+        },
+        "EventPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "event",
+                    "description": "Event properties",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
         },
         "EventType": {
             "additionalProperties": false,
@@ -1489,6 +1492,9 @@
                         },
                         {
                             "$ref": "#/definitions/CountPerActorMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/GroupMathType"
                         }
                     ]
                 },
@@ -1542,7 +1548,7 @@
             "properties": {
                 "actionId": {
                     "description": "Show events matching a given action",
-                    "type": "number"
+                    "type": "integer"
                 },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
@@ -1569,7 +1575,11 @@
                 },
                 "limit": {
                     "description": "Number of rows to return",
-                    "type": "number"
+                    "type": "integer"
+                },
+                "offset": {
+                    "description": "Number of rows to skip before returning rows",
+                    "type": "integer"
                 },
                 "orderBy": {
                     "description": "Columns to order by",
@@ -1637,6 +1647,30 @@
             "required": ["kind", "select"],
             "type": "object"
         },
+        "FeaturePropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "feature",
+                    "description": "Event property with \"$feature/\" prepended",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "FilterLogicalOperator": {
             "enum": ["AND", "OR"],
             "type": "string"
@@ -1656,11 +1690,29 @@
         "FunnelStepRangeEntityFilter": {
             "additionalProperties": false,
             "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
                 "funnel_from_step": {
                     "type": "number"
                 },
                 "funnel_to_step": {
                     "type": "number"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
                 }
             },
             "type": "object"
@@ -1673,9 +1725,115 @@
             "enum": ["steps", "time_to_convert", "trends"],
             "type": "string"
         },
+        "FunnelsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "bin_count": {
+                    "$ref": "#/definitions/BinCountValue"
+                },
+                "breakdown_attribution_type": {
+                    "$ref": "#/definitions/BreakdownAttributionType"
+                },
+                "breakdown_attribution_value": {
+                    "type": "number"
+                },
+                "drop_off": {
+                    "type": "boolean"
+                },
+                "entrance_period_start": {
+                    "type": "string"
+                },
+                "exclusions": {
+                    "items": {
+                        "$ref": "#/definitions/FunnelStepRangeEntityFilter"
+                    },
+                    "type": "array"
+                },
+                "funnel_advanced": {
+                    "type": "boolean"
+                },
+                "funnel_correlation_person_converted": {
+                    "enum": ["true", "false"],
+                    "type": "string"
+                },
+                "funnel_correlation_person_entity": {
+                    "type": "object"
+                },
+                "funnel_custom_steps": {
+                    "items": {
+                        "type": "number"
+                    },
+                    "type": "array"
+                },
+                "funnel_from_step": {
+                    "type": "number"
+                },
+                "funnel_order_type": {
+                    "$ref": "#/definitions/StepOrderValue"
+                },
+                "funnel_step": {
+                    "type": "number"
+                },
+                "funnel_step_breakdown": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "number"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "funnel_step_reference": {
+                    "$ref": "#/definitions/FunnelStepReference"
+                },
+                "funnel_to_step": {
+                    "type": "number"
+                },
+                "funnel_viz_type": {
+                    "$ref": "#/definitions/FunnelVizType"
+                },
+                "funnel_window_interval": {
+                    "type": "number"
+                },
+                "funnel_window_interval_unit": {
+                    "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                },
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
+                    },
+                    "type": "object"
+                },
+                "layout": {
+                    "$ref": "#/definitions/FunnelLayout"
+                }
+            },
+            "type": "object"
+        },
         "FunnelsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -1689,113 +1847,8 @@
                     "type": "boolean"
                 },
                 "funnelsFilter": {
-                    "additionalProperties": false,
-                    "description": "Properties specific to the funnels insight",
-                    "properties": {
-                        "bin_count": {
-                            "$ref": "#/definitions/BinCountValue"
-                        },
-                        "breakdown_attribution_type": {
-                            "$ref": "#/definitions/BreakdownAttributionType"
-                        },
-                        "breakdown_attribution_value": {
-                            "type": "number"
-                        },
-                        "drop_off": {
-                            "type": "boolean"
-                        },
-                        "entrance_period_start": {
-                            "type": "string"
-                        },
-                        "exclusions": {
-                            "items": {
-                                "$ref": "#/definitions/FunnelStepRangeEntityFilter"
-                            },
-                            "type": "array"
-                        },
-                        "funnel_advanced": {
-                            "type": "boolean"
-                        },
-                        "funnel_correlation_person_converted": {
-                            "enum": ["true", "false"],
-                            "type": "string"
-                        },
-                        "funnel_correlation_person_entity": {
-                            "type": "object"
-                        },
-                        "funnel_custom_steps": {
-                            "items": {
-                                "type": "number"
-                            },
-                            "type": "array"
-                        },
-                        "funnel_from_step": {
-                            "type": "number"
-                        },
-                        "funnel_order_type": {
-                            "$ref": "#/definitions/StepOrderValue"
-                        },
-                        "funnel_step": {
-                            "type": "number"
-                        },
-                        "funnel_step_breakdown": {
-                            "anyOf": [
-                                {
-                                    "type": "string"
-                                },
-                                {
-                                    "items": {
-                                        "type": "number"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "number"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ]
-                        },
-                        "funnel_step_reference": {
-                            "$ref": "#/definitions/FunnelStepReference"
-                        },
-                        "funnel_to_step": {
-                            "type": "number"
-                        },
-                        "funnel_viz_type": {
-                            "$ref": "#/definitions/FunnelVizType"
-                        },
-                        "funnel_window_interval": {
-                            "type": "number"
-                        },
-                        "funnel_window_interval_unit": {
-                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
-                        },
-                        "hidden_legend_keys": {
-                            "additionalProperties": {
-                                "anyOf": [
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "not": {}
-                                    }
-                                ]
-                            },
-                            "type": "object"
-                        },
-                        "layout": {
-                            "$ref": "#/definitions/FunnelLayout"
-                        },
-                        "new_entity": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/FunnelsFilter",
+                    "description": "Properties specific to the funnels insight"
                 },
                 "interval": {
                     "$ref": "#/definitions/IntervalType",
@@ -1837,8 +1890,58 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "GroupMathType": {
+            "const": "unique_group",
+            "type": "string"
+        },
+        "GroupPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "group",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "HogQLExpression": {
             "type": "string"
+        },
+        "HogQLPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "type": {
+                    "const": "hogql",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "type"],
+            "type": "object"
         },
         "InsightQueryNode": {
             "anyOf": [
@@ -1901,9 +2004,29 @@
             "required": ["filters", "kind"],
             "type": "object"
         },
+        "LifecycleFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "shown_as": {
+                    "$ref": "#/definitions/ShownAsValue"
+                },
+                "toggledLifecycles": {
+                    "description": "Lifecycles that have been removed from display",
+                    "items": {
+                        "$ref": "#/definitions/LifecycleToggle"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -1921,21 +2044,8 @@
                     "type": "string"
                 },
                 "lifecycleFilter": {
-                    "additionalProperties": false,
-                    "description": "Properties specific to the lifecycle insight",
-                    "properties": {
-                        "shown_as": {
-                            "$ref": "#/definitions/ShownAsValue"
-                        },
-                        "toggledLifecycles": {
-                            "description": "Lifecycles that have been removed from display",
-                            "items": {
-                                "$ref": "#/definitions/LifecycleToggle"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/LifecycleFilter",
+                    "description": "Properties specific to the lifecycle insight"
                 },
                 "properties": {
                     "anyOf": [
@@ -1973,13 +2083,98 @@
             "enum": ["new", "resurrecting", "returning", "dormant"],
             "type": "string"
         },
+        "PathCleaningFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "alias": {
+                    "type": "string"
+                },
+                "regex": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "PathType": {
             "enum": ["$pageview", "$screen", "custom_event"],
             "type": "string"
         },
+        "PathsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "edge_limit": {
+                    "type": "number"
+                },
+                "end_point": {
+                    "type": "string"
+                },
+                "exclude_events": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "funnel_filter": {
+                    "type": "object"
+                },
+                "funnel_paths": {
+                    "$ref": "#/definitions/FunnelPathType"
+                },
+                "include_event_types": {
+                    "items": {
+                        "$ref": "#/definitions/PathType"
+                    },
+                    "type": "array"
+                },
+                "local_path_cleaning_filters": {
+                    "items": {
+                        "$ref": "#/definitions/PathCleaningFilter"
+                    },
+                    "type": "array"
+                },
+                "max_edge_weight": {
+                    "type": "number"
+                },
+                "min_edge_weight": {
+                    "type": "number"
+                },
+                "path_dropoff_key": {
+                    "type": "string"
+                },
+                "path_end_key": {
+                    "type": "string"
+                },
+                "path_groupings": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "path_replacements": {
+                    "type": "boolean"
+                },
+                "path_start_key": {
+                    "type": "string"
+                },
+                "path_type": {
+                    "$ref": "#/definitions/PathType"
+                },
+                "start_point": {
+                    "type": "string"
+                },
+                "step_limit": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -1993,74 +2188,8 @@
                     "type": "string"
                 },
                 "pathsFilter": {
-                    "additionalProperties": false,
-                    "description": "Properties specific to the paths insight",
-                    "properties": {
-                        "edge_limit": {
-                            "type": "number"
-                        },
-                        "end_point": {
-                            "type": "string"
-                        },
-                        "exclude_events": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "funnel_filter": {
-                            "type": "object"
-                        },
-                        "funnel_paths": {
-                            "$ref": "#/definitions/FunnelPathType"
-                        },
-                        "include_event_types": {
-                            "items": {
-                                "$ref": "#/definitions/PathType"
-                            },
-                            "type": "array"
-                        },
-                        "local_path_cleaning_filters": {
-                            "items": {
-                                "type": "object"
-                            },
-                            "type": "array"
-                        },
-                        "max_edge_weight": {
-                            "type": "number"
-                        },
-                        "min_edge_weight": {
-                            "type": "number"
-                        },
-                        "path_dropoff_key": {
-                            "type": "string"
-                        },
-                        "path_end_key": {
-                            "type": "string"
-                        },
-                        "path_groupings": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "path_replacements": {
-                            "type": "boolean"
-                        },
-                        "path_start_key": {
-                            "type": "string"
-                        },
-                        "path_type": {
-                            "$ref": "#/definitions/PathType"
-                        },
-                        "start_point": {
-                            "type": "string"
-                        },
-                        "step_limit": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/PathsFilter",
+                    "description": "Properties specific to the paths insight"
                 },
                 "properties": {
                     "anyOf": [
@@ -2078,6 +2207,31 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "PersonPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Sync with plugin-server/src/types.ts",
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "person",
+                    "description": "Person properties",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
             "type": "object"
         },
         "PersonsNode": {
@@ -2214,16 +2368,7 @@
         "QuerySchema": {
             "anyOf": [
                 {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/EventsQuery"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/PersonsNode"
+                    "$ref": "#/definitions/AnyDataNode"
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"
@@ -2251,12 +2396,90 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/RecentPerformancePageViewNode"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 }
             ]
+        },
+        "RecentPerformancePageViewNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "RecentPerformancePageViewNode",
+                    "description": "Performance",
+                    "type": "string"
+                },
+                "numberOfDays": {
+                    "type": "number"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "RecordingDurationFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "duration",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "recording",
+                    "type": "string"
+                },
+                "value": {
+                    "type": "number"
+                }
+            },
+            "required": ["key", "operator", "type", "value"],
+            "type": "object"
+        },
+        "RetentionFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "period": {
+                    "type": "string"
+                },
+                "retention_reference": {
+                    "enum": ["total", "previous"],
+                    "type": "string"
+                },
+                "retention_type": {
+                    "$ref": "#/definitions/RetentionType"
+                },
+                "returning_entity": {
+                    "type": "object"
+                },
+                "target_entity": {
+                    "type": "object"
+                },
+                "total_intervals": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
         },
         "RetentionQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2284,30 +2507,8 @@
                     "description": "Property filters for all series"
                 },
                 "retentionFilter": {
-                    "additionalProperties": false,
-                    "description": "Properties specific to the retention insight",
-                    "properties": {
-                        "period": {
-                            "type": "string"
-                        },
-                        "retention_reference": {
-                            "enum": ["total", "previous"],
-                            "type": "string"
-                        },
-                        "retention_type": {
-                            "$ref": "#/definitions/RetentionType"
-                        },
-                        "returning_entity": {
-                            "type": "object"
-                        },
-                        "target_entity": {
-                            "type": "object"
-                        },
-                        "total_intervals": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/RetentionFilter",
+                    "description": "Properties specific to the retention insight"
                 }
             },
             "required": ["kind"],
@@ -2317,6 +2518,30 @@
             "enum": ["retention_recurring", "retention_first_time"],
             "type": "string"
         },
+        "SessionPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "const": "$session_duration",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "session",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "ShownAsValue": {
             "enum": ["Volume", "Stickiness", "Lifecycle"],
             "type": "string"
@@ -2325,9 +2550,47 @@
             "enum": ["strict", "unordered", "ordered"],
             "type": "string"
         },
+        "StickinessFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "compare": {
+                    "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
+                    },
+                    "type": "object"
+                },
+                "show_legend": {
+                    "type": "boolean"
+                },
+                "shown_as": {
+                    "$ref": "#/definitions/ShownAsValue"
+                },
+                "stickiness_days": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2373,47 +2636,90 @@
                     "type": "array"
                 },
                 "stickinessFilter": {
-                    "additionalProperties": false,
-                    "description": "Properties specific to the stickiness insight",
-                    "properties": {
-                        "compare": {
-                            "type": "boolean"
-                        },
-                        "display": {
-                            "$ref": "#/definitions/ChartDisplayType"
-                        },
-                        "hidden_legend_keys": {
-                            "additionalProperties": {
-                                "anyOf": [
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "not": {}
-                                    }
-                                ]
-                            },
-                            "type": "object"
-                        },
-                        "show_legend": {
-                            "type": "boolean"
-                        },
-                        "shown_as": {
-                            "$ref": "#/definitions/ShownAsValue"
-                        },
-                        "stickiness_days": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/StickinessFilter",
+                    "description": "Properties specific to the stickiness insight"
                 }
             },
             "required": ["kind", "series"],
             "type": "object"
         },
+        "TimeToSeeDataSessionsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "kind": {
+                    "const": "TimeToSeeDataSessionsQuery",
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "teamId": {
+                    "description": "Project to filter on. Defaults to current project",
+                    "type": "number"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "TrendsFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_axis_format": {
+                    "$ref": "#/definitions/AggregationAxisFormat"
+                },
+                "aggregation_axis_postfix": {
+                    "type": "string"
+                },
+                "aggregation_axis_prefix": {
+                    "type": "string"
+                },
+                "breakdown_histogram_bin_count": {
+                    "type": "number"
+                },
+                "compare": {
+                    "type": "boolean"
+                },
+                "display": {
+                    "$ref": "#/definitions/ChartDisplayType"
+                },
+                "formula": {},
+                "hidden_legend_keys": {
+                    "additionalProperties": {
+                        "anyOf": [
+                            {
+                                "type": "boolean"
+                            },
+                            {
+                                "not": {}
+                            }
+                        ]
+                    },
+                    "type": "object"
+                },
+                "show_legend": {
+                    "type": "boolean"
+                },
+                "shown_as": {
+                    "$ref": "#/definitions/ShownAsValue"
+                },
+                "smoothing_intervals": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "TrendsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -2463,52 +2769,8 @@
                     "type": "array"
                 },
                 "trendsFilter": {
-                    "additionalProperties": false,
-                    "description": "Properties specific to the trends insight",
-                    "properties": {
-                        "aggregation_axis_format": {
-                            "$ref": "#/definitions/AggregationAxisFormat"
-                        },
-                        "aggregation_axis_postfix": {
-                            "type": "string"
-                        },
-                        "aggregation_axis_prefix": {
-                            "type": "string"
-                        },
-                        "breakdown_histogram_bin_count": {
-                            "type": "number"
-                        },
-                        "compare": {
-                            "type": "boolean"
-                        },
-                        "display": {
-                            "$ref": "#/definitions/ChartDisplayType"
-                        },
-                        "formula": {},
-                        "hidden_legend_keys": {
-                            "additionalProperties": {
-                                "anyOf": [
-                                    {
-                                        "type": "boolean"
-                                    },
-                                    {
-                                        "not": {}
-                                    }
-                                ]
-                            },
-                            "type": "object"
-                        },
-                        "show_legend": {
-                            "type": "boolean"
-                        },
-                        "shown_as": {
-                            "$ref": "#/definitions/ShownAsValue"
-                        },
-                        "smoothing_intervals": {
-                            "type": "number"
-                        }
-                    },
-                    "type": "object"
+                    "$ref": "#/definitions/TrendsFilter",
+                    "description": "Properties specific to the trends insight"
                 }
             },
             "required": ["kind", "series"],
@@ -2517,6 +2779,10 @@
         "UnimplementedQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"

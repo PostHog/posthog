@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
 import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
@@ -21,9 +21,9 @@ import {
     IconSettings,
     IconTools,
     IconUnverifiedEvent,
-} from 'lib/components/icons'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { Lettermark } from 'lib/components/Lettermark/Lettermark'
+} from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
@@ -42,10 +42,10 @@ import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import Typography from 'antd/lib/typography'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 

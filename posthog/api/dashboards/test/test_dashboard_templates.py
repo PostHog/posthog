@@ -7,24 +7,32 @@ from rest_framework import status
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.test.base import APIBaseTest
 
-template_listing_json = [
+template_listing_json: List[Dict] = [
     {
         "name": "Product analytics",
-        "url": "https://github.com/PostHog/templates-repository/blob/33d8e4552afa24f12b93444bf8773eada89197cf/dashboards/posthog-product-analytics.json",
+        "url": "some url",
         "description": "The OG PostHog product analytics dashboard template",
         "verified": True,
         "maintainer": "official",
     },
     {
         "name": "Website traffic",
-        "url": "https://github.com/PostHog/templates-repository/blob/532b9883cc142735a85b332f10de0c6ea4b1108c/dashboards/posthog-website-traffic.json",
+        "url": "a github url",
         "description": "The website analytics dashboard that PostHog uses",
         "verified": True,
         "maintainer": "official",
     },
 ]
 
-website_traffic_template_listing = {
+updated_template_listing_json: List[Dict] = [
+    template_listing_json[0],
+    {
+        **template_listing_json[1],
+        "url": "https://github.com/PostHog/templates-repository/blob/a-new-commit-hash/dashboards/posthog-website-traffic.json",
+    },
+]
+
+website_traffic_template_listing: Dict = {
     "template_name": "Website traffic",
     "dashboard_description": "",
     "dashboard_filters": {},
@@ -53,8 +61,6 @@ website_traffic_template_listing = {
 
 
 class TestDashboardTemplates(APIBaseTest):
-    # other installed templates show as installed
-
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
         self._patch_request_get(patched_requests, template_listing_json)
@@ -64,7 +70,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         expected_listing: List[Dict[str, Any]] = []
         for tl in template_listing_json:
-            expected_listing.append({**tl, "installed": tl["name"] == "Product analytics"})
+            expected_listing.append({**tl, "installed": tl["name"] == "Product analytics", "has_new_version": False})
 
         assert response.json() == expected_listing
 
@@ -75,7 +81,8 @@ class TestDashboardTemplates(APIBaseTest):
         assert DashboardTemplate.objects.count() == 0
 
         response = self.client.post(
-            f"/api/projects/{self.team.pk}/dashboard_templates", {"name": "Website traffic", "url": "a github url"}
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "Website traffic", "url": "a github url"},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
@@ -93,9 +100,66 @@ class TestDashboardTemplates(APIBaseTest):
 
         expected_listing: List[Dict[str, Any]] = []
         for tl in template_listing_json:
-            expected_listing.append({**tl, "installed": True})
+            expected_listing.append({**tl, "installed": True, "has_new_version": False})
 
         assert response.json() == expected_listing
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_repository_can_update_from_github(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        assert DashboardTemplate.objects.count() == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "Website traffic", "url": "a github url"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        patched_requests.assert_called_with("a github url")
+
+        assert DashboardTemplate.objects.count() == 1
+        assert DashboardTemplate.objects.first().tags == []  # type: ignore
+
+        self._patch_request_get(patched_requests, updated_template_listing_json)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/repository")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        assert [r["has_new_version"] for r in response.json()] == [False, True]
+
+        self._patch_request_get(
+            patched_requests,
+            {
+                **website_traffic_template_listing,
+                "tags": ["updated"],
+            },
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "Website traffic", "url": "a github url"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        assert DashboardTemplate.objects.count() == 1
+        assert DashboardTemplate.objects.first().tags == ["updated"]  # type: ignore
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_validation_that_names_have_to_match(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        assert DashboardTemplate.objects.count() == 0
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "this is never going to match", "url": "a github url"},
+        )
+        response_json = response.json()
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response_json)
+        assert (
+            response_json["detail"]
+            == 'The requested template "this is never going to match" does not match the requested template URL which loaded the template "Website traffic"'
+        )
 
     @staticmethod
     def _patch_request_get(patched_requests, json_response):

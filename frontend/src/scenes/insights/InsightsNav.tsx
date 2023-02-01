@@ -3,11 +3,11 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, RefObject, useMemo, useRef } from 'react'
 import { InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { FunnelsCue } from './views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 const { TabPane } = Tabs

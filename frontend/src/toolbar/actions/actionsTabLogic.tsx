@@ -9,7 +9,7 @@ import { ActionType } from '~/types'
 import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 
 function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {

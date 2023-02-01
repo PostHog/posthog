@@ -7,7 +7,6 @@ import { useState } from 'react'
 export default {
     title: 'Components/Editable Field',
     component: EditableFieldComponent,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof EditableFieldComponent>
 
 export function EditableField_(): JSX.Element {

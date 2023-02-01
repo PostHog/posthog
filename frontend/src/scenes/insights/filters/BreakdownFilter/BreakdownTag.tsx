@@ -5,8 +5,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { FilterType } from '~/types'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { isAllCohort, isCohort, isPersonEventOrGroup } from './TaxonomicBreakdownFilter'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconInfo } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 type BreakdownTagProps = {
     isHistogramable: boolean

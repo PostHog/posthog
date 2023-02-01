@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 import { identifierToHuman } from 'lib/utils'
-import { IconOpenInNew } from '../icons'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import './PayGatePage.scss'
 import { AvailableFeature } from '~/types'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { billingLogic } from 'scenes/billing/billingLogic'
 
 interface PayGatePageInterface {

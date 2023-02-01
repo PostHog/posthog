@@ -4,8 +4,8 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { SessionPlayerState, SessionRecordingType } from '~/types'
-import { IconErrorOutline, IconPlay } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { IconErrorOutline, IconPlay } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PlayerFrameOverlay.scss'
 import { PlayerUpNext } from './PlayerUpNext'
 import { useState } from 'react'

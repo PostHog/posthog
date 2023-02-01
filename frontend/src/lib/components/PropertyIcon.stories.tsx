@@ -1,12 +1,14 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { PROPERTIES_ICON_MAP, PropertyIcon } from 'lib/components/PropertyIcon'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { countryCodeToName } from 'scenes/insights/views/WorldMap'
 
 export default {
     title: 'Lemon UI/Icons/Property Icon',
     component: PropertyIcon,
-    parameters: { chromatic: { disableSnapshot: false } },
+    parameters: {
+        chromatic: { disableSnapshot: true }, // There are too many icons, the snapshots get very big in table form
+    },
 } as ComponentMeta<typeof PropertyIcon>
 
 const Template: ComponentStory<typeof PropertyIcon> = (args) => {

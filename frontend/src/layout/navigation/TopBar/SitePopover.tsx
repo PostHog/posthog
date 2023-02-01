@@ -1,8 +1,8 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
-import { ProfilePicture } from '../../../lib/components/ProfilePicture'
-import { LemonButton } from '../../../lib/components/LemonButton'
-import { LemonRow } from '../../../lib/components/LemonRow'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import {
     IconCheckmark,
     IconOffline,
@@ -14,17 +14,17 @@ import {
     IconSettings,
     IconCorporate,
     IconPlus,
-} from 'lib/components/icons'
-import { Popup } from '../../../lib/components/Popup/Popup'
-import { Link } from '../../../lib/components/Link'
+} from 'lib/lemon-ui/icons'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from '../../../scenes/urls'
 import { navigationLogic } from '../navigationLogic'
 import { LicenseType, OrganizationBasicType } from '../../../types'
 import { organizationLogic } from '../../../scenes/organizationLogic'
 import { preflightLogic } from '../../../scenes/PreflightCheck/preflightLogic'
 import { licenseLogic, isLicenseExpired } from '../../../scenes/instance/Licenses/licenseLogic'
-import { identifierToHuman } from '../../../lib/utils'
-import { Lettermark } from '../../../lib/components/Lettermark/Lettermark'
+import { identifierToHuman } from 'lib/utils'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import {
     AccessLevelIndicator,
     NewOrganizationButton,
@@ -32,7 +32,7 @@ import {
 } from '~/layout/navigation/OrganizationSwitcher'
 import { dayjs } from 'lib/dayjs'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'

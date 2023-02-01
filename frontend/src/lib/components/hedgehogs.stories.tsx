@@ -15,8 +15,8 @@ const allHedgehogs: HedgehogDefinition[] = Object.entries(hedgehogs).map(([key, 
 export default {
     title: 'Lemon UI/Hog illustrations',
     parameters: {
-        chromatic: { disableSnapshot: false },
         options: { showPanel: false },
+        chromatic: { disableSnapshot: true },
         docs: {
             description: {
                 component: `

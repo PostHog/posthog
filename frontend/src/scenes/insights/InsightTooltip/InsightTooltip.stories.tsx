@@ -119,7 +119,6 @@ const data = {
 export default {
     title: 'Components/InsightTooltip',
     component: InsightTooltip,
-    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         date: { defaultValue: data.date },
         timezone: { defaultValue: data.timezone },
@@ -128,6 +127,9 @@ export default {
         renderCount: { defaultValue: (value: number): string => `${value}` },
         forceEntitiesAsColumns: { defaultValue: false },
         groupTypeLabel: { defaultValue: 'people' },
+    },
+    parameters: {
+        chromatic: { disableSnapshot: true },
     },
 } as ComponentMeta<typeof InsightTooltip>
 

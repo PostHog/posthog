@@ -4,7 +4,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { DashboardType, InsightModel, InsightType } from '~/types'
 import FuseClass from 'fuse.js'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -94,13 +94,15 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         ],
         currentDashboards: [
             (s) => [s.filteredDashboards, (_, props) => props.insight],
-            (filteredDashboards, insight): DashboardType[] =>
-                filteredDashboards.filter((d: DashboardType) => insight.dashboards?.includes(d.id)),
+            (filteredDashboards, insight: InsightModel): DashboardType[] =>
+                filteredDashboards.filter((d: DashboardType) =>
+                    insight.dashboard_tiles?.map((dt) => dt.dashboard_id)?.includes(d.id)
+                ),
         ],
         availableDashboards: [
-            (s) => [s.filteredDashboards, (_, props) => props.insight],
-            (filteredDashboards, insight): DashboardType[] =>
-                filteredDashboards.filter((d: DashboardType) => !insight.dashboards?.includes(d.id)),
+            (s) => [s.filteredDashboards, s.currentDashboards],
+            (filteredDashboards, currentDashboards): DashboardType[] =>
+                filteredDashboards.filter((d: DashboardType) => !currentDashboards?.map((cd) => cd.id).includes(d.id)),
         ],
         orderedDashboards: [
             (s) => [s.currentDashboards, s.availableDashboards],
@@ -125,6 +127,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         },
 
         addToDashboard: async ({ insight, dashboardId }) => {
+            // TODO be able to update not by patching `dashboards` against insight
+            // either patch dashboard_tiles on the insight or add a dashboard_tiles API
             actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
                 actions.reportSavedInsightToDashboard()
                 dashboardsModel.actions.tileAddedToDashboard(dashboardId)
@@ -141,6 +145,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                 {
                     ...insight,
                     dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
+                    dashboard_tiles: (insight.dashboard_tiles || []).filter((dt) => dt.dashboard_id !== dashboardId),
                 },
                 () => {
                     actions.reportRemovedInsightFromDashboard()

@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { PrevalidatedInvite } from '~/types'
 import type { inviteSignupLogicType } from './inviteSignupLogicType'
 

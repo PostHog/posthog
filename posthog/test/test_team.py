@@ -1,13 +1,59 @@
 from unittest import mock
 
+from django.core.cache import cache
+from django.test import TestCase
+
 from posthog.models import Dashboard, DashboardTile, Organization, PluginConfig, Team, User
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.team import util
+from posthog.models.team import get_team_in_cache, util
 from posthog.plugins.test.mock import mocked_plugin_requests_get
 
 from .base import BaseTest
 
 util.can_enable_actor_on_events = True
+
+
+class TestModelCache(TestCase):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_save_updates_cache(self):
+        api_token = "test_token"
+        org = Organization.objects.create(name="org name")
+
+        initial_team = get_team_in_cache(api_token)
+        self.assertIsNone(initial_team)
+
+        team = Team.objects.create(
+            organization=org,
+            api_token=api_token,
+            test_account_filters=[],
+        )
+
+        cached_team = get_team_in_cache(api_token)
+        assert cached_team is not None
+        self.assertEqual(cached_team.session_recording_opt_in, False)
+        self.assertEqual(cached_team.api_token, api_token)
+        self.assertEqual(cached_team.uuid, str(team.uuid))
+        self.assertEqual(cached_team.id, team.id)
+        self.assertEqual(cached_team.name, "Default Project")
+
+        team.name = "New name"
+        team.session_recording_opt_in = True
+        team.save()
+
+        cached_team = get_team_in_cache(api_token)
+        assert cached_team is not None
+        self.assertEqual(cached_team.session_recording_opt_in, True)
+        self.assertEqual(cached_team.api_token, api_token)
+        self.assertEqual(cached_team.uuid, str(team.uuid))
+        self.assertEqual(cached_team.id, team.id)
+        self.assertEqual(cached_team.name, "New name")
+
+        team.delete()
+        cached_team = get_team_in_cache(api_token)
+        assert cached_team is None
 
 
 class TestTeam(BaseTest):
@@ -73,7 +119,8 @@ class TestTeam(BaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertTrue(team.person_on_events_querying_enabled)
-                mock_feature_enabled.assert_called_once_with(
+                # called more than once when evaluating hogql
+                mock_feature_enabled.assert_called_with(
                     "person-on-events-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},

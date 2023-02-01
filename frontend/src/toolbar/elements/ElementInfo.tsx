@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { ActionStep } from '~/toolbar/elements/ActionStep'
-import { CalendarOutlined, PlusOutlined } from '@ant-design/icons'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { LemonButton } from '@posthog/lemon-ui'
+import { IconCalendar, IconPlus } from 'lib/lemon-ui/icons'
 
 function ElementStatistic({
     prefix,
@@ -44,16 +44,17 @@ export function ElementInfo(): JSX.Element | null {
 
     return (
         <>
-            <div style={{ padding: 15, borderLeft: '5px solid #8F98FF', background: 'hsla(235, 100%, 99%, 1)' }}>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="p-3" style={{ borderLeft: '5px solid #8F98FF', background: 'hsla(235, 100%, 99%, 1)' }}>
                 <h1 className="section-title">Selected Element</h1>
                 <ActionStep actionStep={actionStep} />
             </div>
-
             {position ? (
-                <div style={{ padding: 15, borderLeft: '5px solid #FF9870', background: 'hsla(19, 99%, 99%, 1)' }}>
+                /* eslint-disable-next-line react/forbid-dom-props */
+                <div className="p-3" style={{ borderLeft: '5px solid #FF9870', background: 'hsla(19, 99%, 99%, 1)' }}>
                     <h1 className="section-title">Stats</h1>
                     <p>
-                        <CalendarOutlined /> <u>Last 7 days</u>
+                        <IconCalendar /> <u>Last 7 days</u>
                     </p>
                     <div className={'flex flex-row gap-4'}>
                         <div className={'w-2/3'}>
@@ -77,8 +78,8 @@ export function ElementInfo(): JSX.Element | null {
                     </div>
                 </div>
             ) : null}
-
-            <div style={{ padding: 15, borderLeft: '5px solid #94D674', background: 'hsla(100, 74%, 98%, 1)' }}>
+            {/* eslint-disable-next-line react/forbid-dom-props */}
+            <div className="p-3" style={{ borderLeft: '5px solid #94D674', background: 'hsla(100, 74%, 98%, 1)' }}>
                 <h1 className="section-title">Actions ({activeMeta.actions.length})</h1>
 
                 {activeMeta.actions.length === 0 ? (
@@ -92,7 +93,7 @@ export function ElementInfo(): JSX.Element | null {
                     type={'secondary'}
                     status={'primary-alt'}
                     onClick={() => createAction(element)}
-                    icon={<PlusOutlined />}
+                    icon={<IconPlus />}
                 >
                     Create a new action
                 </LemonButton>

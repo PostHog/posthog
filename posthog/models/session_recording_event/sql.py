@@ -5,9 +5,7 @@ from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_per
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
 
-SESSION_RECORDING_EVENTS_DATA_TABLE = (
-    lambda: "sharded_session_recording_events" if settings.CLICKHOUSE_REPLICATION else "session_recording_events"
-)
+SESSION_RECORDING_EVENTS_DATA_TABLE = lambda: "sharded_session_recording_events"
 
 SESSION_RECORDING_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -104,7 +102,7 @@ KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: SESSION_RECORDING_EVENTS_TABL
 )
 
 SESSION_RECORDING_EVENTS_TABLE_MV_SQL = lambda: """
-CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER '{cluster}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
 uuid,
@@ -119,11 +117,7 @@ _timestamp,
 _offset
 FROM {database}.kafka_session_recording_events
 """.format(
-    target_table=(
-        "writable_session_recording_events"
-        if settings.CLICKHOUSE_REPLICATION
-        else SESSION_RECORDING_EVENTS_DATA_TABLE()
-    ),
+    target_table="writable_session_recording_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
 )

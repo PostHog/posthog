@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
@@ -26,6 +27,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -87,7 +89,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeamSerializer(serializers.ModelSerializer):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
@@ -143,7 +145,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
+        return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
@@ -184,7 +186,6 @@ class TeamSerializer(serializers.ModelSerializer):
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
         request.user.save()
-        set_team_in_cache(team.api_token, team)
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:
@@ -197,7 +198,6 @@ class TeamSerializer(serializers.ModelSerializer):
             self._handle_timezone_update(instance)
 
         updated_team = super().update(instance, validated_data)
-        set_team_in_cache(updated_team.api_token, updated_team)
         return updated_team
 
 
@@ -220,13 +220,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         # This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = [
-            team.id
-            for team in super()
-            .get_queryset()
-            .filter(organization__in=cast(User, self.request.user).organizations.all())
-            if team.get_effective_membership_level(self.request.user.id) is not None
-        ]
+        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         return super().get_queryset().filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
@@ -312,7 +306,6 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team.api_token = generate_random_token_project()
         team.save()
         set_team_in_cache(old_token, None)
-        set_team_in_cache(team.api_token, team)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -327,3 +320,8 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team = self.get_object()
         cache_key = f"is_generating_demo_data_{team.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+
+    @cached_property
+    def user_permissions(self):
+        team = self.get_object() if self.action == "reset_token" else None
+        return UserPermissions(cast(User, self.request.user), team)

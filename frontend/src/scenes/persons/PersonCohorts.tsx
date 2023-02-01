@@ -2,9 +2,9 @@ import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { CohortType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 
 export function PersonCohorts(): JSX.Element {
     const { cohorts, cohortsLoading, person } = useValues(personsLogic)

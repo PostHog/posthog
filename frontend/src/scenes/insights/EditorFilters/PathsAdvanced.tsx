@@ -7,9 +7,9 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
-import { Link } from 'lib/components/Link'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { IconSettings } from 'lib/components/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { IconSettings } from 'lib/lemon-ui/icons'
 
 import { PathCleaningFilter, PathCleaningFilterDataExploration } from '../filters/PathCleaningFilter'
 

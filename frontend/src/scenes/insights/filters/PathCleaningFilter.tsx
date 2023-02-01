@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -6,12 +5,9 @@ import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EditorFilterProps, PathsFilterType, QueryEditorFilterProps } from '~/types'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch } from '@posthog/lemon-ui'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { Popup } from 'lib/components/Popup/Popup'
-import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'
-import { IconPlus } from 'lib/components/icons'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function PathCleaningFilterDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
@@ -36,55 +32,15 @@ export function PathCleaningFilterComponent({
     local_path_cleaning_filters,
     path_replacements,
 }: PathCleaningFilterComponentProps): JSX.Element {
-    const [open, setOpen] = useState(false)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
     return (
-        <div>
+        <>
             <PathCleanFilters
-                pageKey="pathcleanfilters-local"
-                pathCleaningFilters={local_path_cleaning_filters || []}
-                onChange={(newItem) => {
-                    setFilter({
-                        local_path_cleaning_filters: [...(local_path_cleaning_filters || []), newItem],
-                    })
-                }}
-                onRemove={(index) => {
-                    const newState = (local_path_cleaning_filters || []).filter((_, i) => i !== index)
-                    setFilter({ local_path_cleaning_filters: newState })
-                }}
+                filters={local_path_cleaning_filters}
+                setFilters={(filters) => setFilter({ local_path_cleaning_filters: filters })}
             />
-            <Popup
-                visible={open}
-                placement="top-end"
-                fallbackPlacements={['top-start']}
-                onClickOutside={() => setOpen(false)}
-                overlay={
-                    <PathRegexPopup
-                        item={{}}
-                        onClose={() => setOpen(false)}
-                        onComplete={(newItem) => {
-                            setFilter({
-                                local_path_cleaning_filters: [...(local_path_cleaning_filters || []), newItem],
-                            })
-                            setOpen(false)
-                        }}
-                    />
-                }
-            >
-                <LemonButton
-                    onClick={() => setOpen(!open)}
-                    className={`mb-4 ${(local_path_cleaning_filters || []).length > 0 && 'mt-2'}`}
-                    data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
-                    type="secondary"
-                    icon={<IconPlus />}
-                    size="small"
-                >
-                    Add Rule
-                </LemonButton>
-            </Popup>
-
             <Tooltip
                 title={
                     hasFilters
@@ -93,7 +49,7 @@ export function PathCleaningFilterComponent({
                 }
             >
                 {/* This div is necessary for the tooltip to work. */}
-                <div className="inline-block">
+                <div className="inline-block mt-4">
                     <LemonSwitch
                         disabled={!hasFilters}
                         checked={hasFilters ? path_replacements || false : false}
@@ -106,6 +62,6 @@ export function PathCleaningFilterComponent({
                     />
                 </div>
             </Tooltip>
-        </div>
+        </>
     )
 }

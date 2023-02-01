@@ -4,9 +4,9 @@ import { billingLogic } from './billingLogic'
 import { BillingSubscribedTheme } from './BillingSubscribed'
 import { compactNumber } from 'lib/utils'
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconCancel } from 'lib/components/icons'
+import { IconCancel } from 'lib/lemon-ui/icons'
 import { BillingLockedV2 } from './v2/BillingLocked'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 
 export const scene: SceneExport = {
     component: BillingLocked,

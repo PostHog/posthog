@@ -42,6 +42,7 @@ import {
 } from './utils'
 import {
     ActionFilter,
+    AnyPropertyFilter,
     ElementType,
     EventType,
     FilterLogicalOperator,
@@ -710,14 +711,25 @@ describe('convertPropertyGroupToProperties()', () => {
         const propertyGroup = {
             type: FilterLogicalOperator.And,
             values: [
-                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }, { key: '$current_url' }] },
-                { type: FilterLogicalOperator.And, values: [{ key: '$lib' }] },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                        { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                    ] as AnyPropertyFilter[],
+                },
+                {
+                    type: FilterLogicalOperator.And,
+                    values: [
+                        { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+                    ] as AnyPropertyFilter[],
+                },
             ],
         }
         expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([
-            { key: '$browser' },
-            { key: '$current_url' },
-            { key: '$lib' },
+            { key: '$browser', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+            { key: '$current_url', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
+            { key: '$lib', type: PropertyFilterType.Event, operator: PropertyOperator.IsSet },
         ])
     })
 
@@ -727,9 +739,9 @@ describe('convertPropertyGroupToProperties()', () => {
             values: [
                 {
                     type: FilterLogicalOperator.And,
-                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' }] }],
+                    values: [{ type: FilterLogicalOperator.And, values: [{ key: '$lib' } as any] }],
                 },
-                { type: FilterLogicalOperator.And, values: [{ key: '$browser' }] },
+                { type: FilterLogicalOperator.And, values: [{ key: '$browser' } as any] },
             ],
         }
         expect(convertPropertyGroupToProperties(propertyGroup)).toEqual([{ key: '$lib' }, { key: '$browser' }])
@@ -738,7 +750,7 @@ describe('convertPropertyGroupToProperties()', () => {
 
 describe('convertPropertiesToPropertyGroup', () => {
     it('converts properties to one AND operator property group', () => {
-        const properties = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
+        const properties: any[] = [{ key: '$lib' }, { key: '$browser' }, { key: '$current_url' }]
         expect(convertPropertiesToPropertyGroup(properties)).toEqual({
             type: FilterLogicalOperator.And,
             values: [

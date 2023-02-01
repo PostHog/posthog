@@ -2,7 +2,6 @@ export const capabilitiesInfo: Record<string, string> = {
     processEvent: 'Read + modify access to events before ingestion',
     processEventBatch: 'Read + modify access to events before ingestion, in batches',
     onEvent: 'Read-only access to events',
-    onSnapshot: 'Read-only access to session recording events',
     exportEvents: 'Read-only access to events, optimized for export',
     runEveryMinute: 'Runs a task every minute',
     runEveryHour: 'Runs a task every hour',

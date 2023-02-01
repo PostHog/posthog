@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export interface InlineHogQLEditorProps {
@@ -38,6 +38,11 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
             >
                 {value ? 'Update HogQL expression' : 'Add HogQL expression'}
             </LemonButton>
+            <div className="text-right">
+                <a href="https://github.com/PostHog/meta/issues/86" target={'_blank'}>
+                    Learn more about HogQL
+                </a>
+            </div>
         </div>
     )
 }

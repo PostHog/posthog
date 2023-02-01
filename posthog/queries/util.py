@@ -88,16 +88,6 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
-def start_of_week_fix(interval: Optional[str]) -> str:
-    """
-    toStartOfWeek is the only trunc function that takes three arguments:
-      toStartOfWeek(timestamp, mode, timezone)
-    Mode is whether the week starts on sunday or monday, with 0 being sunday.
-    This function adds mode to the trunc_func, but only if the interval is week
-    """
-    return ", 0" if interval and interval.lower() == "week" else ""
-
-
 def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
         date_obj = date_obj.replace(tzinfo=timezone.utc)

@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Popup } from 'lib/components/Popup/Popup'
-import { LemonSnack } from '../LemonSnack/LemonSnack'
+import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import React, { useState } from 'react'
 
 interface EventSelectProps {

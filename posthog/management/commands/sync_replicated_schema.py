@@ -27,11 +27,6 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-
-        if not settings.CLICKHOUSE_REPLICATION:
-            logger.info("✅ Skipping sync_replicated_schema because CLICKHOUSE_REPLICATION=False")
-            return
-
         if is_cloud():
             logger.info("✅ Skipping sync_replicated_schema because is_cloud=true")
             return

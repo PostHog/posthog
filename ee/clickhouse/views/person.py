@@ -25,7 +25,7 @@ class EnterprisePersonViewSet(PersonViewSet):
     ) -> Dict[str, Tuple[List, Optional[str], Optional[str], int]]:
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
         if not filter.correlation_person_limit:
-            filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
+            filter = filter.shallow_clone({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
         base_uri = request.build_absolute_uri("/")
         actors, serialized_actors, raw_count = FunnelCorrelationActors(
             filter=filter, team=self.team, base_uri=base_uri
