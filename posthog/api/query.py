@@ -11,6 +11,7 @@ from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.hogql.hogql import HogQLContext, translate_hogql
 from posthog.hogql.parser import parse_statement
 from posthog.models import Team
 from posthog.models.event.query_event_list import run_events_query
@@ -86,9 +87,11 @@ def process_query(team: Team, query_json: Dict) -> Dict:
         try:
             hogql_node = HogQLQuery.parse_obj(query_json)
             ast_node = parse_statement(hogql_node.query)
+            clickhouse_sql = translate_hogql(hogql_node.query, HogQLContext(select_team_id=team.pk))
             return {
                 "query": hogql_node.query,
                 "parsed": True,
+                "clickhouseSQL": clickhouse_sql,
                 "ast": {"select": ast_node.dict()},
             }
         except Exception as e:

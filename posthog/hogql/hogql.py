@@ -3,10 +3,10 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Literal, Optional
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_statement
 
 # fields you can select from in the events query
-EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
+EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id", "team_id"]
 # "person.*" fields you can select from in the events query
 EVENT_PERSON_FIELDS = ["id", "created_at", "properties"]
 
@@ -141,6 +141,8 @@ class HogQLContext:
     # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
     using_person_on_events: bool = True
+    # If set, allows parsing full SELECT queries
+    select_team_id: Optional[int] = None
 
 
 def translate_hogql(query: str, context: HogQLContext) -> str:
@@ -155,7 +157,10 @@ def translate_hogql(query: str, context: HogQLContext) -> str:
         query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
 
     try:
-        node = parse_expr(query)
+        if context.select_team_id:
+            node = parse_statement(query)
+        else:
+            node = parse_expr(query)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
     except NotImplementedError as err:
@@ -166,7 +171,38 @@ def translate_hogql(query: str, context: HogQLContext) -> str:
 def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
-    if isinstance(node, ast.BinaryOperation):
+    if isinstance(node, ast.Select):
+        if not context.select_team_id:
+            raise ValueError("SELECT queries are not allowed if select_team_id is not set")
+
+        columns = [translate_ast(column, stack, context) for column in node.columns] if node.columns else None
+
+        team_clause: ast.Expr = ast.CompareOperation(
+            left=ast.FieldAccess(field="team_id"),
+            op=ast.CompareOperationType.Eq,
+            right=ast.Constant(value=context.select_team_id),
+        )
+
+        if isinstance(node.where, ast.BooleanOperation) and node.where.op == ast.BooleanOperationType.And:
+            values = node.where.values
+            where = ast.BooleanOperation(op=ast.BooleanOperationType.And, values=[team_clause] + values)
+        elif node.where:
+            where = ast.BooleanOperation(op=ast.BooleanOperationType.And, values=[team_clause, node.where])
+        else:
+            where = team_clause
+        where = translate_ast(where, stack, context)
+
+        having = translate_ast(node.having, stack, context) if node.having else None
+        prewhere = translate_ast(node.prewhere, stack, context) if node.prewhere else None
+        clauses = [
+            f"SELECT {','.join(columns)}" "FROM events",
+            "WHERE " + where if where else None,
+            "HAVING " + having if having else None,
+            "PREWHERE " + prewhere if prewhere else None,
+        ]
+        response = " ".join([clause for clause in clauses if clause])
+
+    elif isinstance(node, ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
             response = f"plus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
         elif node.op == ast.BinaryOperationType.Sub:
