@@ -618,3 +618,35 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         results = filter_persons_with_property_group(filter, self.team)
         self.assertEqual(len(results), 1)
         self.assertEqual(["person3"], results)
+
+    def test_property_group_to_q_with_behavioural_cohort(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {"type": "person", "key": "bla", "value": 1},
+                                {"type": "cohort", "key": "id", "value": cohort2.pk},
+                            ],
+                        },
+                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                    ],
+                }
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            filter_persons_with_property_group(filter, self.team)
