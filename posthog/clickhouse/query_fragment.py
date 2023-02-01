@@ -2,56 +2,83 @@ import itertools
 import re
 from dataclasses import dataclass
 from functools import cached_property
-from typing import Any, Dict, List, Sequence, Tuple, Union, cast
+from typing import Any, Dict, List, Mapping, Sequence, Tuple, Union
 
 ParamValueType = Union[str, int, float, None, List]
-ParamsType = Dict[str, ParamValueType]
-QueryFragmentLike = Union["QueryFragment", "UniqueName", str]
+QueryFragmentLike = Union["QueryFragment", str]
 
 unique_sequence = itertools.count()
+
+
+@dataclass(frozen=True)
+class Param:
+    value: ParamValueType
 
 
 @dataclass
 class QueryFragment:
     sql: str
-    params: ParamsType
+    params: Dict[str, Param]
 
-    def __init__(self, sql: Union[str, "QueryFragment", Tuple[str, Any]], params: ParamsType = {}):
+    def __init__(
+        self,
+        sql: Union[str, "QueryFragment"],
+        params_and_fragments: Mapping[str, Union["Param", "QueryFragment"]] = {},
+        **kwargs: Union["Param", "QueryFragment"],
+    ):
+        if len(kwargs) > 0 and len(params_and_fragments) > 0:
+            raise ValueError("Cannot pass params as both kwargs and via positioned arguments")
+
+        params_and_fragments = params_and_fragments if len(params_and_fragments) > 0 else kwargs
         if isinstance(sql, str):
             self.sql = sql
-            self._params = params
+            self._params = params_and_fragments
         elif isinstance(sql, QueryFragment):
             self.sql = sql.sql
-            self._params = cast(ParamsType, sql.params)
-        else:
-            self.sql, self._params = sql
+            self._params = sql.params
 
-        self._update_sql_with_unique_param_names()
+            if len(params_and_fragments) > 0:
+                raise ValueError("Cannot pass both a QueryFragment object and params to a new QueryFragment")
 
-    def format(self, **fragments: QueryFragmentLike) -> "QueryFragment":
-        new_params = {**self.params}
-        for fragment in fragments.values():
-            if isinstance(fragment, QueryFragment):
-                new_params.update(fragment.params)
+        self._update_sql()
 
-        return QueryFragment(
-            self.sql.format(**{key: _get_sql(fragment) for key, fragment in fragments.items()}), new_params
-        )
+    @property
+    def query_params(self):
+        "Returns params in format clickhouse expects (removing Param wrapping)"
+        return {key: prop.value for key, prop in self.params.items()}
+
+    @staticmethod
+    def from_tuple(pair: Tuple[str, Any]) -> "QueryFragment":
+        sql, params = pair
+        return QueryFragment(sql, {key: Param(value) for key, value in params.items()})
 
     @staticmethod
     def join(by: str, fragments: Sequence[QueryFragmentLike]) -> "QueryFragment":
-        indexed = {f"k{key}": fragment for key, fragment in enumerate(fragments)}
-        unformatted_sql = by.join("{" + key + "}" for key in indexed.keys())
-        return QueryFragment(unformatted_sql).format(**indexed)
+        fragment_params = {f"k{key}": QueryFragment(fragment) for key, fragment in enumerate(fragments)}
+        unformatted_sql = by.join("{" + key + "}" for key in fragment_params.keys())
+        return QueryFragment(unformatted_sql, fragment_params)
 
-    def _update_sql_with_unique_param_names(self):
+    def _update_sql(self):
         self.params = {}
+        format_kwargs = {}
         for key, value in self._params.items():
             if isinstance(key, UniqueName):
+                if isinstance(value, QueryFragment):
+                    raise ValueError("Cannot combine UniqueName and QueryFragments")
+
                 self.sql = re.sub(f"\\b{re.escape(key.name)}\\b", key.unique_name, self.sql)
                 self.params[key.unique_name] = value
+            elif isinstance(value, QueryFragment):
+                format_kwargs[key] = value.sql
+                self.params.update(value.params)
             else:
+                if not isinstance(value, Param):
+                    raise ValueError("QueryFragment parameters should be either QueryFragment or Param objects")
+
                 self.params[key] = value
+
+        if len(format_kwargs) > 0:
+            self.sql = self.sql.format(**format_kwargs)
 
     def __repr__(self):
         return f"QueryFragment({repr(self.sql)}, {repr(self.params)})"
@@ -70,12 +97,3 @@ class UniqueName(str):
 def reset_unique_sequence():
     global unique_sequence
     unique_sequence = itertools.count()
-
-
-def _get_sql(fragment: QueryFragmentLike) -> str:
-    if isinstance(fragment, QueryFragment):
-        return fragment.sql
-    elif isinstance(fragment, UniqueName):
-        return fragment.unique_name
-    else:
-        return fragment
