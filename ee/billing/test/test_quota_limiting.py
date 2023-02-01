@@ -1,11 +1,11 @@
 from uuid import uuid4
 
-from posthog.redis import get_client
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from ee.billing.quota_limiting import RATE_LIMITER_CACHE_KEY, update_all_org_billing_quotas
+from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
 
 
