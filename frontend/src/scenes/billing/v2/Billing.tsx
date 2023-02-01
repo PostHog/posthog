@@ -86,7 +86,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </AlertMessage>
             ) : null}
-            {!billing?.billing_period && cloudOrDev && (
+            {!billing?.has_active_subscription && cloudOrDev && (
                 <>
                     <div className="my-8">
                         <BillingHero />
@@ -111,10 +111,16 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                                 <b>{billing.billing_period.current_period_end.format('LL')}</b>
                             </p>
 
-                            <LemonLabel info={'This is the current amount you have been billed for this month so far.'}>
-                                Current bill total
-                            </LemonLabel>
-                            <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+                            {billing?.has_active_subscription && (
+                                <>
+                                    <LemonLabel
+                                        info={'This is the current amount you have been billed for this month so far.'}
+                                    >
+                                        Current bill total
+                                    </LemonLabel>
+                                    <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+                                </>
+                            )}
 
                             <p>
                                 <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
