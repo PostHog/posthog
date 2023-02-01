@@ -2700,14 +2700,14 @@
                          toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-08 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toDateTime(n), range(toUInt32(toDateTime(toStartOfDay(date_from))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                      timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
                   arrayJoin(event_buckets) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     arrayMap(n -> toDateTime(n), range(toUInt32(toDateTime(toStartOfDay(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC')))), toUInt32(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,

@@ -60,7 +60,7 @@ ACTIVE_USERS_SQL = """
 WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
 toDateTime(%(date_from)s, %(timezone)s) AS date_from,
 arrayMap(
-    n -> n,
+    n -> toDateTime(n),
     range(
         toUInt32(toDateTime({interval}(date_from))),
         toUInt32(date_to),
@@ -78,7 +78,7 @@ FROM (
         SELECT
             {aggregator} as actor_id,
             arrayMap(
-                n -> n,
+                n -> toDateTime(n),
                 range(
                     toUInt32(toDateTime({rounding_func}(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC')))),
                     toUInt32(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC') + INTERVAL {prev_interval}),
