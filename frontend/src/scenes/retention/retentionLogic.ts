@@ -4,8 +4,7 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isRetentionFilter } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
-import { actionsModel } from '~/models/actionsModel'
-import { ActionType, InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
+import { InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
 
@@ -16,12 +15,7 @@ export const retentionLogic = kea<retentionLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [
-            insightLogic(props),
-            ['filters as inflightFilters', 'insight', 'insightLoading'],
-            actionsModel,
-            ['actions'],
-        ],
+        values: [insightLogic(props), ['filters as inflightFilters', 'insight', 'insightLoading']],
     }),
     actions: () => ({
         setFilters: (filters: Partial<RetentionFilterType>) => ({ filters }),
@@ -44,10 +38,6 @@ export const retentionLogic = kea<retentionLogicType>({
             },
         ],
         resultsLoading: [(s) => [s.insightLoading], (insightLoading) => insightLoading],
-        actionsLookup: [
-            (s) => [s.actions],
-            (actions: ActionType[]) => Object.assign({}, ...actions.map((action) => ({ [action.id]: action.name }))),
-        ],
     },
     listeners: ({ values, props }) => ({
         setFilters: ({ filters }) => {
