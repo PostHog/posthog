@@ -56,7 +56,10 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                     ? points.pointsIntersectingClick[0].dataset.index
                     : points.pointsIntersectingLine[0].dataset.index
 
-                openModal(rowIndex)
+                // we should always have a rowIndex, but adding a guard nonetheless
+                if (rowIndex) {
+                    openModal(rowIndex)
+                }
             }}
             incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
         />

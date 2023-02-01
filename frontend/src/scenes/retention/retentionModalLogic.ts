@@ -23,7 +23,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     }),
     actions: () => ({
-        openModal: (rowIndex?: number) => ({ rowIndex }),
+        openModal: (rowIndex: number) => ({ rowIndex }),
         closeModal: true,
     }),
     reducers: {
@@ -37,7 +37,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
         selectedRow: [
             null as number | null,
             {
-                openModal: (_, { rowIndex }) => rowIndex || null,
+                openModal: (_, { rowIndex }) => rowIndex,
             },
         ],
     },
@@ -51,9 +51,7 @@ export const retentionModalLogic = kea<retentionModalLogicType>({
     },
     listeners: ({ actions }) => ({
         openModal: ({ rowIndex }) => {
-            if (rowIndex) {
-                actions.loadPeople(rowIndex)
-            }
+            actions.loadPeople(rowIndex)
         },
     }),
 })

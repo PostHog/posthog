@@ -71,7 +71,7 @@ export function RetentionModal(): JSX.Element | null {
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
-                                    {results?.[selectedRow]?.values?.map((data: any, index: number) => (
+                                    {results[selectedRow]?.values?.map((data: any, index: number) => (
                                         <th key={index}>
                                             <div>{results[index].label}</div>
                                             <div>
