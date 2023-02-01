@@ -1,5 +1,6 @@
 from datetime import timedelta
-from typing import Dict, List, Optional, Sequence, TypedDict
+from enum import Enum
+from typing import Dict, List, Mapping, Optional, Sequence, TypedDict
 
 from django.db.models import Q
 from django.utils import timezone
@@ -18,34 +19,24 @@ from posthog.utils import get_current_day
 RATE_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 
 
-class QUOTA_RESOURCES:
+class QuotaResource(Enum):
     EVENTS = "events"
     RECORDINGS = "recordings"
 
 
-def add_limited_teams(resource: str, teams: dict) -> None:
-    redis_client = get_client()
-    redis_client.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource}", teams)
-
-
-def remove_limited_teams(resource: str, teams: List[str]) -> None:
-    redis_client = get_client()
-    redis_client.zrem(f"{RATE_LIMITER_CACHE_KEY}{resource}", *teams)
-
-
-def replace_limited_teams(resource: str, teams: dict) -> None:
+def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
     pipe = get_client().pipeline()
-    pipe.zremrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource}", "-inf", "+inf")
-    if teams:
-        pipe.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource}", teams)
+    pipe.zremrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", "-inf", "+inf")
+    if tokens:
+        pipe.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
 
 
-@cache_for(timedelta(seconds=30))
-def list_limited_teams(resource: str) -> List[str]:
+@cache_for(timedelta(seconds=30), background_refresh=True)
+def list_limited_teams(resource: QuotaResource) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
-    results = redis_client.zrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource}", min=now.timestamp(), max="+inf")
+    results = redis_client.zrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
 
 

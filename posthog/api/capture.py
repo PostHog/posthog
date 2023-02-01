@@ -18,7 +18,6 @@ from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 
-from ee.billing.quota_limiting import QUOTA_RESOURCES
 from posthog.api.utils import (
     EventIngestionContext,
     get_data,
@@ -33,7 +32,6 @@ from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
-from posthog.settings import EE_AVAILABLE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -77,7 +75,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     kafka_topic = (
         KAFKA_SESSION_RECORDING_EVENTS
         if event_name in SESSION_RECORDING_EVENT_NAMES
-        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
     )
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
@@ -204,25 +202,27 @@ def _ensure_web_feature_flags_in_properties(
 
 
 def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
-    if not EE_AVAILABLE:
+    if not settings.EE_AVAILABLE:
         return events
 
-    from ee.billing.quota_limiting import list_limited_teams
+    from ee.billing.quota_limiting import QuotaResource, list_limited_teams
 
     results = []
-    limited_tokens_events = list_limited_teams(QUOTA_RESOURCES.EVENTS)
-    limited_tokens_recordings = list_limited_teams(QUOTA_RESOURCES.RECORDINGS)
+    limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
 
     for event in events:
         if event.get("event") == "$snapshot":
             if token in limited_tokens_recordings:
                 statsd.incr("events_dropped_over_quota", tags={"resource": "recordings", "token": token})
-                # TODO: Uncomment this once we are happy with the logic
-                # continue
+
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
+
         elif token in limited_tokens_events:
             statsd.incr("events_dropped_over_quota", tags={"resource": "events", "token": token})
-            # TODO: Uncomment this once we are happy with the logic
-            # continue
+            if settings.QUOTA_LIMITING_ENABLED:
+                continue
 
         results.append(event)
 
@@ -292,6 +292,12 @@ def get_event(request):
             events = [data]
 
         events = drop_events_over_quota(token, events)
+
+        try:
+            events = drop_events_over_quota(token, events)
+        except Exception as e:
+            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+            capture_exception(e)
 
         try:
             events = preprocess_session_recording_events_for_clickhouse(events)
