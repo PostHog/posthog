@@ -5,7 +5,6 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { isRetentionFilter } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
-import { Noun, groupsModel } from '~/models/groupsModel'
 import { ActionType, InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
 
 import type { retentionLogicType } from './retentionLogicType'
@@ -22,8 +21,6 @@ export const retentionLogic = kea<retentionLogicType>({
             ['filters as inflightFilters', 'insight', 'insightLoading'],
             actionsModel,
             ['actions'],
-            groupsModel,
-            ['aggregationLabel'],
         ],
     }),
     actions: () => ({
@@ -57,12 +54,6 @@ export const retentionLogic = kea<retentionLogicType>({
         retentionReference: [
             (selectors) => [selectors.filters],
             ({ retention_reference }) => retention_reference ?? 'total',
-        ],
-        aggregationTargetLabel: [
-            (s) => [s.filters, s.aggregationLabel],
-            (filters, aggregationLabel): Noun => {
-                return aggregationLabel(filters.aggregation_group_type_index)
-            },
         ],
     },
     listeners: ({ actions, values, props }) => ({

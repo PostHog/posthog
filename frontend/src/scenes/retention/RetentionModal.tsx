@@ -15,20 +15,15 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from './retentionLogic'
 import { retentionPeopleLogic } from './retentionPeopleLogic'
+import { retentionModalLogic } from './retentionModalLogic'
 
-export function RetentionModal({
-    visible,
-    selectedRow,
-    dismissModal,
-}: {
-    visible: boolean
-    selectedRow: number
-    dismissModal: () => void
-}): JSX.Element | null {
+export function RetentionModal(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { results, aggregationTargetLabel } = useValues(retentionLogic(insightProps))
+    const { results } = useValues(retentionLogic(insightProps))
     const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
     const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+    const { aggregationTargetLabel, isVisible, selectedRow } = useValues(retentionModalLogic(insightProps))
+    const { closeModal } = useActions(retentionModalLogic(insightProps))
 
     if (!results) {
         return null
@@ -36,11 +31,11 @@ export function RetentionModal({
 
     return (
         <LemonModal
-            isOpen={visible}
-            onClose={dismissModal}
+            isOpen={isVisible}
+            onClose={closeModal}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={dismissModal}>
+                    <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
                     <LemonButton

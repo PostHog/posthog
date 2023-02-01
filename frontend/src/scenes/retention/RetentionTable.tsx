@@ -1,16 +1,14 @@
-import { useState, useEffect } from 'react'
 import { useValues, useActions } from 'kea'
 import clsx from 'clsx'
 import { dayjs } from 'lib/dayjs'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { retentionLogic } from './retentionLogic'
-import { retentionPeopleLogic } from './retentionPeopleLogic'
+import { retentionTableLogic } from './retentionTableLogic'
+import { retentionModalLogic } from './retentionModalLogic'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { RetentionModal } from './RetentionModal'
 import './RetentionTable.scss'
-import { retentionTableLogic } from './retentionTableLogic'
 
 export function RetentionTable({ inCardView = false }: { inCardView?: boolean }): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -20,10 +18,7 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
         filters: { period, date_to },
     } = useValues(retentionLogic(insightProps))
     const { tableHeaders, tableRows } = useValues(retentionTableLogic(insightProps))
-    const { loadPeople } = useActions(retentionPeopleLogic(insightProps))
-
-    const [modalVisible, setModalVisible] = useState(false)
-    const [selectedRow, setSelectedRow] = useState(0)
+    const { openModal } = useActions(retentionModalLogic(insightProps))
 
     const isLatestPeriod = periodIsLatest(date_to || null, period || null)
 
@@ -32,51 +27,42 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
     }
 
     return (
-        <>
-            <table className="RetentionTable" data-attr="retention-table">
-                <tbody>
-                    <tr>
-                        {tableHeaders.map((heading) => (
-                            <th key={heading}>{heading}</th>
+        <table className="RetentionTable" data-attr="retention-table">
+            <tbody>
+                <tr>
+                    {tableHeaders.map((heading) => (
+                        <th key={heading}>{heading}</th>
+                    ))}
+                </tr>
+
+                {tableRows.map((row, rowIndex) => (
+                    <tr
+                        key={rowIndex}
+                        onClick={() => {
+                            if (!inCardView) {
+                                openModal(rowIndex)
+                            }
+                        }}
+                    >
+                        {row.map((column, columnIndex) => (
+                            <td key={columnIndex}>
+                                {columnIndex <= 1 ? (
+                                    <span className="RetentionTable__TextTab" key={'columnIndex'}>
+                                        {column}
+                                    </span>
+                                ) : (
+                                    renderPercentage(
+                                        column.percentage,
+                                        isLatestPeriod && columnIndex === row.length - 1,
+                                        columnIndex === 2 // First result column renders differently
+                                    )
+                                )}
+                            </td>
                         ))}
                     </tr>
-
-                    {tableRows.map((row, rowIndex) => (
-                        <tr
-                            key={rowIndex}
-                            onClick={() => {
-                                if (!inCardView && rowIndex !== undefined) {
-                                    loadPeople(rowIndex)
-                                    setModalVisible(true)
-                                    setSelectedRow(rowIndex)
-                                }
-                            }}
-                        >
-                            {row.map((column, columnIndex) => (
-                                <td key={columnIndex}>
-                                    {columnIndex <= 1 ? (
-                                        <span className="RetentionTable__TextTab" key={'columnIndex'}>
-                                            {column}
-                                        </span>
-                                    ) : (
-                                        renderPercentage(
-                                            column.percentage,
-                                            isLatestPeriod && columnIndex === row.length - 1,
-                                            columnIndex === 2 // First result column renders differently
-                                        )
-                                    )}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-            <RetentionModal
-                selectedRow={selectedRow}
-                visible={modalVisible}
-                dismissModal={() => setModalVisible(false)}
-            />
-        </>
+                ))}
+            </tbody>
+        </table>
     )
 }
 
