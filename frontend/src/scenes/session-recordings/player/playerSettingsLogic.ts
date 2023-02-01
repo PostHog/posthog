@@ -1,7 +1,8 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SharedListMiniFilter = {
     tab: SessionRecordingPlayerTab
@@ -309,4 +310,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
     }),
+    listeners(({ values }) => ({
+        setTab: ({ tab }) => {
+            eventUsageLogic.actions.reportRecordingInspectorTabViewed(tab)
+        },
+        setMiniFilter: ({ key, enabled }) => {
+            if (enabled) {
+                eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(values.tab, key)
+            }
+        },
+    })),
 ])
