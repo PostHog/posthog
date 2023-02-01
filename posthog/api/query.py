@@ -11,13 +11,10 @@ from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.clickhouse.client.connection import Workload
-from posthog.hogql.hogql import HogQLContext, translate_hogql
-from posthog.hogql.parser import parse_statement
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.query_event_list import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.insight import insight_sync_execute
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery
 
@@ -86,32 +83,7 @@ def process_query(team: Team, query_json: Dict) -> Dict:
             "hasMore": query_result.hasMore,
         }
     elif query_kind == "HogQLQuery":
-        try:
-            hogql_node = HogQLQuery.parse_obj(query_json)
-            ast_node = parse_statement(hogql_node.query)
-            hogql_context = HogQLContext(select_team_id=team.pk)
-            clickhouse_sql = translate_hogql(hogql_node.query, hogql_context)
-            results, types = insight_sync_execute(
-                clickhouse_sql,
-                hogql_context.values,
-                with_column_types=True,
-                query_type="hogql_query",
-                workload=Workload.ONLINE,
-            )
-            return {
-                "query": hogql_node.query,
-                "parsed": True,
-                "clickhouseSQL": clickhouse_sql,
-                "results": results,
-                "types": types,
-                "ast": {"select": ast_node.dict()},
-            }
-        except Exception as e:
-            return {
-                "query": query_json.get("query"),
-                "parsed": False,
-                "error": str(e),
-            }
-
+        hogql_node = HogQLQuery.parse_obj(query_json)
+        return execute_hogql_query(hogql_node.query, team).dict()
     else:
         raise ValidationError("Unsupported query kind: %s" % query_kind)
