@@ -32,7 +32,6 @@ from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -76,7 +75,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     kafka_topic = (
         KAFKA_SESSION_RECORDING_EVENTS
         if event_name in SESSION_RECORDING_EVENT_NAMES
-        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
     )
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
@@ -202,6 +201,36 @@ def _ensure_web_feature_flags_in_properties(
                 event["properties"][f"$feature/{k}"] = v
 
 
+def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
+    if not settings.EE_AVAILABLE:
+        return events
+
+    from ee.billing.quota_limiting import QuotaResource, list_limited_teams
+
+    results = []
+    # TODO: these function calls should have a timeout wrapper
+    limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
+
+    print("wat", settings.QUOTA_LIMITING_ENABLED)
+    for event in events:
+        if event.get("event") == "$snapshot":
+            if token in limited_tokens_recordings:
+                statsd.incr("events_dropped_over_quota", tags={"resource": "recordings", "token": token})
+
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
+
+        elif token in limited_tokens_events:
+            statsd.incr("events_dropped_over_quota", tags={"resource": "events", "token": token})
+            if settings.QUOTA_LIMITING_ENABLED:
+                continue
+
+        results.append(event)
+
+    return results
+
+
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -263,6 +292,8 @@ def get_event(request):
             events = data
         else:
             events = [data]
+
+        events = drop_events_over_quota(token, events)
 
         try:
             events = preprocess_session_recording_events_for_clickhouse(events)
