@@ -57,7 +57,7 @@ export function RetentionModal(): JSX.Element | null {
                 </>
             }
             width={isEmpty ? undefined : '90%'}
-            title={dayjs(row.date).format('MMMM D, YYYY')}
+            title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
         >
             {people && !!people.missing_persons && (
                 <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
