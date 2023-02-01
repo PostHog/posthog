@@ -1,23 +1,13 @@
-from typing import List, Union
-
-from pydantic import BaseModel
+from typing import List
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
-from posthog.hogql.ast_visitors import has_aggregation
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.utils import action_to_expr, has_aggregation, property_to_expr
 from posthog.models import Action, Team
 from posthog.models.event.query_event_list import QUERY_DEFAULT_LIMIT, QUERY_MAXIMUM_LIMIT, EventsQueryResponse
 from posthog.schema import EventsQuery
-
-
-def action_to_expr(action: Action) -> ast.Expr:
-    raise NotImplementedError("action_to_expr not implemented")
-
-
-def property_to_expr(properties: Union[BaseModel, dict]) -> ast.Expr:
-    raise NotImplementedError("property_to_expr not implemented")
 
 
 def run_events_query_v2(
