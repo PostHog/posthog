@@ -1,9 +1,5 @@
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-    RetentionTableAppearanceType,
-} from 'scenes/retention/types'
+import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { dayjs } from 'lib/dayjs'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import './RetentionTable.scss'
@@ -15,29 +11,29 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import clsx from 'clsx'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
-import { Noun } from '~/models/groupsModel'
+import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { retentionLogic } from './retentionLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
 
 export function RetentionModal({
-    results,
     visible,
     selectedRow,
     dismissModal,
-    actorsLoading,
-    actors,
-    loadMore,
-    loadingMore,
-    aggregationTargetLabel,
 }: {
-    results: RetentionTablePayload[]
     visible: boolean
     selectedRow: number
     dismissModal: () => void
-    loadMore: () => void
-    actorsLoading: boolean
-    loadingMore: boolean
-    actors: RetentionTablePeoplePayload
-    aggregationTargetLabel: Noun
 }): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { results, aggregationTargetLabel } = useValues(retentionLogic(insightProps))
+    const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+
+    if (!results) {
+        return null
+    }
+
     return (
         <LemonModal
             isOpen={visible}
@@ -66,11 +62,11 @@ export function RetentionModal({
             width={results[selectedRow]?.values[0]?.count === 0 ? undefined : '90%'}
             title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
         >
-            {actors && !!actors.missing_persons && (
-                <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={actors.missing_persons} />
+            {people && !!people.missing_persons && (
+                <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
             )}
             <div className="min-h-20">
-                {actorsLoading ? (
+                {peopleLoading ? (
                     <SpinnerOverlay />
                 ) : results[selectedRow]?.values[0]?.count === 0 ? (
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
@@ -99,8 +95,8 @@ export function RetentionModal({
                                         </th>
                                     ))}
                                 </tr>
-                                {actors.result &&
-                                    actors.result.map((personAppearances: RetentionTableAppearanceType) => (
+                                {people.result &&
+                                    people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                         <tr key={personAppearances.person.id}>
                                             {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <td style={{ minWidth: 200 }}>
@@ -146,8 +142,8 @@ export function RetentionModal({
                             </tbody>
                         </table>
                         <div className="m-4 flex justify-center">
-                            {actors.next ? (
-                                <LemonButton type="primary" onClick={loadMore} loading={loadingMore}>
+                            {people.next ? (
+                                <LemonButton type="primary" onClick={loadMorePeople} loading={loadingMore}>
                                     Load more {aggregationTargetLabel.plural}
                                 </LemonButton>
                             ) : null}

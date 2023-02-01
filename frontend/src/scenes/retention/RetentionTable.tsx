@@ -18,11 +18,9 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
         results,
         resultsLoading,
         filters: { period, date_to },
-        aggregationTargetLabel,
     } = useValues(retentionLogic(insightProps))
     const { tableHeaders, tableRows } = useValues(retentionTableLogic(insightProps))
-    const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
-    const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+    const { loadPeople } = useActions(retentionPeopleLogic(insightProps))
 
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, setSelectedRow] = useState(0)
@@ -76,20 +74,11 @@ export function RetentionTable({ inCardView = false }: { inCardView?: boolean })
                     ))}
                 </tbody>
             </table>
-
-            {results && (
-                <RetentionModal
-                    results={results}
-                    actors={people}
-                    selectedRow={selectedRow}
-                    visible={modalVisible}
-                    dismissModal={() => setModalVisible(false)}
-                    actorsLoading={peopleLoading}
-                    loadMore={loadMorePeople}
-                    loadingMore={loadingMore}
-                    aggregationTargetLabel={aggregationTargetLabel}
-                />
-            )}
+            <RetentionModal
+                selectedRow={selectedRow}
+                visible={modalVisible}
+                dismissModal={() => setModalVisible(false)}
+            />
         </>
     )
 }

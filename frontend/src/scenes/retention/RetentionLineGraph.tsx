@@ -18,10 +18,9 @@ interface RetentionLineGraphProps {
 
 export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { results, filters, aggregationTargetLabel } = useValues(retentionLogic(insightProps))
+    const { filters } = useValues(retentionLogic(insightProps))
     const { trendSeries, incompletenessOffsetFromEnd } = useValues(retentionLineGraphLogic(insightProps))
-    const { people, peopleLoading, loadingMore } = useValues(retentionPeopleLogic(insightProps))
-    const { loadPeople, loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+    const { loadPeople } = useActions(retentionPeopleLogic(insightProps))
 
     const [modalVisible, setModalVisible] = useState(false)
     const [selectedRow, setSelectedRow] = useState(0)
@@ -70,19 +69,11 @@ export function RetentionLineGraph({ inSharedMode = false }: RetentionLineGraphP
                 }}
                 incompletenessOffsetFromEnd={incompletenessOffsetFromEnd}
             />
-            {results && (
-                <RetentionModal
-                    results={results}
-                    actors={people}
-                    selectedRow={selectedRow}
-                    visible={modalVisible}
-                    dismissModal={() => setModalVisible(false)}
-                    actorsLoading={peopleLoading}
-                    loadMore={() => loadMorePeople()}
-                    loadingMore={loadingMore}
-                    aggregationTargetLabel={aggregationTargetLabel}
-                />
-            )}
+            <RetentionModal
+                selectedRow={selectedRow}
+                visible={modalVisible}
+                dismissModal={() => setModalVisible(false)}
+            />
         </>
     ) : (
         <InsightEmptyState />
