@@ -2080,8 +2080,8 @@ def serializedATN():
         97,
         1,
         0,
-        194,
         195,
+        196,
         2,
         0,
         206,
@@ -3094,7 +3094,7 @@ def serializedATN():
         200,
         203,
         5,
-        195,
+        196,
         0,
         0,
         201,
@@ -6844,7 +6844,7 @@ def serializedATN():
         719,
         735,
         5,
-        195,
+        196,
         0,
         0,
         720,
@@ -7744,7 +7744,7 @@ def serializedATN():
         839,
         848,
         5,
-        193,
+        194,
         0,
         0,
         840,
@@ -7762,7 +7762,7 @@ def serializedATN():
         842,
         843,
         5,
-        195,
+        196,
         0,
         0,
         843,
@@ -7852,19 +7852,19 @@ def serializedATN():
         853,
         859,
         5,
-        194,
+        195,
         0,
         0,
         854,
         859,
         5,
-        195,
+        196,
         0,
         0,
         855,
         859,
         5,
-        196,
+        197,
         0,
         0,
         856,
@@ -8002,7 +8002,7 @@ def serializedATN():
         871,
         874,
         5,
-        192,
+        193,
         0,
         0,
         872,
@@ -8032,7 +8032,7 @@ def serializedATN():
         875,
         879,
         5,
-        192,
+        193,
         0,
         0,
         876,
@@ -8679,12 +8679,12 @@ class HogQLParser(Parser):
         "YEAR",
         "JSON_FALSE",
         "JSON_TRUE",
+        "ESCAPE_CHAR",
         "IDENTIFIER",
         "FLOATING_LITERAL",
         "OCTAL_LITERAL",
         "DECIMAL_LITERAL",
         "HEXADECIMAL_LITERAL",
-        "ESCAPE_CHAR",
         "STRING_LITERAL",
         "ARROW",
         "ASTERISK",
@@ -9040,12 +9040,12 @@ class HogQLParser(Parser):
     YEAR = 189
     JSON_FALSE = 190
     JSON_TRUE = 191
-    IDENTIFIER = 192
-    FLOATING_LITERAL = 193
-    OCTAL_LITERAL = 194
-    DECIMAL_LITERAL = 195
-    HEXADECIMAL_LITERAL = 196
-    ESCAPE_CHAR = 197
+    ESCAPE_CHAR = 192
+    IDENTIFIER = 193
+    FLOATING_LITERAL = 194
+    OCTAL_LITERAL = 195
+    DECIMAL_LITERAL = 196
+    HEXADECIMAL_LITERAL = 197
     STRING_LITERAL = 198
     ARROW = 199
     ASTERISK = 200
@@ -11534,7 +11534,7 @@ class HogQLParser(Parser):
             self.state = 435
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [32, 81, 112, 174, 193, 194, 195, 196, 206, 208, 220]:
+            if token in [32, 81, 112, 174, 194, 195, 196, 197, 206, 208, 220]:
                 localctx = HogQLParser.FrameStartContext(self, localctx)
                 self.enterOuterAlt(localctx, 1)
                 self.state = 429
@@ -11950,8 +11950,8 @@ class HogQLParser(Parser):
                     and ((1 << (_la - 64)) & -1) != 0
                     or (((_la - 128)) & ~0x3F) == 0
                     and ((1 << (_la - 128)) & -5) != 0
-                    or (((_la - 192)) & ~0x3F) == 0
-                    and ((1 << (_la - 192)) & 289489247) != 0
+                    or (((_la - 193)) & ~0x3F) == 0
+                    and ((1 << (_la - 193)) & 144744639) != 0
                 ):
                     self.state = 496
                     self.columnExprList()
@@ -12113,7 +12113,7 @@ class HogQLParser(Parser):
                     or (((_la - 66)) & ~0x3F) == 0
                     and ((1 << (_la - 66)) & -633318697631745) != 0
                     or (((_la - 131)) & ~0x3F) == 0
-                    and ((1 << (_la - 131)) & 4611686018427387903) != 0
+                    and ((1 << (_la - 131)) & 6917529027641081855) != 0
                 ):
                     self.state = 511
                     self.tableIdentifier()
@@ -13140,8 +13140,8 @@ class HogQLParser(Parser):
                     and ((1 << (_la - 64)) & -1) != 0
                     or (((_la - 128)) & ~0x3F) == 0
                     and ((1 << (_la - 128)) & -5) != 0
-                    or (((_la - 192)) & ~0x3F) == 0
-                    and ((1 << (_la - 192)) & 289489247) != 0
+                    or (((_la - 193)) & ~0x3F) == 0
+                    and ((1 << (_la - 193)) & 144744639) != 0
                 ):
                     self.state = 587
                     self.columnExprList()
@@ -13177,8 +13177,8 @@ class HogQLParser(Parser):
                     and ((1 << (_la - 64)) & -1) != 0
                     or (((_la - 128)) & ~0x3F) == 0
                     and ((1 << (_la - 128)) & -5) != 0
-                    or (((_la - 192)) & ~0x3F) == 0
-                    and ((1 << (_la - 192)) & 289489247) != 0
+                    or (((_la - 193)) & ~0x3F) == 0
+                    and ((1 << (_la - 193)) & 144744639) != 0
                 ):
                     self.state = 599
                     self.columnExprList()
@@ -13213,8 +13213,8 @@ class HogQLParser(Parser):
                         and ((1 << (_la - 64)) & -1) != 0
                         or (((_la - 128)) & ~0x3F) == 0
                         and ((1 << (_la - 128)) & -5) != 0
-                        or (((_la - 192)) & ~0x3F) == 0
-                        and ((1 << (_la - 192)) & 289489247) != 0
+                        or (((_la - 193)) & ~0x3F) == 0
+                        and ((1 << (_la - 193)) & 144744639) != 0
                     ):
                         self.state = 609
                         self.columnExprList()
@@ -13241,8 +13241,8 @@ class HogQLParser(Parser):
                     and ((1 << (_la - 64)) & -1) != 0
                     or (((_la - 128)) & ~0x3F) == 0
                     and ((1 << (_la - 128)) & -5) != 0
-                    or (((_la - 192)) & ~0x3F) == 0
-                    and ((1 << (_la - 192)) & 289489247) != 0
+                    or (((_la - 193)) & ~0x3F) == 0
+                    and ((1 << (_la - 193)) & 144744639) != 0
                 ):
                     self.state = 619
                     self.columnArgList()
@@ -13292,7 +13292,7 @@ class HogQLParser(Parser):
                     or (((_la - 66)) & ~0x3F) == 0
                     and ((1 << (_la - 66)) & -633318697631745) != 0
                     or (((_la - 131)) & ~0x3F) == 0
-                    and ((1 << (_la - 131)) & 4611686018427387903) != 0
+                    and ((1 << (_la - 131)) & 6917529027641081855) != 0
                 ):
                     self.state = 629
                     self.tableIdentifier()
@@ -13355,8 +13355,8 @@ class HogQLParser(Parser):
                     and ((1 << (_la - 64)) & -1) != 0
                     or (((_la - 128)) & ~0x3F) == 0
                     and ((1 << (_la - 128)) & -5) != 0
-                    or (((_la - 192)) & ~0x3F) == 0
-                    and ((1 << (_la - 192)) & 289489247) != 0
+                    or (((_la - 193)) & ~0x3F) == 0
+                    and ((1 << (_la - 193)) & 144744639) != 0
                 ):
                     self.state = 648
                     self.columnExprList()
@@ -14086,7 +14086,7 @@ class HogQLParser(Parser):
                 189,
                 190,
                 191,
-                192,
+                193,
             ]:
                 self.state = 762
                 self.identifier()
@@ -14371,7 +14371,7 @@ class HogQLParser(Parser):
                     self.state = 803
                     self._errHandler.sync(self)
                     token = self._input.LA(1)
-                    if token in [35, 61, 76, 90, 192]:
+                    if token in [35, 61, 76, 90, 193]:
                         self.state = 800
                         self.alias()
                         pass
@@ -14445,8 +14445,8 @@ class HogQLParser(Parser):
                 and ((1 << (_la - 64)) & -1) != 0
                 or (((_la - 128)) & ~0x3F) == 0
                 and ((1 << (_la - 128)) & -5) != 0
-                or (((_la - 192)) & ~0x3F) == 0
-                and ((1 << (_la - 192)) & 268517471) != 0
+                or (((_la - 193)) & ~0x3F) == 0
+                and ((1 << (_la - 193)) & 134258751) != 0
             ):
                 self.state = 812
                 self.tableArgList()
@@ -14702,7 +14702,7 @@ class HogQLParser(Parser):
             self.state = 847
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [193]:
+            if token in [194]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 839
                 self.match(HogQLParser.FLOATING_LITERAL)
@@ -14713,13 +14713,13 @@ class HogQLParser(Parser):
                 self.match(HogQLParser.DOT)
                 self.state = 841
                 _la = self._input.LA(1)
-                if not (_la == 194 or _la == 195):
+                if not (_la == 195 or _la == 196):
                     self._errHandler.recoverInline(self)
                 else:
                     self._errHandler.reportMatch(self)
                     self.consume()
                 pass
-            elif token in [195]:
+            elif token in [196]:
                 self.enterOuterAlt(localctx, 3)
                 self.state = 842
                 self.match(HogQLParser.DECIMAL_LITERAL)
@@ -14731,7 +14731,7 @@ class HogQLParser(Parser):
                 if la_ == 1:
                     self.state = 844
                     _la = self._input.LA(1)
-                    if not (_la == 194 or _la == 195):
+                    if not (_la == 195 or _la == 196):
                         self._errHandler.recoverInline(self)
                     else:
                         self._errHandler.reportMatch(self)
@@ -14882,7 +14882,7 @@ class HogQLParser(Parser):
             self.state = 863
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [81, 112, 193, 194, 195, 196, 206, 208, 220]:
+            if token in [81, 112, 194, 195, 196, 197, 206, 208, 220]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 860
                 self.numberLiteral()
@@ -15635,7 +15635,7 @@ class HogQLParser(Parser):
             self.state = 873
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [192]:
+            if token in [193]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 871
                 self.match(HogQLParser.IDENTIFIER)
@@ -15689,7 +15689,7 @@ class HogQLParser(Parser):
             self.state = 878
             self._errHandler.sync(self)
             token = self._input.LA(1)
-            if token in [192]:
+            if token in [193]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 875
                 self.match(HogQLParser.IDENTIFIER)
@@ -16111,7 +16111,7 @@ class HogQLParser(Parser):
                 189,
                 190,
                 191,
-                192,
+                193,
             ]:
                 self.enterOuterAlt(localctx, 1)
                 self.state = 880

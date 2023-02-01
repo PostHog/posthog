@@ -27,6 +27,6 @@ Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse
 Changes with ClickHouse's grammar:
 - removed all statements except for "select"
 - support aliases with a string literal "as '🍄'"
-- predefined list of "slash" escape characters in strings (all from clickhouse_driver/util/escape.py, no wildcard like in the grammar)
+- strings can also be entered with double quotes, not just single quotes
 - raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
  

@@ -1,8 +1,14 @@
 def parse_string_literal(ctx):
     text = ctx.getText()
-    text = text[1:-1]
-    # from clickhouse's grammar
-    text = text.replace("''", "'")
+    if text.startswith("'") and text.endswith("'"):
+        text = text[1:-1]
+        text = text.replace("''", "'")
+    elif text.startswith('"') and text.endswith('"'):
+        text = text[1:-1]
+        text = text.replace('""', '"')
+    else:
+        raise ValueError(f"Invalid string literal, must start and end with the same quotes: {text}")
+
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")
     text = text.replace("\\f", "\f")
