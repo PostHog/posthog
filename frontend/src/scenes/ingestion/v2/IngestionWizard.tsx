@@ -22,7 +22,7 @@ import { PanelHeader } from './panels/PanelComponents'
 import { InviteTeamPanel } from './panels/InviteTeamPanel'
 import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
-import { RecordingPanel } from 'scenes/ingestion/v2/panels/RecordingPanel'
+import { SuperpowersPanel } from 'scenes/ingestion/v2/panels/SuperpowersPanel'
 
 export function IngestionWizardV2(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogicV2)
@@ -37,7 +37,7 @@ export function IngestionWizardV2(): JSX.Element {
     return (
         <IngestionContainer>
             {currentView === INGESTION_VIEWS.BILLING && <BillingPanel />}
-            {currentView === INGESTION_VIEWS.RECORDINGS && <RecordingPanel />}
+            {currentView === INGESTION_VIEWS.SUPERPOWERS && <SuperpowersPanel />}
             {currentView === INGESTION_VIEWS.INVITE_TEAM && <InviteTeamPanel />}
             {currentView === INGESTION_VIEWS.TEAM_INVITED && <TeamInvitedPanel />}
             {currentView === INGESTION_VIEWS.CHOOSE_PLATFORM && <PlatformPanel />}

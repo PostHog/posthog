@@ -23,7 +23,7 @@ export enum INGESTION_STEPS {
     START = 'Get started',
     PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
-    RECORDINGS = 'Setup session recordings',
+    SUPERPOWERS = 'Enable superpowers',
     VERIFY = 'Listen for events',
     BILLING = 'Add payment method',
     DONE = 'Done!',
@@ -33,14 +33,14 @@ export enum INGESTION_STEPS_WITHOUT_BILLING {
     START = 'Get started',
     PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
-    RECORDINGS = 'Setup session recordings',
+    SUPERPOWERS = 'Enable superpowers',
     VERIFY = 'Listen for events',
     DONE = 'Done!',
 }
 
 export enum INGESTION_VIEWS {
     BILLING = 'billing',
-    RECORDINGS = 'recordings',
+    SUPERPOWERS = 'superpowers',
     INVITE_TEAM = 'invite-team',
     TEAM_INVITED = 'post-invite-team',
     CHOOSE_PLATFORM = 'choose-platform',
@@ -54,7 +54,7 @@ export enum INGESTION_VIEWS {
 
 export const INGESTION_VIEW_TO_STEP = {
     [INGESTION_VIEWS.BILLING]: INGESTION_STEPS.BILLING,
-    [INGESTION_VIEWS.RECORDINGS]: INGESTION_STEPS.RECORDINGS,
+    [INGESTION_VIEWS.SUPERPOWERS]: INGESTION_STEPS.SUPERPOWERS,
     [INGESTION_VIEWS.INVITE_TEAM]: INGESTION_STEPS.START,
     [INGESTION_VIEWS.TEAM_INVITED]: INGESTION_STEPS.START,
     [INGESTION_VIEWS.NO_DEMO_INGESTION]: INGESTION_STEPS.START,
@@ -70,7 +70,7 @@ export type IngestionState = {
     platform: PlatformType
     framework: Framework
     readyToVerify: boolean
-    showRecording: boolean
+    showSuperpowers: boolean
     showBilling: boolean
     hasInvitedMembers: boolean | null
     isTechnicalUser: boolean | null
@@ -87,7 +87,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: null,
                 framework: null,
                 readyToVerify: false,
-                showRecording: false,
+                showSuperpowers: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -99,7 +99,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: null,
                 framework: null,
                 readyToVerify: false,
-                showRecording: false,
+                showSuperpowers: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -111,19 +111,19 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: props.platform,
                 framework: props.framework,
                 readyToVerify: false,
-                showRecording: false,
+                showSuperpowers: false,
                 showBilling: true,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
             }
-        case INGESTION_VIEWS.RECORDINGS:
+        case INGESTION_VIEWS.SUPERPOWERS:
             return {
                 isTechnicalUser: null,
                 hasInvitedMembers: null,
                 platform: props.platform,
                 framework: props.framework,
                 readyToVerify: false,
-                showRecording: true,
+                showSuperpowers: true,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -135,7 +135,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: props.platform,
                 framework: props.framework,
                 readyToVerify: true,
-                showRecording: false,
+                showSuperpowers: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -147,7 +147,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: null,
                 framework: null,
                 readyToVerify: false,
-                showRecording: false,
+                showSuperpowers: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -160,7 +160,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 platform: props.platform,
                 framework: null,
                 readyToVerify: false,
-                showRecording: false,
+                showSuperpowers: false,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -172,7 +172,7 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
         platform: null,
         framework: null,
         readyToVerify: false,
-        showRecording: false,
+        showSuperpowers: false,
         showBilling: false,
         isDemoProject: props.isDemoProject,
         generatingDemoData: false,
@@ -208,7 +208,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             platform,
             framework,
             readyToVerify,
-            showRecording,
+            showSuperpowers,
             showBilling,
             isDemoProject,
             generatingDemoData,
@@ -218,7 +218,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             platform,
             framework,
             readyToVerify,
-            showRecording,
+            showSuperpowers,
             showBilling,
             isDemoProject,
             generatingDemoData,
@@ -269,10 +269,10 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 setState: (_, { readyToVerify }) => readyToVerify,
             },
         ],
-        showRecording: [
+        showSuperpowers: [
             false,
             {
-                setState: (_, { showRecording }) => showRecording,
+                setState: (_, { showSuperpowers }) => showSuperpowers,
             },
         ],
         showBilling: [
@@ -356,7 +356,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 s.platform,
                 s.framework,
                 s.readyToVerify,
-                s.showRecording,
+                s.showSuperpowers,
                 s.showBilling,
                 s.isTechnicalUser,
                 s.hasInvitedMembers,
@@ -367,7 +367,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 platform,
                 framework,
                 readyToVerify,
-                showRecording,
+                showSuperpowers,
                 showBilling,
                 isTechnicalUser,
                 hasInvitedMembers,
@@ -377,7 +377,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 platform,
                 framework,
                 readyToVerify,
-                showRecording,
+                showSuperpowers,
                 showBilling,
                 isTechnicalUser,
                 hasInvitedMembers,
@@ -392,7 +392,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 platform,
                 framework,
                 readyToVerify,
-                showRecording,
+                showSuperpowers,
                 showBilling,
                 hasInvitedMembers,
                 isDemoProject,
@@ -407,8 +407,8 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 if (readyToVerify) {
                     return INGESTION_VIEWS.VERIFICATION
                 }
-                if (showRecording) {
-                    return INGESTION_VIEWS.RECORDINGS
+                if (showSuperpowers) {
+                    return INGESTION_VIEWS.SUPERPOWERS
                 }
                 if (isTechnicalUser) {
                     if (!platform) {
@@ -498,7 +498,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
     urlToAction(({ actions, values }) => ({
         '/ingestion': () => actions.goToView(INGESTION_VIEWS.INVITE_TEAM),
         '/ingestion/invites-sent': () => actions.goToView(INGESTION_VIEWS.TEAM_INVITED),
-        '/ingestion/recording': () => actions.goToView(INGESTION_VIEWS.RECORDINGS),
+        '/ingestion/superpowers': () => actions.goToView(INGESTION_VIEWS.SUPERPOWERS),
         '/ingestion/billing': () => actions.goToView(INGESTION_VIEWS.BILLING),
         '/ingestion/verify': () => actions.goToView(INGESTION_VIEWS.VERIFICATION),
         '/ingestion/platform': () => actions.goToView(INGESTION_VIEWS.CHOOSE_FRAMEWORK),
@@ -512,7 +512,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 framework: framework,
                 readyToVerify: false,
                 showBilling: false,
-                showRecording: false,
+                showSuperpowers: false,
                 isDemoProject: values.isDemoProject,
                 generatingDemoData: false,
             })
@@ -567,8 +567,8 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 case INGESTION_STEPS.BILLING:
                     actions.goToView(INGESTION_VIEWS.BILLING)
                     return
-                case INGESTION_STEPS.RECORDINGS:
-                    actions.goToView(INGESTION_VIEWS.RECORDINGS)
+                case INGESTION_STEPS.SUPERPOWERS:
+                    actions.goToView(INGESTION_VIEWS.SUPERPOWERS)
                     return
                 default:
                     return
@@ -578,14 +578,14 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             switch (values.currentView) {
                 case INGESTION_VIEWS.BILLING:
                     return actions.goToView(INGESTION_VIEWS.VERIFICATION)
-                case INGESTION_VIEWS.RECORDINGS:
+                case INGESTION_VIEWS.SUPERPOWERS:
                     return actions.goToView(INGESTION_VIEWS.CHOOSE_FRAMEWORK)
                 case INGESTION_VIEWS.TEAM_INVITED:
                     return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
                 case INGESTION_VIEWS.CHOOSE_PLATFORM:
                     return actions.goToView(INGESTION_VIEWS.INVITE_TEAM)
                 case INGESTION_VIEWS.VERIFICATION:
-                    return actions.goToView(INGESTION_VIEWS.RECORDINGS)
+                    return actions.goToView(INGESTION_VIEWS.SUPERPOWERS)
                 case INGESTION_VIEWS.WEB_INSTRUCTIONS:
                     return actions.goToView(INGESTION_VIEWS.CHOOSE_PLATFORM)
                 case INGESTION_VIEWS.CHOOSE_FRAMEWORK:
@@ -644,7 +644,7 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
         framework,
         readyToVerify,
         showBilling,
-        showRecording,
+        showSuperpowers,
         hasInvitedMembers,
         generatingDemoData,
     } = values
@@ -666,8 +666,8 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
         ]
     }
 
-    if (showRecording) {
-        url += '/recording'
+    if (showSuperpowers) {
+        url += '/superpowers'
         return [
             url,
             {

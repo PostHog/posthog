@@ -45,11 +45,11 @@ export function InstructionsPanel(): JSX.Element {
     return (
         <div className="InstructionsPanel mb-8">
             {platform === WEB ? (
-                <CardContainer nextProps={{ showRecording: true }}>
+                <CardContainer nextProps={{ showSuperpowers: true }}>
                     <WebInstructions />
                 </CardContainer>
             ) : framework === API ? (
-                <CardContainer nextProps={{ showRecording: true }}>
+                <CardContainer nextProps={{ showSuperpowers: true }}>
                     <h2>{frameworkString}</h2>
                     <p className="prompt-text">
                         Need a different framework? Our HTTP API is a flexible way to use PostHog anywhere. Try the
@@ -59,7 +59,7 @@ export function InstructionsPanel(): JSX.Element {
                     <FrameworkSnippet />
                 </CardContainer>
             ) : (
-                <CardContainer nextProps={{ showRecording: true }}>
+                <CardContainer nextProps={{ showSuperpowers: true }}>
                     <h1>{`Setup ${frameworkString}`}</h1>
 
                     {platform === BACKEND ? (

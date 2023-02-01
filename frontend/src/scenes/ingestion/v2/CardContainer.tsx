@@ -5,16 +5,18 @@ import { IngestionState } from 'scenes/ingestion/v2/ingestionLogicV2'
 export function CardContainer({
     children,
     nextProps,
+    onContinue,
 }: {
     children: React.ReactNode
     nextProps?: Partial<IngestionState>
+    onContinue?: () => void
 }): JSX.Element {
     return (
         // We want a forced width for this view only
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ maxWidth: 800 }}>
             {children}
-            <div>{nextProps && <PanelFooter nextProps={nextProps} />}</div>
+            <div>{nextProps && <PanelFooter nextProps={nextProps} onContinue={onContinue} />}</div>
         </div>
     )
 }

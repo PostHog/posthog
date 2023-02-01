@@ -14,7 +14,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 
-export function PanelFooter({ nextProps }: { nextProps: Partial<IngestionState> }): JSX.Element {
+export function PanelFooter({
+    nextProps,
+    onContinue,
+}: {
+    nextProps: Partial<IngestionState>
+    onContinue?: () => void
+}): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
 
     return (
@@ -27,7 +33,10 @@ export function PanelFooter({ nextProps }: { nextProps: Partial<IngestionState> 
                     fullWidth
                     center
                     className="mb-2"
-                    onClick={() => next(nextProps)}
+                    onClick={() => {
+                        onContinue && onContinue()
+                        next(nextProps)
+                    }}
                 >
                     Continue
                 </LemonButton>
