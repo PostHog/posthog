@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Tuple, cast
 
-from posthog.clickhouse.query_fragment import QueryFragment, QueryFragmentLike, UniqueName
+from posthog.clickhouse.query_fragment import Param, QueryFragment, QueryFragmentLike, UniqueName
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort.util import get_count_operator
 from posthog.models.filters.mixins.utils import cached_property
@@ -64,14 +64,17 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         final_query = QueryFragment(
             """
-        SELECT {fields} AS id
-        FROM {q}
-        WHERE 1 = 1
-        {conditions}
-        """
-        ).format(fields=fields, q=q, conditions=conditions)
+            SELECT {fields} AS id
+            FROM {q}
+            WHERE 1 = 1
+            {conditions}
+            """,
+            fields=fields,
+            q=q,
+            conditions=conditions,
+        )
 
-        return final_query.sql, final_query.params
+        return final_query.sql, final_query.query_params
 
     def _get_condition_for_property(self, prop: Property, prepend: str, idx: int) -> QueryFragment:
         if prop.type == "behavioral":
@@ -124,7 +127,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         full_condition = QueryFragment(
             f"({event_was_happening_period} > 0 AND {event_stopped_period} = 0) as {column_name}",
-            {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_query.params},
+            {f"{date_param}": Param(date_value), f"{seq_date_param}": Param(seq_date_value), **entity_query.params},
         )
 
         self._fields.append(full_condition)
@@ -157,9 +160,10 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         # Then restarted in the final event_restart_period
         event_restarted_period = f"countIf(timestamp > now() - INTERVAL %({seq_date_param})s {seq_date_interval} AND timestamp <= now() AND {entity_query.sql})"
 
+        # :KLUDGE: Since above code is not properly using QueryFragments, put it all together here.
         full_condition = QueryFragment(
             f"({initial_period} > 0 AND {event_stopped_period} = 0 AND {event_restarted_period} > 0) as {column_name}",
-            {f"{date_param}": date_value, f"{seq_date_param}": seq_date_value, **entity_query.params},
+            {f"{date_param}": Param(date_value), f"{seq_date_param}": Param(seq_date_value), **entity_query.params},
         )
 
         self._fields.append(full_condition)
@@ -179,8 +183,13 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         field = QueryFragment(
             "minIf(timestamp, {entity_query}) >= now() - INTERVAL %(__date)s {date_interval} AND minIf(timestamp, {entity_query}) < now() as {column_name}",
-            {UniqueName("__date"): date_value},
-        ).format(entity_query=entity_query, date_interval=date_interval, column_name=column_name)
+            {
+                UniqueName("__date"): Param(date_value),
+                "entity_query": entity_query,
+                "date_interval": QueryFragment(date_interval),
+                "column_name": QueryFragment(column_name),
+            },
+        )
 
         self._fields.append(field)
 
@@ -224,14 +233,13 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                         )
                         """,
                         {
-                            UniqueName("__operator_value"): operator_value,
-                            UniqueName("__time_value"): time_value,
+                            UniqueName("__operator_value"): Param(operator_value),
+                            UniqueName("__time_value"): Param(time_value),
+                            "entity_query": entity_query,
+                            "date_interval": QueryFragment(date_interval),
+                            "operator": QueryFragment(get_count_operator(prop.operator)),
+                            "period": QueryFragment(str(period)),
                         },
-                    ).format(
-                        entity_query=entity_query,
-                        date_interval=date_interval,
-                        operator=get_count_operator(prop.operator),
-                        period=str(period),
                     )
                 )
         earliest_date = (total_period_count * time_value, date_interval)
@@ -240,9 +248,11 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         field = QueryFragment(
             "{expr} >= %(__min_periods)s AS {column_name}",
             {
-                UniqueName("__min_periods"): min_period_count,
+                UniqueName("__min_periods"): Param(min_period_count),
+                "expr": QueryFragment.join("+", periods),
+                "column_name": QueryFragment(column_name),
             },
-        ).format(expr=QueryFragment.join("+", periods), column_name=column_name)
+        )
 
         self._fields.append(field)
 
@@ -281,7 +291,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         date_condition = self._get_date_condition()
 
         if self.should_pushdown_persons and self._using_person_on_events:
-            person_prop_query = QueryFragment(
+            person_prop_query = QueryFragment.from_tuple(
                 self._get_prop_groups(
                     self._inner_property_groups,
                     person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
@@ -301,13 +311,15 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
             {date_condition}
             {person_prop_query}
             """,
-            {"team_id": self._team_id, UniqueName("__event_ids"): self._events},
-        ).format(
-            fields=QueryFragment.join(", ", _inner_fields),
-            alias=self.EVENT_TABLE_ALIAS,
-            distinct_id_query=self._get_distinct_id_query(),
-            date_condition=date_condition,
-            person_prop_query=person_prop_query,
+            {
+                "team_id": Param(self._team_id),
+                UniqueName("__event_ids"): Param(self._events),
+                "fields": QueryFragment.join(", ", _inner_fields),
+                "alias": QueryFragment(self.EVENT_TABLE_ALIAS),
+                "distinct_id_query": QueryFragment(self._get_distinct_id_query()),
+                "date_condition": date_condition,
+                "person_prop_query": person_prop_query,
+            },
         )
 
         return QueryFragment(
@@ -318,8 +330,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                 FROM ({new_query})
             )
             GROUP BY person_id
-            """
-        ).format(
+            """,
             outer_fields=QueryFragment.join(", ", _outer_fields + self._fields),
             intermediate_fields=QueryFragment.join(", ", _intermediate_fields),
             new_query=new_query,
@@ -352,14 +363,13 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                 {negation} max(
                     if({entity_query} AND {event_prepend}_latest_0 < {event_prepend}_latest_1 AND {event_prepend}_latest_1 <= {event_prepend}_latest_0 + INTERVAL {seq_date_value} {seq_date_interval}, 2, 1)
                 ) = 2 AS {alias}
-                """
-            ).format(
-                negation="NOT" if prop.negation else "",
+                """,
+                negation=QueryFragment("NOT" if prop.negation else ""),
                 entity_query=entity_query,
-                event_prepend=event_prepend,
-                seq_date_value=str(seq_date_value),
-                seq_date_interval=seq_date_interval,
-                alias=f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}",
+                event_prepend=QueryFragment(event_prepend),
+                seq_date_value=QueryFragment(str(seq_date_value)),
+                seq_date_interval=QueryFragment(seq_date_interval),
+                alias=QueryFragment(f"{self.SEQUENCE_FIELD_ALIAS}_{self.sequence_filters_lookup[str(prop.to_dict())]}"),
             )
         ]
 
@@ -370,21 +380,19 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
 
         step_cols: List[QueryFragmentLike] = [
             QueryFragment(
-                "if({entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_0"
-            ).format(
+                "if({entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_0",
                 entity_query=entity_query,
-                time_value=str(time_value),
-                time_interval=time_interval,
-                event_prepend=event_prepend,
+                time_value=QueryFragment(str(time_value)),
+                time_interval=QueryFragment(time_interval),
+                event_prepend=QueryFragment(event_prepend),
             ),
             f"if({event_prepend}_step_0 = 1, timestamp, null) AS {event_prepend}_latest_0",
             QueryFragment(
-                "if({seq_entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_1"
-            ).format(
+                "if({seq_entity_query} AND timestamp > now() - INTERVAL {time_value} {time_interval}, 1, 0) AS {event_prepend}_step_1",
                 seq_entity_query=seq_entity_query,
-                time_value=str(time_value),
-                time_interval=time_interval,
-                event_prepend=event_prepend,
+                time_value=QueryFragment(str(time_value)),
+                time_interval=QueryFragment(time_interval),
+                event_prepend=QueryFragment(event_prepend),
             ),
             f"if({event_prepend}_step_1 = 1, timestamp, null) AS {event_prepend}_latest_1",
         ]
