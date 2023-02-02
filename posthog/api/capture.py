@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureRecordMetadata
+from prometheus_client import Counter
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -42,7 +43,6 @@ logger = structlog.get_logger(__name__)
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
-from prometheus_client import Counter
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "events_dropped_over_quota",
