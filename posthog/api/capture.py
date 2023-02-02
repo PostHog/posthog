@@ -223,7 +223,6 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
                 EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token).inc()
-
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
