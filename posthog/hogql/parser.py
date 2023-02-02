@@ -350,32 +350,32 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitColumnExprAnd(self, ctx: HogQLParser.ColumnExprAndContext):
         left = self.visit(ctx.columnExpr(0))
         if isinstance(left, ast.And):
-            left_array = left.values
+            left_array = left.exprs
         else:
             left_array = [left]
 
         right = self.visit(ctx.columnExpr(1))
         if isinstance(right, ast.And):
-            right_array = right.values
+            right_array = right.exprs
         else:
             right_array = [right]
 
-        return ast.And(values=left_array + right_array)
+        return ast.And(exprs=left_array + right_array)
 
     def visitColumnExprOr(self, ctx: HogQLParser.ColumnExprOrContext):
         left = self.visit(ctx.columnExpr(0))
         if isinstance(left, ast.Or):
-            left_array = left.values
+            left_array = left.exprs
         else:
             left_array = [left]
 
         right = self.visit(ctx.columnExpr(1))
         if isinstance(right, ast.Or):
-            right_array = right.values
+            right_array = right.exprs
         else:
             right_array = [right]
 
-        return ast.Or(values=left_array + right_array)
+        return ast.Or(exprs=left_array + right_array)
 
     def visitColumnExprTupleAccess(self, ctx: HogQLParser.ColumnExprTupleAccessContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprTupleAccess")

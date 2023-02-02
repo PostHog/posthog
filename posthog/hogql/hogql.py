@@ -77,9 +77,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
 
         if isinstance(node.where, ast.And):
             values = node.where.values
-            where = ast.And(values=[team_clause] + values)
+            where = ast.And(exprs=[team_clause] + values)
         elif node.where:
-            where = ast.And(values=[team_clause, node.where])
+            where = ast.And(exprs=[team_clause, node.where])
         else:
             where = team_clause
         where = translate_ast(where, stack, context)
@@ -119,9 +119,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unknown BinaryOperationType {node.op}")
     elif isinstance(node, ast.And):
-        response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+        response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.exprs])})"
     elif isinstance(node, ast.Or):
-        response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+        response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.exprs])})"
     elif isinstance(node, ast.Not):
         response = f"not({translate_ast(node.expr, stack, context)})"
     elif isinstance(node, ast.CompareOperation):

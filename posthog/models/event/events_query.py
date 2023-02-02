@@ -47,9 +47,9 @@ def run_events_query_v2(
         where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
 
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
-    where = ast.And(values=where_list) if len(where_list) > 0 else None
+    where = ast.And(exprs=where_list) if len(where_list) > 0 else None
     having_list = [expr for expr in where_exprs if has_aggregation(expr)]
-    having = ast.And(values=having_list) if len(having_list) > 0 else None
+    having = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
     stmt = ast.SelectQuery(
         select=select,

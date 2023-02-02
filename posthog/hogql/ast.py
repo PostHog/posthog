@@ -39,20 +39,20 @@ class And(Expr):
     class Config:
         extra = Extra.forbid
 
-    values: List[Expr]
+    exprs: List[Expr]
 
     def children(self) -> List[AST]:
-        return cast(List[AST], self.values)
+        return cast(List[AST], self.exprs)
 
 
 class Or(Expr):
     class Config:
         extra = Extra.forbid
 
-    values: List[Expr]
+    exprs: List[Expr]
 
     def children(self) -> List[AST]:
-        return cast(List[AST], self.values)
+        return cast(List[AST], self.exprs)
 
 
 class CompareOperationType(str, Enum):

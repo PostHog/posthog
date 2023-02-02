@@ -206,22 +206,22 @@ class TestParser(BaseTest):
     def test_and_or(self):
         self.assertEqual(
             parse_expr("true or false"),
-            ast.Or(values=[ast.Constant(value=True), ast.Constant(value=False)]),
+            ast.Or(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
         )
         self.assertEqual(
             parse_expr("true and false"),
-            ast.And(values=[ast.Constant(value=True), ast.Constant(value=False)]),
+            ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
         )
         self.assertEqual(
             parse_expr("true and not false"),
             ast.And(
-                values=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],
+                exprs=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],
             ),
         )
         self.assertEqual(
             parse_expr("true or false or not true or 2"),
             ast.Or(
-                values=[
+                exprs=[
                     ast.Constant(value=True),
                     ast.Constant(value=False),
                     ast.Not(expr=ast.Constant(value=True)),
@@ -232,10 +232,10 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("true or false and not true or 2"),
             ast.Or(
-                values=[
+                exprs=[
                     ast.Constant(value=True),
                     ast.And(
-                        values=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))],
+                        exprs=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))],
                     ),
                     ast.Constant(value=2),
                 ],
