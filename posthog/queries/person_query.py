@@ -158,7 +158,7 @@ class PersonQuery:
         return len(self._column_optimizer.person_columns_to_query) > 0
 
     def _uses_person_id(self, prop: Property) -> bool:
-        return prop.type in ("person", "static-cohort", "precalculated-cohort")
+        return prop.type in ("person")  # , "static-cohort", "precalculated-cohort")
 
     def _get_fields(self) -> List[Tuple[str, str]]:
         # :TRICKY: Figure out what fields we want to expose - minimizing this set is good for performance.
