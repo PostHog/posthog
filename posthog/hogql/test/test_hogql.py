@@ -251,6 +251,8 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("event not like 'E'", context), "not(like(event, %(hogql_val_7)s))")
         self.assertEqual(self._translate("event ilike 'E'", context), "ilike(event, %(hogql_val_8)s)")
         self.assertEqual(self._translate("event not ilike 'E'", context), "not(ilike(event, %(hogql_val_9)s))")
+        self.assertEqual(self._translate("event in 'E'", context), "in(event, %(hogql_val_8)s)")
+        self.assertEqual(self._translate("event not in 'E'", context), "not(in(event, %(hogql_val_9)s))")
 
     def test_hogql_comments(self):
         context = HogQLContext()

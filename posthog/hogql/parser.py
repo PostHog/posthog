@@ -371,8 +371,14 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 op = ast.CompareOperationType.NotILike
             else:
                 op = ast.CompareOperationType.ILike
+        elif ctx.IN():
+            if ctx.GLOBAL():
+                raise NotImplementedError(f"Unsupported node: IN GLOBAL")
+            if ctx.NOT():
+                op = ast.CompareOperationType.NotIn
+            else:
+                op = ast.CompareOperationType.In
         else:
-            # TODO: support "in", "not in", "global in", "global not in"
             raise NotImplementedError(f"Unsupported ColumnExprPrecedence3: {ctx.getText()}")
         return ast.CompareOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
 

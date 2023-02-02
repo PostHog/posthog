@@ -1,11 +1,16 @@
-from typing import List
+from datetime import timedelta
+from typing import List, Optional
 
+from dateutil.parser import isoparse
+from django.utils.timezone import now
+
+from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import action_to_expr, has_aggregation, property_to_expr
-from posthog.models import Action, Team
+from posthog.models import Action, Person, Team
 from posthog.models.event.query_event_list import (
     QUERY_DEFAULT_LIMIT,
     QUERY_MAXIMUM_LIMIT,
@@ -14,9 +19,10 @@ from posthog.models.event.query_event_list import (
     convert_star_select_to_dict,
 )
 from posthog.schema import EventsQuery
+from posthog.utils import relative_date_parse
 
 
-def run_events_query_v2(
+def run_events_query_v3(
     team: Team,
     query: EventsQuery,
 ) -> EventsQueryResponse:
@@ -34,11 +40,47 @@ def run_events_query_v2(
     group_by: List[ast.Expr] = [column for column in select if not has_aggregation(column)]
     has_any_aggregation = any(has_aggregation(column) for column in select)
 
-    # TODO: support determine_event_conditions
-
-    # where & having
+    # filters
     where_input = query.where or []
     where_exprs = [parse_expr(expr) for expr in where_input]
+    if query.properties:
+        where_exprs.extend(property_to_expr(property) for property in query.properties)
+    if query.fixedProperties:
+        where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
+    if query.event:
+        where_exprs.append(
+            ast.CompareOperation(
+                left=ast.FieldAccess(field="event"),
+                right=ast.Constant(value=query.event),
+                op=ast.CompareOperationType.Eq,
+            )
+        )
+    if query.before:
+        # prevent accidentally future events from being visible by default
+        before = (query.before or (now() + timedelta(seconds=5)).isoformat(),)
+        try:
+            timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
+        except ValueError:
+            timestamp = relative_date_parse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
+        where_exprs.append(
+            ast.CompareOperation(
+                left=ast.FieldAccess(field="timestamp"),
+                right=ast.Constant(value=timestamp),
+                op=ast.CompareOperationType.Lt,
+            )
+        )
+    if query.after:
+        try:
+            timestamp = isoparse(query.after).strftime("%Y-%m-%d %H:%M:%S.%f")
+        except ValueError:
+            timestamp = relative_date_parse(query.after).strftime("%Y-%m-%d %H:%M:%S.%f")
+        where_exprs.append(
+            ast.CompareOperation(
+                left=ast.FieldAccess(field="timestamp"),
+                right=ast.Constant(value=timestamp),
+                op=ast.CompareOperationType.Gt,
+            )
+        )
     if query.actionId:
         try:
             action = Action.objects.get(pk=query.actionId, team_id=team.pk)
@@ -47,11 +89,19 @@ def run_events_query_v2(
         if action.steps.count() == 0:
             raise Exception("Action does not have any match groups")
         where_exprs.append(action_to_expr(action))
-    if query.properties:
-        where_exprs.extend(property_to_expr(property) for property in query.properties)
-    if query.fixedProperties:
-        where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
+    if query.personId:
+        person: Optional[Person] = get_pk_or_uuid(Person.objects.all(), query.personId).first()
+        distinct_ids = person.distinct_ids if person is not None else []
+        ids_list = list(map(str, distinct_ids))
+        where_exprs.append(
+            ast.CompareOperation(
+                left=ast.FieldAccess(field="distinct_id"),
+                right=ast.Constant(value=ids_list),
+                op=ast.CompareOperationType.In,
+            )
+        )
 
+    # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
     where = ast.And(exprs=where_list) if len(where_list) > 0 else None
     having_list = [expr for expr in where_exprs if has_aggregation(expr)]
@@ -73,17 +123,17 @@ def run_events_query_v2(
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input:
-        star = select_input.index("*")
+        star_idx = select_input.index("*")
         for index, result in enumerate(query_result.results):
             query_result.results[index] = list(result)
-            query_result.results[index][star] = convert_star_select_to_dict(result[star])
+            query_result.results[index][star_idx] = convert_star_select_to_dict(result[star_idx])
 
     # Convert person field from tuple to dict in each result
     if "person" in select_input:
-        person = select_input.index("person")
+        person_idx = select_input.index("person")
         for index, result in enumerate(query_result.results):
             query_result.results[index] = list(result)
-            query_result.results[index][person] = convert_person_select_to_dict(result[person])
+            query_result.results[index][person_idx] = convert_person_select_to_dict(result[person_idx])
 
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(

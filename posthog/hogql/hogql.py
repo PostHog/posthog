@@ -84,7 +84,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         # Guard with team_id if selecting from the events table
         if from_table == "events":
             if isinstance(where, ast.And):
-                where = ast.And(exprs=[team_clause] + where.values)
+                where = ast.And(exprs=[team_clause] + where.exprs)
             elif where:
                 where = ast.And(exprs=[team_clause, where])
             else:
@@ -162,6 +162,10 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             response = f"not(like({left}, {right}))"
         elif node.op == ast.CompareOperationType.NotILike:
             response = f"not(ilike({left}, {right}))"
+        elif node.op == ast.CompareOperationType.In:
+            response = f"in({left}, {right})"
+        elif node.op == ast.CompareOperationType.NotIn:
+            response = f"not(in({left}, {right}))"
         else:
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
     elif isinstance(node, ast.Constant):
@@ -173,7 +177,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         elif isinstance(node.value, int) or isinstance(node.value, float):
             # :WATCH_OUT: isinstance(node.value, int) is True if node.value is True/False as well!!!
             response = str(node.value)
-        elif isinstance(node.value, str):
+        elif isinstance(node.value, str) or isinstance(node.value, list):
             context.values[key] = node.value
             response = f"%({key})s"
         elif node.value is None:

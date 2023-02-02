@@ -66,6 +66,8 @@ class CompareOperationType(str, Enum):
     ILike = "ilike"
     NotLike = "not like"
     NotILike = "not ilike"
+    In = "in"
+    NotIn = "not in"
 
 
 class CompareOperation(Expr):
