@@ -380,6 +380,23 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_complex_wheres(self):
+        self.assertEqual(
+            parse_statement("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationType.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+                ),
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationType.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
+                ),
+            ),
+        )
+
     def test_select_from(self):
         self.assertEqual(
             parse_statement("select 1 from events"),
@@ -432,19 +449,45 @@ class TestParser(BaseTest):
             ),
         )
 
-    def test_select_complex(self):
+    def test_select_from_join(self):
         self.assertEqual(
-            parse_statement("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
+            parse_statement("select 1 from events JOIN events2 ON 1"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                where=ast.CompareOperation(
-                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                select_from=ast.JoinExpr(
+                    table=ast.FieldAccess(field="events"),
+                    join_type="JOIN",
+                    join_constraint=ast.Constant(value=1),
+                    join_expr=ast.JoinExpr(table=ast.FieldAccess(field="events2")),
                 ),
-                prewhere=ast.CompareOperation(
-                    op=ast.CompareOperationType.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from events LEFT OUTER JOIN events2 ON 1"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.FieldAccess(field="events"),
+                    join_type="LEFT OUTER JOIN",
+                    join_constraint=ast.Constant(value=1),
+                    join_expr=ast.JoinExpr(table=ast.FieldAccess(field="events2")),
                 ),
-                having=ast.CompareOperation(
-                    op=ast.CompareOperationType.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from events LEFT OUTER JOIN events2 ON 1 ANY RIGHT JOIN events3 ON 2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.FieldAccess(field="events"),
+                    join_type="LEFT OUTER JOIN",
+                    join_constraint=ast.Constant(value=1),
+                    join_expr=ast.JoinExpr(
+                        table=ast.FieldAccess(field="events2"),
+                        join_type="RIGHT ANY JOIN",
+                        join_constraint=ast.Constant(value=2),
+                        join_expr=ast.JoinExpr(table=ast.FieldAccess(field="events3")),
+                    ),
                 ),
             ),
         )

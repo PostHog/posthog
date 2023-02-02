@@ -122,9 +122,11 @@ class Call(Expr):
 
 class JoinExpr(Expr):
     table: Optional[Union["SelectQuery", FieldAccess, FieldAccessChain]] = None
+    table_final: Optional[bool] = None
     alias: Optional[str] = None
-    join: Optional[str] = None
-    final: Optional[bool] = None
+    join_type: Optional[str] = None
+    join_constraint: Optional[Expr] = None
+    join_expr: Optional["JoinExpr"] = None
 
     def children(self) -> List[AST]:
         return cast(List[AST], [self.table])
@@ -132,11 +134,11 @@ class JoinExpr(Expr):
 
 class SelectQuery(Expr):
     select: List[Expr]
+    select_from: Optional[JoinExpr] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
     group_by: Optional[List[Expr]] = None
-    select_from: Optional[JoinExpr] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
 
@@ -152,3 +154,4 @@ class SelectQuery(Expr):
 
 
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
+JoinExpr.update_forward_refs(JoinExpr=JoinExpr)
