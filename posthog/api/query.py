@@ -13,7 +13,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
-from posthog.models.event.query_event_list import run_events_query
+from posthog.models.event.events_query import run_events_query_v2
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery
@@ -71,7 +71,7 @@ def process_query(team: Team, query_json: Dict) -> Dict:
     query_kind = query_json.get("kind")
     if query_kind == "EventsQuery":
         query = EventsQuery.parse_obj(query_json)
-        query_result = run_events_query(
+        query_result = run_events_query_v2(
             team=team,
             query=query,
         )
