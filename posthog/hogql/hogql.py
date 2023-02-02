@@ -122,7 +122,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
     elif isinstance(node, ast.Or):
         response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
-    elif isinstance(node, ast.NotOperation):
+    elif isinstance(node, ast.Not):
         response = f"not({translate_ast(node.expr, stack, context)})"
     elif isinstance(node, ast.CompareOperation):
         left = translate_ast(node.left, stack, context)

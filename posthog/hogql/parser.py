@@ -387,7 +387,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprDate")
 
     def visitColumnExprNot(self, ctx: HogQLParser.ColumnExprNotContext):
-        return ast.NotOperation(expr=self.visit(ctx.columnExpr()))
+        return ast.Not(expr=self.visit(ctx.columnExpr()))
 
     def visitColumnExprWinFunction(self, ctx: HogQLParser.ColumnExprWinFunctionContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprWinFunction")

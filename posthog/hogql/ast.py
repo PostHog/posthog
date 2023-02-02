@@ -77,7 +77,7 @@ class CompareOperation(Expr):
         return cast(List[AST], [self.left, self.right])
 
 
-class NotOperation(Expr):
+class Not(Expr):
     expr: Expr
 
     def children(self) -> List[AST]:

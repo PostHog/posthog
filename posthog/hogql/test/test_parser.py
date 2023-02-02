@@ -215,7 +215,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("true and not false"),
             ast.And(
-                values=[ast.Constant(value=True), ast.NotOperation(expr=ast.Constant(value=False))],
+                values=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],
             ),
         )
         self.assertEqual(
@@ -224,7 +224,7 @@ class TestParser(BaseTest):
                 values=[
                     ast.Constant(value=True),
                     ast.Constant(value=False),
-                    ast.NotOperation(expr=ast.Constant(value=True)),
+                    ast.Not(expr=ast.Constant(value=True)),
                     ast.Constant(value=2),
                 ],
             ),
@@ -235,7 +235,7 @@ class TestParser(BaseTest):
                 values=[
                     ast.Constant(value=True),
                     ast.And(
-                        values=[ast.Constant(value=False), ast.NotOperation(expr=ast.Constant(value=True))],
+                        values=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))],
                     ),
                     ast.Constant(value=2),
                 ],
@@ -245,7 +245,7 @@ class TestParser(BaseTest):
     def test_unary_operations(self):
         self.assertEqual(
             parse_expr("not true"),
-            ast.NotOperation(expr=ast.Constant(value=True)),
+            ast.Not(expr=ast.Constant(value=True)),
         )
 
     def test_parens(self):
