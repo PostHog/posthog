@@ -1,9 +1,9 @@
 from typing import Any, List, Optional
 
-from django.contrib.postgres.constraints import ExclusionConstraint
-from django.contrib.postgres.fields import RangeOperators
 from django.db import models, transaction
 from django.db.models import F, Q
+from django.db.models.expressions import Func
+from django.db.models.fields import BooleanField
 
 from posthog.models.utils import UUIDT
 
@@ -123,12 +123,16 @@ class PersonOverride(models.Model):
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
             ),
-            ExclusionConstraint(
-                name="exclude_override_person_id_from_being_old_person_id",
-                expressions=[
-                    (F("array[old_person_id, override_person_id]"), RangeOperators.OVERLAPS),
-                    ("override_person_id", RangeOperators.NOT_EQUAL),
-                ],
+            models.CheckConstraint(
+                check=Q(
+                    Func(
+                        F("override_person_id"),
+                        F("old_person_id"),
+                        function="is_override_person_not_used_as_old_person",
+                        output_field=BooleanField(),
+                    )
+                ),
+                name="old_person_id_is_not_override_person_id",
             ),
         ]
 

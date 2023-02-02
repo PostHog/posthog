@@ -29,7 +29,6 @@ class Command(BaseCommand):
             raise ValueError("TEST environment variable needs to be set for this command to function")
 
         test_runner = TestRunner(interactive=False)
-        disable_migrations()
         test_runner.setup_databases()
         test_runner.setup_test_environment()
 
