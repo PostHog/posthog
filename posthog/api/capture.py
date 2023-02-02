@@ -46,8 +46,8 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
-    "Events dropped by capture due to quota-limiting, per resource, team and token.",
-    labelnames=["resource", "token", "team"],
+    "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
+    labelnames=["resource_type", "team_id", "token"],
 )
 
 
@@ -225,12 +225,12 @@ def drop_events_over_quota(
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token, team=team_id).inc()
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", team_id=team_id, token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
         elif token in limited_tokens_events:
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="events", token=token, team=team_id).inc()
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", team=team_id, token=token).inc()
             if settings.QUOTA_LIMITING_ENABLED:
                 continue
 
