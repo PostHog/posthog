@@ -166,6 +166,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // Clear the response if a failure to avoid showing inconsistencies in the UI
             loadDataFailure: () => null,
         },
+        responseErrorObject: [
+            null as Record<string, any> | null,
+            {
+                loadData: () => null,
+                loadDataFailure: (_, { errorObject }) => errorObject,
+                loadDataSuccess: () => null,
+            },
+        ],
         responseError: [
             null as string | null,
             {

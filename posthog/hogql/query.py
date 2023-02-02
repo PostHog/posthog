@@ -16,7 +16,6 @@ class QueryResult(BaseModel):
         extra = Extra.forbid
 
     query: Optional[str] = None
-    parsed: bool
     hogql: Optional[str] = None
     clickhouse: Optional[str] = None
     results: Optional[List[Any]] = None
@@ -53,7 +52,6 @@ def execute_hogql_query(
     print_columns = [quick_print_hogql(col) for col in select_query.select]
     return QueryResult(
         query=query,
-        parsed=True,
         hogql=hogql,
         clickhouse=clickhouse,
         results=results,
