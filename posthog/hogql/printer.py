@@ -211,7 +211,7 @@ def print_ast(
         else:
             raise ValueError(f"Unsupported function call '{node.name}(...)'")
     elif isinstance(node, ast.Placeholder):
-        raise ValueError(f"Found a Placeholder %({node.value}) in the tree. Can't print {dialect} query!")
+        raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
     else:
         raise ValueError(f"Unknown AST node {type(node).__name__}")
 
