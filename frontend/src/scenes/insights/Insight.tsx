@@ -76,8 +76,18 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query } = useValues(insightDataLogic(insightProps))
-    const { setQuery } = useActions(insightDataLogic(insightProps))
+    const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
+    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+
+    // TODO - separate presentation of insight with viz query from insight with query
+    let query = insightVizQuery
+    let setQuery = insighVizSetQuery
+    if (!!insight.query && !isInsightVizNode(insight.query)) {
+        query = insight.query
+        setQuery = () => {
+            // don't support editing non-insight viz queries _yet_
+        }
+    }
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -105,6 +115,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             abortAnyRunningQuery()
         }
     }, [])
+
+    const isFilterBasedInsight = Object.keys(insight.filters || {}).length > 0 && !query
+    const isQueryBasedInsight = !query
+    const isInsightVizQuery = isQueryBasedInsight && isInsightVizNode(query)
 
     // feature flag insight-editor-panels
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
@@ -140,14 +154,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         name="name"
                         value={insight.name || ''}
                         placeholder={
-                            isUsingDataExploration
+                            isUsingDataExploration && isInsightVizQuery
                                 ? summarizeInsightQuery(
                                       (query as InsightVizNode).source,
                                       aggregationLabel,
                                       cohortsById,
                                       mathDefinitions
                                   )
-                                : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+                                : isFilterBasedInsight
+                                ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+                                : // TODO placeholder for non insight viz queries
+                                  ''
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
@@ -258,7 +275,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         )}
                         {insightMode !== ItemMode.Edit ? (
                             canEditInsight &&
-                            (!!Object.keys(insight.filters || {}).length || isInsightVizNode(insight.query)) && (
+                            (isFilterBasedInsight || isInsightVizNode(query)) && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
@@ -336,7 +353,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 !usingEditorPanels && filters.insight === InsightType.FUNNELS,
                         })}
                     >
-                        <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        {!!insight.query && !isInsightVizNode(insight.query) && (
+                            <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        )}
                         <div className="insights-container" data-attr="insight-view">
                             <InsightContainer insightMode={insightMode} />
                         </div>
