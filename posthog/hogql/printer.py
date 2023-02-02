@@ -32,7 +32,9 @@ def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
 
 
 def quick_print_hogql(node: ast.AST):
-    return print_ast(node, [], HogQLContext(), "hogql")
+    # TODO: this is used just to display columns in the UI, so not expecting to be secure
+    # still could use a better "ast.Bla().to_sql()" implementation
+    return print_ast(node, [], HogQLContext(limit_top_select=False), "hogql")
 
 
 def print_ast(
@@ -41,7 +43,7 @@ def print_ast(
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
     if isinstance(node, ast.SelectQuery):
-        if not context.select_team_id:
+        if dialect == "clickhouse" and not context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
         columns = [print_ast(column, stack, context, dialect) for column in node.select] if node.select else ["1"]
@@ -69,10 +71,11 @@ def print_ast(
         order_by = [print_ast(column, stack, context, dialect) for column in node.order_by] if node.order_by else None
 
         limit = node.limit
-        if limit is not None:
-            limit = max(0, min(node.limit, MAX_SELECT_RETURNED_ROWS))
-        if len(stack) == 1 and limit is None:
-            limit = MAX_SELECT_RETURNED_ROWS
+        if context.limit_top_select:
+            if limit is not None:
+                limit = max(0, min(node.limit, MAX_SELECT_RETURNED_ROWS))
+            if len(stack) == 1 and limit is None:
+                limit = MAX_SELECT_RETURNED_ROWS
 
         clauses = [
             f"SELECT {', '.join(columns)}",

@@ -21,5 +21,6 @@ class HogQLContext:
     # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
     using_person_on_events: bool = True
-    # If set, allows parsing full SELECT queries
+    # If set, allows printing full SELECT queries in ClickHouse
     select_team_id: Optional[int] = None
+    limit_top_select: bool = True

@@ -36,6 +36,7 @@ CLICKHOUSE_FUNCTIONS = {
     "toString": "toString",
     # date functions
     "now": "now",
+    "NOW": "now",
     "toMonday": "toMonday",
     "toStartOfYear": "toStartOfYear",
     "toStartOfQuarter": "toStartOfQuarter",

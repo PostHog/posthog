@@ -27,7 +27,7 @@ import {
     PropertyOperator,
     StepOrderValue,
 } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { defaultDataTableColumns, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsQuery = {
@@ -288,6 +288,18 @@ const HogQLTable: DataTableNode = {
     },
 }
 
+const HogQLTableLargeQuery: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query:
+            'SELECT timestamp, (select now()), ' +
+            PropertyFormulas.select.map((q) => removeExpressionComment(q)).join(', ') +
+            " FROM events WHERE properties.$browser LIKE '%o%' AND timestamp > NOW() - toIntervalHour(24) ORDER BY timestamp ASC LIMIT 100",
+    },
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
@@ -309,6 +321,7 @@ export const examples: Record<string, Node> = {
     TimeToSeeData,
     HogQL,
     HogQLTable,
+    HogQLTableLargeQuery,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
