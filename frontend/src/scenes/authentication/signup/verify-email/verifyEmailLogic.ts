@@ -1,7 +1,8 @@
-import { actions, kea, listeners, path, reducers } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import type { verifyEmailLogicType } from './verifyEmailLogicType'
 
 export interface ResponseType {
@@ -18,20 +19,24 @@ export interface ValidatedTokenResponseType extends ResponseType {
 export const verifyEmailLogic = kea<verifyEmailLogicType>([
     path(['scenes', 'authentication', 'verifyEmailLogic']),
     actions({
-        setView: (view: 'verify' | 'pending' | 'invalid' | null) => ({ view }),
+        setView: (view: 'verify' | 'pending' | 'invalid' | 'success' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),
         requestVerificationLink: (uuid: string) => ({ uuid }),
+        validateEmailTokenSuccess: (response: ValidatedTokenResponseType) => ({ response }),
     }),
-    loaders(({}) => ({
+    loaders(({ actions }) => ({
         validatedEmailToken: [
             null as ValidatedTokenResponseType | null,
             {
-                validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }) => {
+                validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }, breakpoint) => {
                     try {
                         await api.get(`api/verify/${uuid}/?token=${token}`)
+                        actions.setView('success')
+                        await breakpoint(2000)
                         window.location.href = '/'
                         return { success: true, token, uuid }
                     } catch (e: any) {
+                        actions.setView('invalid')
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
                     }
                 },
@@ -43,6 +48,9 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 requestVerificationLink: async ({ uuid }: { uuid: string }) => {
                     try {
                         await api.create(`api/verify/`, { uuid })
+                        lemonToast.success(
+                            'A new verificaiton link has been sent to the associated email address. Please check your inbox.'
+                        )
                         return true
                     } catch (e: any) {
                         return false
@@ -51,14 +59,9 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
-        validateEmailTokenFailure: () => {
-            actions.setView('invalid')
-        },
-    })),
     reducers({
         view: [
-            null as 'pending' | 'verify' | 'invalid' | null,
+            null as 'pending' | 'verify' | 'invalid' | 'success' | null,
             {
                 setView: (_, { view }) => view,
             },

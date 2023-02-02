@@ -1,7 +1,7 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { MailHog, SurprisedHog } from 'lib/components/hedgehogs'
+import { HeartHog, MailHog, SurprisedHog } from 'lib/components/hedgehogs'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { verifyEmailLogic } from './verifyEmailLogic'
@@ -60,6 +60,15 @@ export function VerifyEmail(): JSX.Element {
                             <>
                                 <Spinner className="text-4xl mb-12" />
                                 <p>Verifying your email address...</p>
+                            </>
+                        ) : view === 'success' ? (
+                            <>
+                                <h1 className="text-3xl font-bold">Success!</h1>
+                                <div className="max-w-60 mb-12">
+                                    <HeartHog className="w-full h-full" />
+                                </div>
+                                <p>Thanks for verifying your email address. Now taking you to PostHog...</p>
+                                <VerifyEmailHelpLinks />
                             </>
                         ) : view === 'invalid' ? (
                             <>
