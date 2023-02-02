@@ -75,21 +75,34 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             right=ast.Constant(value=context.select_team_id),
         )
 
-        if isinstance(node.where, ast.And):
-            values = node.where.values
-            where = ast.And(exprs=[team_clause] + values)
-        elif node.where:
-            where = ast.And(exprs=[team_clause, node.where])
-        else:
-            where = team_clause
-        where = translate_ast(where, stack, context)
+        from_table = None
+        if node.select_from:
+            if isinstance(node.select_from.table, ast.FieldAccess):
+                if node.select_from.table.field != "events":
+                    raise ValueError('Only selecting from the "events" table is supported')
+                from_table = "events"
+            elif isinstance(node.select_from.table, ast.SelectQuery):
+                from_table = f"({translate_ast(node.select_from.table, stack, context)})"
+            else:
+                raise ValueError("Only selecting from a table or a subquery is supported")
+
+        where = node.where
+        # Guard with team_id if selecting from the events table
+        if from_table == "events":
+            if isinstance(where, ast.And):
+                where = ast.And(exprs=[team_clause] + where.values)
+            elif where:
+                where = ast.And(exprs=[team_clause, where])
+            else:
+                where = team_clause
+        where = translate_ast(where, stack, context) if where else None
 
         group_by = [translate_ast(column, stack, context) for column in node.group_by] if node.group_by else None
         having = translate_ast(node.having, stack, context) if node.having else None
         prewhere = translate_ast(node.prewhere, stack, context) if node.prewhere else None
         clauses = [
             f"SELECT {', '.join(columns)}",
-            "FROM events",
+            f"FROM {from_table}" if from_table else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
