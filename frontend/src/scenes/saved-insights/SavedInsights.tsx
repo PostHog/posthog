@@ -1,4 +1,4 @@
-import { Radio, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -15,7 +15,9 @@ import {
     IconBarChart,
     IconCoffee,
     IconEvent,
+    IconGridView,
     IconInternetExplorer,
+    IconListView,
     IconPerson,
     IconQuestionAnswer,
     IconSelectEvents,
@@ -49,8 +51,8 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
-import { AppstoreFilled, UnorderedListOutlined } from '@ant-design/icons'
 import { NodeKind } from '~/queries/schema'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
 const { TabPane } = Tabs
 
@@ -494,20 +496,22 @@ export function SavedInsights(): JSX.Element {
                                 : null}
                         </span>
                         <div>
-                            <Radio.Group
-                                onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
+                            <LemonSegmentedButton
+                                onChange={(newValue) => setSavedInsightsFilters({ layoutView: newValue })}
                                 value={layoutView}
-                                buttonStyle="solid"
-                            >
-                                <Radio.Button value={LayoutView.List}>
-                                    <UnorderedListOutlined className="mr-2" />
-                                    List
-                                </Radio.Button>
-                                <Radio.Button value={LayoutView.Card}>
-                                    <AppstoreFilled className="mr-2" />
-                                    Cards
-                                </Radio.Button>
-                            </Radio.Group>
+                                options={[
+                                    {
+                                        value: LayoutView.List,
+                                        label: 'List',
+                                        icon: <IconListView />,
+                                    },
+                                    {
+                                        value: LayoutView.Card,
+                                        label: 'Cards',
+                                        icon: <IconGridView />,
+                                    },
+                                ]}
+                            />
                         </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (
