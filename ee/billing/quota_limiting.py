@@ -52,11 +52,7 @@ class UsageCounters(TypedDict):
     recordings: int
 
 
-def update_all_org_billing_quotas(
-    dry_run: bool = False,
-    only_organization_id: Optional[str] = None,
-) -> Dict[str, Dict[str, float]]:  # Dict[str, Any]]:
-
+def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, float]]:
     period = get_current_day()
     period_start, period_end = period
 
@@ -97,9 +93,6 @@ def update_all_org_billing_quotas(
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
         org = orgs_by_id[org_id]
-
-        if only_organization_id and only_organization_id != org_id:
-            continue
 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
         if org.usage and org.usage["period"]:

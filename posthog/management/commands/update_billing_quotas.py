@@ -11,15 +11,11 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dry-run", type=bool, help="Print information instead of storing it")
         parser.add_argument("--print-reports", type=bool, help="Print the reports in full")
-        parser.add_argument(
-            "--organization-id", type=str, help="Only calculate the rate limit for this organization ID"
-        )
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
-        organization_id = options["organization_id"]
 
-        results = update_all_org_billing_quotas(dry_run, only_organization_id=organization_id)
+        results = update_all_org_billing_quotas(dry_run)
 
         if options["print_reports"]:
             print("")  # noqa T201
