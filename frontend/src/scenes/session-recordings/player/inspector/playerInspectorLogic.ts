@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, connect, props, key, selectors } from 'kea'
+import { actions, kea, reducers, path, connect, props, key, selectors, listeners } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -19,6 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -71,7 +72,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
-        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter', 'setSyncScroll']],
+        actions: [
+            playerSettingsLogic,
+            ['setTab', 'setMiniFilter', 'setSyncScroll'],
+            eventUsageLogic,
+            ['reportRecordingInspectorItemExpanded'],
+        ],
         values: [
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
@@ -610,5 +616,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return items
             },
         ],
+    })),
+    listeners(({ values }) => ({
+        setItemExpanded: ({ index, expanded }) => {
+            if (expanded) {
+                eventUsageLogic.actions.reportRecordingInspectorItemExpanded(values.tab, index)
+            }
+        },
     })),
 ])

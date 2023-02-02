@@ -26,7 +26,6 @@ import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { TZLabel } from '@posthog/apps-common'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {
@@ -65,20 +64,13 @@ function PlayerInspectorListItem({
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
-    const { reportRecordingInspectorItemExpanded } = useActions(eventUsageLogic)
     const showIcon = tab === SessionRecordingPlayerTab.ALL
     const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
 
     const isExpanded = expandedItems.includes(index)
 
     const itemProps = {
-        setExpanded: () => {
-            const nextExpanded = !isExpanded
-            setItemExpanded(index, !nextExpanded)
-            if (nextExpanded) {
-                reportRecordingInspectorItemExpanded(tab, index)
-            }
-        },
+        setExpanded: () => setItemExpanded(index, !isExpanded),
         expanded: isExpanded,
     }
 
