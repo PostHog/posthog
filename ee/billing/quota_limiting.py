@@ -99,9 +99,14 @@ def update_all_org_billing_quotas(
 
             # for each organization, we check if the current usage + today's unreported usage is over the limit
             for field in ["events", "recordings"]:
-                usage = org.usage.get(field, {}).get("usage", 0)
-                limit = org.usage.get(field, {}).get("limit", 0)
+                summary = org.usage.get(field, {})
                 unreported_usage = todays_report[field]  # type: ignore
+                usage = summary.get("usage", 0)
+                limit = summary.get("limit", 0)
+
+                summary["todays_usage"] = unreported_usage
+                org.usage[field] = summary
+                org.save(update_fields=["usage"])
 
                 if limit is None:
                     continue

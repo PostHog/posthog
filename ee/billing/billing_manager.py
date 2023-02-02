@@ -1,14 +1,10 @@
-import calendar
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict, cast
 
 import jwt
-import pytz
 import requests
 import structlog
-from django.conf import settings
-from django.core.cache import cache
 from django.utils import timezone
 from rest_framework.exceptions import NotAuthenticated
 
@@ -17,9 +13,6 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
-from posthog.models.event.util import get_event_count_for_team_and_period
-from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
-from posthog.models.team.team import Team
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -70,9 +63,8 @@ class CustomerInfo(TypedDict):
     current_total_amount_usd: Optional[str]
     products: Optional[List[CustomerProduct]]
     custom_limits_usd: Optional[Dict[str, str]]
-    last_reported_usage: Optional[Dict[str, int]]
     free_trial_until: Optional[str]
-    usage_summary: Optional[Dict[str, str]]  # TODO: Type this better
+    usage_summary: Optional[Dict[str, Dict[str, Optional[int]]]]  # TODO: Type this better
 
 
 class BillingStatus(TypedDict):
@@ -107,22 +99,6 @@ def build_billing_token(license: License, organization: Organization):
     )
 
     return encoded_jwt
-
-
-def get_this_month_date_range() -> Tuple[datetime, datetime]:
-    now = datetime.utcnow()
-    date_range: Tuple[int, int] = calendar.monthrange(now.year, now.month)
-    start_time: datetime = datetime.combine(
-        datetime(now.year, now.month, 1),
-        time.min,
-    ).replace(tzinfo=pytz.UTC)
-
-    end_time: datetime = datetime.combine(
-        datetime(now.year, now.month, date_range[1]),
-        time.max,
-    ).replace(tzinfo=pytz.UTC)
-
-    return (start_time, end_time)
 
 
 def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 401)) -> None:
@@ -162,15 +138,23 @@ class BillingManager:
                 response["products_enterprise"] = products["products_enterprise"]
 
             response["available_plans"] = plans["plans"]
-            return response
         else:
             products = self.get_default_products(organization)
-            return {
+            response = {
                 "available_features": [],
                 "available_plans": plans["plans"],
                 "products": products["products"],
                 "products_enterprise": products["products_enterprise"],
             }
+
+        # Extend the products with accurate usage_limit info
+        for product in response["products"]:
+            usage = response["usage_summary"].get(product["type"], {})
+            usage_limit = usage.get("limit")
+            product["current_usage"] = usage.get("usage") or 0
+            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+
+        return response
 
     def update_billing(self, organization: Organization, data: Dict[str, Any]) -> None:
         res = requests.patch(
@@ -187,18 +171,6 @@ class BillingManager:
         products = self._get_products(organization)
         response["products"] = products["standard"]
         response["products_enterprise"] = products["enterprise"]
-
-        calculated_usage = self._get_cached_current_usage(organization) if organization else None
-
-        for product in response["products"] + response["products_enterprise"]:
-            if calculated_usage and product["type"] in calculated_usage:
-                product["current_usage"] = calculated_usage[product["type"]]
-            else:
-                product["current_usage"] = 0
-
-        for product in response["products"]:
-            usage_limit = product.get("usage_limit", product.get("free_allocation"))
-            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
 
         return response
 
@@ -280,9 +252,10 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
-        if data.get("usage_summary"):
+        usage_summary = cast(dict, data.get("usage_summary"))
+        if usage_summary:
             # TODO: Add the usage summary info to Billing
-            org_usage = data["usage_summary"]
+            org_usage = usage_summary.copy()
             org_usage["period"] = [
                 data["billing_period"]["current_period_start"],
                 data["billing_period"]["current_period_end"],
@@ -301,41 +274,6 @@ class BillingManager:
             organization.save()
 
         return organization
-
-    def _get_cached_current_usage(self, organization: Organization) -> Dict[str, int]:
-        """
-        Calculate the actual current usage for an organization - only used if a subscription does not exist
-        """
-        cache_key: str = f"monthly_usage_breakdown_{organization.id}"
-        usage: Optional[Dict[str, int]] = cache.get(cache_key)
-
-        # TODO BW: For self-hosted this should be priced across all orgs
-
-        if usage is None:
-            teams = Team.objects.filter(organization=organization).exclude(organization__for_internal_metrics=True)
-
-            usage = {
-                "events": 0,
-                "recordings": 0,
-            }
-
-            (start_period, end_period) = get_this_month_date_range()
-
-            for team in teams:
-                if not team.is_demo:
-                    usage["recordings"] += get_recording_count_for_team_and_period(team.id, start_period, end_period)
-                    usage["events"] += get_event_count_for_team_and_period(team.id, start_period, end_period)
-
-            cache.set(
-                cache_key,
-                usage,
-                min(
-                    settings.BILLING_USAGE_CACHING_TTL,
-                    (end_period - timezone.now()).total_seconds(),
-                ),
-            )
-
-        return usage
 
     def get_auth_headers(self, organization: Organization):
         if not self.license:  # mypy
