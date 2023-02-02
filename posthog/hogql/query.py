@@ -22,7 +22,6 @@ class QueryResult(BaseModel):
     results: Optional[Any] = None
     types: Optional[Any] = None
     ast: Optional[Dict] = None
-    error: Optional[str] = None
 
 
 def execute_hogql_query(
