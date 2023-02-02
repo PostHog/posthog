@@ -1,4 +1,4 @@
-from typing import List, Literal
+from typing import Dict, List, Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.constants import (
@@ -12,6 +12,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.placeholders import replace_placeholders
 
 
 def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -31,9 +32,11 @@ def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
     return where
 
 
-def quick_print_hogql(node: ast.AST):
+def quick_print_hogql(node: ast.AST, placeholders: Optional[Dict[str, ast.Expr]] = None):
     # TODO: this is used just to display columns in the UI, so not expecting to be secure
     # still could use a better "ast.Bla().to_sql()" implementation
+    if placeholders:
+        node = replace_placeholders(node, placeholders)
     return print_ast(node, [], HogQLContext(limit_top_select=False), "hogql")
 
 

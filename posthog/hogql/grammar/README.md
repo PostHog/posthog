@@ -29,4 +29,4 @@ Changes with ClickHouse's grammar:
 - support aliases with a string literal "as '🍄'"
 - strings can also be entered with double quotes, not just single quotes
 - raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
- 
+- supports placeholders like "team_id = {val1}"
