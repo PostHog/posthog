@@ -123,3 +123,5 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "person.created_at",
     "person.properties",
 ]
+
+MAX_SELECT_RETURNED_ROWS = 65535

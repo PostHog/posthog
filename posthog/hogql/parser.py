@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict, List, Optional
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -7,17 +7,23 @@ from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parser_utils import parse_string_literal
+from posthog.hogql.placeholders import replace_placeholders
 
 
-def parse_expr(expr: str) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(expr).columnExprWithComment()
     node = HogQLParseTreeConverter().visit(parse_tree)
+    if placeholders:
+        node = replace_placeholders(node, placeholders)
     return node
 
 
-def parse_statement(statement: str) -> ast.Expr:
+def parse_statement(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
     parse_tree = get_parser(statement).selectQuery()
-    return HogQLParseTreeConverter().visit(parse_tree)
+    node = HogQLParseTreeConverter().visit(parse_tree)
+    if placeholders:
+        node = replace_placeholders(node, placeholders)
+    return node
 
 
 def get_parser(query: str) -> HogQLParser:

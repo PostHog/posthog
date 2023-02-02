@@ -2,7 +2,8 @@ from typing import Optional
 
 from django.test.testcases import TestCase
 
-from posthog.hogql.hogql import HogQLContext, HogQLFieldAccess, translate_hogql
+from posthog.hogql.context import HogQLContext, HogQLFieldAccess
+from posthog.hogql.hogql import translate_hogql
 
 
 class TestHogQLContext(TestCase):
