@@ -48,13 +48,7 @@ def run_events_query_v3(
     if query.fixedProperties:
         where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
     if query.event:
-        where_exprs.append(
-            ast.CompareOperation(
-                left=ast.FieldAccess(field="event"),
-                right=ast.Constant(value=query.event),
-                op=ast.CompareOperationType.Eq,
-            )
-        )
+        where_exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=query.event)}))
     if query.before:
         # prevent accidentally future events from being visible by default
         before = query.before or (now() + timedelta(seconds=5)).isoformat()
@@ -62,25 +56,13 @@ def run_events_query_v3(
             timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
         except ValueError:
             timestamp = relative_date_parse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
-        where_exprs.append(
-            ast.CompareOperation(
-                left=ast.FieldAccess(field="timestamp"),
-                right=ast.Constant(value=timestamp),
-                op=ast.CompareOperationType.Lt,
-            )
-        )
+        where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
     if query.after:
         try:
             timestamp = isoparse(query.after).strftime("%Y-%m-%d %H:%M:%S.%f")
         except ValueError:
             timestamp = relative_date_parse(query.after).strftime("%Y-%m-%d %H:%M:%S.%f")
-        where_exprs.append(
-            ast.CompareOperation(
-                left=ast.FieldAccess(field="timestamp"),
-                right=ast.Constant(value=timestamp),
-                op=ast.CompareOperationType.Gt,
-            )
-        )
+        where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
     if query.actionId:
         try:
             action = Action.objects.get(pk=query.actionId, team_id=team.pk)
@@ -93,13 +75,7 @@ def run_events_query_v3(
         person: Optional[Person] = get_pk_or_uuid(Person.objects.all(), query.personId).first()
         distinct_ids = person.distinct_ids if person is not None else []
         ids_list = list(map(str, distinct_ids))
-        where_exprs.append(
-            ast.CompareOperation(
-                left=ast.FieldAccess(field="distinct_id"),
-                right=ast.Constant(value=ids_list),
-                op=ast.CompareOperationType.In,
-            )
-        )
+        where_exprs.append(parse_expr("distinct_id in {list}", {"list": ast.Constant(value=ids_list)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
