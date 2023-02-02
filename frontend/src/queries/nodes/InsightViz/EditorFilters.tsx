@@ -12,8 +12,7 @@ import {
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import {
     isTrendsQuery,
     isFunnelsQuery,
@@ -57,8 +56,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isTrends = isTrendsQuery(query)
     const isFunnels = isFunnelsQuery(query)

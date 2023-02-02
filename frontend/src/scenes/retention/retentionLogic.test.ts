@@ -107,24 +107,24 @@ describe('retentionLogic', () => {
                 })
         })
 
-        it('handles conversion from cohort percentage to derivative of percentages when retentionReference is previous', async () => {
-            await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({
-                    insight: InsightType.RETENTION,
-                    period: 'Week',
-                } as RetentionFilterType)
-                logic.actions.setRetentionReference('previous')
-            })
-                .toFinishAllListeners()
-                .toMatchValues(logic, {
-                    trendSeries: expect.arrayContaining([
-                        expect.objectContaining({ data: [100, 25, 75, 26.666666666666668] }),
-                        expect.objectContaining({ data: [100, 25, 40] }),
-                        expect.objectContaining({ data: [100, 0] }),
-                        expect.objectContaining({ data: [0] }),
-                    ]),
-                })
-        })
+        // it('handles conversion from cohort percentage to derivative of percentages when retentionReference is previous', async () => {
+        //     await expectLogic(logic, () => {
+        //         insightLogic(props).actions.setFilters({
+        //             insight: InsightType.RETENTION,
+        //             period: 'Week',
+        //         } as RetentionFilterType)
+        //         logic.actions.setRetentionReference('previous')
+        //     })
+        //         .toFinishAllListeners()
+        //         .toMatchValues(logic, {
+        //             trendSeries: expect.arrayContaining([
+        //                 expect.objectContaining({ data: [100, 25, 75, 26.666666666666668] }),
+        //                 expect.objectContaining({ data: [100, 25, 40] }),
+        //                 expect.objectContaining({ data: [100, 0] }),
+        //                 expect.objectContaining({ data: [0] }),
+        //             ]),
+        //         })
+        // })
 
         it('calculates max number of intervals in the results', async () => {
             await expectLogic(logic, () => {

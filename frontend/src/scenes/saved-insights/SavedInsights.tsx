@@ -15,7 +15,6 @@ import {
     IconBarChart,
     IconCoffee,
     IconEvent,
-    IconInternetExplorer,
     IconPerson,
     IconQuestionAnswer,
     IconSelectEvents,
@@ -205,12 +204,6 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         name: 'PostHog perforamance data',
         description: 'PageViews where we recorded performance data about your site',
         icon: IconCoffee,
-        inMenu: true,
-    },
-    [NodeKind.UnimplementedQuery]: {
-        name: 'An unimplemented query',
-        description: 'A query that has not yet been implemented',
-        icon: IconInternetExplorer,
         inMenu: true,
     },
 }

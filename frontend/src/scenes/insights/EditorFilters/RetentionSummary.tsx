@@ -35,9 +35,7 @@ export function RetentionSummaryDataExploration({ insightProps }: QueryEditorFil
 export function RetentionSummary({ insightProps }: EditorFilterProps): JSX.Element {
     const { filters } = useValues(retentionLogic(insightProps))
     const { setFilters } = useActions(retentionLogic(insightProps))
-    return (
-        <RetentionSummaryComponent insightProps={insightProps} setFilters={(f) => setFilters(f, true)} {...filters} />
-    )
+    return <RetentionSummaryComponent insightProps={insightProps} setFilters={setFilters} {...filters} />
 }
 
 type RetentionSummaryComponentProps = {
