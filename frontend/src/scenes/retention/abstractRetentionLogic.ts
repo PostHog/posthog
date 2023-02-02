@@ -8,6 +8,7 @@ import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import type { abstractRetentionLogicType } from './abstractRetentionLogicType'
 import { retentionLogic } from './retentionLogic'
 import { DateRange, BreakdownFilter, RetentionFilter } from '~/queries/schema'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 const DEFAULT_RETENTION_LOGIC_KEY = 'default_retention_key'
 
@@ -33,6 +34,16 @@ export const abstractRetentionLogic = kea<abstractRetentionLogicType>({
         ],
     }),
     selectors: {
+        apiFilters: [
+            (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationQuerySource],
+            (isUsingDataExploration, filters, dataExplorationQuerySource) => {
+                if (isUsingDataExploration) {
+                    return queryNodeToFilter(dataExplorationQuerySource)
+                }
+
+                return filters
+            },
+        ],
         retentionFilter: [
             (s) => [s.isUsingDataExploration, s.filters, s.dataExplorationRetentionFilter],
             (isUsingDataExploration, filters, dataExplorationRetentionFilter): RetentionFilter => {

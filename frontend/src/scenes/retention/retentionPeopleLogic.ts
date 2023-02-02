@@ -5,7 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTablePeoplePayload } from 'scenes/retention/types'
 import { InsightLogicProps } from '~/types'
-import { retentionLogic } from './retentionLogic'
+import { abstractRetentionLogic } from './abstractRetentionLogic'
 
 import type { retentionPeopleLogicType } from './retentionPeopleLogicType'
 
@@ -16,7 +16,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionPeopleLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [retentionLogic(props), ['filters']],
+        values: [abstractRetentionLogic(props), ['apiFilters']],
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({
@@ -28,7 +28,7 @@ export const retentionPeopleLogic = kea<retentionPeopleLogicType>({
         people: {
             __default: {} as RetentionTablePeoplePayload,
             loadPeople: async (rowIndex: number) => {
-                const urlParams = toParams({ ...values.filters, selected_interval: rowIndex })
+                const urlParams = toParams({ ...values.apiFilters, selected_interval: rowIndex })
                 return (await api.get(`api/person/retention/?${urlParams}`)) as RetentionTablePeoplePayload
             },
         },
