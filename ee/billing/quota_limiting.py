@@ -2,6 +2,7 @@ from datetime import timedelta
 from enum import Enum
 from typing import Dict, List, Mapping, Optional, Sequence, TypedDict
 
+import dateutil.parser
 from django.db.models import Q
 from django.utils import timezone
 
@@ -101,7 +102,7 @@ def update_all_org_billing_quotas(
             continue
 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
-        if org.usage:
+        if org.usage and org.usage["period"]:
             # for each organization, we check if the current usage + today's unreported usage is over the limit
             for field in ["events", "recordings"]:
                 summary = org.usage.get(field, {})
@@ -118,9 +119,11 @@ def update_all_org_billing_quotas(
                     continue
 
                 is_rate_limited = usage + unreported_usage > limit + OVERAGE_BUFFER[QuotaResource(field)]
-                if is_rate_limited:
+                billing_period_end = dateutil.parser.isoparse(org.usage["period"][1]).timestamp()
+
+                if is_rate_limited and billing_period_end:
                     # TODO: Set this rate limit to the end of the billing period
-                    rate_limited_orgs[field][org_id] = timezone.now().timestamp() + timedelta(days=1).total_seconds()
+                    rate_limited_orgs[field][org_id] = billing_period_end
 
     rate_limited_teams: Dict[str, Dict[str, float]] = {"events": {}, "recordings": {}}
 

@@ -40,7 +40,11 @@ class TestQuotaLimiting(BaseTest):
 
     def test_billing_rate_limit(self) -> None:
         with self.settings(USE_TZ=False):
-            self.organization.usage = {"events": {"usage": 99, "limit": 100}, "recordings": {"usage": 1, "limit": 100}}
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
             self.organization.save()
 
             distinct_id = str(uuid4())
@@ -58,8 +62,17 @@ class TestQuotaLimiting(BaseTest):
 
         result = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
-        assert result["events"] == {org_id: now().timestamp()}
+        assert result["events"] == {org_id: 1612137599.0}
         assert result["recordings"] == {}
 
-        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == [org_id.encode("UTF-8")]
+        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == [
+            self.team.api_token.encode("UTF-8")
+        ]
         assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage == {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
