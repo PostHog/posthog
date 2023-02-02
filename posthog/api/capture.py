@@ -45,8 +45,8 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
-    "events_dropped_over_quota",
-    "Dropped requests due to quota-limiting, per resource, and team token.",
+    "capture_events_dropped_over_quota",
+    "Events dropped by capture due to quota-limiting, per resource, and team token.",
     labelnames=["resource", "token"],
 )
 
