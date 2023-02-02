@@ -161,12 +161,6 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
-                   (SELECT id
-                    FROM person
-                    WHERE team_id = 2
-                    GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
@@ -685,12 +679,6 @@
                     WHERE team_id = 2
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-                 INNER JOIN
-                   (SELECT id
-                    FROM person
-                    WHERE team_id = 2
-                    GROUP BY id
-                    HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['paid', 'user signed up']
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
