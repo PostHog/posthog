@@ -760,7 +760,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 { plugin: { name: 'S3 Export Plugin' } } as any,
                 vm
             ).eventsPerRun
-            expect(eventsPerRun).toEqual(500)
+            expect(eventsPerRun).toEqual(5000)
 
             // Set the handlesLargeBatches flag to true and expect a big batch size
             vm.methods.getSettings = jest.fn().mockReturnValue({
@@ -782,7 +782,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 { plugin: { name: 'foo' } } as any,
                 vm
             ).eventsPerRun
-            expect(eventsPerRun).toEqual(500)
+            expect(eventsPerRun).toEqual(5000)
         })
     })
 
