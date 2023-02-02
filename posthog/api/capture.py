@@ -42,6 +42,14 @@ logger = structlog.get_logger(__name__)
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
+from prometheus_client import Counter
+
+EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
+    "events_dropped_over_quota",
+    "Dropped requests due to quota-limiting, per resource, and team token.",
+    labelnames=["resource", "token"],
+)
+
 
 def parse_kafka_event_data(
     distinct_id: str,
@@ -214,13 +222,13 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
-                statsd.incr("events_dropped_over_quota", tags={"resource": "recordings", "token": token})
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token).inc()
 
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
         elif token in limited_tokens_events:
-            statsd.incr("events_dropped_over_quota", tags={"resource": "events", "token": token})
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token).inc()
             if settings.QUOTA_LIMITING_ENABLED:
                 continue
 
