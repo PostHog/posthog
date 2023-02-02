@@ -71,6 +71,7 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                 })}
             >
                 <EditorFilters query={query.source} setQuery={setQuerySource} />
+
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer insightMode={insightMode} />
                 </div>
