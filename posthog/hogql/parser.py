@@ -61,6 +61,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         where = self.visit(ctx.whereClause()) if ctx.whereClause() else None
         prewhere = self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None
         having = self.visit(ctx.havingClause()) if ctx.havingClause() else None
+        group_by = self.visit(ctx.groupByClause()) if ctx.groupByClause() else None
 
         limit = None
         offset = None
@@ -88,8 +89,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.windowClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.windowClause()")
-        if ctx.groupByClause():
-            raise NotImplementedError(f"Unsupported: SelectStmt.groupByClause()")
         if ctx.orderByClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.orderByClause()")
         if ctx.limitByClause():
@@ -103,6 +102,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             where=where,
             prewhere=prewhere,
             having=having,
+            group_by=group_by,
             limit=limit,
             offset=offset,
         )
@@ -129,7 +129,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitGroupByClause(self, ctx: HogQLParser.GroupByClauseContext):
-        raise NotImplementedError(f"Unsupported node: GroupByClause")
+        return self.visit(ctx.columnExprList())
 
     def visitHavingClause(self, ctx: HogQLParser.HavingClauseContext):
         return self.visit(ctx.columnExpr())

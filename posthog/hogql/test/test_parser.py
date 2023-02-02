@@ -492,6 +492,16 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_group_by(self):
+        self.assertEqual(
+            parse_statement("select 1 from events GROUP BY 1, event"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                group_by=[ast.Constant(value=1), ast.FieldAccess(field="event")],
+            ),
+        )
+
     def test_select_limit_offset(self):
         self.assertEqual(
             parse_statement("select 1 from events LIMIT 1"),
