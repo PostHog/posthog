@@ -38,6 +38,7 @@ import {
     StickinessQuery,
     TrendsQuery,
     PathsQuery,
+    FunnelsQuery,
 } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 
@@ -793,6 +794,60 @@ describe('summarizeInsightQuery()', () => {
         const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
 
         expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
+    })
+
+    it('summarizes a user-based Funnels insight with 3 steps', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'random_event',
+                    name: 'random_event',
+                },
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 1,
+                    name: 'Random action',
+                },
+            ],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('Pageview → random_event → Random action user conversion rate')
+    })
+
+    it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'random_event',
+                    name: 'random_event',
+                },
+            ],
+            aggregation_group_type_index: 0,
+            breakdown: {
+                breakdown_type: 'person',
+                breakdown: 'some_prop',
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
     })
 
     it('summarizes a Paths insight based on all events', () => {

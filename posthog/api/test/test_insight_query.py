@@ -76,6 +76,43 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             expected_status=status.HTTP_201_CREATED,
         )
 
+    def test_no_default_filters_on_insight_query(self) -> None:
+        _, insight_json = self.dashboard_api.create_insight(
+            {
+                "name": "Insight with persons table query",
+                "query": {
+                    "kind": "DataTableNode",
+                    "columns": ["person", "id", "created_at", "person.$delete"],
+                    "source": {
+                        "kind": "PersonsNode",
+                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                    },
+                },
+            },
+            expected_status=status.HTTP_201_CREATED,
+        )
+        assert insight_json["filters"] == {}
+
+    def test_default_filters_on_non_query_insight(self) -> None:
+        _, insight_json = self.dashboard_api.create_insight(
+            {
+                "name": "Old-Fashioned Insight",
+                "filters": {
+                    "events": [
+                        {"id": "$pageview"},
+                    ],
+                },
+            },
+            expected_status=status.HTTP_201_CREATED,
+        )
+        assert insight_json["filters"] == {
+            "events": [
+                {"id": "$pageview"},
+            ],
+            "insight": "TRENDS",
+            "date_from": "-7d",
+        }
+
     def test_can_save_insights_query_to_an_insight(self) -> None:
         self.dashboard_api.create_insight(
             {

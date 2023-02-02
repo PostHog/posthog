@@ -4,13 +4,13 @@ import { normalizeEvent } from '../../../utils/event'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { updatePersonState } from '../person-state'
 import { parseEventTimestamp } from '../timestamps'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner } from './runner'
 
 export async function processPersonsStep(
     runner: EventPipelineRunner,
     pluginEvent: PluginEvent,
     personContainer: LazyPersonContainer
-): Promise<StepResult> {
+): Promise<[PluginEvent, LazyPersonContainer]> {
     const event = normalizeEvent(pluginEvent)
 
     const timestamp = parseEventTimestamp(event)
@@ -27,5 +27,5 @@ export async function processPersonsStep(
         personContainer
     )
 
-    return runner.nextStep('prepareEventStep', event, newPersonContainer)
+    return [event, newPersonContainer]
 }

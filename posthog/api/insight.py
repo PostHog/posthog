@@ -174,7 +174,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
         filters = instance.dashboard_filters()
 
-        if not filters.get("date_from"):
+        if not filters.get("date_from") and not instance.query:
             filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
 
@@ -450,7 +450,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-        if "insight" not in representation["filters"]:
+
+        if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
@@ -867,7 +868,7 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         #  backwards compatibility
         if filter.path_type:
-            filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
+            filter = filter.shallow_clone({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp, "timezone": team.timezone}

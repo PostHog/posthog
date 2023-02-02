@@ -89,8 +89,8 @@ export function Group(): JSX.Element {
                                         {
                                             key: `$group_${groupTypeIndex}`,
                                             value: groupKey,
+                                            type: PropertyFilterType.Event,
                                             operator: PropertyOperator.Exact,
-                                            type: PropertyFilterType.Group,
                                         },
                                     ],
                                 },
@@ -104,7 +104,7 @@ export function Group(): JSX.Element {
                                     {
                                         key: `$group_${groupTypeIndex}`,
                                         value: groupKey,
-                                        type: PropertyFilterType.Group,
+                                        type: PropertyFilterType.Event,
                                         operator: PropertyOperator.Exact,
                                     },
                                 ],

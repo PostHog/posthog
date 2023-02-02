@@ -59,7 +59,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValueError):
             ClickhouseFunnelUnorderedActors(filter, self.team).run()
 
-        filter = filter.with_data({"funnel_step": -1})
+        filter = filter.shallow_clone({"funnel_step": -1})
         with pytest.raises(ValueError):
             _, _, _ = ClickhouseFunnelUnorderedActors(filter, self.team).run()
 

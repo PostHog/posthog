@@ -67,6 +67,7 @@ class Lifecycle:
             LIFECYCLE_PEOPLE_SQL.format(events_query=event_query, interval_expr=filter.interval),
             {
                 **event_params,
+                **filter.hogql_context.values,
                 "status": lifecycle_type,
                 "target_date": target_date,
                 "offset": filter.offset,
@@ -135,6 +136,7 @@ class LifecycleEventQuery(EventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_context=self._filter.hogql_context,
         )
         self.params.update(entity_params)
 

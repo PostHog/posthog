@@ -37,7 +37,7 @@ class TrendsActors(ActorBaseQuery):
             # This was annoying and only made it harder to reason about the API, so it's no longer how actors modal
             # URLs behave. Now we only do this handling at this level for backwards compatibility (cached results)
             # via the `date_from == date_to` check - all new requests have a "fully qualified" date range.
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {
                     "date_to": offset_time_series_date_by_interval(
                         cast(datetime.datetime, filter.date_from), filter=filter, team=team
@@ -55,7 +55,7 @@ class TrendsActors(ActorBaseQuery):
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
         if self._filter.breakdown_type == "cohort" and self._filter.breakdown_value != "all":
             cohort = Cohort.objects.get(pk=self._filter.breakdown_value, team_id=self._team.pk)
-            self._filter = self._filter.with_data(
+            self._filter = self._filter.shallow_clone(
                 {
                     "properties": self._filter.property_groups.combine_properties(
                         PropertyOperatorType.AND, [Property(key="id", value=cohort.pk, type="cohort")]
@@ -101,7 +101,7 @@ class TrendsActors(ActorBaseQuery):
                     )
                 ]
 
-            self._filter = self._filter.with_data(
+            self._filter = self._filter.shallow_clone(
                 {
                     "properties": self._filter.property_groups.combine_properties(
                         PropertyOperatorType.AND, breakdown_props

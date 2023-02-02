@@ -1,15 +1,11 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PreIngestionEvent } from 'types'
 
-import { LazyPersonContainer } from '../lazy-person-container'
 import { parseEventTimestamp } from '../timestamps'
 import { captureIngestionWarning } from '../utils'
-import { EventPipelineRunner, StepResult } from './runner'
+import { EventPipelineRunner } from './runner'
 
-export async function prepareEventStep(
-    runner: EventPipelineRunner,
-    event: PluginEvent,
-    personContainer: LazyPersonContainer
-): Promise<StepResult> {
+export async function prepareEventStep(runner: EventPipelineRunner, event: PluginEvent): Promise<PreIngestionEvent> {
     const { ip, site_url, team_id, uuid } = event
     const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
         // TODO: make that metric name more generic when transitionning to prometheus
@@ -28,9 +24,5 @@ export async function prepareEventStep(
 
     await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
 
-    if (preIngestionEvent) {
-        return runner.nextStep('createEventStep', preIngestionEvent, personContainer)
-    } else {
-        return null
-    }
+    return preIngestionEvent
 }

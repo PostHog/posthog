@@ -86,6 +86,7 @@ export function SessionRecordingsFilters({
                             TaxonomicFilterGroupType.EventProperties,
                             TaxonomicFilterGroupType.EventFeatureFlags,
                             TaxonomicFilterGroupType.Elements,
+                            TaxonomicFilterGroupType.HogQLExpression,
                         ]}
                         propertyFiltersPopover
                     />

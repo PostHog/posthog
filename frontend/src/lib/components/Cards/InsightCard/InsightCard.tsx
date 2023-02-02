@@ -33,7 +33,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
 import { InsightDetails } from './InsightDetails'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { InsightTypeMetadata, INSIGHT_TYPES_METADATA, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -41,7 +41,7 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -60,6 +60,9 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 import { DashboardPrivilegeLevel } from 'lib/constants'
+import { Query } from '~/queries/Query/Query'
+import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
+import { InsightVizNode } from '~/queries/schema'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -220,6 +223,9 @@ function InsightMeta({
     )
     const editable = insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
 
+    // not all interactions are currently implemented for queries
+    const allInteractionsAllowed = !insight.query
+
     return (
         <CardMeta
             setPrimaryHeight={setPrimaryHeight}
@@ -229,25 +235,38 @@ function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             className={'border-b'}
-            topHeading={
-                <>
-                    <span title={INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description}>
-                        {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.name}
-                    </span>{' '}
-                    • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
-                </>
-            }
+            topHeading={<TopHeading insight={insight} />}
             meta={
                 <>
-                    <Link to={urls.insightView(short_id)}>
+                    {!!insight.query ? (
                         <h4 title={name} data-attr="insight-card-title">
-                            {name || (
-                                <i>
-                                    {summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
-                                </i>
-                            )}
+                            {name ||
+                                (isInsightVizNode(insight.query)
+                                    ? summarizeInsightQuery(
+                                          (insight.query as InsightVizNode).source,
+                                          aggregationLabel,
+                                          cohortsById,
+                                          mathDefinitions
+                                      )
+                                    : // TODO summarize non insight queries
+                                      'query: ' + insight.query.kind)}
                         </h4>
-                    </Link>
+                    ) : (
+                        <Link to={urls.insightView(short_id)}>
+                            <h4 title={name} data-attr="insight-card-title">
+                                {name || (
+                                    <i>
+                                        {summarizeInsightFilters(
+                                            filters,
+                                            aggregationLabel,
+                                            cohortsById,
+                                            mathDefinitions
+                                        )}
+                                    </i>
+                                )}
+                            </h4>
+                        </Link>
+                    )}
 
                     {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
@@ -257,20 +276,24 @@ function InsightMeta({
             metaDetails={<InsightDetails insight={insight} />}
             moreButtons={
                 <>
-                    <LemonButton status="stealth" to={urls.insightView(short_id)} fullWidth>
-                        View
-                    </LemonButton>
-                    {refresh && (
-                        <LemonButton
-                            status="stealth"
-                            onClick={() => {
-                                refresh()
-                                reportDashboardItemRefreshed(insight)
-                            }}
-                            fullWidth
-                        >
-                            Refresh
-                        </LemonButton>
+                    {allInteractionsAllowed && (
+                        <>
+                            <LemonButton status="stealth" to={urls.insightView(short_id)} fullWidth>
+                                View
+                            </LemonButton>
+                            {refresh && (
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        refresh()
+                                        reportDashboardItemRefreshed(insight)
+                                    }}
+                                    fullWidth
+                                >
+                                    Refresh
+                                </LemonButton>
+                            )}
+                        </>
                     )}
                     {editable && updateColor && (
                         <LemonButtonWithPopup
@@ -331,7 +354,7 @@ function InsightMeta({
                         </LemonButtonWithPopup>
                     )}
                     <LemonDivider />
-                    {editable && (
+                    {editable && allInteractionsAllowed && (
                         <LemonButton status="stealth" to={urls.insightEdit(short_id)} fullWidth>
                             Edit
                         </LemonButton>
@@ -381,16 +404,49 @@ function InsightMeta({
                                 <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
                                     Remove from dashboard
                                 </LemonButton>
-                            ) : (
+                            ) : allInteractionsAllowed ? (
                                 <LemonButton status="danger" onClick={deleteWithUndo} fullWidth>
                                     Delete insight
                                 </LemonButton>
-                            )}
+                            ) : null}
                         </>
                     )}
                 </>
             }
         />
+    )
+}
+
+function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
+    const { filters, query } = insight
+
+    let insightType: InsightTypeMetadata
+
+    // check the query first because the backend still adds defaults to empty filters :/
+    if (!!query?.kind) {
+        insightType = QUERY_TYPES_METADATA[query.kind]
+    } else if (!!filters.insight) {
+        insightType = INSIGHT_TYPES_METADATA[filters.insight]
+    } else {
+        // maintain the existing default
+        insightType = INSIGHT_TYPES_METADATA[InsightType.TRENDS]
+    }
+
+    let { date_from, date_to } = filters
+    if (!!query) {
+        const queryDateRange = dateRangeFor(query)
+        if (!!queryDateRange) {
+            date_from = queryDateRange.date_from
+            date_to = queryDateRange.date_to
+        }
+    }
+
+    const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
+    return (
+        <>
+            <span title={insightType?.description}>{insightType?.name}</span> •{' '}
+            {dateFilterToText(date_from, date_to, defaultDateRange)}
+        </>
     )
 }
 
@@ -553,21 +609,39 @@ function InsightCardInternal(
                     showDetailsControls={showDetailsControls}
                     moreButtons={moreButtons}
                 />
-                <InsightViz
-                    insight={insight}
-                    loading={loading}
-                    apiErrored={apiErrored}
-                    timedOut={timedOut}
-                    empty={empty}
-                    tooFewFunnelSteps={tooFewFunnelSteps}
-                    invalidFunnelExclusion={invalidFunnelExclusion}
-                    style={
-                        metaPrimaryHeight
-                            ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
-                            : undefined
-                    }
-                    setAreDetailsShown={setAreDetailsShown}
-                />
+                {!!insight.query ? (
+                    <div
+                        className="InsightViz p-2"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={
+                            metaPrimaryHeight
+                                ? {
+                                      height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)`,
+                                  }
+                                : undefined
+                        }
+                    >
+                        <Query query={insight.query} />
+                    </div>
+                ) : (
+                    <InsightViz
+                        insight={insight}
+                        loading={loading}
+                        apiErrored={apiErrored}
+                        timedOut={timedOut}
+                        empty={empty}
+                        tooFewFunnelSteps={tooFewFunnelSteps}
+                        invalidFunnelExclusion={invalidFunnelExclusion}
+                        style={
+                            metaPrimaryHeight
+                                ? {
+                                      height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)`,
+                                  }
+                                : undefined
+                        }
+                        setAreDetailsShown={setAreDetailsShown}
+                    />
+                )}
             </BindLogic>
             {showResizeHandles && (
                 <>
