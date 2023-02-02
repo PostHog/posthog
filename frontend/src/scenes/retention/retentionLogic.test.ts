@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { retentionLogic } from 'scenes/retention/retentionLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, InsightType, RetentionFilterType } from '~/types'
+import { InsightShortId, InsightType, RetentionFilterType, RetentionPeriod } from '~/types'
 import { useMocks } from '~/mocks/jest'
 
 const Insight123 = '123' as InsightShortId
@@ -63,7 +63,7 @@ describe('retentionLogic', () => {
 
         it('setFilters calls insightLogic.setFilters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                logic.actions.setFilters({ insight: InsightType.RETENTION, period: RetentionPeriod.Week })
             })
                 .toDispatchActions([
                     (action) =>
@@ -86,7 +86,7 @@ describe('retentionLogic', () => {
             await expectLogic(logic, () => {
                 insightLogic(props).actions.setFilters({
                     insight: InsightType.RETENTION,
-                    period: 'Week',
+                    period: RetentionPeriod.Week,
                 } as RetentionFilterType)
             })
                 .toMatchValues(logic, {

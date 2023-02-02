@@ -1,8 +1,8 @@
-import { dayjs } from 'lib/dayjs'
+import { dayjs, QUnitType } from 'lib/dayjs'
 import { kea } from 'kea'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { RetentionTrendPayload } from 'scenes/retention/types'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, RetentionPeriod } from '~/types'
 import { dateOptionToTimeIntervalMap } from './constants'
 
 import { abstractRetentionLogic } from './abstractRetentionLogic'
@@ -91,10 +91,10 @@ export const retentionLineGraphLogic = kea<retentionLineGraphLogicType>({
                     return -1
                 }
                 const numUnits = trendSeries[0].days.length
-                const interval = dateOptionToTimeIntervalMap?.[period ?? 'Day']
+                const interval = dateOptionToTimeIntervalMap?.[period ?? RetentionPeriod.Day]
                 const startDate = dayjs().startOf(interval)
                 const startIndex = trendSeries[0].days.findIndex(
-                    (_, i) => dayjs(date_to).add(i - numUnits, interval) >= startDate
+                    (_, i) => dayjs(date_to).add(i - numUnits, interval as QUnitType) >= startDate
                 )
 
                 if (startIndex !== undefined && startIndex !== -1) {

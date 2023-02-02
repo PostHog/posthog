@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType } from '~/types'
+import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType, RetentionPeriod } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -76,7 +76,7 @@ const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
             source: {
                 kind: NodeKind.RetentionQuery,
                 retentionFilter: {
-                    period: 'Day',
+                    period: RetentionPeriod.Day,
                     total_intervals: 11,
                     target_entity: {
                         id: '$pageview',
