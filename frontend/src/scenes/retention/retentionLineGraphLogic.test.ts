@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { retentionLogic } from 'scenes/retention/retentionLogic'
+import { retentionLineGraphLogic } from 'scenes/retention/retentionLineGraphLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightShortId, InsightType, RetentionFilterType } from '~/types'
 import { useMocks } from '~/mocks/jest'
@@ -41,12 +41,13 @@ const result = [
     },
 ]
 
-describe('retentionLogic', () => {
-    let logic: ReturnType<typeof retentionLogic.build>
+describe('retentionLineGraphLogic', () => {
+    let logic: ReturnType<typeof retentionLineGraphLogic.build>
 
     beforeEach(() => {
         useMocks({
             get: {
+                '/api/projects/:team/insights/': { results: [result] },
                 '/api/projects/:team/insights/retention/': { result },
             },
         })
@@ -57,47 +58,45 @@ describe('retentionLogic', () => {
 
         beforeEach(() => {
             initKeaTests()
-            logic = retentionLogic(props)
+            logic = retentionLineGraphLogic(props)
             logic.mount()
         })
 
-        it('setFilters calls insightLogic.setFilters', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
-            })
-                .toDispatchActions([
-                    (action) =>
-                        action.type === insightLogic(props).actionTypes.setFilters &&
-                        action.payload.filters?.period === 'Week',
-                ])
-                .toMatchValues(logic, {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
-                })
-                .toMatchValues(insightLogic(props), {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
-                })
-        })
-
-        it('insightLogic.setFilters updates filters', async () => {
+        it('returns cohort percentage when retention_reference is total', async () => {
             await expectLogic(logic, () => {
                 insightLogic(props).actions.setFilters({
                     insight: InsightType.RETENTION,
                     period: 'Week',
+                    retention_reference: 'total',
                 } as RetentionFilterType)
             })
+                .toFinishAllListeners()
                 .toMatchValues(logic, {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
+                    trendSeries: expect.arrayContaining([
+                        expect.objectContaining({ data: [100, 25, 18.75, 5] }),
+                        expect.objectContaining({ data: [100, 25, 10] }),
+                        expect.objectContaining({ data: [100, 0] }),
+                        expect.objectContaining({ data: [0] }),
+                    ]),
                 })
-                .toMatchValues(insightLogic(props), {
-                    filters: expect.objectContaining({
-                        period: 'Week',
-                    }),
+        })
+
+        it('handles cohort percentage when retention_reference is previous', async () => {
+            await expectLogic(logic, () => {
+                insightLogic(props).actions.setFilters({
+                    insight: InsightType.RETENTION,
+                    period: 'Week',
+                    retention_reference: 'previous',
+                } as RetentionFilterType)
+            })
+                .toFinishAllListeners()
+                .toMatchValues(logic, {
+                    trendSeries: expect.arrayContaining([
+                        expect.objectContaining({ data: [100, 25, 75, 26.666666666666668] }),
+                        expect.objectContaining({ data: [100, 25, 40] }),
+                        expect.objectContaining({ data: [100, 0] }),
+                        expect.objectContaining({ data: [0] }),
+                    ]),
                 })
         })
     })
