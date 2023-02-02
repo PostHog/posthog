@@ -203,50 +203,42 @@ class TestParser(BaseTest):
             ),
         )
 
-    def test_boolean_operations(self):
+    def test_and_or(self):
         self.assertEqual(
             parse_expr("true or false"),
-            ast.BooleanOperation(
-                values=[ast.Constant(value=True), ast.Constant(value=False)], op=ast.BooleanOperationType.Or
-            ),
+            ast.Or(values=[ast.Constant(value=True), ast.Constant(value=False)]),
         )
         self.assertEqual(
             parse_expr("true and false"),
-            ast.BooleanOperation(
-                values=[ast.Constant(value=True), ast.Constant(value=False)], op=ast.BooleanOperationType.And
-            ),
+            ast.And(values=[ast.Constant(value=True), ast.Constant(value=False)]),
         )
         self.assertEqual(
             parse_expr("true and not false"),
-            ast.BooleanOperation(
+            ast.And(
                 values=[ast.Constant(value=True), ast.NotOperation(expr=ast.Constant(value=False))],
-                op=ast.BooleanOperationType.And,
             ),
         )
         self.assertEqual(
             parse_expr("true or false or not true or 2"),
-            ast.BooleanOperation(
+            ast.Or(
                 values=[
                     ast.Constant(value=True),
                     ast.Constant(value=False),
                     ast.NotOperation(expr=ast.Constant(value=True)),
                     ast.Constant(value=2),
                 ],
-                op=ast.BooleanOperationType.Or,
             ),
         )
         self.assertEqual(
             parse_expr("true or false and not true or 2"),
-            ast.BooleanOperation(
+            ast.Or(
                 values=[
                     ast.Constant(value=True),
-                    ast.BooleanOperation(
+                    ast.And(
                         values=[ast.Constant(value=False), ast.NotOperation(expr=ast.Constant(value=True))],
-                        op=ast.BooleanOperationType.And,
                     ),
                     ast.Constant(value=2),
                 ],
-                op=ast.BooleanOperationType.Or,
             ),
         )
 

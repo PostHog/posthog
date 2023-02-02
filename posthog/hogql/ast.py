@@ -35,17 +35,20 @@ class BinaryOperation(Expr):
         return cast(List[AST], [self.left, self.right])
 
 
-class BooleanOperationType(str, Enum):
-    And = "and"
-    Or = "or"
-
-
-# TODO: refactor to just ast.And and ast.Or classes for ease of use
-class BooleanOperation(Expr):
+class And(Expr):
     class Config:
         extra = Extra.forbid
 
-    op: BooleanOperationType
+    values: List[Expr]
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], self.values)
+
+
+class Or(Expr):
+    class Config:
+        extra = Extra.forbid
+
     values: List[Expr]
 
     def children(self) -> List[AST]:

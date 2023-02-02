@@ -75,11 +75,11 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             right=ast.Constant(value=context.select_team_id),
         )
 
-        if isinstance(node.where, ast.BooleanOperation) and node.where.op == ast.BooleanOperationType.And:
+        if isinstance(node.where, ast.And):
             values = node.where.values
-            where = ast.BooleanOperation(op=ast.BooleanOperationType.And, values=[team_clause] + values)
+            where = ast.And(values=[team_clause] + values)
         elif node.where:
-            where = ast.BooleanOperation(op=ast.BooleanOperationType.And, values=[team_clause, node.where])
+            where = ast.And(values=[team_clause, node.where])
         else:
             where = team_clause
         where = translate_ast(where, stack, context)
@@ -118,13 +118,10 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             )
         else:
             raise ValueError(f"Unknown BinaryOperationType {node.op}")
-    elif isinstance(node, ast.BooleanOperation):
-        if node.op == ast.BooleanOperationType.And:
-            response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
-        elif node.op == ast.BooleanOperationType.Or:
-            response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
-        else:
-            raise ValueError(f"Unknown BooleanOperationType: {type(node.op).__name__}")
+    elif isinstance(node, ast.And):
+        response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+    elif isinstance(node, ast.Or):
+        response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
     elif isinstance(node, ast.NotOperation):
         response = f"not({translate_ast(node.expr, stack, context)})"
     elif isinstance(node, ast.CompareOperation):
