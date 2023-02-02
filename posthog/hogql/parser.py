@@ -1,3 +1,5 @@
+from typing import List
+
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 
@@ -449,10 +451,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.FieldAccessChain(chain=chain)
 
     def visitNestedIdentifier(self, ctx: HogQLParser.NestedIdentifierContext):
-        chain = [identifier.getText() for identifier in ctx.identifier()]
-        if len(chain) == 1:
-            return ast.FieldAccess(field=chain[0])
-        return ast.FieldAccessChain(chain=chain)
+        identifiers: List[ast.FieldAccess] = [self.visit(identifier) for identifier in ctx.identifier()]
+        if len(identifiers) == 1:
+            return identifiers[0]
+        return ast.FieldAccessChain(chain=[identifier.field for identifier in identifiers])
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
         raise NotImplementedError(f"Unsupported node: TableExprIdentifier")
@@ -514,7 +516,12 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitAlias(self, ctx: HogQLParser.AliasContext):
         raise NotImplementedError(f"Unsupported node: Alias")
 
+    def visitTemplateString(self, ctx: HogQLParser.TemplateStringContext):
+        return ast.Placeholder(field=parse_string_literal(ctx))
+
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
+        if ctx.templateString():
+            return self.visit(ctx.templateString())
         return ast.FieldAccess(field=ctx.getText())
 
     def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):

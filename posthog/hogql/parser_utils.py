@@ -6,6 +6,9 @@ def parse_string_literal(ctx):
     elif text.startswith('"') and text.endswith('"'):
         text = text[1:-1]
         text = text.replace('""', '"')
+    elif text.startswith("%(") and text.endswith(")"):
+        text = text[2:-1]
+        text = text.replace('""', '"')
     else:
         raise ValueError(f"Invalid string literal, must start and end with the same quotes: {text}")
 

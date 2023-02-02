@@ -404,3 +404,20 @@ class TestParser(BaseTest):
                 ),
             ),
         )
+
+    def test_placeholders(self):
+        self.assertEqual(
+            parse_expr("%(foo)"),
+            ast.Placeholder(field="foo"),
+        )
+        self.assertEqual(
+            parse_statement("select 1 where 1 == %(hogql_val_1)"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq,
+                    left=ast.Constant(value=1),
+                    right=ast.Placeholder(field="hogql_val_1"),
+                ),
+            ),
+        )

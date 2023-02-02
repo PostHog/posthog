@@ -102,6 +102,13 @@ class FieldAccessChain(Expr):
         return cast(List[AST], [])
 
 
+class Placeholder(Expr):
+    field: str
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
+
+
 class Call(Expr):
     name: str
     args: List[Expr]
