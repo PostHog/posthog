@@ -695,6 +695,9 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
 
 
 def also_test_with_different_timezone(fn):
+    """
+    Runs the test twice, including in a timezone other than UTC to catch timezone handling bugs.
+    """
     def fn_with_different_timezone(self, *args, **kwargs):
         if not self.team:
             return
