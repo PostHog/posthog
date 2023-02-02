@@ -84,13 +84,22 @@ class NotOperation(Expr):
 class Constant(Expr):
     value: Any
 
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
+
 
 class FieldAccess(Expr):
     field: str
 
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
+
 
 class FieldAccessChain(Expr):
     chain: List[str]
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
 
 
 class Call(Expr):

@@ -67,7 +67,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         if not context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
-        columns = [translate_ast(column, stack, context) for column in node.columns] if node.columns else ["1"]
+        columns = [translate_ast(column, stack, context) for column in node.select] if node.select else ["1"]
 
         team_clause: ast.Expr = ast.CompareOperation(
             left=ast.FieldAccess(field="team_id"),

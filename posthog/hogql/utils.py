@@ -70,6 +70,13 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
 def property_operator_to_compare_operator_type(
     operator: PropertyOperator, value: Any
 ) -> Tuple[ast.CompareOperationType, Any]:
+    if isinstance(value, list):
+        if len(value) == 1:
+            value = value[0]
+        else:
+            raise NotImplementedError(
+                "property_operator_to_compare_operator_type not implemented for list of length > 1"
+            )
     if operator == PropertyOperator.exact or operator == PropertyOperator.is_set:
         return ast.CompareOperationType.Eq, value
     elif operator == PropertyOperator.is_not or operator == PropertyOperator.is_not_set:
