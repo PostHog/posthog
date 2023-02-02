@@ -1,4 +1,4 @@
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
 from posthog.models.app_metrics.sql import (
     APP_METRICS_DATA_TABLE_SQL,
     APP_METRICS_MV_TABLE_SQL,

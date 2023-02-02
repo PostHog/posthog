@@ -1,4 +1,4 @@
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
 from posthog.models.person_overrides.sql import (
     KAFKA_PERSON_OVERRIDES_TABLE_SQL,
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,

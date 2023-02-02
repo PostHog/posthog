@@ -1,4 +1,4 @@
-from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
 from posthog.settings import CLICKHOUSE_CLUSTER
 
 operations = [
