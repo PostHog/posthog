@@ -57,7 +57,7 @@ def run_events_query_v3(
         )
     if query.before:
         # prevent accidentally future events from being visible by default
-        before = (query.before or (now() + timedelta(seconds=5)).isoformat(),)
+        before = query.before or (now() + timedelta(seconds=5)).isoformat()
         try:
             timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
         except ValueError:
@@ -107,6 +107,9 @@ def run_events_query_v3(
     having_list = [expr for expr in where_exprs if has_aggregation(expr)]
     having = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
+    # order by
+    # TODO
+
     stmt = ast.SelectQuery(
         select=select,
         select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
@@ -118,8 +121,6 @@ def run_events_query_v3(
     )
 
     query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.OFFLINE, query_type="EventsQuery")
-    if query_result.error:
-        raise Exception(query_result.error)
 
     # Convert star field from tuple to dict in each result
     if "*" in select_input:
