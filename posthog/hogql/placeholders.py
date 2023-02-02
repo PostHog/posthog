@@ -4,8 +4,8 @@ from posthog.hogql import ast
 
 
 def replace_placeholders_list(node: List[ast.Expr], placeholders: Dict[str, ast.Expr]) -> List[ast.Expr]:
+    # TODO: type generics?
     if node is None:
-        # TODO: type generics?
         return cast(Any, node)
     return [replace_placeholders(child, placeholders) for child in node]
 
@@ -15,7 +15,7 @@ def replace_placeholders(node: ast.Expr, placeholders: Dict[str, ast.Expr]) -> a
     if isinstance(node, ast.Placeholder):
         if node.field in placeholders:
             return placeholders[node.field]
-        raise ValueError(f"Placeholder {node.field} not found in: {', '.join([key for key, _ in placeholders])}")
+        raise ValueError(f"Placeholder '{node.field}' not found in provided dict: {', '.join(list(placeholders))}")
     elif isinstance(node, ast.BinaryOperation):
         return ast.BinaryOperation(
             left=replace_placeholders(node.left, placeholders),
