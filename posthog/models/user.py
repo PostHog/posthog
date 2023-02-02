@@ -272,6 +272,7 @@ class User(AbstractUser, UUIDClassicModel):
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
             "instance_url": SITE_URL,
             "instance_tag": INSTANCE_TAG,
+            "is_email_verified": self.is_verified,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

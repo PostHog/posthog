@@ -18,7 +18,7 @@ from social_django.views import auth
 
 from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_logged_in, report_user_password_reset
+from posthog.event_usage import report_user_logged_in, report_user_password_reset, report_user_verified_email
 from posthog.models import OrganizationDomain, User
 from posthog.tasks.email import send_email_verification, send_password_reset
 from posthog.utils import get_instance_available_sso_providers
@@ -284,6 +284,7 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
 
         user.is_verified = True
         user.save()
+        report_user_verified_email(user)
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
         return {"success": True, "token": token}

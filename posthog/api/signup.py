@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.http import HttpRequest
 from django.shortcuts import redirect
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers
@@ -26,6 +27,19 @@ from posthog.tasks.email import send_email_verification
 from posthog.utils import get_can_create_org
 
 logger = structlog.get_logger(__name__)
+
+
+def verify_email_or_login(request: HttpRequest, user: User) -> None:
+    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
+    if is_cloud() and require_verification_feature:
+        send_email_verification(user.id)
+    else:
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+
+def get_verification_redirect_url(uuid: str):
+    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(uuid))
+    return "/verify_email/" + uuid if is_cloud() and require_verification_feature and not settings.DEMO else "/"
 
 
 class SignupSerializer(serializers.Serializer):
@@ -98,11 +112,7 @@ class SignupSerializer(serializers.Serializer):
             referral_source=referral_source,
         )
 
-        require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
-        if is_cloud() and require_verification_feature:
-            send_email_verification(user.id)
-        else:
-            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+        verify_email_or_login(self.context["request"], user)
 
         return user
 
@@ -129,12 +139,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(data["uuid"]))
-        data["redirect_url"] = (
-            "/verify_email/" + data["uuid"]
-            if is_cloud() and require_verification_feature and not settings.DEMO
-            else "/"
-        )
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"])
         return data
 
 
@@ -154,8 +159,9 @@ class InviteSignupSerializer(serializers.Serializer):
         return value
 
     def to_representation(self, instance):
-        serializer = UserBasicSerializer(instance=instance)
-        return serializer.data
+        data = UserBasicSerializer(instance=instance).data
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"])
+        return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -208,7 +214,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 raise serializers.ValidationError(str(e))
 
         if is_new_user:
-            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+            verify_email_or_login(self.context["request"], user)
 
             report_user_signed_up(
                 user,
