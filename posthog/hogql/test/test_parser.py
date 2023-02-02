@@ -380,6 +380,58 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_from(self):
+        self.assertEqual(
+            parse_statement("select 1 from events"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"))
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from events as e"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"), alias="e"),
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from complex.table"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccessChain(chain=["complex", "table"])),
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from complex.table as a"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccessChain(chain=["complex", "table"]), alias="a"),
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from (select 1 from events)"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"))
+                    )
+                ),
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from (select 1 from events) as sq"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"))
+                    ),
+                    alias="sq",
+                ),
+            ),
+        )
+
     def test_select_complex(self):
         self.assertEqual(
             parse_statement("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),

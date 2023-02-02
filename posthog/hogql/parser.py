@@ -51,6 +51,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
         select = [self.visit(column) for column in ctx.columnExprList().columnsExpr()] if ctx.columnExprList() else []
+        select_from = self.visit(ctx.fromClause()) if ctx.fromClause() else None
         where = self.visit(ctx.whereClause()) if ctx.whereClause() else None
         prewhere = self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None
         having = self.visit(ctx.havingClause()) if ctx.havingClause() else None
@@ -59,8 +60,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.withClause()")
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
-        if ctx.fromClause():
-            raise NotImplementedError(f"Unsupported: SelectStmt.fromClause()")
         if ctx.arrayJoinClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.windowClause():
@@ -78,6 +77,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.SelectQuery(
             select=select,
+            select_from=select_from,
             where=where,
             prewhere=prewhere,
             having=having,
@@ -90,7 +90,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: TopClause")
 
     def visitFromClause(self, ctx: HogQLParser.FromClauseContext):
-        raise NotImplementedError(f"Unsupported node: FromClause")
+        return self.visit(ctx.joinExpr())
 
     def visitArrayJoinClause(self, ctx: HogQLParser.ArrayJoinClauseContext):
         raise NotImplementedError(f"Unsupported node: ArrayJoinClause")
@@ -129,7 +129,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: JoinExprOp")
 
     def visitJoinExprTable(self, ctx: HogQLParser.JoinExprTableContext):
-        raise NotImplementedError(f"Unsupported node: JoinExprTable")
+        if ctx.sampleClause():
+            raise NotImplementedError(f"Unsupported: SAMPLE (JoinExprTable.sampleClause)")
+        table = self.visit(ctx.tableExpr())
+        if isinstance(table, ast.JoinExpr):
+            # visitTableExprAlias returns a JoinExpr to pass the alias
+            return table
+        return ast.JoinExpr(table=table)
 
     def visitJoinExprParens(self, ctx: HogQLParser.JoinExprParensContext):
         raise NotImplementedError(f"Unsupported node: JoinExprParens")
@@ -451,13 +457,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.FieldAccessChain(chain=[identifier.field for identifier in identifiers])
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
-        raise NotImplementedError(f"Unsupported node: TableExprIdentifier")
+        return self.visit(ctx.tableIdentifier())
 
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
-        raise NotImplementedError(f"Unsupported node: TableExprSubquery")
+        return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
-        raise NotImplementedError(f"Unsupported node: TableExprAlias")
+        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=(ctx.alias() or ctx.identifier()).getText())
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         raise NotImplementedError(f"Unsupported node: TableExprFunction")

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, List, Optional, cast
+from typing import Any, List, Optional, Union, cast
 
 from pydantic import BaseModel, Extra
 
@@ -120,12 +120,23 @@ class Call(Expr):
         return cast(List[AST], self.args)
 
 
+class JoinExpr(Expr):
+    table: Optional[Union["SelectQuery", FieldAccess, FieldAccessChain]] = None
+    alias: Optional[str] = None
+    join: Optional[str] = None
+    final: Optional[bool] = None
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.table])
+
+
 class SelectQuery(Expr):
     select: List[Expr]
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
     group_by: Optional[List[Expr]] = None
+    select_from: Optional[JoinExpr] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
 
@@ -138,3 +149,6 @@ class SelectQuery(Expr):
             + ([self.having] if self.having else [])
             + (self.group_by or []),
         )
+
+
+JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
