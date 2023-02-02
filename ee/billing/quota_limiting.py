@@ -24,6 +24,12 @@ class QuotaResource(Enum):
     RECORDINGS = "recordings"
 
 
+OVERAGE_BUFFER = {
+    QuotaResource.EVENTS: 0,
+    QuotaResource.RECORDINGS: 1000,
+}
+
+
 def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, float]) -> None:
     pipe = get_client().pipeline()
     pipe.delete(f"{RATE_LIMITER_CACHE_KEY}{resource.value}")
@@ -111,7 +117,7 @@ def update_all_org_billing_quotas(
                 if limit is None:
                     continue
 
-                is_rate_limited = usage + unreported_usage > limit
+                is_rate_limited = usage + unreported_usage > limit + OVERAGE_BUFFER[QuotaResource(field)]
                 if is_rate_limited:
                     # TODO: Set this rate limit to the end of the billing period
                     rate_limited_orgs[field][org_id] = timezone.now().timestamp() + timedelta(days=1).total_seconds()
