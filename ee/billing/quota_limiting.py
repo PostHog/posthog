@@ -96,7 +96,6 @@ def update_all_org_billing_quotas(
 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
         if org.usage:
-
             # for each organization, we check if the current usage + today's unreported usage is over the limit
             for field in ["events", "recordings"]:
                 summary = org.usage.get(field, {})
@@ -104,9 +103,10 @@ def update_all_org_billing_quotas(
                 usage = summary.get("usage", 0)
                 limit = summary.get("limit", 0)
 
-                summary["todays_usage"] = unreported_usage
-                org.usage[field] = summary
-                org.save(update_fields=["usage"])
+                if summary.get("todays_usage") != unreported_usage:
+                    summary["todays_usage"] = unreported_usage
+                    org.usage[field] = summary
+                    org.save(update_fields=["usage"])
 
                 if limit is None:
                     continue

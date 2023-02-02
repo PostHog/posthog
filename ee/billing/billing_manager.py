@@ -13,6 +13,7 @@ from ee.settings import BILLING_SERVICE_URL
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
+from posthog.models.organization import OrganizationUsageInfo
 from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
@@ -151,8 +152,18 @@ class BillingManager:
         for product in response["products"]:
             usage = response["usage_summary"].get(product["type"], {})
             usage_limit = usage.get("limit")
-            product["current_usage"] = usage.get("usage") or 0
-            product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+            current_usage = usage.get("usage") or 0
+
+            if (
+                organization
+                and organization.usage
+                and organization.usage.get(product["type"], {}).get("todays_usage", None)
+            ):
+                todays_usage = organization.usage[product["type"]]["todays_usage"]
+                current_usage = current_usage + todays_usage
+
+            product["current_usage"] = current_usage
+            product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
 
         return response
 
@@ -254,16 +265,31 @@ class BillingManager:
 
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
-            # TODO: Add the usage summary info to Billing
-            org_usage = usage_summary.copy()
-            org_usage["period"] = [
-                data["billing_period"]["current_period_start"],
-                data["billing_period"]["current_period_end"],
-            ]
+            # TRICKY: We don't want to overwrite the "todays_usage" value unless the
+            # usage from the billing service is different than what we have locally.
+            new_org_usage = OrganizationUsageInfo(
+                events={
+                    "usage": usage_summary["events"]["usage"],
+                    "limit": usage_summary["events"]["limit"],
+                    "todays_usage": organization.usage["events"]["todays_usage"]
+                    if usage_summary["events"]["usage"] == organization.usage["events"]["usage"]
+                    else 0,
+                },
+                recordings={
+                    "usage": usage_summary["recordings"]["usage"],
+                    "limit": usage_summary["recordings"]["limit"],
+                    "todays_usage": organization.usage["recordings"]["todays_usage"]
+                    if usage_summary["recordings"]["usage"] == organization.usage["recordings"]["usage"]
+                    else 0,
+                },
+                period=[
+                    data["billing_period"]["current_period_start"],
+                    data["billing_period"]["current_period_end"],
+                ],
+            )
 
-            if org_usage and org_usage != organization.usage:
-                organization.usage = org_usage
-                org_modified = True
+            organization.usage = new_org_usage
+            org_modified = True
 
         available_features = data.get("available_features", None)
         if available_features and available_features != organization.available_features:

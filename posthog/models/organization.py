@@ -40,6 +40,7 @@ INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 class OrganizationUsageResource(TypedDict):
     usage: Optional[int]
     limit: Optional[int]
+    todays_usage: Optional[int]
 
 
 # The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
@@ -120,8 +121,9 @@ class Organization(UUIDModel):
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     # Managed by Billing, cached here for usage controls
     # Like {
-    #   'events': { 'usage': 10000, 'limit': 20000 },
-    #   'recordings': { 'usage': 10000, 'limit': 20000 }
+    #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
+    #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
@@ -193,13 +195,6 @@ class Organization(UUIDModel):
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
-
-    def get_usage(self) -> Optional[OrganizationUsageInfo]:
-        return self.usage
-
-    def set_usage(self, usage: OrganizationUsageInfo) -> Optional[OrganizationUsageInfo]:
-        self.usage = usage
-        return self.usage
 
     @property
     def has_billing_v2_setup(self):
