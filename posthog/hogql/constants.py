@@ -1,5 +1,15 @@
 # fields you can select from in the events query
-EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id", "team_id"]
+EVENT_FIELDS = [
+    "id",
+    "uuid",
+    "event",
+    "timestamp",
+    "properties",
+    "elements_chain",
+    "created_at",
+    "distinct_id",
+    "team_id",
+]
 # "person.*" fields you can select from in the events query
 EVENT_PERSON_FIELDS = ["id", "created_at", "properties"]
 
@@ -109,7 +119,7 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "distinct_id",
     "elements_chain",
     "created_at",
-    "person_id",
-    "person_created_at",
-    "person_properties",
+    "person.id",
+    "person.created_at",
+    "person.properties",
 ]

@@ -41,12 +41,6 @@ def translate_hogql(query: str, context: HogQLContext) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     if query == "":
         raise ValueError("Empty query")
-    if query == "*":
-        return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-
-    # The expression "person" can't be used in a query, just top level
-    if query == "person":
-        query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
 
     try:
         if context.select_team_id:
@@ -107,6 +101,8 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
             "PREWHERE " + prewhere if prewhere else None,
+            f"LIMIT {node.limit}" if node.limit is not None else None,
+            f"OFFSET {node.offset}" if node.offset is not None else None,
         ]
         response = " ".join([clause for clause in clauses if clause])
         if len(stack) > 1:
@@ -187,9 +183,16 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
                 f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
             )
     elif isinstance(node, ast.FieldAccess):
-        field_access = parse_field_access([node.field], context)
-        context.field_access_logs.append(field_access)
-        response = field_access.sql
+        if node.field == "*":
+            query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+            response = translate_ast(parse_expr(query), stack, context)
+        elif node.field == "person":
+            query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+            response = translate_ast(parse_expr(query), stack, context)
+        else:
+            field_access = parse_field_access([node.field], context)
+            context.field_access_logs.append(field_access)
+            response = field_access.sql
     elif isinstance(node, ast.FieldAccessChain):
         field_access = parse_field_access(node.chain, context)
         context.field_access_logs.append(field_access)
@@ -282,6 +285,8 @@ def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAcc
         if chain[0] in EVENT_FIELDS:
             if chain[0] == "id":
                 return HogQLFieldAccess(chain, "event", "uuid", "uuid")
+            elif chain[0] == "properties":
+                return HogQLFieldAccess(chain, "event", "properties", "properties")
             return HogQLFieldAccess(chain, "event", chain[0], chain[0])
         elif chain[0].startswith("person_") and chain[0][7:] in EVENT_PERSON_FIELDS:
             return HogQLFieldAccess(chain, "person", chain[0][7:], chain[0])

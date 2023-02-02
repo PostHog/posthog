@@ -463,9 +463,9 @@ class TestParser(BaseTest):
             ),
         )
         self.assertEqual(
-            parse_statement("select 1 from events LEFT OUTER JOIN events2 ON 1"),
+            parse_statement("select * from events LEFT OUTER JOIN events2 ON 1"),
             ast.SelectQuery(
-                select=[ast.Constant(value=1)],
+                select=[ast.FieldAccess(field="*")],
                 select_from=ast.JoinExpr(
                     table=ast.FieldAccess(field="events"),
                     join_type="LEFT OUTER JOIN",

@@ -6,7 +6,13 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.utils import action_to_expr, has_aggregation, property_to_expr
 from posthog.models import Action, Team
-from posthog.models.event.query_event_list import QUERY_DEFAULT_LIMIT, QUERY_MAXIMUM_LIMIT, EventsQueryResponse
+from posthog.models.event.query_event_list import (
+    QUERY_DEFAULT_LIMIT,
+    QUERY_MAXIMUM_LIMIT,
+    EventsQueryResponse,
+    convert_person_select_to_dict,
+    convert_star_select_to_dict,
+)
 from posthog.schema import EventsQuery
 
 
@@ -23,7 +29,7 @@ def run_events_query_v2(
     offset = 0 if query.offset is None else query.offset
 
     # columns & group_by
-    select_input: List[str] = ["1"] if len(query.select) == 0 else query.select
+    select_input: List[str] = ["*"] if len(query.select) == 0 else query.select
     select: List[ast.Expr] = [parse_expr(column) for column in select_input]
     group_by: List[ast.Expr] = [column for column in select if not has_aggregation(column)]
     has_any_aggregation = any(has_aggregation(column) for column in select)
@@ -53,6 +59,7 @@ def run_events_query_v2(
 
     stmt = ast.SelectQuery(
         select=select,
+        select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
         where=where,
         having=having,
         group_by=group_by if has_any_aggregation else None,
@@ -61,8 +68,24 @@ def run_events_query_v2(
     )
 
     query_result = execute_hogql_query(query=stmt, team=team, workload=Workload.OFFLINE, query_type="EventsQuery")
-    received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
+    if query_result.error:
+        raise Exception(query_result.error)
 
+    # Convert star field from tuple to dict in each result
+    if "*" in select_input:
+        star = select_input.index("*")
+        for index, result in enumerate(query_result.results):
+            query_result.results[index] = list(result)
+            query_result.results[index][star] = convert_star_select_to_dict(result[star])
+
+    # Convert person field from tuple to dict in each result
+    if "person" in select_input:
+        person = select_input.index("person")
+        for index, result in enumerate(query_result.results):
+            query_result.results[index] = list(result)
+            query_result.results[index][person] = convert_person_select_to_dict(result[person])
+
+    received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(
         results=query_result.results[: limit - 1] if received_extra_row else query_result.results,
         columns=select_input,

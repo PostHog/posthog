@@ -284,7 +284,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [self.visit(c) for c in ctx.columnsExpr()]
 
     def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
-        raise NotImplementedError(f"Unsupported node: ColumnsExprAsterisk")
+        return ast.FieldAccess(field="*")
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
@@ -474,7 +474,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(name=name, args=args)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprAsterisk")
+        return ast.FieldAccess(field="*")
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
         return [self.visit(arg) for arg in ctx.columnArgExpr()]

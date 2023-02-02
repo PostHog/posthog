@@ -291,13 +291,13 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
     new_result["properties"] = json.loads(new_result["properties"])
     new_result["person"] = {
-        "id": new_result["person_id"],
-        "created_at": new_result["person_created_at"],
-        "properties": json.loads(new_result["person_properties"]),
+        "id": new_result["person.id"],
+        "created_at": new_result["person.created_at"],
+        "properties": json.loads(new_result["person.properties"]),
     }
-    new_result.pop("person_id")
-    new_result.pop("person_created_at")
-    new_result.pop("person_properties")
+    new_result.pop("person.id")
+    new_result.pop("person.created_at")
+    new_result.pop("person.properties")
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
