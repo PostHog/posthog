@@ -180,7 +180,7 @@ class Response1(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    columns: List[str]
+    columns: List
     hasMore: Optional[bool] = None
     results: List[List]
     types: List[str]
@@ -240,6 +240,15 @@ class FunnelCorrelationPersonConverted1(str, Enum):
     false = "false"
 
 
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+
+
 class InsightType(str, Enum):
     TRENDS = "TRENDS"
     STICKINESS = "STICKINESS"
@@ -261,28 +270,6 @@ class LifecycleToggle(str, Enum):
     resurrecting = "resurrecting"
     returning = "returning"
     dormant = "dormant"
-
-
-class NodeKind(str, Enum):
-    EventsNode = "EventsNode"
-    ActionsNode = "ActionsNode"
-    NewEntityNode = "NewEntityNode"
-    EventsQuery = "EventsQuery"
-    HogQLQuery = "HogQLQuery"
-    PersonsNode = "PersonsNode"
-    DataTableNode = "DataTableNode"
-    InsightVizNode = "InsightVizNode"
-    LegacyQuery = "LegacyQuery"
-    TrendsQuery = "TrendsQuery"
-    FunnelsQuery = "FunnelsQuery"
-    RetentionQuery = "RetentionQuery"
-    PathsQuery = "PathsQuery"
-    StickinessQuery = "StickinessQuery"
-    LifecycleQuery = "LifecycleQuery"
-    TimeToSeeDataSessionsQuery = "TimeToSeeDataSessionsQuery"
-    TimeToSeeDataQuery = "TimeToSeeDataQuery"
-    RecentPerformancePageViewNode = "RecentPerformancePageViewNode"
-    UnimplementedQuery = "UnimplementedQuery"
 
 
 class PathCleaningFilter(BaseModel):
@@ -539,15 +526,6 @@ class GroupPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: str = Field("group", const=True)
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
-
-
-class HogQLQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    kind: NodeKind
-    query: str
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 
 class HogQLPropertyFilter(BaseModel):
@@ -852,7 +830,7 @@ class DataTableNode(BaseModel):
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode] = Field(
+    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery] = Field(
         ..., description="Source of the events"
     )
 

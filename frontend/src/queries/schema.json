@@ -1276,6 +1276,9 @@
                         },
                         {
                             "$ref": "#/definitions/RecentPerformancePageViewNode"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -1607,9 +1610,7 @@
                     "description": "Cached query response",
                     "properties": {
                         "columns": {
-                            "items": {
-                                "type": "string"
-                            },
+                            "items": {},
                             "type": "array"
                         },
                         "hasMore": {
@@ -1926,23 +1927,6 @@
         "HogQLExpression": {
             "type": "string"
         },
-        "HogQLQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "kind": {
-                    "$ref": "#/definitions/NodeKind"
-                },
-                "query": {
-                    "type": "string"
-                },
-                "response": {
-                    "description": "Cached query response",
-                    "type": "object"
-                }
-            },
-            "required": ["kind", "query"],
-            "type": "object"
-        },
         "HogQLPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -1961,6 +1945,24 @@
                 }
             },
             "required": ["key", "type"],
+            "type": "object"
+        },
+        "HogQLQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "query"],
             "type": "object"
         },
         "InsightQueryNode": {
@@ -2101,31 +2103,6 @@
         },
         "LifecycleToggle": {
             "enum": ["new", "resurrecting", "returning", "dormant"],
-            "type": "string"
-        },
-        "NodeKind": {
-            "description": "PostHog Query Schema definition.\n\nThis file acts as the source of truth for:\n\n- frontend/src/queries/schema.json   - generated from typescript via \"pnpm run generate:schema:json\"\n\n- posthog/schema.py   - generated from json the above json via \"pnpm run generate:schema:python\"",
-            "enum": [
-                "EventsNode",
-                "ActionsNode",
-                "NewEntityNode",
-                "EventsQuery",
-                "HogQLQuery",
-                "PersonsNode",
-                "DataTableNode",
-                "InsightVizNode",
-                "LegacyQuery",
-                "TrendsQuery",
-                "FunnelsQuery",
-                "RetentionQuery",
-                "PathsQuery",
-                "StickinessQuery",
-                "LifecycleQuery",
-                "TimeToSeeDataSessionsQuery",
-                "TimeToSeeDataQuery",
-                "RecentPerformancePageViewNode",
-                "UnimplementedQuery"
-            ],
             "type": "string"
         },
         "PathCleaningFilter": {

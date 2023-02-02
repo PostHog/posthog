@@ -104,6 +104,7 @@ export interface DataNode extends Node {
 }
 
 export interface HogQLQuery extends DataNode {
+    kind: NodeKind.HogQLQuery
     query: string
 }
 
@@ -179,7 +180,7 @@ export interface EventsQuery extends DataNode {
     orderBy?: string[]
 
     response?: {
-        columns: string[]
+        columns: any[]
         types: string[]
         results: any[][]
         hasMore?: boolean
@@ -205,7 +206,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode
+    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode | HogQLQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */

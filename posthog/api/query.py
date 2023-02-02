@@ -34,13 +34,40 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         query_json = self._query_json_from_request(request)
-        query_result = process_query(self.team, query_json)
-        return JsonResponse(query_result)
+        return self._process_query(self.team, query_json)
 
     def post(self, request, *args, **kwargs):
         query_json = request.data
-        query_result = process_query(self.team, query_json)
-        return JsonResponse(query_result)
+        return self._process_query(self.team, query_json)
+
+    def _process_query(self, team: Team, query_json: Dict) -> JsonResponse:
+        try:
+            query_kind = query_json.get("kind")
+            if query_kind == "EventsQuery":
+                query = EventsQuery.parse_obj(query_json)
+                query_result = run_events_query_v3(
+                    team=team,
+                    query=query,
+                )
+
+                # :KLUDGE: Calling `query_result.dict()` without the following deconstruction fails with a cryptic error
+                return JsonResponse(
+                    {
+                        "columns": query_result.columns,
+                        "types": query_result.types,
+                        "results": query_result.results,
+                        "hasMore": query_result.hasMore,
+                    }
+                )
+            elif query_kind == "HogQLQuery":
+                hogql_node = HogQLQuery.parse_obj(query_json)
+                query_result = execute_hogql_query(hogql_node.query, team).dict()
+                return JsonResponse(query_result)
+
+            else:
+                raise ValidationError("Unsupported query kind: %s" % query_kind)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
@@ -65,25 +92,3 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         except (json.JSONDecodeError, UnicodeDecodeError) as error_main:
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
         return query
-
-
-def process_query(team: Team, query_json: Dict) -> Dict:
-    query_kind = query_json.get("kind")
-    if query_kind == "EventsQuery":
-        query = EventsQuery.parse_obj(query_json)
-        query_result = run_events_query_v3(
-            team=team,
-            query=query,
-        )
-        # :KLUDGE: Calling `query_result.dict()` without the following deconstruction fails with a cryptic error
-        return {
-            "columns": query_result.columns,
-            "types": query_result.types,
-            "results": query_result.results,
-            "hasMore": query_result.hasMore,
-        }
-    elif query_kind == "HogQLQuery":
-        hogql_node = HogQLQuery.parse_obj(query_json)
-        return execute_hogql_query(hogql_node.query, team).dict()
-    else:
-        raise ValidationError("Unsupported query kind: %s" % query_kind)

@@ -279,6 +279,15 @@ const HogQL: HogQLQuery = {
     query: 'select 1, 2',
 }
 
+const HogQLTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: 'select 1, 2',
+    },
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
@@ -299,6 +308,7 @@ export const examples: Record<string, Node> = {
     TimeToSeeDataSessions,
     TimeToSeeData,
     HogQL,
+    HogQLTable,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

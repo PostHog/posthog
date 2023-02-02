@@ -31,6 +31,10 @@ def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
     return where
 
 
+def quick_print_hogql(node: ast.AST):
+    return print_ast(node, [], HogQLContext(), "hogql")
+
+
 def print_ast(
     node: ast.AST, stack: List[ast.AST], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
 ) -> str:

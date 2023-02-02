@@ -143,7 +143,7 @@ export function LemonTable<T extends Record<string, any>>({
     )
 
     const columnGroups = (
-        'children' in rawColumns[0]
+        rawColumns.length > 0 && 'children' in rawColumns[0]
             ? rawColumns
             : [
                   {
