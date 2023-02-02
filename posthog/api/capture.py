@@ -212,7 +212,7 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
 
     for event in events:
-        if event.get("event") == "$snapshot":
+        if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
                 statsd.incr("events_dropped_over_quota", tags={"resource": "recordings", "token": token})
 
