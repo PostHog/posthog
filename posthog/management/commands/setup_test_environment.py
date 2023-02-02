@@ -28,6 +28,8 @@ class Command(BaseCommand):
         if not TEST:
             raise ValueError("TEST environment variable needs to be set for this command to function")
 
+        disable_migrations()
+
         test_runner = TestRunner(interactive=False)
         test_runner.setup_databases()
         test_runner.setup_test_environment()
@@ -83,9 +85,28 @@ def disable_migrations() -> None:
         def handle(self, *args, **kwargs):
             from django.db import connection
 
-            # :TRICKY: Create extension depended on by models.
+            from posthog.models.person import PersonOverride
+
+            create_function = f"""
+            SET check_function_bodies = false;
+            CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(override_person_id uuid, old_person_id uuid)
+            RETURNS BOOLEAN AS $$
+              SELECT NOT EXISTS (
+                SELECT 1
+                FROM "{PersonOverride._meta.db_table}"
+                WHERE override_person_id = $2
+              ) AND NOT EXISTS (
+                SELECT 1
+                FROM "{PersonOverride._meta.db_table}"
+                WHERE old_person_id = $1
+              );
+            $$ LANGUAGE SQL;
+            """
+
+            # :TRICKY: Create extension and function depended on by models.
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION pg_trgm")
+                cursor.execute(create_function)
 
             return super().handle(*args, **kwargs)
 

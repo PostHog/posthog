@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             );
             $$ LANGUAGE SQL;
             """,
-            "DROP FUNCTION is_not_override_person",
+            "DROP FUNCTION is_override_person_not_used_as_old_person",
         ),
         migrations.AddConstraint(
             model_name="personoverride",
