@@ -72,9 +72,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        (isRetention &&
-            featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
