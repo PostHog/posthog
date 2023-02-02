@@ -64,12 +64,14 @@ class DashboardTemplate(UUIDModel):
                         "events": [
                             {
                                 "id": "$pageview",
-                                "math": "weekly_active",
+                                "math": "dau",
                                 "type": "events",
                             }
                         ],
+                        "display": "ActionsLineGraph",
                         "insight": "TRENDS",
                         "interval": "week",
+                        "date_from": "-90d",
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
