@@ -1,7 +1,3 @@
-from typing import Union
-
-from django.utils import timezone
-
 from posthog.client import sync_execute
 
 
