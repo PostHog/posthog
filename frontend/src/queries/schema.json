@@ -773,7 +773,7 @@
                             "type": "array"
                         },
                         "period": {
-                            "type": "string"
+                            "$ref": "#/definitions/RetentionPeriod"
                         },
                         "properties": {
                             "anyOf": [
@@ -2449,7 +2449,7 @@
             "additionalProperties": false,
             "properties": {
                 "period": {
-                    "type": "string"
+                    "$ref": "#/definitions/RetentionPeriod"
                 },
                 "retention_reference": {
                     "enum": ["total", "previous"],
@@ -2469,6 +2469,10 @@
                 }
             },
             "type": "object"
+        },
+        "RetentionPeriod": {
+            "enum": ["Hour", "Day", "Week", "Month"],
+            "type": "string"
         },
         "RetentionQuery": {
             "additionalProperties": false,
