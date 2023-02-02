@@ -27,6 +27,7 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
+    isInsightQueryWithBreakdown,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -188,6 +189,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
 
         dateRange: [(s) => [s.querySource], (q) => q.dateRange],
+        breakdown: [(s) => [s.querySource], (q) => (isInsightQueryWithBreakdown(q) ? q.breakdown : null)],
 
         insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

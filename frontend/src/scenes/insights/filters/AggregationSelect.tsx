@@ -34,7 +34,9 @@ export function AggregationSelect({ insightProps, className }: AggregationSelect
         <AggregationSelectComponent
             className={className}
             aggregationGroupTypeIndex={filters.aggregation_group_type_index}
-            onChange={(aggregation_group_type_index) => setFilters({ aggregation_group_type_index })}
+            onChange={(aggregation_group_type_index) => {
+                setFilters({ ...filters, aggregation_group_type_index })
+            }}
         />
     )
 }

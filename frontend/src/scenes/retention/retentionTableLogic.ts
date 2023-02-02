@@ -4,7 +4,7 @@ import { range } from 'lib/utils'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightLogicProps } from '~/types'
 
-import { retentionLogic } from './retentionLogic'
+import { abstractRetentionLogic } from './abstractRetentionLogic'
 
 import type { retentionTableLogicType } from './retentionTableLogicType'
 
@@ -15,7 +15,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     key: keyForInsightLogicProps(DEFAULT_RETENTION_LOGIC_KEY),
     path: (key) => ['scenes', 'retention', 'retentionTableLogic', key],
     connect: (props: InsightLogicProps) => ({
-        values: [retentionLogic(props), ['filters', 'results']],
+        values: [abstractRetentionLogic(props), ['retentionFilter', 'breakdown', 'results']],
     }),
     selectors: {
         maxIntervalsCount: [
@@ -33,8 +33,8 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
 
         tableRows: [
-            (s) => [s.results, s.maxIntervalsCount, s.filters],
-            (results, maxIntervalsCount, { period, breakdowns }) => {
+            (s) => [s.results, s.maxIntervalsCount, s.retentionFilter, s.breakdown],
+            (results, maxIntervalsCount, { period }, { breakdowns }) => {
                 return range(maxIntervalsCount).map((rowIndex: number) => [
                     // First column is the cohort label
                     breakdowns?.length
