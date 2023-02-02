@@ -1,4 +1,4 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -62,6 +62,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         prewhere = self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None
         having = self.visit(ctx.havingClause()) if ctx.havingClause() else None
         group_by = self.visit(ctx.groupByClause()) if ctx.groupByClause() else None
+        order_by = self.visit(ctx.orderByClause()) if ctx.orderByClause() else None
 
         limit = None
         offset = None
@@ -89,8 +90,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.windowClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.windowClause()")
-        if ctx.orderByClause():
-            raise NotImplementedError(f"Unsupported: SelectStmt.orderByClause()")
         if ctx.limitByClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.limitByClause()")
         if ctx.settingsClause():
@@ -103,6 +102,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             prewhere=prewhere,
             having=having,
             group_by=group_by,
+            order_by=order_by,
             limit=limit,
             offset=offset,
         )
@@ -135,7 +135,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.columnExpr())
 
     def visitOrderByClause(self, ctx: HogQLParser.OrderByClauseContext):
-        raise NotImplementedError(f"Unsupported node: OrderByClause")
+        return self.visit(ctx.orderExprList())
 
     def visitProjectionOrderByClause(self, ctx: HogQLParser.ProjectionOrderByClauseContext):
         raise NotImplementedError(f"Unsupported node: ProjectionOrderByClause")
@@ -254,10 +254,11 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise Exception(f"Can not call visitLimitExpr directly")
 
     def visitOrderExprList(self, ctx: HogQLParser.OrderExprListContext):
-        raise NotImplementedError(f"Unsupported node: OrderExprList")
+        return [self.visit(expr) for expr in ctx.orderExpr()]
 
     def visitOrderExpr(self, ctx: HogQLParser.OrderExprContext):
-        raise NotImplementedError(f"Unsupported node: OrderExpr")
+        order = "DESC" if ctx.DESC() or ctx.DESCENDING() else "ASC"
+        return ast.OrderExpr(expr=self.visit(ctx.columnExpr()), order=cast(Literal["ASC", "DESC"], order))
 
     def visitRatioExpr(self, ctx: HogQLParser.RatioExprContext):
         raise NotImplementedError(f"Unsupported node: RatioExpr")

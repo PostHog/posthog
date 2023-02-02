@@ -59,9 +59,10 @@ def print_ast(
             where = guard_where_team_id(where, context)
         where = print_ast(where, stack, context, dialect) if where else None
 
-        group_by = [print_ast(column, stack, context, dialect) for column in node.group_by] if node.group_by else None
         having = print_ast(node.having, stack, context, dialect) if node.having else None
         prewhere = print_ast(node.prewhere, stack, context, dialect) if node.prewhere else None
+        group_by = [print_ast(column, stack, context, dialect) for column in node.group_by] if node.group_by else None
+        order_by = [print_ast(column, stack, context, dialect) for column in node.order_by] if node.order_by else None
 
         limit = node.limit
         if limit is not None:
@@ -76,6 +77,7 @@ def print_ast(
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
             "PREWHERE " + prewhere if prewhere else None,
+            f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
             f"LIMIT {limit}" if limit is not None else None,
             f"OFFSET {node.offset}" if node.offset is not None else None,
         ]
@@ -102,6 +104,8 @@ def print_ast(
         response = f"or({', '.join([print_ast(operand, stack, context, dialect) for operand in node.exprs])})"
     elif isinstance(node, ast.Not):
         response = f"not({print_ast(node.expr, stack, context, dialect)})"
+    elif isinstance(node, ast.OrderExpr):
+        response = f"{print_ast(node.expr, stack, context, dialect)} {node.order}"
     elif isinstance(node, ast.CompareOperation):
         left = print_ast(node.left, stack, context, dialect)
         right = print_ast(node.right, stack, context, dialect)

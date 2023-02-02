@@ -33,7 +33,9 @@ def replace_placeholders(node: ast.Expr, placeholders: Dict[str, ast.Expr]) -> a
     elif isinstance(node, ast.Or):
         return ast.Or(exprs=replace_placeholders_list(node.exprs, placeholders))
     elif isinstance(node, ast.Not):
-        return ast.Not(expr=node.expr)
+        return ast.Not(expr=replace_placeholders(node.expr, placeholders))
+    elif isinstance(node, ast.OrderExpr):
+        return ast.OrderExpr(expr=replace_placeholders(node.expr, placeholders), order=node.order)
     elif isinstance(node, ast.Call):
         return ast.Call(name=node.name, args=replace_placeholders_list(node.args, placeholders))
     elif isinstance(node, ast.JoinExpr):

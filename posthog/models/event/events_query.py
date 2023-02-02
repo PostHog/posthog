@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import List, Optional
+from typing import List, Literal, Optional, cast
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
@@ -108,7 +108,17 @@ def run_events_query_v3(
     having = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
     # order by
-    # TODO
+    order_by = (
+        [
+            ast.OrderExpr(
+                expr=parse_expr(column[1:] if column.startswith("-") else column),
+                order=cast(Literal["DESC", "ASC"], "DESC" if column.startswith("-") else "ASC"),
+            )
+            for column in query.orderBy
+        ]
+        if query.orderBy
+        else None
+    )
 
     stmt = ast.SelectQuery(
         select=select,
@@ -116,6 +126,7 @@ def run_events_query_v3(
         where=where,
         having=having,
         group_by=group_by if has_any_aggregation else None,
+        order_by=order_by,
         limit=limit,
         offset=offset,
     )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, List, Optional, Union, cast
+from typing import Any, List, Literal, Optional, Union, cast
 
 from pydantic import BaseModel, Extra
 
@@ -86,6 +86,14 @@ class Not(Expr):
         return cast(List[AST], [self.expr])
 
 
+class OrderExpr(Expr):
+    expr: Expr
+    order: Literal["ASC", "DESC"] = "ASC"
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.expr])
+
+
 class Constant(Expr):
     value: Any
 
@@ -131,7 +139,12 @@ class JoinExpr(Expr):
     join_expr: Optional["JoinExpr"] = None
 
     def children(self) -> List[AST]:
-        return cast(List[AST], [self.table])
+        return cast(
+            List[AST],
+            [self.table]
+            + ([self.join_constraint] if self.join_expr else [])
+            + ([self.join_expr] if self.join_expr else []),
+        )
 
 
 class SelectQuery(Expr):
@@ -141,6 +154,7 @@ class SelectQuery(Expr):
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
     group_by: Optional[List[Expr]] = None
+    order_by: Optional[List[OrderExpr]] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
 
@@ -148,10 +162,12 @@ class SelectQuery(Expr):
         return cast(
             List[AST],
             self.select
+            + ([self.select_from] if self.select_from else [])
             + ([self.where] if self.where else [])
             + ([self.prewhere] if self.prewhere else [])
             + ([self.having] if self.having else [])
             + (self.group_by or []),
+            +(self.order_by or []),
         )
 
 

@@ -502,6 +502,20 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_order_by(self):
+        self.assertEqual(
+            parse_statement("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                order_by=[
+                    ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
+                    ast.OrderExpr(expr=ast.FieldAccess(field="event"), order="ASC"),
+                    ast.OrderExpr(expr=ast.FieldAccess(field="timestamp"), order="DESC"),
+                ],
+            ),
+        )
+
     def test_select_limit_offset(self):
         self.assertEqual(
             parse_statement("select 1 from events LIMIT 1"),
