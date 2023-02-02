@@ -45,9 +45,9 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
-    "events_dropped_over_quota",
-    "Dropped requests due to quota-limiting, per resource, and team token.",
-    labelnames=["resource", "token"],
+    "capture_events_dropped_over_quota",
+    "Events dropped by capture due to quota-limiting, per resource, team and token.",
+    labelnames=["resource", "token", "team"],
 )
 
 
@@ -209,7 +209,9 @@ def _ensure_web_feature_flags_in_properties(
                 event["properties"][f"$feature/{k}"] = v
 
 
-def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
+def drop_events_over_quota(
+    token: str, events: List[Any], ingestion_context: Optional[EventIngestionContext]
+) -> List[Any]:
     if not settings.EE_AVAILABLE:
         return events
 
@@ -218,16 +220,17 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     results = []
     limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
     limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
+    team_id = ingestion_context.team_id if ingestion_context else None
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token).inc()
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token, team=team_id).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
         elif token in limited_tokens_events:
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="events", token=token).inc()
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="events", token=token, team=team_id).inc()
             if settings.QUOTA_LIMITING_ENABLED:
                 continue
 
@@ -301,7 +304,7 @@ def get_event(request):
         events = drop_events_over_quota(token, events)
 
         try:
-            events = drop_events_over_quota(token, events)
+            events = drop_events_over_quota(token, events, ingestion_context)
         except Exception as e:
             # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
             capture_exception(e)
