@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureRecordMetadata
+from prometheus_client import Counter
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -41,6 +42,13 @@ logger = structlog.get_logger(__name__)
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+
+
+EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
+    "events_dropped_over_quota",
+    "Dropped requests due to quota-limiting, per resource, and team token.",
+    labelnames=["resource", "token"],
+)
 
 
 def parse_kafka_event_data(
@@ -212,15 +220,14 @@ def drop_events_over_quota(token: str, events: List[Any]) -> List[Any]:
     limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
 
     for event in events:
-        if event.get("event") == "$snapshot":
+        if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
-                statsd.incr("events_dropped_over_quota", tags={"resource": "recordings", "token": token})
-
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
         elif token in limited_tokens_events:
-            statsd.incr("events_dropped_over_quota", tags={"resource": "events", "token": token})
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="events", token=token).inc()
             if settings.QUOTA_LIMITING_ENABLED:
                 continue
 
