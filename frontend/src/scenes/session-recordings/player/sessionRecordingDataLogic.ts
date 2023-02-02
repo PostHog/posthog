@@ -440,7 +440,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         !values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] ||
                         !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
                     ) {
-                        return null
+                        return []
                     }
 
                     await breakpoint(1)
