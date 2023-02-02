@@ -301,8 +301,6 @@ def get_event(request):
         else:
             events = [data]
 
-        events = drop_events_over_quota(token, events)
-
         try:
             events = drop_events_over_quota(token, events, ingestion_context)
         except Exception as e:
