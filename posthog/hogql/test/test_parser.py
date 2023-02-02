@@ -492,6 +492,25 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_select_limit_offset(self):
+        self.assertEqual(
+            parse_statement("select 1 from events LIMIT 1"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                limit=1,
+            ),
+        )
+        self.assertEqual(
+            parse_statement("select 1 from events LIMIT 1 OFFSET 3"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                limit=1,
+                offset=3,
+            ),
+        )
+
     def test_placeholders(self):
         self.assertEqual(
             parse_expr("{foo}"),
