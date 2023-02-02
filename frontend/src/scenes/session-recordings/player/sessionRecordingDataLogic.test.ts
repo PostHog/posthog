@@ -329,7 +329,7 @@ describe('sessionRecordingDataLogic', () => {
                         'loadPerformanceEventsSuccess',
                     ])
                     .toMatchValues({
-                        performanceEvents: null,
+                        performanceEvents: [],
                     })
 
                 // data, meta, events... but not performance events
@@ -352,7 +352,7 @@ describe('sessionRecordingDataLogic', () => {
                         'loadPerformanceEventsSuccess',
                     ])
                     .toMatchValues({
-                        performanceEvents: null,
+                        performanceEvents: [],
                     })
 
                 // data, meta, events... but not performance events
