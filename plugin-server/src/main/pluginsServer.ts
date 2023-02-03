@@ -5,6 +5,7 @@ import { Server } from 'http'
 import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
+import { Counter } from 'prom-client'
 
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
@@ -162,16 +163,21 @@ export async function startPluginsServer(
     process.on('unhandledRejection', (error: Error) => {
         status.error('🤮', `Unhandled Promise Rejection: ${error.stack}`)
 
-        // Don't send some Kafka normal operation "errors" to Sentry - kafkajs handles these correctly
         if (error instanceof KafkaJSProtocolError) {
-            if (error.message.includes('The group is rebalancing, so a rejoin is needed')) {
-                hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
-                return
-            }
+            kafkaProtocolErrors.inc({
+                type: error.type,
+                code: error.code,
+            })
 
-            if (error.message.includes('Specified group generation id is not valid')) {
-                hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
-                return
+            // Ignore some "business as usual" Kafka errors, send the rest to sentry
+            // Code list in https://kafka.apache.org/0100/protocol.html
+            switch (error.code) {
+                case 27: // REBALANCE_IN_PROGRESS
+                    hub!.statsd?.increment(`kafka_consumer_group_rebalancing`)
+                    return
+                case 22: // ILLEGAL_GENERATION
+                    hub!.statsd?.increment(`kafka_consumer_invalid_group_generation_id`)
+                    return
             }
         }
 
@@ -410,3 +416,9 @@ export async function stopPiscina(piscina: Piscina): Promise<void> {
         await piscina.destroy()
     } catch {}
 }
+
+const kafkaProtocolErrors = new Counter({
+    name: 'kafka_protocol_errors_total',
+    help: 'Kafka protocol errors encountered, by type',
+    labelNames: ['type', 'code'],
+})

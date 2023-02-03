@@ -20,7 +20,7 @@ import { urls } from 'scenes/urls'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { TableCellRepresentation } from 'lib/lemon-ui/LemonTable/types'
 import { IconExport, IconPlayCircle, IconSync } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
@@ -458,8 +458,8 @@ export function EventsTable({
                                 />
                             )}
                             {showExport && (
-                                <LemonButtonWithPopup
-                                    popup={{
+                                <LemonButtonWithDropdown
+                                    dropdown={{
                                         sameWidth: false,
                                         closeOnClickInside: false,
                                         overlay: [
@@ -493,7 +493,7 @@ export function EventsTable({
                                     icon={<IconExport />}
                                 >
                                     Export
-                                </LemonButtonWithPopup>
+                                </LemonButtonWithDropdown>
                             )}
                         </div>
                     </div>

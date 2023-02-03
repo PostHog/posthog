@@ -74,12 +74,6 @@
             "average_conversion_time": 1.0405405405405406
         },
         {
-            "source": "2_http://amazingstore.com/cart",
-            "target": "3_http://amazingstore.com/checkout",
-            "value": 275,
-            "average_conversion_time": 0.6945454545454546
-        },
-        {
             "source": "2_http://amazingstore.com/product",
             "target": "3_http://amazingstore.com/checkout",
             "value": 214,

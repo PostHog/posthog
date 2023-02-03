@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Dict, List
 
+from django.test import override_settings
 from freezegun import freeze_time
 from rest_framework import status
 
@@ -140,13 +141,13 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response[0]["name"], "click here")
         self.assertEqual(len(response), 1)
 
+    # checking postgres, don't care about person on events
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_element_stats_postgres_queries_are_as_expected(self) -> None:
         self._setup_events()
 
-        with self.assertNumQueries(6):
-            """django session, posthog_user, team, organization_membership, then two person inserts 🤷"""
-            self.client.get("/api/element/stats/?paginate_response=true").json()
+        self.client.get("/api/element/stats/?paginate_response=true").json()
 
     def test_element_stats_can_filter_by_properties(self) -> None:
         self._setup_events()
@@ -155,6 +156,16 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 2
 
         properties_filter = json.dumps([{"key": "$current_url", "value": "http://example.com/another_page"}])
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
+        self.assertEqual(len(response["results"]), 1)
+
+    def test_element_stats_can_filter_by_hogql(self) -> None:
+        self._setup_events()
+        properties_filter = json.dumps(
+            [
+                {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
+            ]
+        )
         response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
         self.assertEqual(len(response["results"]), 1)
 
@@ -275,9 +286,9 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def _setup_events(self):
-        _create_person(distinct_ids=["one"], team=self.team)
-        _create_person(distinct_ids=["two"], team=self.team)
-        _create_person(distinct_ids=["three"], team=self.team)
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        _create_person(distinct_ids=["two"], team=self.team, properties={"email": "two@mail.com"})
+        _create_person(distinct_ids=["three"], team=self.team, properties={"email": "three@mail.com"})
         _create_event(
             team=self.team,
             elements=[

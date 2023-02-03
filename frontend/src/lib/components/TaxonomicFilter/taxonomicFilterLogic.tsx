@@ -46,8 +46,8 @@ import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
 
-export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
-    getPopupHeader: (eventDefinition: EventDefinition): string => {
+export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
+    getPopoverHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
             return 'PostHog event'
         }
@@ -58,8 +58,8 @@ export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeade
 
 export const propertyTaxonomicGroupProps = (
     verified: boolean = false
-): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> => ({
-    getPopupHeader: (propertyDefinition: PropertyDefinition): string => {
+): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
+    getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
         if (verified || !!keyMapping.event[propertyDefinition.name]) {
             return 'PostHog property'
         }
@@ -166,7 +166,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     searchPlaceholder: 'HogQL',
                     type: TaxonomicFilterGroupType.HogQLExpression,
                     render: InlineHogQLEditor,
-                    getPopupHeader: () => 'HogQL',
+                    getPopoverHeader: () => 'HogQL',
                 }
                 return [
                     {
@@ -188,7 +188,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => 'Action',
+                        getPopoverHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
                     },
                     {
@@ -200,7 +200,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         })) as SimpleOption[],
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => 'Autocapture Element',
+                        getPopoverHeader: () => 'Autocapture Element',
                     },
                     {
                         name: 'Event properties',
@@ -297,7 +297,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'cohorts',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
-                        getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
+                        getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
@@ -310,7 +310,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'cohortsWithAllUsers',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
-                        getPopupHeader: () => `All Users`,
+                        getPopoverHeader: () => `All Users`,
                         getIcon: function _getIcon(): JSX.Element {
                             return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
@@ -323,7 +323,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => `Pageview URL`,
+                        getPopoverHeader: () => `Pageview URL`,
                     },
                     {
                         name: 'Screens',
@@ -333,7 +333,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => `Screen`,
+                        getPopoverHeader: () => `Screen`,
                     },
                     {
                         name: 'Custom Events',
@@ -353,7 +353,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         // Populated via optionsFromProp
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => `Wildcard`,
+                        getPopoverHeader: () => `Wildcard`,
                     },
                     {
                         name: 'Persons',
@@ -362,7 +362,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         endpoint: `api/projects/${teamId}/persons/`,
                         getName: (person: PersonType) => person.name || 'Anon user?',
                         getValue: (person: PersonType) => person.distinct_ids[0],
-                        getPopupHeader: () => `Person`,
+                        getPopoverHeader: () => `Person`,
                     },
                     {
                         name: 'Insights',
@@ -373,7 +373,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         }).url,
                         getName: (insight: InsightModel) => insight.name,
                         getValue: (insight: InsightModel) => insight.short_id,
-                        getPopupHeader: () => `Insights`,
+                        getPopoverHeader: () => `Insights`,
                     },
                     {
                         name: 'Feature Flags',
@@ -383,7 +383,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'featureFlags',
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
-                        getPopupHeader: () => `Feature Flags`,
+                        getPopoverHeader: () => `Feature Flags`,
                     },
                     {
                         name: 'Experiments',
@@ -393,7 +393,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'experiments',
                         getName: (experiment: Experiment) => experiment.name,
                         getValue: (experiment: Experiment) => experiment.id,
-                        getPopupHeader: () => `Experiments`,
+                        getPopoverHeader: () => `Experiments`,
                     },
                     {
                         name: 'Plugins',
@@ -403,7 +403,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'allPossiblePlugins',
                         getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
                         getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                        getPopupHeader: () => `Plugins`,
+                        getPopoverHeader: () => `Plugins`,
                     },
                     {
                         name: 'Dashboards',
@@ -413,7 +413,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'nameSortedDashboards',
                         getName: (dashboard: DashboardType) => dashboard.name,
                         getValue: (dashboard: DashboardType) => dashboard.id,
-                        getPopupHeader: () => `Dashboards`,
+                        getPopoverHeader: () => `Dashboards`,
                     },
                     {
                         name: 'Sessions',
@@ -427,7 +427,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         ],
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
-                        getPopupHeader: () => 'Session',
+                        getPopoverHeader: () => 'Session',
                     },
                     ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] ? [hogQl] : []),
                     ...groupAnalyticsTaxonomicGroups,
@@ -460,7 +460,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         group_type_index: type.group_type_index,
                     }).url,
                     searchAlias: 'group_key',
-                    getPopupHeader: () => `Group Names`,
+                    getPopoverHeader: () => `Group Names`,
                     getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
                     getValue: (group: Group) => group.group_key,
                     groupTypeIndex: type.group_type_index,
@@ -492,7 +492,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         })}`,
                     getName: (group) => group.name,
                     getValue: (group) => group.name,
-                    getPopupHeader: () => `Property`,
+                    getPopoverHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,
                 })),

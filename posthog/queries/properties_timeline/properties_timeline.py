@@ -84,7 +84,7 @@ class PropertiesTimeline:
     ) -> PropertiesTimelineResult:
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
             # Search for `offset_time_series_date_by_interval` in the `TrendsActors` class for context on this handling
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {
                     "date_to": offset_time_series_date_by_interval(
                         cast(datetime.datetime, filter.date_from), filter=filter, team=team
@@ -121,7 +121,9 @@ class PropertiesTimeline:
         )
 
         params = {**event_query_params, "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key}
-        raw_query_result = insight_sync_execute(formatted_sql, params, query_type="properties_timeline")
+        raw_query_result = insight_sync_execute(
+            formatted_sql, {**params, **filter.hogql_context.values}, query_type="properties_timeline"
+        )
 
         return PropertiesTimelineResult(
             points=[

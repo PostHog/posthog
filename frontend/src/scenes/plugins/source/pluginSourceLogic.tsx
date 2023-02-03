@@ -48,13 +48,13 @@ export const pluginSourceLogic = kea<pluginSourceLogicType>([
             errors: (values) => ({
                 'plugin.json': !validateJson(values['plugin.json']) ? 'Not valid JSON' : '',
             }),
-            preSubmit: () => {
+            preSubmit: async () => {
                 const changes = {}
                 const errors = {}
                 for (const [file, source] of Object.entries(values.pluginSource)) {
                     if (source && file.match(/\.(ts|tsx|js|jsx|json)$/)) {
                         try {
-                            const prettySource = formatSource(file, source)
+                            const prettySource = await formatSource(file, source)
                             if (prettySource !== source) {
                                 changes[file] = prettySource
                             }

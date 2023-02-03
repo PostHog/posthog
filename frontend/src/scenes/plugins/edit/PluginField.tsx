@@ -4,6 +4,35 @@ import { useState } from 'react'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
+import MonacoEditor from '@monaco-editor/react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+
+function JsonConfigField(props: {
+    onChange: (value: any) => void
+    className: string
+    autoFocus: boolean
+    value: any
+}): JSX.Element {
+    return (
+        <AutoSizer disableWidth className="min-h-60">
+            {({ height }) => (
+                <MonacoEditor
+                    theme="vs-light"
+                    className="border"
+                    language="json"
+                    value={props.value}
+                    onChange={(v) => props.onChange(v ?? '')}
+                    height={height}
+                    options={{
+                        minimap: {
+                            enabled: false,
+                        },
+                    }}
+                />
+            )}
+        </AutoSizer>
+    )
+}
 
 export function PluginField({
     value,
@@ -38,6 +67,8 @@ export function PluginField({
         <UploadField value={value} onChange={onChange} />
     ) : fieldConfig.type === 'string' ? (
         <Input value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
+    ) : fieldConfig.type === 'json' ? (
+        <JsonConfigField value={value} onChange={onChange} autoFocus={editingSecret} className="ph-no-capture" />
     ) : fieldConfig.type === 'choice' ? (
         <Select dropdownMatchSelectWidth={false} value={value} className="ph-no-capture" onChange={onChange} showSearch>
             {fieldConfig.choices.map((choice) => (

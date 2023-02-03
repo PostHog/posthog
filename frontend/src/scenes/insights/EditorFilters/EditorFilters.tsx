@@ -13,7 +13,6 @@ import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFil
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
-import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
@@ -73,7 +72,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
             (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
-    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
@@ -164,28 +162,18 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
-                          key: 'properties',
-                          label: !usingEditorPanels ? 'Filters' : undefined,
-                          position: 'right',
-                          component: LifecycleGlobalFilters,
-                      }
-                    : null,
-                isLifecycle
-                    ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
                           position: 'right',
                           component: LifecycleToggles,
                       }
                     : null,
-                hasPropertyFilters
-                    ? {
-                          key: 'properties',
-                          label: !usingEditorPanels ? 'Filters' : undefined,
-                          position: 'right',
-                          component: GlobalAndOrFilters,
-                      }
-                    : null,
+                {
+                    key: 'properties',
+                    label: !usingEditorPanels ? 'Filters' : undefined,
+                    position: 'right',
+                    component: GlobalAndOrFilters,
+                },
             ]),
         },
         {

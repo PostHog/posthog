@@ -6,6 +6,7 @@ from unittest.case import skip
 from unittest.mock import patch
 
 import pytz
+from django.test import override_settings
 from django.utils import timezone
 from freezegun import freeze_time
 from rest_framework import status
@@ -33,6 +34,8 @@ from posthog.test.base import (
     QueryMatchingTest,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
+    snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
 from posthog.test.db_context_capturing import capture_db_queries
@@ -319,6 +322,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
 
+    # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_listing_insights_does_not_nplus1(self) -> None:
         query_counts: List[int] = []
@@ -1478,7 +1483,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             )
 
     def test_insight_paths_basic(self) -> None:
-        _create_person(team=self.team, distinct_ids=["person_1"])
+        _create_person(team=self.team, distinct_ids=["person_1"], properties={"$os": "Mac"})
         _create_event(
             properties={"$current_url": "/", "test": "val"},
             distinct_id="person_1",
@@ -1510,12 +1515,33 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"/api/projects/{self.team.id}/insights/path",
             data={"properties": json.dumps([{"key": "test", "value": "val"}])},
         ).json()
+        self.assertEqual(len(get_response["result"]), 1)
+
         post_response = self.client.post(
             f"/api/projects/{self.team.id}/insights/path",
             {"properties": [{"key": "test", "value": "val"}]},
         ).json()
-        self.assertEqual(len(get_response["result"]), 1)
         self.assertEqual(len(post_response["result"]), 1)
+
+        hogql_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path",
+            data={
+                "properties": json.dumps(
+                    [{"key": "properties.test == 'val' and person.properties.$os == 'Mac'", "type": "hogql"}]
+                )
+            },
+        ).json()
+        self.assertEqual(len(hogql_response["result"]), 1)
+
+        hogql_non_response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/path",
+            data={
+                "properties": json.dumps(
+                    [{"key": "properties.test == 'val' and person.properties.$os == 'Windows'", "type": "hogql"}]
+                )
+            },
+        ).json()
+        self.assertEqual(len(hogql_non_response["result"]), 0)
 
     def test_insight_funnels_basic_post(self) -> None:
         _create_person(team=self.team, distinct_ids=["1"])
@@ -2267,3 +2293,222 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.maxDiff = None
         assert activity == expected
+
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    @snapshot_clickhouse_queries
+    def test_insight_trend_hogql_global_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            for i in range(25):
+                _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"int_value": i})
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            # 25 events total
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={"events": json.dumps([{"id": "$pageview"}])},
+            )
+            found_data_points = response.json()["result"][0]["count"]
+            self.assertEqual(found_data_points, 25)
+
+            # test trends global property filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(properties.int_value) > 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                            {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                        ]
+                    ),
+                },
+            )
+            found_data_points = response.json()["result"][0]["count"]
+            self.assertEqual(found_data_points, 14)
+
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    @snapshot_clickhouse_queries
+    def test_insight_trend_hogql_local_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            for i in range(25):
+                _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"int_value": i})
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            # test trends local property filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps(
+                        [
+                            {
+                                "id": "$pageview",
+                                "properties": json.dumps(
+                                    [
+                                        {
+                                            "key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'",
+                                            "type": "hogql",
+                                        },
+                                        {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                                    ]
+                                ),
+                            }
+                        ]
+                    )
+                },
+            )
+            found_data_points = response.json()["result"][0]["count"]
+            self.assertEqual(found_data_points, 10)
+
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    @snapshot_clickhouse_queries
+    def test_insight_trend_hogql_breakdown(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            for i in range(25):
+                _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"int_value": i})
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            # test trends breakdown
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "breakdown_type": "hogql",
+                    "breakdown": "ifElse(toInt(properties.int_value) < 10, 'le%ss', 'more')",
+                },
+            )
+            result = response.json()["result"]
+            self.assertEqual(result[0]["count"], 15)
+            self.assertEqual(result[0]["breakdown_value"], "more")
+            self.assertEqual(result[1]["count"], 10)
+            self.assertEqual(result[1]["breakdown_value"], "le%ss")
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    def test_insight_funnels_hogql_global_filters(self) -> None:
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+            _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
+            _create_event(team=self.team, event="user did things", distinct_id="1", properties={"int_value": 20})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/funnel/",
+                {
+                    "events": [
+                        {"id": "user signed up", "type": "events", "order": 0},
+                        {"id": "user did things", "type": "events", "order": 1},
+                    ],
+                    "properties": json.dumps(
+                        [
+                            {"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                            {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                        ]
+                    ),
+                    "funnel_window_days": 14,
+                },
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            response_json = response.json()
+            self.assertEqual(len(response_json["result"]), 2)
+            self.assertEqual(response_json["result"][0]["name"], "user signed up")
+            self.assertEqual(response_json["result"][0]["count"], 1)
+            self.assertEqual(response_json["result"][1]["name"], "user did things")
+            self.assertEqual(response_json["result"][1]["count"], 0)
+            self.assertEqual(response_json["timezone"], "UTC")
+
+    @snapshot_clickhouse_queries
+    @also_test_with_materialized_columns(event_properties=["int_value"], person_properties=["fish"])
+    def test_insight_funnels_hogql_local_filters(self) -> None:
+        _create_person(team=self.team, distinct_ids=["1"], properties={"fish": "there is no fish"})
+        _create_event(team=self.team, event="user signed up", distinct_id="1", properties={"int_value": 1})
+        _create_event(team=self.team, event="user did things", distinct_id="1", properties={"int_value": 20})
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/insights/funnel/",
+            {
+                "events": [
+                    {
+                        "id": "user signed up",
+                        "type": "events",
+                        "order": 0,
+                        "properties": json.dumps(
+                            [
+                                {"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                                {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                            ]
+                        ),
+                    },
+                    {
+                        "id": "user did things",
+                        "type": "events",
+                        "order": 1,
+                        "properties": json.dumps(
+                            [
+                                {"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"},
+                                {"key": "like(person.properties.fish, '%fish%')", "type": "hogql"},
+                            ]
+                        ),
+                    },
+                ],
+                "funnel_window_days": 14,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_json = response.json()
+        self.assertEqual(len(response_json["result"]), 2)
+        self.assertEqual(response_json["result"][0]["name"], "user signed up")
+        self.assertEqual(response_json["result"][0]["count"], 1)
+        self.assertEqual(response_json["result"][1]["name"], "user did things")
+        self.assertEqual(response_json["result"][1]["count"], 0)
+        self.assertEqual(response_json["timezone"], "UTC")
+
+    def test_insight_retention_hogql(self) -> None:
+        _create_person(
+            team=self.team,
+            distinct_ids=["person1"],
+            properties={"email": "person1@test.com"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=11),
+            properties={"int_value": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person1",
+            timestamp=timezone.now() - timedelta(days=10),
+            properties={"int_value": 20},
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/retention/").json()
+
+        self.assertEqual(len(response["result"]), 11)
+        self.assertEqual(response["result"][0]["values"][0]["count"], 1)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/retention/",
+            data={
+                "properties": json.dumps(
+                    [
+                        {"key": "toInt(properties.int_value) > 100 and 'bla' != 'a%sd'", "type": "hogql"},
+                        {"key": "like(person.properties.email, '%test.com%')", "type": "hogql"},
+                    ]
+                ),
+            },
+        ).json()
+        self.assertEqual(len(response["result"]), 11)
+        self.assertEqual(response["result"][0]["values"][0]["count"], 0)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights/retention/",
+            data={
+                "properties": json.dumps(
+                    [
+                        {"key": "toInt(properties.int_value) > 0 and 'bla' != 'a%sd'", "type": "hogql"},
+                        {"key": "like(person.properties.email, '%test.com%')", "type": "hogql"},
+                    ]
+                ),
+            },
+        ).json()
+        self.assertEqual(len(response["result"]), 11)
+        self.assertEqual(response["result"][0]["values"][0]["count"], 1)

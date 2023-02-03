@@ -43,7 +43,9 @@ export function PathsComponent({ nodeCard }: PathsComponentProps): JSX.Element {
     useEffect(() => {
         setNodeCards([])
 
-        const elements = document?.getElementById(id)?.querySelectorAll(`.Paths svg`)
+        // Remove the existing SVG canvas(es). The .Paths__canvas selector is crucial, as we have to be sure
+        // we're only removing the Paths viz and not, for example, button icons.
+        const elements = document?.getElementById(id)?.querySelectorAll(`.Paths__canvas`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         renderPaths(canvasRef, canvasWidth, canvasHeight, paths, filter, setNodeCards)
