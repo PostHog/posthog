@@ -5,7 +5,6 @@ import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 import { InsightType } from '~/types'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
@@ -29,9 +28,17 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
     const { insightProps, filters } = useValues(insightLogic)
     const { setFilters } = useActions(insightLogic)
     const { isTrends, supportsDisplay } = useValues(insightDataLogic(insightProps))
-    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
-    const { showDateRange, disableDateRange, showCompare, showInterval, showSmoothing, showRetention, showPaths } =
-        useValues(insightDisplayConfigLogic(insightProps))
+    const {
+        showDateRange,
+        disableDateRange,
+        showCompare,
+        showInterval,
+        showSmoothing,
+        showRetention,
+        showPaths,
+        showFunnelDisplayLayout,
+        // showFunnelBins,
+    } = useValues(insightDisplayConfigLogic(insightProps))
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -57,9 +64,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
                 {showInterval && (
                     <ConfigFilter>
-                        <span>
-                            <span className="hide-lte-md">grouped </span>by
-                        </span>
+                        <span className="hide-lte-md">grouped </span>by
                         <IntervalFilter view={filters.insight || InsightType.TRENDS} />
                     </ConfigFilter>
                 )}
@@ -104,12 +109,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                     </>
                 )}
 
-                {isStepsFunnel && (
+                {showFunnelDisplayLayout && (
                     <ConfigFilter>
                         <FunnelDisplayLayoutPickerDataExploration />
                     </ConfigFilter>
                 )}
-                {/* {isTimeToConvertFunnel && (
+                {/* {showFunnelBins && (
                     <ConfigFilter>
                         <FunnelBinsPicker />
                     </ConfigFilter>

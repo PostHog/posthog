@@ -68,5 +68,7 @@ export const insightDisplayConfigLogic = kea([
         ],
         showRetention: [(s) => [s.isRetention], (isRetention) => !!isRetention],
         showPaths: [(s) => [s.isPaths], (isPaths) => !!isPaths],
+        showFunnelDisplayLayout: [(s) => [s.isStepsFunnel], (isStepsFunnel) => !!isStepsFunnel],
+        showFunnelBins: [(s) => [s.isTimeToConvertFunnel], (isTimeToConvertFunnel) => !!isTimeToConvertFunnel],
     }),
 ])
