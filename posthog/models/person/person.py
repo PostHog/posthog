@@ -126,6 +126,7 @@ class PersonOverride(models.Model):
             models.CheckConstraint(
                 check=Q(
                     Func(
+                        F("team_id"),
                         F("override_person_id"),
                         F("old_person_id"),
                         function="is_override_person_not_used_as_old_person",
@@ -149,16 +150,18 @@ class PersonOverride(models.Model):
 
 
 CREATE_FUNCTION_FOR_CONSTRAINT_SQL = f"""
-CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(override_person_id uuid, old_person_id uuid)
+CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(team_id bigint, override_person_id uuid, old_person_id uuid)
 RETURNS BOOLEAN AS $$
   SELECT NOT EXISTS (
     SELECT 1
       FROM "{PersonOverride._meta.db_table}"
-      WHERE override_person_id = $2
+      WHERE team_id = $1
+      AND override_person_id = $2
     ) AND NOT EXISTS (
         SELECT 1
       FROM "{PersonOverride._meta.db_table}"
-      WHERE old_person_id = $1
+      WHERE team_id = $1
+      AND old_person_id = $3
     );
 $$ LANGUAGE SQL;
 """

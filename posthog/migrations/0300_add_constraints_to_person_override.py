@@ -31,6 +31,7 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(
                 check=models.Q(
                     django.db.models.expressions.Func(
+                        django.db.models.expressions.F("team_id"),
                         django.db.models.expressions.F("override_person_id"),
                         django.db.models.expressions.F("old_person_id"),
                         function="is_override_person_not_used_as_old_person",
