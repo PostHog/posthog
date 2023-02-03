@@ -49,7 +49,7 @@ def _tag_query(query, query_type, filter: Optional["FilterType"], settings: Opti
     )
 
     if settings is not None:
-        tag_queries(join_algorithm=settings["join_algorithm"] or "default")
+        tag_queries(join_algorithm=settings.get("join_algorithm", "default"))
 
     if filter is not None:
         tag_queries(filter=filter.to_dict(), **filter.query_tags())
