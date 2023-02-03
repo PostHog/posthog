@@ -3,7 +3,7 @@ import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { HelpType } from '~/types'
 import type { helpButtonLogicType } from './HelpButtonType'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import {
     IconArrowDropDown,
@@ -90,7 +90,7 @@ export function HelpButton({
 
     return (
         <>
-            <Popup
+            <Popover
                 overlay={
                     <>
                         <LemonButton
@@ -201,7 +201,7 @@ export function HelpButton({
                         </>
                     )}
                 </div>
-            </Popup>
+            </Popover>
             <HedgehogBuddyWithLogic />
         </>
     )

@@ -344,8 +344,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const incomingSnapshotByWindowId: {
                         [key: string]: eventWithTime[]
                     } = response.snapshot_data_by_window_id
+
+                    // We merge the new snapshots with the existing ones and sort by timestamp to ensure they are in order
                     Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
-                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots]
+                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots].sort(
+                            (a, b) => a.timestamp - b.timestamp
+                        )
                     })
                     return {
                         ...values.sessionPlayerSnapshotData,

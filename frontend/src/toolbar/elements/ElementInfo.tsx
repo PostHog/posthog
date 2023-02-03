@@ -29,7 +29,7 @@ function ElementStatistic({
 }
 
 export function ElementInfo(): JSX.Element | null {
-    const { clickCount: totalClickCount } = useValues(heatmapLogic)
+    const { clickCount: totalClickCount, dateRange } = useValues(heatmapLogic)
 
     const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
@@ -54,7 +54,7 @@ export function ElementInfo(): JSX.Element | null {
                 <div className="p-3" style={{ borderLeft: '5px solid #FF9870', background: 'hsla(19, 99%, 99%, 1)' }}>
                     <h1 className="section-title">Stats</h1>
                     <p>
-                        <IconCalendar /> <u>Last 7 days</u>
+                        <IconCalendar /> <u>{dateRange}</u>
                     </p>
                     <div className={'flex flex-row gap-4'}>
                         <div className={'w-2/3'}>

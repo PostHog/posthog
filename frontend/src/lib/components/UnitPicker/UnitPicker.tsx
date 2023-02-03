@@ -1,5 +1,5 @@
 import { AggregationAxisFormat, INSIGHT_UNIT_OPTIONS, axisLabel } from 'scenes/insights/aggregationAxisFormat'
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { useMemo, useRef, useState } from 'react'
 import { ItemMode, TrendsFilterType } from '~/types'
@@ -102,13 +102,13 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                 onClose={() => setCustomUnitModal(null)}
                 overlayRef={(ref) => (customUnitModalRef.current = ref)}
             />
-            <LemonButtonWithPopup
+            <LemonButtonWithDropdown
                 onClick={() => setIsVisible(!isVisible)}
                 size={'small'}
                 type={'secondary'}
                 status="stealth"
                 data-attr="chart-aggregation-axis-format"
-                popup={{
+                dropdown={{
                     onClickOutside: () => setIsVisible(false),
                     additionalRefs: [customUnitModalRef],
                     visible: isVisible,
@@ -159,7 +159,7 @@ export function UnitPicker({ filters, setFilters }: UnitPickerProps): JSX.Elemen
                 }}
             >
                 {display}
-            </LemonButtonWithPopup>
+            </LemonButtonWithDropdown>
         </>
     )
 }
