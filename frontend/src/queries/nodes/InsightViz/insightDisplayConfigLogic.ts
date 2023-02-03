@@ -5,9 +5,11 @@ import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 
-export const insightDisplayConfigLogic = kea([
+import type { insightDisplayConfigLogicType } from './insightDisplayConfigLogicType'
+
+export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
@@ -30,12 +32,7 @@ export const insightDisplayConfigLogic = kea([
                 'trendsFilter',
             ],
             funnelDataLogic(props),
-            [
-                'isEmptyFunnel',
-                'isStepsFunnel',
-                // 'isTimeToConvertFunnel',
-                'isTrendsFunnel',
-            ],
+            ['isEmptyFunnel', 'isStepsFunnel', 'isTimeToConvertFunnel', 'isTrendsFunnel'],
         ],
     })),
 
@@ -46,7 +43,7 @@ export const insightDisplayConfigLogic = kea([
             (isFunnels, isEmptyFunnel) => isFunnels && !!isEmptyFunnel,
         ],
         showCompare: [
-            (s) => [s.isTrends, s.display, s.isStickiness],
+            (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends, isStickiness, display) =>
                 (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness,
         ],

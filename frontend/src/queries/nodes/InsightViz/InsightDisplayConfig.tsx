@@ -5,6 +5,7 @@ import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 
 import { InsightType } from '~/types'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
@@ -17,7 +18,6 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 // import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 
 interface InsightDisplayConfigProps {
