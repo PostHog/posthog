@@ -10,15 +10,14 @@ from posthog.types import FilterType
 # Wrapper around sync_execute, adding query tags for insights performance
 def insight_sync_execute(query, args=None, *, query_type: str, filter: Optional["FilterType"] = None, **kwargs):
 
-    insight_settings = kwargs["settings"] if "settings" in kwargs else {}
-    kwargs["settings"] = add_team_specific_settings(settings=insight_settings or {}, filter=filter)
+    kwargs["settings"] = add_team_specific_settings(settings=kwargs.get("settings", {}), filter=filter)
 
     _tag_query(query, query_type, filter, settings=kwargs["settings"])
 
     return sync_execute(query, args=args, **kwargs)
 
 
-def add_team_specific_settings(settings: Dict[str, Any], filter: Optional["FilterType"] = None):
+def add_team_specific_settings(settings: Dict[str, Any], filter: Optional["FilterType"] = None) -> Dict[str, Any]:
     team_specific_settings = {}
     if filter and filter.team:
         if str(filter.team.pk) in get_list(get_instance_setting("PARALLEL_HASH_ENABLED_TEAMS")):
