@@ -215,12 +215,13 @@ def drop_events_over_quota(
     if not settings.EE_AVAILABLE:
         return events
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_teams
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
 
     results = []
-    limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
-    limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
+    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
     team_id = ingestion_context.team_id if ingestion_context else None
+
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
@@ -230,7 +231,7 @@ def drop_events_over_quota(
                     continue
 
         elif token in limited_tokens_events:
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", team=team_id, token=token).inc()
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", team_id=team_id, token=token).inc()
             if settings.QUOTA_LIMITING_ENABLED:
                 continue
 

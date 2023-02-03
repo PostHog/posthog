@@ -15,7 +15,7 @@ class QuotaResource(Enum):
     RECORDINGS = "recordings"
 
 
-def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
     pipe = get_client().pipeline()
     pipe.delete(f"{RATE_LIMITER_CACHE_KEY}{resource.value}")
     if tokens:
@@ -24,7 +24,7 @@ def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, int]) ->
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_teams(resource: QuotaResource) -> List[str]:
+def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
