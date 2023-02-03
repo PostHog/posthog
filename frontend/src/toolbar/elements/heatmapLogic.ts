@@ -11,6 +11,7 @@ import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
 import { loaders } from 'kea-loaders'
+import { dateFilterToText } from 'lib/utils'
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -146,6 +147,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
 
     selectors(({ cache }) => ({
+        dateRange: [
+            (s) => [s.heatmapFilter],
+            (heatmapFilter: Partial<FilterType>) => {
+                return dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')
+            },
+        ],
         elements: [
             (selectors) => [
                 selectors.elementStats,
