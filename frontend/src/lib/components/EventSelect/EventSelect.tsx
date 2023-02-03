@@ -1,6 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import React, { useState } from 'react'
 
@@ -21,7 +21,7 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
         onChange(selectedEvents.filter((p) => p !== name))
     }
 
-    // Add in the toggle popup logic for the passed in element
+    // Add in the toggle popover logic for the passed in element
     const addElementWithToggle = React.cloneElement(addElement, { onClick: () => setOpen(!open) })
 
     return (
@@ -32,7 +32,7 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
                 </LemonSnack>
             ))}
 
-            <Popup
+            <Popover
                 visible={open}
                 onClickOutside={() => setOpen(false)}
                 overlay={
@@ -46,7 +46,7 @@ export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelec
                 }
             >
                 {addElementWithToggle}
-            </Popup>
+            </Popover>
         </div>
     )
 }

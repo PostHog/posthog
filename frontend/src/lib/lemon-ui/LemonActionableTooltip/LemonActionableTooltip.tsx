@@ -1,5 +1,5 @@
 import { Placement } from '@floating-ui/react-dom-interactions'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { IconClose, IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -37,7 +37,7 @@ export const LemonActionableTooltip = ({
     const actionButtons = buttons?.filter((button) => button.action) ?? []
     const urlButtons = buttons?.filter((button) => button.url) ?? []
     return (
-        <Popup
+        <Popover
             visible={visible}
             referenceElement={element}
             placement={placement}

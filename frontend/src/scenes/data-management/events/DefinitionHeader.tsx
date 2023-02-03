@@ -11,7 +11,7 @@ import {
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { getSingularType } from 'lib/components/DefinitionPopup/utils'
+import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import clsx from 'clsx'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'

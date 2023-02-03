@@ -1,8 +1,8 @@
 import './UniversalSearch.scss'
 import { useState } from 'react'
-import { LemonButtonWithPopupProps } from 'lib/lemon-ui/LemonButton'
+import { LemonButtonWithDropdownProps } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { combineUrl, router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import {
@@ -27,8 +27,8 @@ import { TaxonomicFilter } from '../TaxonomicFilter/TaxonomicFilter'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
-export interface UniversalSearchPopupProps<ValueType = TaxonomicFilterValue>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
+export interface UniversalSearchPopoverProps<ValueType = TaxonomicFilterValue>
+    extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange?: (value: ValueType, groupType: TaxonomicFilterGroupType, item: SearchDefinitionTypes) => void
@@ -109,14 +109,14 @@ function redirectOnSelectItems(
     }
 }
 
-export function UniversalSearchPopup({
+export function UniversalSearchPopover({
     groupType,
     value,
     onChange,
     groupTypes,
     dataAttr,
     fullWidth = true,
-}: UniversalSearchPopupProps): JSX.Element {
+}: UniversalSearchPopoverProps): JSX.Element {
     // Ensure some logics are mounted
     useMountedLogic(experimentsLogic)
     useMountedLogic(pluginsLogic)
@@ -141,7 +141,7 @@ export function UniversalSearchPopup({
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery } = useValues(logic)
 
-    // Command+S shortcut to get to universal search popup
+    // Command+S shortcut to get to universal search popover
     useEventListener('keydown', (event) => {
         if (event.key === 's' && (event.ctrlKey || event.metaKey)) {
             event.preventDefault()
@@ -151,7 +151,7 @@ export function UniversalSearchPopup({
 
     return (
         <div className="universal-search">
-            <Popup
+            <Popover
                 overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
                 visible={visible}
                 placement="right-start"
@@ -193,7 +193,7 @@ export function UniversalSearchPopup({
                         />
                     )}
                 </div>
-            </Popup>
+            </Popover>
         </div>
     )
 }

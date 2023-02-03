@@ -1,8 +1,8 @@
-import { LemonButtonWithPopup } from '.'
+import { LemonButtonWithDropdown } from '.'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
-import { PopupProps } from '../Popup/Popup'
+import { PopoverProps } from '../Popover/Popover'
 
-export interface MoreProps extends Partial<Pick<PopupProps, 'overlay' | 'placement'>> {
+export interface MoreProps extends Partial<Pick<PopoverProps, 'overlay' | 'placement'>> {
     style?: React.CSSProperties
     className?: string
     'data-attr'?: string
@@ -10,12 +10,12 @@ export interface MoreProps extends Partial<Pick<PopupProps, 'overlay' | 'placeme
 
 export function More({ overlay, placement = 'bottom-end', className, 'data-attr': dataAttr }: MoreProps): JSX.Element {
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             aria-label="more"
             data-attr={dataAttr ?? 'more-button'}
             icon={<IconEllipsis />}
             status="stealth"
-            popup={{
+            dropdown={{
                 placement,
                 actionable: true,
                 overlay,

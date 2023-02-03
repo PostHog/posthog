@@ -1,17 +1,17 @@
-import './TaxonomicPopup.scss'
+import './TaxonomicPopover.scss'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { useEffect, useState } from 'react'
 import {
     LemonButton,
     LemonButtonProps,
-    LemonButtonWithPopup,
-    LemonButtonWithPopupProps,
+    LemonButtonWithDropdown,
+    LemonButtonWithDropdownProps,
 } from 'lib/lemon-ui/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/lemon-ui/icons'
 
-export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
-    extends Omit<LemonButtonWithPopupProps, 'popup' | 'value' | 'onChange' | 'placeholder'> {
+export interface TaxonomicPopoverProps<ValueType = TaxonomicFilterValue>
+    extends Omit<LemonButtonWithDropdownProps, 'dropdown' | 'value' | 'onChange' | 'placeholder'> {
     groupType: TaxonomicFilterGroupType
     value?: ValueType
     onChange: (value: ValueType, groupType: TaxonomicFilterGroupType) => void
@@ -27,10 +27,10 @@ export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     buttonProps?: Omit<LemonButtonProps, 'onClick'>
 }
 
-/** Like TaxonomicPopup, but convenient when you know you will only use string values */
-export function TaxonomicStringPopup(props: TaxonomicPopupProps<string>): JSX.Element {
+/** Like TaxonomicPopover, but convenient when you know you will only use string values */
+export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JSX.Element {
     return (
-        <TaxonomicPopup
+        <TaxonomicPopover
             {...props}
             value={String(props.value)}
             onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
@@ -39,7 +39,7 @@ export function TaxonomicStringPopup(props: TaxonomicPopupProps<string>): JSX.El
     )
 }
 
-export function TaxonomicPopup({
+export function TaxonomicPopover({
     groupType,
     value,
     onChange,
@@ -50,14 +50,14 @@ export function TaxonomicPopup({
     placeholder = 'Please select',
     fullWidth = true,
     buttonProps,
-}: TaxonomicPopupProps): JSX.Element {
+}: TaxonomicPopoverProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             data-attr={dataAttr}
             status="stealth"
-            popup={{
+            dropdown={{
                 onClickOutside: () => setVisible(false),
                 overlay: (
                     <TaxonomicFilter
@@ -78,18 +78,18 @@ export function TaxonomicPopup({
             type={'secondary'}
             {...buttonProps}
         >
-            <span className="TaxonomicPopup__button__label text-overflow">
+            <span className="TaxonomicPopover__button__label text-overflow">
                 {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}
             </span>
             <div style={{ flexGrow: 1 }} />
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }
 
-/** Like TaxonomicPopup, but convenient when you know you will only use string values */
-export function LemonTaxonomicStringPopup(props: TaxonomicPopupProps<string>): JSX.Element {
+/** Like TaxonomicPopover, but convenient when you know you will only use string values */
+export function LemonTaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JSX.Element {
     return (
-        <LemonTaxonomicPopup
+        <LemonTaxonomicPopover
             {...props}
             value={String(props.value)}
             onChange={(value, groupType) => props.onChange?.(String(value), groupType)}
@@ -98,7 +98,7 @@ export function LemonTaxonomicStringPopup(props: TaxonomicPopupProps<string>): J
     )
 }
 
-export function LemonTaxonomicPopup({
+export function LemonTaxonomicPopover({
     groupType,
     value,
     onChange,
@@ -109,7 +109,7 @@ export function LemonTaxonomicPopup({
     placeholder = 'Please select',
     allowClear = false,
     ...buttonProps
-}: TaxonomicPopupProps): JSX.Element {
+}: TaxonomicPopoverProps): JSX.Element {
     const [localValue, setLocalValue] = useState<TaxonomicFilterValue>(value || '')
     const [visible, setVisible] = useState(false)
 
@@ -124,11 +124,11 @@ export function LemonTaxonomicPopup({
     return (
         <div className="LemonButtonWithSideAction">
             {/* TODO: This is nasty. We embed a button in the sideicon which should be a big no-no.
-            We should merge WithPopup and WithSideaction as this is a common use case */}
-            <LemonButtonWithPopup
-                className="TaxonomicPopup__button"
+            We should merge WithDropdown and WithSideaction as this is a common use case */}
+            <LemonButtonWithDropdown
+                className="TaxonomicPopover__button"
                 data-attr={dataAttr}
-                popup={{
+                dropdown={{
                     overlay: (
                         <TaxonomicFilter
                             groupType={groupType}
@@ -185,7 +185,7 @@ export function LemonTaxonomicPopup({
                         {placeholder}
                     </span>
                 )}
-            </LemonButtonWithPopup>
+            </LemonButtonWithDropdown>
         </div>
     )
 }
