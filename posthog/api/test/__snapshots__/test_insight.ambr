@@ -128,8 +128,8 @@
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['user did things', 'user signed up']
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-26 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-02-02 23:59:59', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-27 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-02-03 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
@@ -506,7 +506,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_verified",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -877,7 +877,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_verified",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -1063,7 +1063,7 @@
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
-         "posthog_user"."is_verified",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config",
          T4."id",
          T4."password",
@@ -1083,7 +1083,7 @@
          T4."partial_notification_settings",
          T4."anonymize_data",
          T4."toolbar_mode",
-         T4."is_verified",
+         T4."is_email_verified",
          T4."events_column_config"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
