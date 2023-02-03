@@ -1,25 +1,26 @@
 import { PropsWithChildren, ReactNode } from 'react'
 import { useActions, useValues } from 'kea'
 import { Tooltip } from 'antd'
-
-import { ChartFilter } from 'lib/components/ChartFilter'
-import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
-import { IntervalFilter } from 'lib/components/IntervalFilter'
-import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { ChartDisplayType, FilterType, InsightType, ItemMode } from '~/types'
 import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
-import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { PathStepPickerDataExploration } from 'scenes/insights/views/Paths/PathStepPicker'
-import { RetentionDatePickerDataExploration } from 'scenes/insights/RetentionDatePicker'
-import { RetentionReferencePickerDataExploration } from 'scenes/insights/filters/RetentionReferencePicker'
-// import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
+
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+
+import { ChartDisplayType, FilterType, InsightType, ItemMode } from '~/types'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
+import { IntervalFilter } from 'lib/components/IntervalFilter'
+import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
+import { RetentionDatePickerDataExploration } from 'scenes/insights/RetentionDatePicker'
+import { RetentionReferencePickerDataExploration } from 'scenes/insights/filters/RetentionReferencePicker'
+import { PathStepPickerDataExploration } from 'scenes/insights/views/Paths/PathStepPicker'
+import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
+import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
+import { ChartFilter } from 'lib/components/ChartFilter'
+import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+// import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -51,7 +52,8 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
         isTrendsFunnel,
     } = useValues(funnelDataLogic(insightProps))
 
-    const showDateRange = filters.insight && !isRetention && !disableTable
+    const showDateRange = !isRetention && !disableTable
+    const disableDateRange = isFunnels && !!isEmptyFunnel
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -74,12 +76,12 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     <ConfigFilter>
                         <span>Date range</span>
                         <InsightDateFilter
-                            disabled={isEmptyFunnel}
+                            disabled={disableDateRange}
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}
                                     {key == 'All time' && (
-                                        <Tooltip title={`Only events dated after 2015 will be shown`}>
+                                        <Tooltip title="Only events dated after 2015 will be shown">
                                             <InfoCircleOutlined className="info-indicator" />
                                         </Tooltip>
                                     )}
