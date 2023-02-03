@@ -18,6 +18,7 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
     value?: T
     onChange?: (newValue: T) => void
     options: LemonSegmentedButtonOption<T>[]
+    size?: 'small' | 'medium'
 }
 
 interface LemonSegmentedButtonCSSProperties extends React.CSSProperties {
@@ -30,6 +31,7 @@ export function LemonSegmentedButton<T extends React.Key>({
     value,
     onChange,
     options,
+    size,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
     const containerRef = useRef<HTMLDivElement>(null)
     const selectedOptionRef = useRef<HTMLButtonElement>(null)
@@ -83,6 +85,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                     >
                         <LemonButton /* The ref is on the button and not on the list item so that the border isn't counted */
                             ref={option.value === value ? selectedOptionRef : undefined}
+                            size={size}
                             disabledReason={option.disabledReason}
                             onClick={() => {
                                 if (!option.disabledReason) {

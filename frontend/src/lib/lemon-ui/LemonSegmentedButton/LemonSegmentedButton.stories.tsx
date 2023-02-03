@@ -37,5 +37,10 @@ const Template: ComponentStory<typeof LemonSegmentedButton> = (
     return <LemonSegmentedButton {...props} value={value} onChange={(newValue) => setValue(newValue)} />
 }
 
-export const _LemonSegmentedButton = Template.bind({})
-_LemonSegmentedButton.args = {}
+export const Default = Template.bind({})
+Default.args = {}
+
+export const Small = Template.bind({})
+Small.args = {
+    size: 'small',
+}

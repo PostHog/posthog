@@ -511,6 +511,7 @@ export function SavedInsights(): JSX.Element {
                                         icon: <IconGridView />,
                                     },
                                 ]}
+                                size="small"
                             />
                         </div>
                     </div>
