@@ -47,6 +47,8 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
             (isTrends, isStickiness, display) =>
                 (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness,
         ],
+        showUnit: [(s) => [s.supportsDisplay, s.isTrends], (supportsDisplay, isTrends) => supportsDisplay && isTrends],
+        showChart: [(s) => [s.supportsDisplay], (supportsDisplay) => supportsDisplay],
         showInterval: [
             (s) => [s.isTrends, s.isStickiness, s.isLifecycle, s.isTrendsFunnel, s.display],
             (isTrends, isStickiness, isLifecycle, isTrendsFunnel, display) =>

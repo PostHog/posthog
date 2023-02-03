@@ -67,9 +67,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             (s) => [s.querySource],
             (q): boolean | null => {
                 return isFunnelsQuery(q)
-                    ? null
-                    : q.series.filter((n) => n.kind === NodeKind.EventsNode || n.kind === NodeKind.ActionsNode).length >
-                          0
+                    ? q.series.filter((n) => n.kind === NodeKind.EventsNode || n.kind === NodeKind.ActionsNode)
+                          .length === 0
+                    : null
             },
         ],
 
