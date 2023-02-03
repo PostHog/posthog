@@ -46,7 +46,7 @@ import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
-export const EVENTS_PER_RUN_SMALL = 5000
+export const EVENTS_PER_RUN_SMALL = 500
 export const EVENTS_PER_RUN_BIG = 10000
 
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
