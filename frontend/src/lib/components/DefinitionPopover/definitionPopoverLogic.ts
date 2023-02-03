@@ -1,8 +1,8 @@
 import { kea } from 'kea'
-import type { definitionPopupLogicType } from './definitionPopupLogicType'
+import type { definitionPopoverLogicType } from './definitionPopoverLogicType'
 import { TaxonomicDefinitionTypes, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { getSingularType } from 'lib/components/DefinitionPopup/utils'
+import { getSingularType } from 'lib/components/DefinitionPopover/utils'
 import { ActionType, AvailableFeature, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { urls } from 'scenes/urls'
 import api from 'lib/api'
@@ -18,12 +18,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-export enum DefinitionPopupState {
+export enum DefinitionPopoverState {
     Edit = 'edit',
     View = 'view',
 }
 
-export interface DefinitionPopupLogicProps {
+export interface DefinitionPopoverLogicProps {
     /* String type accounts for types with `TaxonomicFilterGroupType.GroupsPrefix` prefix */
     type: TaxonomicFilterGroupType | string
     /* Callback to update specific item in in-memory list */
@@ -36,24 +36,24 @@ export interface DefinitionPopupLogicProps {
     openDetailInNewTab?: boolean
 }
 
-export const definitionPopupLogic = kea<definitionPopupLogicType>({
-    props: {} as DefinitionPopupLogicProps,
+export const definitionPopoverLogic = kea<definitionPopoverLogicType>({
+    props: {} as DefinitionPopoverLogicProps,
     connect: {
         values: [userLogic, ['hasAvailableFeature'], featureFlagLogic, ['featureFlags']],
     },
-    path: ['lib', 'components', 'DefinitionPanel', 'definitionPopupLogic'],
+    path: ['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic'],
     actions: {
         setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
-        setPopupState: (state: DefinitionPopupState) => ({ state }),
+        setPopoverState: (state: DefinitionPopoverState) => ({ state }),
         handleCancel: true,
         recordHoverActivity: true,
     },
     reducers: {
         state: [
-            DefinitionPopupState.View as DefinitionPopupState,
+            DefinitionPopoverState.View as DefinitionPopoverState,
             {
-                setPopupState: (_, { state }) => state,
+                setPopoverState: (_, { state }) => state,
             },
         ],
         localDefinition: [
@@ -136,7 +136,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
         dirty: [
             (s) => [s.state, s.definition, s.localDefinition],
             (state, definition, localDefinition) =>
-                state === DefinitionPopupState.Edit && !equal(definition, localDefinition),
+                state === DefinitionPopoverState.Edit && !equal(definition, localDefinition),
         ],
         hasTaxonomyFeatures: [
             (s) => [s.hasAvailableFeature],
@@ -204,17 +204,17 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
     },
     listeners: ({ actions, selectors, values, props, cache }) => ({
         setDefinition: (_, __, ___, previousState) => {
-            // Reset definition popup to view mode if context is switched
+            // Reset definition popover to view mode if context is switched
             if (
                 selectors.definition(previousState)?.name &&
                 values.definition?.name !== selectors.definition(previousState).name
             ) {
-                actions.setPopupState(DefinitionPopupState.View)
+                actions.setPopoverState(DefinitionPopoverState.View)
                 actions.recordHoverActivity()
             }
         },
         handleSave: () => {
-            actions.setPopupState(DefinitionPopupState.View)
+            actions.setPopoverState(DefinitionPopoverState.View)
             props?.onSave?.()
         },
         handleSaveSuccess: () => {
@@ -241,7 +241,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
             }
         },
         handleCancel: () => {
-            actions.setPopupState(DefinitionPopupState.View)
+            actions.setPopoverState(DefinitionPopoverState.View)
             actions.setLocalDefinition(values.definition)
             props?.onCancel?.()
             eventUsageLogic.findMounted()?.actions?.reportDataManagementDefinitionCancel(values.type)

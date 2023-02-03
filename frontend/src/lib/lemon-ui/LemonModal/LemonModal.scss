@@ -13,8 +13,8 @@
     align-items: center;
     justify-content: center;
 
-    &.LemonModal__overlay--force-modal-above-popups {
-        z-index: var(--z-force-modal-above-popups);
+    &.LemonModal__overlay--force-modal-above-popovers {
+        z-index: var(--z-force-modal-above-popovers);
     }
 
     &.ReactModal__Overlay--after-open {

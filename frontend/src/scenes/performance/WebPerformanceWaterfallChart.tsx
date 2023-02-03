@@ -2,7 +2,7 @@ import { PointInTimeMarker, ResourceTiming, webPerformanceLogic } from 'scenes/p
 import { Typography } from 'antd'
 import { areObjectValuesEmpty, humanFriendlyMilliseconds, humanizeBytes } from 'lib/utils'
 import { ReactNode, useState } from 'react'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
@@ -108,11 +108,11 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     )
 }
 
-const MouseTriggeredPopUp = ({ content, children }: { content: JSX.Element; children: ReactNode }): JSX.Element => {
+const MouseTriggeredPopover = ({ content, children }: { content: JSX.Element; children: ReactNode }): JSX.Element => {
     const [mouseIsOver, setMouseIsOver] = useState(false)
 
     return (
-        <Popup overlay={content} visible={mouseIsOver} className="performance-popup">
+        <Popover overlay={content} visible={mouseIsOver} className="performance-popover">
             <div
                 className="h-full cursor-pointer"
                 onMouseEnter={() => setMouseIsOver(true)}
@@ -120,7 +120,7 @@ const MouseTriggeredPopUp = ({ content, children }: { content: JSX.Element; chil
             >
                 {children}
             </div>
-        </Popup>
+        </Popover>
     )
 }
 
@@ -167,13 +167,13 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
 
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
-            <MouseTriggeredPopUp content={overlayFor(resourceTiming)}>
+            <MouseTriggeredPopover content={overlayFor(resourceTiming)}>
                 {blocks}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div className="positioned" style={textPosition}>
                     {humanFriendlyMilliseconds(end)}
                 </div>
-            </MouseTriggeredPopUp>
+            </MouseTriggeredPopover>
         )
     } else {
         return null

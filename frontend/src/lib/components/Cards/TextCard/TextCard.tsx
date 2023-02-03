@@ -2,7 +2,7 @@ import './TextCard.scss'
 import { ResizeHandle1D, ResizeHandle2D } from 'lib/components/Cards/handles'
 import clsx from 'clsx'
 import { DashboardTile, DashboardType } from '~/types'
-import { LemonButton, LemonButtonWithPopup, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonButtonWithDropdown, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -109,9 +109,9 @@ export function TextCardInternal(
                         </LemonButton>
 
                         {moveToDashboard && otherDashboards.length > 0 && (
-                            <LemonButtonWithPopup
+                            <LemonButtonWithDropdown
                                 status="stealth"
-                                popup={{
+                                dropdown={{
                                     overlay: otherDashboards.map((otherDashboard) => (
                                         <LemonButton
                                             key={otherDashboard.id}
@@ -127,12 +127,12 @@ export function TextCardInternal(
                                     placement: 'right-start',
                                     fallbackPlacements: ['left-start'],
                                     actionable: true,
-                                    closeParentPopupOnClickInside: true,
+                                    closeParentPopoverOnClickInside: true,
                                 }}
                                 fullWidth
                             >
                                 Move to
-                            </LemonButtonWithPopup>
+                            </LemonButtonWithDropdown>
                         )}
                         <LemonButton
                             status="stealth"

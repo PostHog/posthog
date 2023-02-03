@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconBookmarkBorder } from 'lib/lemon-ui/icons'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
@@ -38,8 +38,8 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
     }
 
     return (
-        <LemonButtonWithPopup
-            popup={{
+        <LemonButtonWithDropdown
+            dropdown={{
                 sameWidth: false,
                 overlay: Object.entries(eventsQueries).map(([title, eventsQuery]) => (
                     <LemonButton
@@ -57,6 +57,6 @@ export function SavedQueries({ query, setQuery }: SavedQueriesProps): JSX.Elemen
             icon={<IconBookmarkBorder />}
         >
             {selectedTitle}
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }

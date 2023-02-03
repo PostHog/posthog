@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { PathType, EditorFilterProps, QueryEditorFilterProps, PathsFilterType } from '~/types'
-import { LemonButtonWithPopup, LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonButtonWithDropdown, LemonButton } from 'lib/lemon-ui/LemonButton'
 import { humanizePathsEventTypes } from '../utils'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -79,11 +79,11 @@ export function PathsEventTypesComponent({
     const summary = capitalizeFirstLetter(humanizePathsEventTypes(includeEventTypes).join(' & '))
 
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             status="stealth"
             fullWidth
             type="secondary"
-            popup={{
+            dropdown={{
                 sameWidth: true,
                 closeOnClickInside: false,
                 overlay: options.map((option) => (
@@ -109,6 +109,6 @@ export function PathsEventTypesComponent({
             }}
         >
             {summary}
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }

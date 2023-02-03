@@ -3,7 +3,7 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonInput } from './LemonInput'
 import { IconArrowDropDown, IconCalendar } from 'lib/lemon-ui/icons'
-import { LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 
 export default {
     title: 'Lemon UI/Lemon Input',
@@ -25,9 +25,9 @@ export const WithPrefixAndSuffixAction = Template.bind({})
 WithPrefixAndSuffixAction.args = {
     prefix: <IconCalendar />,
     suffix: (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             noPadding
-            popup={{
+            dropdown={{
                 overlay: 'Surprise! 😱',
             }}
             type="tertiary"

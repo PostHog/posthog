@@ -1,6 +1,6 @@
-import './DefinitionPopup.scss'
+import './DefinitionPopover.scss'
 import clsx from 'clsx'
-import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
+import { definitionPopoverLogic, DefinitionPopoverState } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
@@ -14,14 +14,14 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-interface DefinitionPopupProps {
+interface DefinitionPopoverProps {
     children: React.ReactNode
 }
 
 // Wrapper
-function Wrapper({ children }: DefinitionPopupProps): JSX.Element {
-    const { state } = useValues(definitionPopupLogic)
-    return <div className={clsx('definition-popup', state)}>{children}</div>
+function Wrapper({ children }: DefinitionPopoverProps): JSX.Element {
+    const { state } = useValues(definitionPopoverLogic)
+    return <div className={clsx('definition-popover', state)}>{children}</div>
 }
 
 interface HeaderProps {
@@ -42,38 +42,38 @@ function Header({
     onView: _onView,
 }: HeaderProps): JSX.Element {
     const { state, type, viewFullDetailUrl, hasTaxonomyFeatures, hideView, hideEdit, isViewable, openDetailInNewTab } =
-        useValues(definitionPopupLogic)
-    const { setPopupState } = useActions(definitionPopupLogic)
+        useValues(definitionPopoverLogic)
+    const { setPopoverState } = useActions(definitionPopoverLogic)
     const { reportDataManagementDefinitionClickView, reportDataManagementDefinitionClickEdit } =
         useActions(eventUsageLogic)
     const onEdit = (): void => {
         if (hasTaxonomyFeatures) {
-            setPopupState(DefinitionPopupState.Edit)
+            setPopoverState(DefinitionPopoverState.Edit)
             _onEdit?.()
             reportDataManagementDefinitionClickEdit(type)
         }
     }
     const onView = (): void => {
-        setPopupState(DefinitionPopupState.View)
+        setPopoverState(DefinitionPopoverState.View)
         _onView?.()
         reportDataManagementDefinitionClickView(type)
     }
 
     return (
-        <div className="definition-popup-header">
-            <div className="definition-popup-header-row">
-                <div className="definition-popup-header-row-title">
-                    {state === DefinitionPopupState.Edit ? editHeaderTitle : headerTitle}
+        <div className="definition-popover-header">
+            <div className="definition-popover-header-row">
+                <div className="definition-popover-header-row-title">
+                    {state === DefinitionPopoverState.Edit ? editHeaderTitle : headerTitle}
                 </div>
-                {state === DefinitionPopupState.View && (
-                    <div className="definition-popup-header-row-buttons click-outside-block">
+                {state === DefinitionPopoverState.View && (
+                    <div className="definition-popover-header-row-buttons click-outside-block">
                         {!hideEdit &&
                             isViewable &&
                             (hasTaxonomyFeatures ? (
                                 <a onClick={onEdit}>Edit</a>
                             ) : (
                                 <Tooltip title="Creating and editing definitions require a premium license">
-                                    <a onClick={onEdit} className="definition-popup-disabled-button">
+                                    <a onClick={onEdit} className="definition-popover-disabled-button">
                                         Edit
                                     </a>
                                 </Tooltip>
@@ -90,7 +90,7 @@ function Header({
                     </div>
                 )}
             </div>
-            <div className="definition-popup-title">
+            <div className="definition-popover-title">
                 {icon} {title}
             </div>
         </div>
@@ -98,20 +98,20 @@ function Header({
 }
 
 function Description({ description }: { description: React.ReactNode }): JSX.Element {
-    return <div className="definition-popup-description">{description}</div>
+    return <div className="definition-popover-description">{description}</div>
 }
 
 function DescriptionEmpty(): JSX.Element {
-    const { singularType } = useValues(definitionPopupLogic)
-    return <div className="definition-popup-description empty">Add a description for this {singularType}</div>
+    const { singularType } = useValues(definitionPopoverLogic)
+    return <div className="definition-popover-description empty">Add a description for this {singularType}</div>
 }
 
 function Example({ value }: { value?: string }): JSX.Element {
-    const { type } = useValues(definitionPopupLogic)
+    const { type } = useValues(definitionPopoverLogic)
     let data: KeyMapping | null = null
 
     if (
-        // NB: also update "selectedItemHasPopup" below
+        // NB: also update "selectedItemHasPopover" below
         type === TaxonomicFilterGroupType.Events ||
         type === TaxonomicFilterGroupType.EventProperties ||
         type === TaxonomicFilterGroupType.EventFeatureFlags ||
@@ -124,7 +124,7 @@ function Example({ value }: { value?: string }): JSX.Element {
     }
 
     return data?.examples?.[0] ? (
-        <div className="definition-popup-examples">Example: {data?.examples?.join(', ')}</div>
+        <div className="definition-popover-examples">Example: {data?.examples?.join(', ')}</div>
     ) : (
         <></>
     )
@@ -145,13 +145,13 @@ function TimeMeta({
     if (updatedAt) {
         const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(updatedAt))).asSeconds()
         return (
-            <span className="definition-popup-timemeta">
-                <span className="definition-popup-timemeta-time">
+            <span className="definition-popover-timemeta">
+                <span className="definition-popover-timemeta-time">
                     Last modified {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
                 </span>
                 {updatedBy && (
-                    <span className="definition-popup-timemeta-user">
-                        <span className="definition-popup-timemeta-spacer">by</span>
+                    <span className="definition-popover-timemeta-user">
+                        <span className="definition-popover-timemeta-spacer">by</span>
                         <Owner
                             user={updatedBy}
                             style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
@@ -164,13 +164,13 @@ function TimeMeta({
     if (createdAt) {
         const secondsAgo = dayjs.duration(dayjs().diff(dayjs.utc(createdAt))).asSeconds()
         return (
-            <div className="definition-popup-timemeta">
-                <span className="definition-popup-timemeta-time">
+            <div className="definition-popover-timemeta">
+                <span className="definition-popover-timemeta-time">
                     Created {secondsAgo < 5 ? 'a few seconds' : humanFriendlyDuration(secondsAgo, 1)} ago{' '}
                 </span>
                 {updatedBy && (
-                    <span className="definition-popup-timemeta-user">
-                        <span className="definition-popup-timemeta-spacer">by</span>{' '}
+                    <span className="definition-popover-timemeta-user">
+                        <span className="definition-popover-timemeta-spacer">by</span>{' '}
                         <Owner
                             user={createdBy}
                             style={{ display: 'inline-flex', fontWeight: 600, paddingLeft: 4, whiteSpace: 'nowrap' }}
@@ -185,7 +185,7 @@ function TimeMeta({
 
 function HorizontalLine({ children, ...props }: DividerProps): JSX.Element {
     return (
-        <Divider className="definition-popup-divider" {...props}>
+        <Divider className="definition-popover-divider" {...props}>
             {children}
         </Divider>
     )
@@ -198,7 +198,7 @@ interface GridProps {
 
 function Grid({ children, cols }: GridProps): JSX.Element {
     return (
-        <div className="definition-popup-grid" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
+        <div className="definition-popover-grid" style={{ gridTemplateColumns: `repeat(${cols}, auto)` }}>
             {children}
         </div>
     )
@@ -218,16 +218,16 @@ function Card({
     alignItems?: 'baseline' | 'center' | 'end'
 }): JSX.Element {
     return (
-        <div className="definition-popup-grid-card" style={{ alignItems }}>
-            <div className="definition-popup-grid-card-title">{title}</div>
-            <div className="definition-popup-grid-card-content">{value}</div>
+        <div className="definition-popover-grid-card" style={{ alignItems }}>
+            <div className="definition-popover-grid-card-title">{title}</div>
+            <div className="definition-popover-grid-card-content">{value}</div>
         </div>
     )
 }
 
 function Type({ propertyType }: { propertyType: PropertyDefinition['property_type'] | null }): JSX.Element {
     return propertyType ? (
-        <div className="definition-popup-grid-card">
+        <div className="definition-popover-grid-card">
             <div className="property-value-type">{propertyType}</div>
         </div>
     ) : (
@@ -237,12 +237,12 @@ function Type({ propertyType }: { propertyType: PropertyDefinition['property_typ
 
 function OwnerDropdown(): JSX.Element {
     const { members } = useValues(membersLogic)
-    const { localDefinition } = useValues(definitionPopupLogic)
-    const { setLocalDefinition } = useActions(definitionPopupLogic)
+    const { localDefinition } = useValues(definitionPopoverLogic)
+    const { setLocalDefinition } = useActions(definitionPopoverLogic)
 
     return (
         <Select
-            className={'definition-popup-owner-select definition-popup-edit-form-value'}
+            className={'definition-popover-owner-select definition-popover-edit-form-value'}
             placeholder={<Owner user={'owner' in localDefinition ? localDefinition?.owner : null} />}
             style={{ minWidth: 200 }}
             dropdownClassName="owner-option"
@@ -267,7 +267,7 @@ function OwnerDropdown(): JSX.Element {
     )
 }
 
-export const DefinitionPopup = {
+export const DefinitionPopover = {
     Wrapper,
     Header,
     Description,

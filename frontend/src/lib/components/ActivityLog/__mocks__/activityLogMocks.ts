@@ -825,7 +825,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                             {
                                 id: '8917',
                                 math: 'dau',
-                                name: 'Popup or Notification',
+                                name: 'Popover or Notification',
                                 type: 'actions',
                                 order: 0,
                                 properties: [],
@@ -874,7 +874,7 @@ export const insightsActivityResponseJson: ActivityLogItem[] = [
                             {
                                 id: '8917',
                                 math: 'dau',
-                                name: 'Popup or Notification',
+                                name: 'Popover or Notification',
                                 type: 'actions',
                                 order: 0,
                                 properties: [],

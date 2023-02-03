@@ -29,8 +29,8 @@ const selectNewTimestampPropertyFilter = (): void => {
     cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 }
 
-const selectOperator = (operator: string, openPopUp: boolean): void => {
-    if (openPopUp) {
+const selectOperator = (operator: string, openPopover: boolean): void => {
+    if (openPopover) {
         cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
     }
 

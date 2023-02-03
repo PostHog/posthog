@@ -1,4 +1,4 @@
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconExport } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
@@ -58,8 +58,8 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         (isPersonsNode(source) && source.search ? 1 : 0)
 
     return (
-        <LemonButtonWithPopup
-            popup={{
+        <LemonButtonWithDropdown
+            dropdown={{
                 sameWidth: false,
                 closeOnClickInside: false,
                 overlay: [
@@ -93,6 +93,6 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
             icon={<IconExport />}
         >
             Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }
