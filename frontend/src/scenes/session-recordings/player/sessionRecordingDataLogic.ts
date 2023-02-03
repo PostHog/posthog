@@ -414,10 +414,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
                                     capturedInWindow: !!event.properties.$window_id,
-                                    percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
-                                        ? (100 * eventPlayerTime) /
-                                          values.sessionPlayerData.metadata.recordingDurationMs
-                                        : 0,
                                 })
                             }
                         }
@@ -448,7 +444,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         !values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] ||
                         !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
                     ) {
-                        return null
+                        return []
                     }
 
                     await breakpoint(1)
