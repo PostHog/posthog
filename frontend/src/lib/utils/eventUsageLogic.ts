@@ -429,7 +429,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }),
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
-        // Definition Popup
+        // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),

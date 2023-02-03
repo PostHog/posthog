@@ -1,0 +1,94 @@
+.Popover {
+    perspective: 80rem;
+    perspective-origin: top;
+    z-index: var(--z-popover);
+    display: flex;
+    flex-direction: column;
+    h5 {
+        margin: 0.25rem 0.5rem;
+    }
+    p:last-child {
+        margin-bottom: 0;
+    }
+    &[data-floating-placement^='top'] {
+        perspective-origin: bottom;
+    }
+
+    &.Popover--top-centered {
+        top: 1rem;
+        left: 50%;
+        transform: translate(-50%);
+    }
+}
+
+.Popover__box {
+    transition: opacity 100ms ease, transform 100ms ease;
+    transform-origin: top;
+    box-shadow: var(--shadow-elevation);
+    background: #fff;
+    padding: 0.5rem;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    overflow: auto;
+
+    [data-floating-placement^='top'] & {
+        transform-origin: bottom;
+    }
+
+    .Popover--actionable & {
+        border-color: var(--primary);
+    }
+
+    .Popover--enter &,
+    .Popover--exit.Popover--exit-active & {
+        opacity: 0;
+        transform: rotateX(-12deg);
+    }
+
+    .Popover--enter[data-floating-placement^='top'] &,
+    .Popover--exit.Popover--exit-active[data-floating-placement^='top'] & {
+        transform: rotateX(12deg);
+    }
+
+    .Popover--enter.Popover--enter-active &,
+    .Popover--exit & {
+        opacity: 1;
+        transform: rotateX(0);
+    }
+
+    .Popover--max-content-width & {
+        width: max-content;
+    }
+}
+
+.Popover__arrow {
+    position: absolute;
+    width: 0.5rem;
+    height: 0.5rem;
+    transform: rotate(45deg);
+    background: #fff;
+
+    &--top {
+        border-top: 1px solid var(--border);
+        border-left: 1px solid var(--border);
+    }
+
+    &--bottom {
+        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+    }
+
+    &--right {
+        border-bottom: 1px solid var(--border);
+        border-left: 1px solid var(--border);
+    }
+
+    &--left {
+        border-top: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+    }
+
+    .Popover--actionable & {
+        border-color: var(--primary);
+    }
+}

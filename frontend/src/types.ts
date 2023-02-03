@@ -17,7 +17,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import { PopupProps } from 'lib/lemon-ui/Popup/Popup'
+import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
@@ -2297,8 +2297,8 @@ export interface Breadcrumb {
     symbol?: React.ReactNode
     /** Path to link to. */
     path?: string
-    /** Whether to show a custom popup */
-    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
+    /** Whether to show a custom popover */
+    popover?: Pick<PopoverProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
 
 export enum GraphType {
