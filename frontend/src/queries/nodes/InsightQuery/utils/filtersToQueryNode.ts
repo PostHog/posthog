@@ -1,10 +1,10 @@
-import { InsightQueryNode, EventsNode, ActionsNode, NodeKind, SupportedNodeKind } from '~/queries/schema'
+import { InsightQueryNode, EventsNode, ActionsNode, NodeKind, InsightNodeKind } from '~/queries/schema'
 import { FilterType, InsightType, ActionFilter } from '~/types'
 import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { isLifecycleFilter, isStickinessFilter } from 'scenes/insights/sharedUtils'
 import { objectClean } from 'lib/utils'
 
-const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
+const reverseInsightMap: Record<InsightType, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,

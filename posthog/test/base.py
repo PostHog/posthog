@@ -692,3 +692,24 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
+
+
+def also_test_with_different_timezone(fn):
+    """
+    Runs the test twice, including in a timezone other than UTC to catch timezone handling bugs.
+    """
+
+    def fn_with_different_timezone(self, *args, **kwargs):
+        if not self.team:
+            return
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_different_timezone"] = fn_with_different_timezone
+
+    return fn

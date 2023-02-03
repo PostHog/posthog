@@ -12,8 +12,7 @@ import {
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import {
     isTrendsQuery,
     isFunnelsQuery,
@@ -45,6 +44,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -55,8 +55,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const isTrends = isTrendsQuery(query)
     const isFunnels = isFunnelsQuery(query)
@@ -70,9 +68,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        (isRetention &&
-            featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
@@ -83,6 +78,11 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         {
             title: 'General',
             editorFilters: filterFalsy([
+                isRetention && {
+                    key: 'retention-summary',
+                    label: 'Retention Summary',
+                    component: RetentionSummaryDataExploration,
+                },
                 ...(isPaths
                     ? filterFalsy([
                           {

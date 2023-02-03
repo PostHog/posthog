@@ -116,7 +116,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             (s) => [s.querySource],
             (querySource: FunnelsQuery): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
                 funnel_from_step: 0,
-                funnel_to_step: querySource.series.length > 1 ? querySource.series.length - 1 : 1,
+                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),
         ],
         exclusionFilters: [
