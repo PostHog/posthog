@@ -37,8 +37,8 @@ export function FunnelsQueryStepsDataExploration({ insightProps }: QueryEditorFi
         <FunnelsQueryStepsComponent
             actionFilters={actionFilters}
             setActionFilters={setActionFilters}
-            filterSteps={(querySource as FunnelsQuery).series}
-            showSeriesIndicator={(querySource as FunnelsQuery).series.length > 0}
+            filterSteps={(querySource as FunnelsQuery).series || []}
+            showSeriesIndicator={((querySource as FunnelsQuery).series || []).length > 0}
             isDataExploration
             insightProps={insightProps}
         />

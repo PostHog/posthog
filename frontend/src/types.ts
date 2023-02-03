@@ -1427,6 +1427,13 @@ export enum FunnelVizType {
 
 export type RetentionType = typeof RETENTION_RECURRING | typeof RETENTION_FIRST_TIME
 
+export enum RetentionPeriod {
+    Hour = 'Hour',
+    Day = 'Day',
+    Week = 'Week',
+    Month = 'Month',
+}
+
 export type BreakdownKeyType = string | number | (string | number)[] | null
 
 export interface Breakdown {
@@ -1551,7 +1558,7 @@ export interface RetentionFilterType extends FilterType {
     total_intervals?: number // retention total intervals
     returning_entity?: Record<string, any>
     target_entity?: Record<string, any>
-    period?: string
+    period?: RetentionPeriod
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
@@ -1842,7 +1849,7 @@ export interface ChartParams {
     showPersonsModal?: boolean
 }
 
-// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionTableLogic
+// Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
 export interface InsightLogicProps {
     /** currently persisted insight */
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null

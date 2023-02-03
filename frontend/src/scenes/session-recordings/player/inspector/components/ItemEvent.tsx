@@ -13,24 +13,29 @@ export interface ItemEventProps {
 
 export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
     const insightUrl = insightUrlForEvent(item.data)
+
+    const subValue =
+        item.data.event === '$pageview'
+            ? item.data.properties.$pathname || item.data.properties.$current_url
+            : item.data.event === '$screen'
+            ? item.data.properties.$screen_name
+            : undefined
+
     return (
         <div>
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo
-                        className="font-medium"
+                        className="font-medium shrink-0"
                         disablePopover
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                     />
                     {item.data.event === '$autocapture' ? <span className="text-muted-alt">(Autocapture)</span> : null}
-                    {item.data.event === '$pageview' ? (
-                        <span className="text-muted-alt">
-                            {item.data.properties.$pathname || item.data.properties.$current_url}
+                    {subValue ? (
+                        <span className="text-muted-alt truncate" title={subValue}>
+                            {subValue}
                         </span>
-                    ) : null}
-                    {item.data.event === '$screen' ? (
-                        <span className="text-muted-alt">{item.data.properties.$screen_name}</span>
                     ) : null}
                 </div>
             </LemonButton>
