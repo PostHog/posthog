@@ -222,7 +222,6 @@ def drop_events_over_quota(
     limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
     team_id = ingestion_context.team_id if ingestion_context else None
 
-
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
