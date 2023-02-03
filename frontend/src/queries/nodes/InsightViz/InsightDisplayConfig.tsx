@@ -18,7 +18,6 @@ import { RetentionReferencePickerDataExploration } from 'scenes/insights/filters
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
-import { isFilterWithDisplay } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
@@ -44,13 +43,15 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
         display,
         breakdown,
         trendsFilter,
-    } = useValues(insightDataLogic)
+    } = useValues(insightDataLogic(insightProps))
     const {
         isEmptyFunnel,
         isStepsFunnel,
         // isTimeToConvertFunnel,
         isTrendsFunnel,
     } = useValues(funnelDataLogic(insightProps))
+
+    const showDateRange = filters.insight && !isRetention && !disableTable
 
     const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
     const showInterval =
@@ -63,11 +64,13 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
         !trendsFilter?.compare &&
         (!display || display === ChartDisplayType.ActionsLineGraph) &&
         featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
+    const showRetention = !!isRetention
+    const showPaths = !!isPaths
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2">
-                {filters.insight && !isRetention && !disableTable && (
+                {showDateRange && (
                     <ConfigFilter>
                         <span>Date range</span>
                         <InsightDateFilter
@@ -95,20 +98,20 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </ConfigFilter>
                 )}
 
-                {showSmoothing ? (
+                {showSmoothing && (
                     <ConfigFilter>
                         <SmoothingFilter />
                     </ConfigFilter>
-                ) : null}
+                )}
 
-                {isRetention && (
+                {showRetention && (
                     <ConfigFilter>
                         <RetentionDatePickerDataExploration />
                         <RetentionReferencePickerDataExploration />
                     </ConfigFilter>
                 )}
 
-                {isPaths && (
+                {showPaths && (
                     <ConfigFilter>
                         <PathStepPickerDataExploration insightProps={insightProps} />
                     </ConfigFilter>
