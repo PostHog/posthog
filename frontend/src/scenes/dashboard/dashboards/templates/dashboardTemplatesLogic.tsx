@@ -1,4 +1,4 @@
-import { afterMount, kea, listeners, path, reducers } from 'kea'
+import { afterMount, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
@@ -24,23 +24,8 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
-        template: [
-            null,
-            {
-                installTemplate: async (payload: { name: string; url: string }) => {
-                    return await api.create('api/projects/@current/dashboard_templates/', payload)
-                },
-            },
-        ],
     }),
     reducers(() => ({
-        templateBeingSaved: [
-            null as string | null,
-            {
-                installTemplateSuccess: () => null,
-                installTemplate: (_, { name }) => name,
-            },
-        ],
         templatesList: [
             [] as LemonSelectOption<string>[],
             {
@@ -55,9 +40,6 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
-    })),
-    listeners(({ actions }) => ({
-        installTemplateSuccess: () => actions.loadRepository(),
     })),
     afterMount(({ actions }) => {
         actions.loadRepository()

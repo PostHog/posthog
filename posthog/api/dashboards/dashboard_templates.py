@@ -3,7 +3,7 @@ from typing import Dict, List
 
 import requests
 import structlog
-from rest_framework import request, response, serializers, status, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -14,6 +14,15 @@ from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 logger = structlog.get_logger(__name__)
+
+# the OG template is always included
+og_template_listing_json: Dict = {
+    "name": "Product analytics",
+    "url": "some url",
+    "description": "The OG PostHog product analytics dashboard template",
+    "verified": True,
+    "maintainer": "official",
+}
 
 
 class DashboardTemplateSerializer(serializers.Serializer):
@@ -50,20 +59,13 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     ]
     serializer_class = DashboardTemplateSerializer
 
-    def create(self, request: request.Request, **kwargs) -> response.Response:
-        serializer = DashboardTemplateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save(team_id=self.team_id)
-        return response.Response(data="", status=status.HTTP_200_OK)
-
     @timed("dashboard_templates.api_repository_load")
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs) -> response.Response:
-        loaded_templates = self._load_repository_listing()
+        loaded_templates = [og_template_listing_json] + self._load_repository_listing()
 
         installed_templates = self._current_installed_templates()
 
-        annotated_templates = []
         for template in loaded_templates:
             is_installed = template["name"] in installed_templates.keys()
 
@@ -73,9 +75,12 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 if installed_url:
                     has_new_version = template["url"] != installed_url
 
-            annotated_templates.append({**template, "installed": is_installed, "has_new_version": has_new_version})
+            if not is_installed or has_new_version:
+                serializer = DashboardTemplateSerializer(data={"name": template["name"], "url": template["url"]})
+                serializer.is_valid(raise_exception=True)
+                serializer.save(team_id=self.team_id)
 
-        return response.Response(annotated_templates)
+        return response.Response(loaded_templates)
 
     @staticmethod
     def _load_repository_listing() -> List[Dict]:

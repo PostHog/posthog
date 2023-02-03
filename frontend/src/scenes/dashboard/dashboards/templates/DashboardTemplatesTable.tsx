@@ -1,17 +1,15 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CommunityTag } from 'lib/CommunityTag'
-import { IconCloudUpload } from 'lib/lemon-ui/icons'
+import { IconGithub } from 'lib/lemon-ui/icons'
+import { Link } from '@posthog/lemon-ui'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
-    const { repository, repositoryLoading, templateLoading, templateBeingSaved } = useValues(dashboardTemplatesLogic)
-    const { installTemplate } = useActions(dashboardTemplatesLogic)
+    const { repository, repositoryLoading } = useValues(dashboardTemplatesLogic)
 
     return (
         <LemonTable
@@ -42,29 +40,15 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                         sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
                     },
                     {
-                        title: 'Install',
-                        dataIndex: 'installed',
+                        title: 'URL',
+                        dataIndex: 'url',
                         width: '0',
-                        render: function Render(
-                            installed: boolean | undefined,
-                            record: DashboardTemplatesRepositoryEntry
-                        ) {
+                        render: function Render(url: string) {
                             return (
                                 <div className="template-installed">
-                                    {installed && !record.has_new_version ? (
-                                        <LemonSnack>INSTALLED</LemonSnack>
-                                    ) : (
-                                        <LemonButton
-                                            status={'primary'}
-                                            type={'primary'}
-                                            icon={<IconCloudUpload />}
-                                            onClick={() => installTemplate({ name: record.name, url: record.url })}
-                                            loading={templateLoading && templateBeingSaved === record.name}
-                                            disabledReason={templateLoading ? 'Installing template...' : undefined}
-                                        >
-                                            {record.has_new_version ? 'Update' : 'Install'}
-                                        </LemonButton>
-                                    )}
+                                    <Link to={url} disableClientSideRouting target="blank">
+                                        View in GitHub <IconGithub />
+                                    </Link>
                                 </div>
                             )
                         },
