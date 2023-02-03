@@ -91,7 +91,7 @@ class LoginSerializer(serializers.Serializer):
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
         require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
-        if is_cloud() and require_verification_feature and not user.is_verified:
+        if is_cloud() and require_verification_feature and not user.is_email_verified:
             send_email_verification(user.id)
             raise serializers.ValidationError(
                 "Your account awaiting verification. Please check your email for a verification link.",
@@ -282,7 +282,7 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
                 {"token": ["This verification token is invalid or has expired."]}, code="invalid_token"
             )
 
-        user.is_verified = True
+        user.is_email_verified = True
         user.save()
         report_user_verified_email(user)
 

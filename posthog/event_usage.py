@@ -39,7 +39,7 @@ def report_user_signed_up(
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
         # This will always be false when a user first signs up, but we want it for consistency so every user has the prop
-        "is_email_verified": user.is_verified,
+        "is_email_verified": user.is_email_verified,
     }
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)

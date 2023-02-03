@@ -390,7 +390,7 @@ def process_social_domain_jit_provisioning_signup(
                     email=email,
                     password=None,
                     first_name=full_name,
-                    is_verified=True,
+                    is_email_verified=True,
                 )
                 logger.info(
                     f"process_social_domain_jit_provisioning_join_complete",
@@ -411,13 +411,15 @@ def process_social_domain_jit_provisioning_signup(
 
 
 @partial
-def social_create_user(strategy: DjangoStrategy, details, backend, request, user: User = None, *args, **kwargs):
+def social_create_user(
+    strategy: DjangoStrategy, details, backend, request, user: Union[User, None] = None, *args, **kwargs
+):
     if user:
         logger.info(f"social_create_user_is_not_new")
-        if not user.is_verified and user.password is not None:
+        if not user.is_email_verified and user.password is not None:
             logger.info(f"social_create_user_is_not_new_unverified_has_password")
-            user.password = None
-            user.is_verified = True
+            user.set_unusable_password()
+            user.is_email_verified = True
             user.save()
         process_social_domain_jit_provisioning_signup(user.email, user.first_name, user)
         return {"is_new": False}
