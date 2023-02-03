@@ -1,5 +1,5 @@
 import { Card, Col, Row } from 'antd'
-import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
+import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import {
     // ChartDisplayType,
