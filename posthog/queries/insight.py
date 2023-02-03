@@ -19,7 +19,7 @@ def insight_sync_execute(query, args=None, *, query_type: str, filter: Optional[
 
 def add_team_specific_settings(settings: Dict[str, Any], filter: Optional["FilterType"] = None) -> Dict[str, Any]:
     team_specific_settings = {}
-    if filter and filter.team:
+    if filter and hasattr(filter, "team"):
         if str(filter.team.pk) in get_list(get_instance_setting("PARALLEL_HASH_ENABLED_TEAMS")):
             team_specific_settings.update({"join_algorithm": "parallel_hash"})
 
