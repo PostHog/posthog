@@ -60,7 +60,7 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/",
             },
         )
 
@@ -178,7 +178,7 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/",
             },
         )
 
@@ -313,7 +313,7 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/",
             },
         )
 
@@ -764,6 +764,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Alice",
                 "email": "test+99@posthog.com",
+                "redirect_url": "/",
             },
         )
 
@@ -918,6 +919,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "",
                 "email": "test+159@posthog.com",
+                "redirect_url": "/",
             },
         )
 
@@ -985,6 +987,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "",
                 "email": "test+189@posthog.com",
+                "redirect_url": "/",
             },  # note the unchanged attributes
         )
 
