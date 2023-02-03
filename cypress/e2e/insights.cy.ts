@@ -204,7 +204,7 @@ describe('Insights', () => {
 
         it('can duplicate insights from the insights card view', () => {
             cy.visit(urls.savedInsights())
-            cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
+            cy.contains('.saved-insights .LemonSegmentedButton', 'Cards').click()
             cy.contains('.CardMeta', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
             })
