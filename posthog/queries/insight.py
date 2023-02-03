@@ -40,7 +40,7 @@ def insight_query_with_columns(
     return query_with_columns(query, args=args, **kwargs)
 
 
-def _tag_query(query, query_type, filter: Optional["FilterType"], settings: Optional[Dict[str, Any]]):
+def _tag_query(query, query_type, filter: Optional["FilterType"], settings: Optional[Dict[str, Any]] = None):
     tag_queries(
         query_type=query_type,
         has_joins="JOIN" in query,
