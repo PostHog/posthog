@@ -5,6 +5,7 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold/src/types'
 import { EditOutlined } from '@ant-design/icons'
 import { SECRET_FIELD_VALUE } from 'scenes/plugins/utils'
 import MonacoEditor from '@monaco-editor/react'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 
 function JsonConfigField(props: {
     onChange: (value: any) => void
@@ -13,21 +14,23 @@ function JsonConfigField(props: {
     value: any
 }): JSX.Element {
     return (
-        <div className="min-h-60">
-            <MonacoEditor
-                theme="vs-light"
-                className="border"
-                language="json"
-                value={props.value}
-                onChange={(v) => props.onChange(v ?? '')}
-                height={'100%'}
-                options={{
-                    minimap: {
-                        enabled: false,
-                    },
-                }}
-            />
-        </div>
+        <AutoSizer disableWidth className="min-h-60">
+            {({ height }) => (
+                <MonacoEditor
+                    theme="vs-light"
+                    className="border"
+                    language="json"
+                    value={props.value}
+                    onChange={(v) => props.onChange(v ?? '')}
+                    height={height}
+                    options={{
+                        minimap: {
+                            enabled: false,
+                        },
+                    }}
+                />
+            )}
+        </AutoSizer>
     )
 }
 
