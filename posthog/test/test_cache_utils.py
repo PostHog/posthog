@@ -77,7 +77,7 @@ class TestCacheUtils(APIBaseTest):
         order_of_events("Expired call 2")
         assert 1 == fn_background(1, use_cache=True)  # we still get the old return value
 
-        sleep(0.5)  # Let the refresh complete
+        sleep(0.6)  # Let the refresh complete
         order_of_events("Post refresh call 1")
         assert 2 == fn_background(1, use_cache=True)  # We get the new return value
 
