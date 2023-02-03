@@ -56,6 +56,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
+    'PARALLEL_HASH_ENABLED_TEAMS',
 ]
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
