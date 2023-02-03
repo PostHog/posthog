@@ -149,6 +149,9 @@ class PersonOverride(models.Model):
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
 
+# This function checks two things:
+# 1. A new override_person_id must not match an existing old_person_id
+# 2. A new old_person_id must not match an existing override_person_id
 CREATE_FUNCTION_FOR_CONSTRAINT_SQL = f"""
 CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(team_id bigint, override_person_id uuid, old_person_id uuid)
 RETURNS BOOLEAN AS $$
@@ -156,12 +159,12 @@ RETURNS BOOLEAN AS $$
     SELECT 1
       FROM "{PersonOverride._meta.db_table}"
       WHERE team_id = $1
-      AND override_person_id = $2
+      AND override_person_id = $3
     ) AND NOT EXISTS (
         SELECT 1
       FROM "{PersonOverride._meta.db_table}"
       WHERE team_id = $1
-      AND old_person_id = $3
+      AND old_person_id = $2
     );
 $$ LANGUAGE SQL;
 """
