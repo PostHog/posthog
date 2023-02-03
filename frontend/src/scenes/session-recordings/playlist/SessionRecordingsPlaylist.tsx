@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { RecordingDurationFilter, RecordingFilters, SessionRecordingType } from '~/types'
 import {
@@ -20,6 +20,7 @@ import { SessionRecordingsList } from './SessionRecordingsList'
 import { StickyView } from 'lib/components/StickyView/StickyView'
 import { createPlaylist } from './playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import clsx from 'clsx'
 
 const MARGIN_TOP = 16
 
@@ -62,6 +63,8 @@ export function SessionRecordingsPlaylist({
         useActions(logic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const playlistRef = useRef<HTMLDivElement>(null)
+
+    const [collapsed, setCollapsed] = useState({ pinned: false, other: false })
 
     useEffect(() => {
         if (filters !== defaultFilters) {
@@ -191,6 +194,10 @@ export function SessionRecordingsPlaylist({
                             {/* Pinned recordings */}
                             {!!playlistShortId && !showFilters ? (
                                 <SessionRecordingsList
+                                    className={clsx({
+                                        'max-h-1/2 h-fit': !collapsed.other,
+                                        'shrink-1': !collapsed.pinned && collapsed.other,
+                                    })}
                                     listKey="pinned"
                                     title="Pinned Recordings"
                                     titleRight={
@@ -202,7 +209,8 @@ export function SessionRecordingsPlaylist({
                                     }
                                     onRecordingClick={onRecordingClick}
                                     onPropertyClick={onPropertyClick}
-                                    collapsable
+                                    collapsed={collapsed.pinned}
+                                    onCollapse={() => setCollapsed({ ...collapsed, pinned: !collapsed.pinned })}
                                     recordings={pinnedRecordingsResponse?.results}
                                     loading={pinnedRecordingsResponseLoading}
                                     info={
@@ -219,12 +227,21 @@ export function SessionRecordingsPlaylist({
                             {/* Other recordings */}
 
                             <SessionRecordingsList
+                                className={clsx({
+                                    'flex-1': !collapsed.other,
+                                    'shrink-0': collapsed.other,
+                                })}
                                 listKey="other"
                                 title={!playlistShortId ? 'Recent recordings' : 'Other recordings'}
                                 titleRight={paginationControls}
                                 onRecordingClick={onRecordingClick}
                                 onPropertyClick={onPropertyClick}
-                                collapsable={!!playlistShortId}
+                                collapsed={collapsed.other}
+                                onCollapse={
+                                    !!playlistShortId
+                                        ? () => setCollapsed({ ...collapsed, other: !collapsed.other })
+                                        : undefined
+                                }
                                 recordings={sessionRecordings}
                                 loading={sessionRecordingsResponseLoading}
                                 loadingSkeletonCount={RECORDINGS_LIMIT}
