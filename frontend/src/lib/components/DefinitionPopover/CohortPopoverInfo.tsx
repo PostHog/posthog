@@ -1,11 +1,11 @@
 import { AnyCohortCriteriaType, CohortType, FilterLogicalOperator } from '~/types'
-import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
+import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
     eventToHumanName,
     genericOperatorToHumanName,
     operatorToHumanName,
     propertyValueToHumanName,
-} from 'lib/components/DefinitionPopup/utils'
+} from 'lib/components/DefinitionPopover/utils'
 import {
     COHORT_MATCHING_DAYS,
     criteriaToBehavioralFilterType,
@@ -21,7 +21,7 @@ import { actionsModel } from '~/models/actionsModel'
 const MAX_CRITERIA_GROUPS = 2
 const MAX_CRITERIA = 2
 
-export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element | null {
+export function CohortPopoverInfo({ cohort }: { cohort: CohortType }): JSX.Element | null {
     const { cohortsById } = useValues(cohortsModel)
     const { actionsById } = useValues(actionsModel)
 
@@ -30,12 +30,12 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
     }
     return cohort.filters?.properties ? (
         <>
-            {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
+            {(cohort.filters.properties?.values?.length || 0 > 0) && <DefinitionPopover.HorizontalLine />}
             {cohort.filters.properties.values.slice(0, MAX_CRITERIA_GROUPS).map(
                 (cohortGroup, cohortGroupIndex) =>
                     isCohortCriteriaGroup(cohortGroup) && (
-                        <DefinitionPopup.Section key={cohortGroupIndex}>
-                            <DefinitionPopup.Card
+                        <DefinitionPopover.Section key={cohortGroupIndex}>
+                            <DefinitionPopover.Card
                                 title={`Match persons against ${
                                     cohortGroup.type === FilterLogicalOperator.Or ? 'any' : 'all'
                                 } criteria`}
@@ -73,13 +73,13 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
                             />
                             {cohortGroupIndex <
                                 Math.min(cohort.filters.properties.values.length, MAX_CRITERIA_GROUPS) - 1 && (
-                                <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                                <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
                                     {cohort.filters.properties.type}
-                                </DefinitionPopup.HorizontalLine>
+                                </DefinitionPopover.HorizontalLine>
                             )}
                             {cohort.filters.properties.values.length > MAX_CRITERIA_GROUPS &&
                                 cohortGroupIndex === MAX_CRITERIA_GROUPS - 1 && (
-                                    <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                                    <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
                                         {cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS} more criteria{' '}
                                         {pluralize(
                                             cohort.filters.properties.values.length - MAX_CRITERIA_GROUPS,
@@ -87,20 +87,20 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
                                             'groups',
                                             false
                                         )}
-                                    </DefinitionPopup.HorizontalLine>
+                                    </DefinitionPopover.HorizontalLine>
                                 )}
-                        </DefinitionPopup.Section>
+                        </DefinitionPopover.Section>
                     )
             )}
         </>
     ) : (
         <>
-            {(cohort.groups?.length || 0 > 0) && <DefinitionPopup.HorizontalLine />}
+            {(cohort.groups?.length || 0 > 0) && <DefinitionPopover.HorizontalLine />}
             {cohort.groups &&
                 cohort.groups.map((group, index) => (
-                    <DefinitionPopup.Section key={index}>
+                    <DefinitionPopover.Section key={index}>
                         {'action_id' in group ? (
-                            <DefinitionPopup.Card
+                            <DefinitionPopover.Card
                                 title="Match persons who performed"
                                 value={
                                     <ul>
@@ -115,7 +115,7 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
                                 }
                             />
                         ) : (
-                            <DefinitionPopup.Card
+                            <DefinitionPopover.Card
                                 title="Match persons with properties"
                                 value={
                                     <ul>
@@ -134,11 +134,11 @@ export function CohortPopupInfo({ cohort }: { cohort: CohortType }): JSX.Element
                             />
                         )}
                         {cohort.groups && index < cohort.groups.length - 1 && (
-                            <DefinitionPopup.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
+                            <DefinitionPopover.HorizontalLine style={{ marginTop: 4, marginBottom: 12 }}>
                                 OR
-                            </DefinitionPopup.HorizontalLine>
+                            </DefinitionPopover.HorizontalLine>
                         )}
-                    </DefinitionPopup.Section>
+                    </DefinitionPopover.Section>
                 ))}
         </>
     )

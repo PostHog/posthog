@@ -1,11 +1,11 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import React, { createRef, useEffect, useMemo, useRef, useState } from 'react'
-import { IconClose } from 'lib/lemon-ui/icons'
-import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
-import { PopupProps } from './Popup/Popup'
+import { IconClose } from '../icons'
+import { LemonButton, LemonButtonWithDropdown, LemonButtonWithDropdownProps } from '../LemonButton'
+import { PopoverProps } from '../Popover'
 import './LemonSelect.scss'
 import clsx from 'clsx'
-import { TooltipProps } from './Tooltip'
+import { TooltipProps } from '../Tooltip'
 import { TooltipPlacement } from 'antd/lib/tooltip'
 
 interface LemonSelectOptionBase {
@@ -39,7 +39,7 @@ export interface LemonSelectSection<T> {
 
 export interface LemonSelectProps<T>
     extends Pick<
-        LemonButtonWithPopupProps,
+        LemonButtonWithDropdownProps,
         'id' | 'className' | 'loading' | 'fullWidth' | 'disabled' | 'data-attr' | 'aria-label' | 'onClick' | 'tabIndex'
     > {
     options: LemonSelectOptions<T>
@@ -51,12 +51,12 @@ export interface LemonSelectProps<T>
     optionTooltipPlacement?: TooltipProps['placement']
     dropdownMatchSelectWidth?: boolean
     dropdownMaxContentWidth?: boolean
-    dropdownPlacement?: PopupProps['placement']
+    dropdownPlacement?: PopoverProps['placement']
     allowClear?: boolean
     className?: string
     placeholder?: string
     size?: 'small' | undefined
-    popup?: {
+    popover?: {
         className?: string
         ref?: React.MutableRefObject<HTMLDivElement | null>
     }
@@ -120,7 +120,7 @@ export function LemonSelect<T>({
     dropdownPlacement,
     allowClear = false,
     className,
-    popup,
+    popover,
     ...buttonProps
 }: LemonSelectProps<T>): JSX.Element {
     const [localValue, setLocalValue] = useState(value)
@@ -156,11 +156,11 @@ export function LemonSelect<T>({
 
     return (
         <div className="flex" tabIndex={-1} ref={selectRef}>
-            <LemonButtonWithPopup
+            <LemonButtonWithDropdown
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 onKeyDown={(e) => handleKeyboardEvents(e)}
-                popup={{
-                    ref: popup?.ref,
+                dropdown={{
+                    ref: popover?.ref,
                     overlay: sections.map((section, i) => (
                         <div key={i}>
                             <div className="space-y-px">
@@ -197,7 +197,7 @@ export function LemonSelect<T>({
                     sameWidth: dropdownMatchSelectWidth,
                     placement: dropdownPlacement,
                     actionable: true,
-                    className: popup?.className,
+                    className: popover?.className,
                     maxContentWidth: dropdownMaxContentWidth,
                 }}
                 icon={allLeafOptions.find((o) => o.value === localValue)?.icon}
@@ -226,7 +226,7 @@ export function LemonSelect<T>({
                         }}
                     />
                 )}
-            </LemonButtonWithPopup>
+            </LemonButtonWithDropdown>
         </div>
     )
 }
@@ -261,7 +261,7 @@ function LemonSelectOptionRowInternal<T>(
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
     return 'options' in option ? (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             icon={option.icon}
             sideIcon={option.sideIcon}
             tooltip={option.tooltip}
@@ -271,7 +271,7 @@ function LemonSelectOptionRowInternal<T>(
             fullWidth
             data-attr={option['data-attr']}
             active={doOptionsContainActiveValue(option.options, activeValue)}
-            popup={{
+            dropdown={{
                 overlay: (
                     <div className="space-y-px">
                         {option.options.map((option, index) => (
@@ -287,11 +287,11 @@ function LemonSelectOptionRowInternal<T>(
                 ),
                 placement: 'right-start',
                 actionable: true,
-                closeParentPopupOnClickInside: true,
+                closeParentPopoverOnClickInside: true,
             }}
         >
             {option.label}
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     ) : (
         <LemonButton
             ref={ref}

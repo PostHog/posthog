@@ -7,7 +7,7 @@ import {
 import { SessionPlayerState } from '~/types'
 import { Seekbar } from 'scenes/session-recordings/player/Seekbar'
 import { SeekSkip } from 'scenes/session-recordings/player/PlayerControllerTime'
-import { LemonButton, LemonButtonWithPopup } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
@@ -41,9 +41,9 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                 </div>
                 <div className="flex items-center gap-1 flex-1 justify-end">
                     <Tooltip title={'Playback speed'}>
-                        <LemonButtonWithPopup
+                        <LemonButtonWithDropdown
                             data-attr="session-recording-speed-select"
-                            popup={{
+                            dropdown={{
                                 overlay: (
                                     <div className="space-y-px">
                                         {PLAYBACK_SPEEDS.map((speedToggle) => (
@@ -68,7 +68,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                             status="primary-alt"
                         >
                             {speed}x
-                        </LemonButtonWithPopup>
+                        </LemonButtonWithDropdown>
                     </Tooltip>
 
                     <Tooltip title={`Skip inactivity (${skipInactivitySetting ? 'on' : 'off'})`}>

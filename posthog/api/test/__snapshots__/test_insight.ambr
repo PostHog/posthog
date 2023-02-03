@@ -128,8 +128,8 @@
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['user did things', 'user signed up']
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-26 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-02-02 23:59:59', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2023-01-25 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2023-02-01 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))

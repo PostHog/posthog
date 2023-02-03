@@ -40,7 +40,7 @@ export function BreakdownTag({
             closable={!!setFilters && !isHistogramable && !isURLNormalizeable}
             onClose={onClose}
             style={{ textTransform: 'capitalize' }}
-            popup={{
+            popover={{
                 overlay: isURLNormalizeable ? (
                     <>
                         <LemonSwitch

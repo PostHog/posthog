@@ -7,7 +7,7 @@ import {
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import type { playlistPopupLogicType } from './playlistPopupLogicType'
+import type { playlistPopoverLogicType } from './playlistPopoverLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
@@ -16,8 +16,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
-export const playlistPopupLogic = kea<playlistPopupLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
+export const playlistPopoverLogic = kea<playlistPopoverLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popover', 'playlistPopoverLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
@@ -37,7 +37,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         addToPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         removeFromPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         setNewFormShowing: (show: boolean) => ({ show }),
-        setShowPlaylistPopup: (show: boolean) => ({ show }),
+        setShowPlaylistPopover: (show: boolean) => ({ show }),
         updateRecordingsPinnedCounts: (
             diffCount: number,
             playlistShortId?: SessionRecordingPlaylistType['short_id']
@@ -85,10 +85,10 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 setNewFormShowing: (_, { show }) => show,
             },
         ],
-        showPlaylistPopup: [
+        showPlaylistPopover: [
             false,
             {
-                setShowPlaylistPopup: (_, { show }) => show,
+                setShowPlaylistPopover: (_, { show }) => show,
             },
         ],
         modifyingPlaylist: [
@@ -96,7 +96,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             {
                 addToPlaylist: (_, { playlist }) => playlist,
                 removeFromPlaylist: (_, { playlist }) => playlist,
-                setShowPlaylistPopup: () => null,
+                setShowPlaylistPopover: () => null,
             },
         ],
     })),
@@ -115,8 +115,8 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 actions.reportRecordingPlaylistCreated('pin')
 
                 if (!newPlaylist) {
-                    // This indicates the billing popup has been shown so we should close the modal
-                    actions.setShowPlaylistPopup(false)
+                    // This indicates the billing popover has been shown so we should close the modal
+                    actions.setShowPlaylistPopover(false)
                     return
                 }
 
@@ -137,7 +137,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             }
         },
 
-        setShowPlaylistPopup: ({ show }) => {
+        setShowPlaylistPopover: ({ show }) => {
             if (show) {
                 actions.loadPlaylists()
                 actions.loadPlaylistsForRecording()

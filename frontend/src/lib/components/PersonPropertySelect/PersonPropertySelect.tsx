@@ -1,6 +1,6 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { SortableContainer, SortableElement } from 'react-sortable-hoc'
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconPlus } from 'lib/lemon-ui/icons'
@@ -77,7 +77,7 @@ export const PersonPropertySelect = ({
                     <PropertyTag key={`item-${value}`} name={value} onRemove={handleRemove} />
                 ))
             )}
-            <Popup
+            <Popover
                 visible={open}
                 onClickOutside={() => setOpen(false)}
                 overlay={
@@ -93,7 +93,7 @@ export const PersonPropertySelect = ({
                 <LemonButton onClick={() => setOpen(!open)} type="secondary" size="small" icon={<IconPlus />}>
                     {addText}
                 </LemonButton>
-            </Popup>
+            </Popover>
         </div>
     )
 }
