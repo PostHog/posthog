@@ -1,4 +1,4 @@
-from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.ingestion_warnings.sql import (
     DISTRIBUTED_INGESTION_WARNINGS_TABLE_SQL,
     INGESTION_WARNINGS_DATA_TABLE_SQL,

@@ -1,6 +1,6 @@
 from infi.clickhouse_orm import migrations
 
-from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL

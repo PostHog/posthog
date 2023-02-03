@@ -1,4 +1,4 @@
-from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.performance.sql import (
     DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL,
     KAFKA_PERFORMANCE_EVENTS_TABLE_SQL,

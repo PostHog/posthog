@@ -1,4 +1,4 @@
-from posthog.clickhouse.migrations.migration_tools import run_sql_with_exceptions
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.models.event.sql import EVENTS_TABLE_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
