@@ -87,7 +87,6 @@ export const mockInsight = {
         funnel_to_step: 1,
         funnel_viz_type: 'steps',
         insight: 'FUNNELS',
-        interval: 'day',
         layout: 'vertical',
     },
     order: null,
@@ -494,7 +493,6 @@ describe('funnelLogic', () => {
                 breakdown: undefined,
                 breakdown_type: undefined,
                 insight: 'FUNNELS',
-                interval: 'day',
             }),
             expect.anything()
         )

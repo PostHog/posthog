@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { LemonInput, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { PathCleaningFilter } from '~/types'
 
-interface PathRegexPopupProps {
+interface PathRegexPopoverProps {
     filter?: PathCleaningFilter
     onSave: (filter: PathCleaningFilter) => void
     onCancel: () => void
@@ -11,7 +11,7 @@ interface PathRegexPopupProps {
     isNew?: boolean
 }
 
-export function PathRegexPopup({ filter = {}, onSave, onCancel, isNew = false }: PathRegexPopupProps): JSX.Element {
+export function PathRegexPopover({ filter = {}, onSave, onCancel, isNew = false }: PathRegexPopoverProps): JSX.Element {
     const [alias, setAlias] = useState(filter.alias)
     const [regex, setRegex] = useState(filter.regex)
 

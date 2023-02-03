@@ -1,22 +1,22 @@
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 
-import { Popup } from './Popup'
+import { Popover } from './Popover'
 import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 
 export default {
-    title: 'Lemon UI/Popup',
-    component: Popup,
+    title: 'Lemon UI/Popover',
+    component: Popover,
     parameters: {
         chromatic: {
-            disableSnapshot: true, // FIXME: This story needs a play test for the popup to show up in snapshots
+            disableSnapshot: true, // FIXME: This story needs a play test for the popover to show up in snapshots
         },
     },
-} as ComponentMeta<typeof Popup>
+} as ComponentMeta<typeof Popover>
 
-const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />
+const Template: ComponentStory<typeof Popover> = (args) => <Popover {...args} />
 
-export const Popup_ = Template.bind({})
-Popup_.args = {
+export const Popover_ = Template.bind({})
+Popover_.args = {
     visible: true,
     children: (
         <span className="text-2xl">

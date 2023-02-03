@@ -134,3 +134,10 @@ class PassThroughClickHouseSustainedRateThrottle(PassThroughTeamRateThrottle):
     # Intended to block slower but sustained bursts of requests
     scope = "clickhouse_sustained"
     rate = "1200/hour"
+
+
+class PassThroughFeatureFlagThrottle(PassThroughTeamRateThrottle):
+    # Throttle class that's applied on the decide endpoint
+    # Intended to block quick bursts of requests
+    scope = "feature_flag_evaluations"
+    rate = "400/minute"

@@ -6,7 +6,7 @@ import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { PlaylistPopup } from './playlist-popup/PlaylistPopup'
+import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
 
 export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { sessionRecordingId } = props
@@ -27,7 +27,7 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.El
                 Share
             </LemonButton>
 
-            <PlaylistPopup {...props} />
+            <PlaylistPopover {...props} />
         </div>
     )
 }

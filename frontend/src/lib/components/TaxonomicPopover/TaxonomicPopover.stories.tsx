@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { TaxonomicPopup, TaxonomicStringPopup } from './TaxonomicPopup'
+import { TaxonomicPopover, TaxonomicStringPopover } from './TaxonomicPopover'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -9,18 +9,18 @@ import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__
 import { ComponentMeta } from '@storybook/react'
 
 export default {
-    title: 'Filters/TaxonomicPopup',
-    component: TaxonomicPopup,
+    title: 'Filters/TaxonomicPopover',
+    component: TaxonomicPopover,
     decorators: [taxonomicFilterMocksDecorator],
-} as ComponentMeta<typeof TaxonomicPopup>
+} as ComponentMeta<typeof TaxonomicPopover>
 
-export function TaxonomicStringPopupOneCategory(): JSX.Element {
+export function TaxonomicStringPopoverOneCategory(): JSX.Element {
     useMountedLogic(personPropertiesModel)
     useMountedLogic(cohortsModel)
     const [value, setValue] = useState<string | undefined>('$browser')
 
     return (
-        <TaxonomicStringPopup
+        <TaxonomicStringPopover
             groupType={TaxonomicFilterGroupType.PersonProperties}
             value={value}
             onChange={setValue}
@@ -36,7 +36,7 @@ export function MultipleCategories(): JSX.Element {
     const [group, setGroup] = useState(TaxonomicFilterGroupType.PersonProperties)
 
     return (
-        <TaxonomicPopup
+        <TaxonomicPopover
             groupType={group}
             value={value}
             onChange={(v, g) => {

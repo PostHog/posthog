@@ -1,4 +1,4 @@
-.definition-popup-overlay {
+.definition-popover-overlay {
     width: 100vw;
     height: 100vh;
     position: fixed;
@@ -7,41 +7,41 @@
     background-color: var(--bg-depth);
     opacity: 0.2;
 
-    &.definition-popup-overlay--enter {
+    &.definition-popover-overlay--enter {
         opacity: 0;
     }
 
-    &.definition-popup-overlay--enter-active {
+    &.definition-popover-overlay--enter-active {
         opacity: 0.2;
         transition: opacity 150ms;
     }
 
-    &.definition-popup-overlay--exit {
+    &.definition-popover-overlay--exit {
         opacity: 0.2;
     }
 
-    &.definition-popup-overlay--exit-active {
+    &.definition-popover-overlay--exit-active {
         opacity: 0;
         transition: opacity 150ms;
     }
 }
 
-.definition-popup {
+.definition-popover {
     width: 316px;
     padding: 0.5rem 0.75rem 0.75rem 0.75rem;
 
-    .definition-popup-header {
+    .definition-popover-header {
         display: flex;
         flex-direction: column;
 
-        .definition-popup-header-row {
+        .definition-popover-header-row {
             display: flex;
             flex-direction: row;
             justify-content: space-between;
             margin-bottom: 4px;
             line-height: 2rem;
 
-            .definition-popup-header-row-title {
+            .definition-popover-header-row-title {
                 font-size: 11px;
                 font-weight: 600;
                 letter-spacing: 0.5px;
@@ -49,7 +49,7 @@
                 color: var(--muted);
             }
 
-            .definition-popup-header-row-buttons {
+            .definition-popover-header-row-buttons {
                 display: flex;
                 flex-direction: row;
                 font-size: 13px;
@@ -59,14 +59,14 @@
                     margin-left: 16px;
                 }
 
-                .definition-popup-disabled-button {
+                .definition-popover-disabled-button {
                     color: var(--muted);
                     cursor: not-allowed;
                 }
             }
         }
 
-        .definition-popup-title {
+        .definition-popover-title {
             display: flex;
             align-items: center;
             font-weight: 600;
@@ -90,11 +90,11 @@
         }
     }
 
-    .definition-popup-tags {
+    .definition-popover-tags {
         margin: 0 !important;
     }
 
-    .definition-popup-description {
+    .definition-popover-description {
         font-weight: 400;
         margin-bottom: 4px;
         overflow-wrap: break-word;
@@ -105,25 +105,25 @@
         }
     }
 
-    .definition-popup-examples {
+    .definition-popover-examples {
         margin-bottom: 4px;
         font-style: italic;
     }
 
-    .definition-popup-timemeta {
+    .definition-popover-timemeta {
         display: inline;
         margin-top: 4px;
         margin-bottom: 4px;
 
-        .definition-popup-timemeta-user {
+        .definition-popover-timemeta-user {
             display: inline-flex;
         }
-        .definition-popup-timemeta-spacer {
+        .definition-popover-timemeta-spacer {
             margin-right: 4px;
         }
     }
 
-    .definition-popup-divider {
+    .definition-popover-divider {
         width: 100%;
         margin-top: 16px;
         margin-bottom: 16px;
@@ -132,15 +132,15 @@
         font-size: 11px;
     }
 
-    .definition-popup-grid {
+    .definition-popover-grid {
         display: grid;
         grid-gap: 8px;
 
-        .definition-popup-grid-card {
+        .definition-popover-grid-card {
             display: flex;
             flex-direction: column;
 
-            .definition-popup-grid-card-title {
+            .definition-popover-grid-card-title {
                 font-size: 11px;
                 font-weight: 600;
                 letter-spacing: 0.5px;
@@ -149,7 +149,7 @@
                 margin-bottom: 4px;
             }
 
-            .definition-popup-grid-card-content {
+            .definition-popover-grid-card-content {
                 ul {
                     padding-inline-start: 1rem;
                     margin-bottom: 0;
@@ -174,7 +174,7 @@
         }
     }
 
-    .definition-popup-edit-form {
+    .definition-popover-edit-form {
         display: flex;
         flex-direction: column;
 
@@ -183,14 +183,14 @@
             margin-right: 4px;
         }
 
-        .definition-popup-edit-form-label {
+        .definition-popover-edit-form-label {
             margin-bottom: 8px;
         }
 
-        .definition-popup-edit-form-value {
+        .definition-popover-edit-form-value {
             margin-bottom: 16px;
 
-            &.definition-popup-owner-select {
+            &.definition-popover-owner-select {
                 .ant-select-selector {
                     .ant-select-selection-placeholder {
                         color: black;
@@ -200,11 +200,11 @@
             }
         }
 
-        .definition-popup-edit-form-buttons {
+        .definition-popover-edit-form-buttons {
             display: flex;
             justify-content: space-between;
 
-            .definition-popup-edit-form-buttons-secondary {
+            .definition-popover-edit-form-buttons-secondary {
                 color: var(--primary);
 
                 &:hover,

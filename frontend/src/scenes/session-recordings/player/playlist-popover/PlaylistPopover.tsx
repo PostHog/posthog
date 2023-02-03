@@ -5,36 +5,36 @@ import { IconPlus, IconOpenInNew, IconWithCount } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
-import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { Popover } from 'lib/lemon-ui/Popover'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
-import { playlistPopupLogic } from './playlistPopupLogic'
+import { playlistPopoverLogic } from './playlistPopoverLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
-export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { isFullScreen } = useValues(playerSettingsLogic)
     const dataLogic = sessionRecordingDataLogic(props)
     const { sessionPlayerData } = useValues(dataLogic)
-    const logic = playlistPopupLogic(props)
+    const logic = playlistPopoverLogic(props)
     const {
         playlistsLoading,
         searchQuery,
         newFormShowing,
-        showPlaylistPopup,
+        showPlaylistPopover,
         allPlaylists,
         currentPlaylistsLoading,
         modifyingPlaylist,
     } = useValues(logic)
-    const { setSearchQuery, setNewFormShowing, setShowPlaylistPopup, addToPlaylist, removeFromPlaylist } =
+    const { setSearchQuery, setNewFormShowing, setShowPlaylistPopover, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
 
     return (
-        <Popup
-            visible={showPlaylistPopup}
-            onClickOutside={() => setShowPlaylistPopup(false)}
+        <Popover
+            visible={showPlaylistPopover}
+            onClickOutside={() => setShowPlaylistPopover(false)}
             actionable
             overlay={
                 <div className="space-y-1 w-100">
@@ -42,7 +42,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                         {newFormShowing ? (
                             <Form
                                 formKey="newPlaylist"
-                                logic={playlistPopupLogic}
+                                logic={playlistPopoverLogic}
                                 props={props}
                                 enableFormOnSubmit
                                 className="space-y-1"
@@ -129,12 +129,12 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                         <IconPlus />
                     </IconWithCount>
                 }
-                active={showPlaylistPopup}
-                onClick={() => setShowPlaylistPopup(!showPlaylistPopup)}
+                active={showPlaylistPopover}
+                onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
                 size={isFullScreen ? 'small' : 'medium'}
             >
                 Pin to list
             </LemonButton>
-        </Popup>
+        </Popover>
     )
 }
