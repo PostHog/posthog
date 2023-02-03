@@ -412,6 +412,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setErrorPlayerState: ({ show }) => {
             if (show) {
+                actions.incrementErrorCount()
                 actions.stopAnimation()
             }
         },
@@ -667,9 +668,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.originalWarning) {
                 console.warn = cache.originalWarning
             }
-            if (cache.errorHandler) {
-                window.removeEventListener('error', cache.errorHandler)
-            }
             actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
@@ -693,11 +691,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             cache.openTime = performance.now()
-
-            cache.errorHandler = () => {
-                actions.incrementErrorCount()
-            }
-            window.addEventListener('error', cache.errorHandler)
             cache.originalWarning = console.warn
             console.warn = function (...args: Array<unknown>) {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {
