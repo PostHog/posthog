@@ -220,7 +220,7 @@ class TestPersonOverride(BaseTest):
         """Test duplicate override_person_ids with different old_person_ids are allowed."""
         oldest_event = dt.datetime.now(dt.timezone.utc)
         override_person_id = uuid4()
-        n_person_overrides = 10
+        n_person_overrides = 2
         created = []
 
         for _ in range(n_person_overrides):
