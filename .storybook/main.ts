@@ -1,7 +1,7 @@
-const { createEntry } = require('../webpack.config')
-const babelConfig = require('../babel.config')
+import type { StorybookConfig } from '@storybook/react/types'
+import { createEntry } from '../webpack.config'
 
-module.exports = {
+const config: StorybookConfig = {
     stories: ['../frontend/src/**/*.stories.@(js|jsx|ts|tsx|mdx)'],
     addons: [
         {
@@ -19,28 +19,20 @@ module.exports = {
         'storybook-addon-pseudo-states',
     ],
     staticDirs: ['public'],
-    babel: async () => {
-        // compile babel to "defaults" target (ES5)
-        const envPreset = babelConfig.presets.find(
-            (preset) => Array.isArray(preset) && preset[0] === '@babel/preset-env'
-        )
-        envPreset[1].targets = 'defaults'
-        return babelConfig
-    },
     webpackFinal: (config) => {
         const mainConfig = createEntry('main')
         return {
             ...config,
             resolve: {
                 ...config.resolve,
-                extensions: [...config.resolve.extensions, ...mainConfig.resolve.extensions],
-                alias: { ...config.resolve.alias, ...mainConfig.resolve.alias },
+                extensions: [...config.resolve!.extensions!, ...mainConfig.resolve.extensions],
+                alias: { ...config.resolve!.alias, ...mainConfig.resolve.alias },
             },
             module: {
                 ...config.module,
                 rules: [
                     ...mainConfig.module.rules,
-                    ...config.module.rules.filter((rule) => rule.test.toString().includes('.mdx')),
+                    ...config.module!.rules.filter((rule) => rule.test!.toString().includes('.mdx')),
                     {
                         test: /\.stories\.tsx?$/,
                         use: [
@@ -59,3 +51,5 @@ module.exports = {
         postcss: false,
     },
 }
+
+export default config

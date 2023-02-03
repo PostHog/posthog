@@ -4,8 +4,12 @@ import { AlertMessage, AlertMessageProps } from './AlertMessage'
 export default {
     title: 'Lemon UI/Alert Message',
     component: AlertMessage,
-    // See https://github.com/storybookjs/addon-smart-knobs/issues/63#issuecomment-995798227
-    parameters: { actions: { argTypesRegex: null }, chromatic: { disableSnapshot: false } },
+    parameters: {
+        actions: {
+            // See https://github.com/storybookjs/addon-smart-knobs/issues/63#issuecomment-995798227
+            argTypesRegex: null,
+        },
+    },
 } as ComponentMeta<typeof AlertMessage>
 
 const Template: ComponentStory<typeof AlertMessage> = (props: AlertMessageProps) => {

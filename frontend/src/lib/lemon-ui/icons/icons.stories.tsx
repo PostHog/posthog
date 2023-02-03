@@ -20,7 +20,7 @@ export default {
     title: 'Lemon UI/Icons',
     parameters: {
         options: { showPanel: false },
-        chromatic: { disableSnapshot: true }, // There are too many icons, the snapshots get very big in table form
+        testOptions: { skip: true }, // There are too many icons, the snapshots are huge in table form
         docs: {
             description: {
                 component: `
