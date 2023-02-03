@@ -1,6 +1,4 @@
 .LemonSegmentedButton {
-    --lemon-segmented-button-selection-width: 100%;
-    --lemon-segmented-button-selection-offset: 0px;
     position: relative;
     flex-shrink: 0;
     width: fit-content;
@@ -16,14 +14,15 @@
 }
 
 .LemonSegmentedButton__slider {
+    // This is a real element and not ::after to avoid initial transition from 0 width
     transition: width 200ms ease, transform 200ms ease, border-radius 200ms ease;
     will-change: width, transform, border-radius;
     position: absolute;
     top: -1px; // 1px of border
     left: -1px; // 1px of border
     height: calc(100% + 2px); // 1px of border (top + bottom)
-    width: calc(var(--lemon-segmented-button-selection-width) + 2px); // 1px of border (left + right)
-    transform: translateX(var(--lemon-segmented-button-selection-offset));
+    width: calc(var(--lemon-segmented-button-slider-width) + 2px); // 1px of border (left + right)
+    transform: translateX(var(--lemon-segmented-button-slider-offset));
     background: var(--primary);
     &.LemonSegmentedButton__slider--first {
         border-top-left-radius: var(--radius);
