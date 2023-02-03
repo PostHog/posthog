@@ -2,7 +2,7 @@ import { Meta } from '@storybook/react'
 import recordings from './__mocks__/recordings.json'
 import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { App } from 'scenes/App'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
@@ -39,9 +39,7 @@ export function RecordingsList(): JSX.Element {
 
 export function Recording(): JSX.Element {
     useEffect(() => {
-        router.actions.push(
-            combineUrl(urls.sessionRecordings(), undefined, { sessionRecordingId: recordings[0].id }).url
-        )
+        router.actions.push(urls.sessionRecordings(undefined, { sessionRecordingId: recordings[0].id }))
     }, [])
     return <App />
 }

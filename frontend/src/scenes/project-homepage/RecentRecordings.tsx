@@ -1,5 +1,5 @@
 import { dayjs } from 'lib/dayjs'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import './ProjectHomepage.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
@@ -8,22 +8,17 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
-import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
+    url?: string
 }
 
-export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
-    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
-    const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
-
+export function RecordingRow({ recording, url }: RecordingRowProps): JSX.Element {
     return (
         <ProjectHomePageCompactListItem
             title={asDisplay(recording.person)}
@@ -35,13 +30,7 @@ export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
                     <IconPlayCircle className="text-2xl ml-2" />
                 </div>
             }
-            onClick={() => {
-                openSessionPlayer({
-                    id: recording.id,
-                    matching_events: recording.matching_events,
-                })
-                reportRecordingOpenedFromRecentRecordingList()
-            }}
+            to={url || urls.sessionRecordings(undefined, { sessionRecordingId: recording.id })}
         />
     )
 }
@@ -53,7 +42,6 @@ export function RecentRecordings(): JSX.Element {
 
     return (
         <>
-            <SessionPlayerModal />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}

@@ -4,7 +4,7 @@ import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import { ActionStep } from './ActionStep'
 import { Col, Row } from 'antd'
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -144,20 +144,18 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                             {id ? (
                                 <LemonButton
                                     type="secondary"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.sessionRecordings(undefined, {
+                                        filters: {
+                                            actions: [
+                                                {
+                                                    id: id,
+                                                    type: 'actions',
+                                                    order: 0,
+                                                    name: action.name,
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="action-view-recordings"
                                 >

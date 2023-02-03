@@ -28,7 +28,6 @@ import { EventsTable } from 'scenes/events'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
-import { combineUrl } from 'kea-router/lib/utils'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -128,20 +127,18 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                 {isEvent && (
                                     <LemonButton
                                         type="secondary"
-                                        to={
-                                            combineUrl(urls.sessionRecordings(), {
-                                                filters: {
-                                                    events: [
-                                                        {
-                                                            id: definition.name,
-                                                            type: 'events',
-                                                            order: 0,
-                                                            name: definition.name,
-                                                        },
-                                                    ],
-                                                },
-                                            }).url
-                                        }
+                                        to={urls.sessionRecordings(undefined, {
+                                            filters: {
+                                                events: [
+                                                    {
+                                                        id: definition.name,
+                                                        type: 'events',
+                                                        order: 0,
+                                                        name: definition.name,
+                                                    },
+                                                ],
+                                            },
+                                        })}
                                         sideIcon={<IconPlayCircle />}
                                         data-attr="event-definition-view-recordings"
                                     >

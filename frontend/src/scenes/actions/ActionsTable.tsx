@@ -154,20 +154,18 @@ export function ActionsTable(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                actions: [
-                                                    {
-                                                        id: action.id,
-                                                        type: 'actions',
-                                                        order: 0,
-                                                        name: action.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.sessionRecordings(undefined, {
+                                        filters: {
+                                            actions: [
+                                                {
+                                                    id: action.id,
+                                                    type: 'actions',
+                                                    order: 0,
+                                                    name: action.name,
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     sideIcon={<IconPlayCircle />}
                                     fullWidth
                                     data-attr="action-table-view-recordings"

@@ -289,11 +289,9 @@ export const personsLogic = kea<personsLogicType>({
                 }
             }
         },
-        '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
+        '/person/*': ({ _: rawPersonDistinctId }, {}, { activeTab }) => {
             if (props.syncWithUrl) {
-                if (sessionRecordingId) {
-                    actions.navigateToTab(PersonsTabType.SESSION_RECORDINGS)
-                } else if (activeTab && values.activeTab !== activeTab) {
+                if (activeTab && values.activeTab !== activeTab) {
                     actions.navigateToTab(activeTab as PersonsTabType)
                 }
 

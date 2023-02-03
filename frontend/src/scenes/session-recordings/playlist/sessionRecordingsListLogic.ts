@@ -19,6 +19,7 @@ import { loaders } from 'kea-loaders'
 export type PersonUUID = string
 interface Params {
     filters?: RecordingFilters
+    sessionRecordingId?: SessionRecordingId
 }
 
 interface HashParams {
@@ -300,14 +301,13 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                       filters: values.filters,
                   }
                 : {}
-            const hashParams: HashParams = {
-                ...router.values.hashParams,
+
+            if (values.selectedRecordingId) {
+                params.sessionRecordingId = values.selectedRecordingId
             }
-            if (!values.selectedRecordingId) {
-                delete hashParams.sessionRecordingId
-            } else {
-                hashParams.sessionRecordingId = values.selectedRecordingId
-            }
+
+            const hashParams = { ...router.values.hashParams }
+            delete hashParams.sessionRecordingId // Remove legacy hash param
 
             return [router.values.location.pathname, params, hashParams, { replace }]
         }
@@ -321,7 +321,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
 
     urlToAction(({ actions, values, props }) => {
         const urlToAction = (_: any, params: Params, hashParams: HashParams): void => {
-            const nulledSessionRecordingId = hashParams.sessionRecordingId ?? null
+            const nulledSessionRecordingId = params.sessionRecordingId ?? hashParams.sessionRecordingId ?? null
+
             if (nulledSessionRecordingId !== values.selectedRecordingId) {
                 actions.setSelectedRecordingId(nulledSessionRecordingId)
             }

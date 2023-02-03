@@ -60,8 +60,10 @@ export const urls = {
         return `/web-performance/waterfall${queryParams}`
     },
 
-    sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
-        combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
+    sessionRecordings: (
+        tab?: SessionRecordingsTabs,
+        params?: { filters?: Partial<FilterType>; sessionRecordingId?: string }
+    ): string => combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', params ? params : {}).url,
     sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
         combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
     sessionRecording: (id: string, filters?: Partial<FilterType>): string =>

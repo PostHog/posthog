@@ -95,20 +95,18 @@ export function Cohorts(): JSX.Element {
                                 </LemonButton>
                                 <LemonButton
                                     status="stealth"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                properties: [
-                                                    {
-                                                        key: 'id',
-                                                        label: cohort.name,
-                                                        type: 'cohort',
-                                                        value: cohort.id,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.sessionRecordings(undefined, {
+                                        filters: {
+                                            properties: [
+                                                {
+                                                    key: 'id',
+                                                    label: cohort.name,
+                                                    type: 'cohort', // TODO: fix this
+                                                    value: cohort.id,
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     fullWidth
                                 >
                                     View session recordings

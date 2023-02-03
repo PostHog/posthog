@@ -1,7 +1,6 @@
 import { useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
 import { RecordingRow } from 'scenes/project-homepage/RecentRecordings'
-import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { urls } from 'scenes/urls'
 import { RecordingFilters, SessionRecordingType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,10 +27,9 @@ export function FeatureFlagRecordings({ flagKey }: FeatureFlagRecordingsProps): 
 
     return (
         <>
-            <SessionPlayerModal />
             <CompactList
                 title="Recordings with current feature flag"
-                viewAllURL={urls.sessionRecordings(undefined, filters)}
+                viewAllURL={urls.sessionRecordings(undefined, { filters })}
                 loading={sessionRecordingsResponseLoading}
                 emptyMessage={
                     currentTeam?.session_recording_opt_in
@@ -50,7 +48,11 @@ export function FeatureFlagRecordings({ flagKey }: FeatureFlagRecordingsProps): 
                 }
                 items={sessionRecordings.slice(0, 5)}
                 renderRow={(recording: SessionRecordingType, index) => (
-                    <RecordingRow key={index} recording={recording} />
+                    <RecordingRow
+                        key={index}
+                        recording={recording}
+                        url={urls.sessionRecordings(undefined, { filters, sessionRecordingId: recording.id })}
+                    />
                 )}
             />
         </>

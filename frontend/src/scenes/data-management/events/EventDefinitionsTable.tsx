@@ -23,7 +23,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { urls } from 'scenes/urls'
-import { combineUrl } from 'kea-router'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
 
 const eventTypeOptions: LemonSelectOptions<EventDefinitionType> = [
@@ -121,20 +120,18 @@ export function EventDefinitionsTable(): JSX.Element {
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                events: [
-                                                    {
-                                                        id: definition.name,
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: definition.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
+                                    to={urls.sessionRecordings(undefined, {
+                                        filters: {
+                                            events: [
+                                                {
+                                                    id: definition.name,
+                                                    type: 'events',
+                                                    order: 0,
+                                                    name: definition.name,
+                                                },
+                                            ],
+                                        },
+                                    })}
                                     fullWidth
                                     sideIcon={<IconPlayCircle />}
                                     data-attr="event-definitions-table-view-recordings"

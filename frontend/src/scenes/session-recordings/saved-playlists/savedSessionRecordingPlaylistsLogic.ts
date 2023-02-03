@@ -209,12 +209,11 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 const nextValues = values.filters
                 const urlValues = objectClean(router.values.searchParams)
                 if (!objectsEqual(nextValues, urlValues)) {
-                    return [urls.sessionRecordings(SessionRecordingsTabs.Playlists), nextValues, {}, { replace: false }]
+                    return [urls.sessionRecordings(SessionRecordingsTabs.Playlists), nextValues, {}, { replace: true }]
                 }
             }
         }
         return {
-            loadPlaylists: changeUrl,
             setSavedPlaylistsFilters: changeUrl,
         }
     }),
