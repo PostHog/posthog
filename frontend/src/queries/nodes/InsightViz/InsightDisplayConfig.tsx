@@ -3,13 +3,11 @@ import { useActions, useValues } from 'kea'
 import { Tooltip } from 'antd'
 import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
-import { ChartDisplayType, FilterType, InsightType, ItemMode } from '~/types'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { InsightType } from '~/types'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
@@ -20,59 +18,25 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { insightDisplayConfigLogic } from './insightDisplayConfigLogic'
 // import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 
 interface InsightDisplayConfigProps {
-    filters: FilterType
-    activeView: InsightType
-    insightMode: ItemMode
     disableTable: boolean
 }
 
-export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { insightProps } = useValues(insightLogic)
+export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps): JSX.Element {
+    const { insightProps, filters } = useValues(insightLogic)
     const { setFilters } = useActions(insightLogic)
-    const {
-        isTrends,
-        isFunnels,
-        isRetention,
-        isPaths,
-        isStickiness,
-        isLifecycle,
-        supportsDisplay,
-        display,
-        breakdown,
-        trendsFilter,
-    } = useValues(insightDataLogic(insightProps))
-    const {
-        isEmptyFunnel,
-        isStepsFunnel,
-        // isTimeToConvertFunnel,
-        isTrendsFunnel,
-    } = useValues(funnelDataLogic(insightProps))
-
-    const showDateRange = !isRetention && !disableTable
-    const disableDateRange = isFunnels && !!isEmptyFunnel
-
-    const showCompare = (isTrends && display !== ChartDisplayType.ActionsAreaGraph) || isStickiness
-    const showInterval =
-        isTrendsFunnel ||
-        isLifecycle ||
-        ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
-    const showSmoothing =
-        isTrends &&
-        !breakdown?.breakdown_type &&
-        !trendsFilter?.compare &&
-        (!display || display === ChartDisplayType.ActionsLineGraph) &&
-        featureFlags[FEATURE_FLAGS.SMOOTHING_INTERVAL]
-    const showRetention = !!isRetention
-    const showPaths = !!isPaths
+    const { isTrends, supportsDisplay } = useValues(insightDataLogic(insightProps))
+    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
+    const { showDateRange, disableDateRange, showCompare, showInterval, showSmoothing, showRetention, showPaths } =
+        useValues(insightDisplayConfigLogic(insightProps))
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
             <div className="flex items-center space-x-2 flex-wrap my-2">
-                {showDateRange && (
+                {showDateRange && !disableTable && (
                     <ConfigFilter>
                         <span>Date range</span>
                         <InsightDateFilter

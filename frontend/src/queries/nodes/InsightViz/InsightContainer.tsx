@@ -207,16 +207,7 @@ export function InsightContainer({
             ) : null} */}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
-                title={
-                    disableHeader ? null : (
-                        <InsightDisplayConfig
-                            activeView={activeView as InsightType}
-                            insightMode={insightMode || ItemMode.View}
-                            filters={filters}
-                            disableTable={!!disableTable}
-                        />
-                    )
-                }
+                title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
                 data-attr="insights-graph"
                 className="insights-graph-container"
             >
