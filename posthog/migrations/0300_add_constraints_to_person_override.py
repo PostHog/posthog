@@ -3,7 +3,7 @@
 import django.db.models.expressions
 from django.db import migrations, models
 
-from posthog.models.person import PersonOverride
+from posthog.models.person.person import CREATE_FUNCTION_FOR_CONSTRAINT_SQL, DROP_FUNCTION_FOR_CONSTRAINT_SQL
 
 
 class Migration(migrations.Migration):
@@ -14,21 +14,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            f"""
-            CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(override_person_id uuid, old_person_id uuid)
-            RETURNS BOOLEAN AS $$
-              SELECT NOT EXISTS (
-                SELECT 1
-              FROM "{PersonOverride._meta.db_table}"
-              WHERE override_person_id = $2
-            ) AND NOT EXISTS (
-                SELECT 1
-              FROM "{PersonOverride._meta.db_table}"
-              WHERE old_person_id = $1
-            );
-            $$ LANGUAGE SQL;
-            """,
-            "DROP FUNCTION is_override_person_not_used_as_old_person",
+            CREATE_FUNCTION_FOR_CONSTRAINT_SQL,
+            DROP_FUNCTION_FOR_CONSTRAINT_SQL,
         ),
         migrations.AddConstraint(
             model_name="personoverride",

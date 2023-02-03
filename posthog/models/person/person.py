@@ -146,3 +146,21 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+CREATE_FUNCTION_FOR_CONSTRAINT_SQL = f"""
+CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(override_person_id uuid, old_person_id uuid)
+RETURNS BOOLEAN AS $$
+  SELECT NOT EXISTS (
+    SELECT 1
+      FROM "{PersonOverride._meta.db_table}"
+      WHERE override_person_id = $2
+    ) AND NOT EXISTS (
+        SELECT 1
+      FROM "{PersonOverride._meta.db_table}"
+      WHERE old_person_id = $1
+    );
+$$ LANGUAGE SQL;
+"""
+
+DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as_old_person"
