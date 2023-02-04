@@ -17,7 +17,7 @@ const elementsExample = [
         tag_name: 'span',
         attr_class: ['text-default'],
         href: '/insights',
-        attr_id: null,
+        attr_id: 'insights-link',
         nth_child: 1,
         nth_of_type: 1,
         attributes: {
@@ -180,4 +180,8 @@ export function ReadOnlyDisplay(): JSX.Element {
 
 export function WithoutCentralHghlightDisplay(): JSX.Element {
     return <EventElements elements={elementsExample} highlight={false} />
+}
+
+export function EditableDisplay(): JSX.Element {
+    return <EventElements elements={elementsExample} highlight={false} editable={true} />
 }
