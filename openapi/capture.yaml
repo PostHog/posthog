@@ -10,10 +10,56 @@ info:
         requests, and will not return any sensitive data from your PostHog instance.
 
 paths:
-    # /track/:
-    #   $ref: "#/paths/~1e~1"
+    /e/:
+        get:
+            summary: Capture an event
+            description: |
+                Capture an event. Events are the core of PostHog, and are what you use
+                to track user behavior, and then analyze and visualize in PostHog.
+            responses:
+                '200':
+                    description: |
+                        On successful capture of an event or events, we notify you with a
+                        200 response. A 200 response guarantees that the event was persisted
+                        by PostHog, but does not guarantee that it will be processed
+                        successfully.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureResponse'
+                '401':
+                    description: |
+                        If you send an invalid API key, we will return a 401 response.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureUnauthenticatedResponse'
+                '400':
+                    description: |
+                        If you send an invalid request, we will return a 400 response. This
+                        can happen if you send an invalid JSON payload among
+                        other things.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureClientErrorResponse'
+            parameters:
+                - in: query
+                  name: data
+                  schema:
+                      type: array
+                      items:
+                          $ref: '#/components/schemas/Event'
 
-    /track/:
+            requestBody:
+                content:
+                    '*/*':
+                        example: Body not used for GET requests.
+
+                description: |
+                    Provides a method to capture events. Events are the core of PostHog,
+                    and are what you use to track user behavior, and then analyze and
+                    visualize in PostHog.
         post:
             summary: Capture an event
             description: |
@@ -30,37 +76,97 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EventsCaptureResponse'
+                '401':
+                    description: |
+                        If you send an invalid API key, we will return a 401 response.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureUnauthenticatedResponse'
                 '400':
                     description: |
                         If you send an invalid request, we will return a 400 response. This
-                        can happen if you send an invalid JSON payload among other things.
+                        can happen if you send an invalid JSON payload among
+                        other things.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureClientErrorResponse'
             requestBody:
                 content:
                     application/json:
                         schema:
                             $ref: '#/components/schemas/EventsCaptureRequest'
+                    multipart/form-data:
+                        schema:
+                            $ref: '#/components/schemas/EventsCaptureRequest'
+                    text/plain:
+                        examples:
+                            gzip_event:
+                                summary: |
+                                    Gzipped request body as per the
+                                    application/json schema.
+
                 description: |
                     Provides a method to capture events. Events are the core of PostHog,
                     and are what you use to track user behavior, and then analyze and
                     visualize in PostHog.
+        options:
+            summary: CORS preflight
+            description: |
+                This endpoint is used for CORS preflight requests. It is not intended
+                to be used directly.
+            responses:
+                '200':
+                    description: |
+                        CORS preflight request successful.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureResponse'
+            requestBody:
+                content:
+                    '*/*':
+                        example: |
+                            This endpoint is used for CORS preflight requests. It is not
+                            intended to be used directly.
+
+    /track/:
+        $ref: '#/paths/~1e~1'
+
+    /track:
+        $ref: '#/paths/~1e~1'
+
+    /engage/:
+        $ref: '#/paths/~1e~1'
+
+    /batch/:
+        $ref: '#/paths/~1e~1'
+
+    /batch:
+        $ref: '#/paths/~1e~1'
 
 components:
     schemas:
         Event:
-            oneOf:
+            anyOf:
+                - $ref: '#/components/schemas/AutoCaptureEvent'
+                - $ref: '#/components/schemas/RecordingEvent'
                 - $ref: '#/components/schemas/GeneralEvent'
-                # - $ref: "#/components/schemas/AutoCaptureEvent"
-                # - $ref: "#/components/schemas/RecordingEvent"
 
         GeneralEvent:
             type: object
             properties:
                 event:
                     type: string
+                offset:
+                    type: number
                 distinct_id:
                     type: string
-                asdfzxcv:
-                    type: string
+                properties:
+                    type: object
+                    additionalProperties:
+                        type: string
 
         AutoCaptureEvent:
             type: object
@@ -110,8 +216,11 @@ components:
                         type: string
 
         EventsCaptureRequest:
-            oneOf:
+            anyOf:
                 - type: object
+                  required:
+                      - 'api_key'
+                      - 'batch'
                   properties:
                       api_key:
                           type: string
@@ -122,6 +231,24 @@ components:
                           type: array
                           items:
                               $ref: '#/components/schemas/Event'
+                - type: object
+                  required:
+                      - 'api_key'
+                      - 'data'
+                  properties:
+                      api_key:
+                          type: string
+                          description: |
+                              The API key for your project. You can find this in your project
+                              settings.
+                      data:
+                          oneOf:
+                              - type: array
+                                items:
+                                    $ref: '#/components/schemas/Event'
+                              - type: string
+                                description: |
+                                    A JSON stringified array of events.
                 - $ref: '#/components/schemas/Event'
 
         EventsCaptureResponse:
@@ -131,6 +258,43 @@ components:
                     type: number
                     enum: [0, 1]
                     example: 1
+
+        EventsCaptureClientErrorResponse:
+            type: object
+            required:
+                - 'type'
+                - 'code'
+                - 'detail'
+            properties:
+                type:
+                    type: string
+                    enum: ['validation_error']
+                code:
+                    type: string
+                    example: 'invalid_input'
+                detail:
+                    type: string
+                    example: 'Malformed request'
+                attr:
+                    type: string
+                    example: 'api_key'
+
+        EventsCaptureUnauthenticatedResponse:
+            type: object
+            required:
+                - 'type'
+                - 'code'
+                - 'detail'
+            properties:
+                type:
+                    type: string
+                    enum: ['authentication_error']
+                code:
+                    type: string
+                    example: 'invalid_token'
+                detail:
+                    type: string
+                    example: 'Invalid API key'
 
         RecordingEvent:
             type: object

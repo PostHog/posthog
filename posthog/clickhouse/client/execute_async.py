@@ -1,13 +1,13 @@
 import hashlib
 import json
 import time
+from dataclasses import asdict as dataclass_asdict
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any, Optional
 
 from celery.task.control import revoke
 from clickhouse_driver import Client as SyncClient
-from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
@@ -28,7 +28,6 @@ from posthog.settings import (
 REDIS_STATUS_TTL = 600  # 10 minutes
 
 
-@dataclass_json
 @dataclass
 class QueryStatus:
     team_id: int
@@ -96,7 +95,7 @@ def execute_with_progress(
                 start_time=start_time,
                 task_id=task_id,
             )
-            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
+            redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)  # type: ignore
             time.sleep(update_freq)
         else:
             rv = progress.get_result()
@@ -112,7 +111,7 @@ def execute_with_progress(
                 results=rv,
                 task_id=task_id,
             )
-            redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
+            redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)  # type: ignore
 
     except Exception as err:
         err = wrap_query_error(err)
@@ -131,7 +130,7 @@ def execute_with_progress(
             results=None,
             task_id=task_id,
         )
-        redis_client.set(key, query_status.to_json(), ex=REDIS_STATUS_TTL)  # type: ignore
+        redis_client.set(key, json.dumps(dataclass_asdict(query_status)), ex=REDIS_STATUS_TTL)  # type: ignore
 
         raise err
     finally:
@@ -160,7 +159,7 @@ def enqueue_execute_with_progress(
         if task_str:
             # if the status exists in redis we need to tell celery to kill the job
             task_str = task_str.decode("utf-8")
-            query_task = QueryStatus.from_json(task_str)  # type: ignore
+            query_task = QueryStatus(**json.load(task_str))  # type: ignore
             # Instruct celery to revoke task and terminate if running
             revoke(query_task.task_id, terminate=True)
             # Then we need to make redis forget about this job entirely
@@ -200,7 +199,7 @@ def get_status_or_results(team_id, query_id):
             str_results = byte_results.decode("utf-8")
         else:
             return QueryStatus(team_id, error=True, error_message="Query is unknown to backend")
-        query_status = QueryStatus.from_json(str_results)  # type: ignore
+        query_status = QueryStatus(**json.loads(str_results))  # type: ignore
         if query_status.team_id != team_id:
             raise Exception("Requesting team is not executing team")
     except Exception as e:

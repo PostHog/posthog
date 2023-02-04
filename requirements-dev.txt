@@ -49,10 +49,6 @@ colorama==0.4.4
     # via pytest-watch
 colored==1.4.2
     # via syrupy
-coreapi==2.3.3
-    # via djangorestframework-stubs
-coreschema==0.0.4
-    # via coreapi
 coverage==5.5
     # via pytest-cov
 cryptography==37.0.2
@@ -71,13 +67,13 @@ django==3.2.16
     #   -c requirements.txt
     #   django-stubs
     #   django-stubs-ext
-django-stubs==1.8.0
+django-stubs==1.13.0
     # via
     #   -r requirements-dev.in
     #   djangorestframework-stubs
-django-stubs-ext==0.2.0
+django-stubs-ext==0.7.0
     # via django-stubs
-djangorestframework-stubs==1.4.0
+djangorestframework-stubs==1.8.0
     # via -r requirements-dev.in
 dnspython==2.2.1
     # via
@@ -152,15 +148,13 @@ markupsafe==1.1.1
     # via jinja2
 mccabe==0.7.0
     # via flake8
-mypy==0.931
+mypy==0.991
     # via
     #   -r requirements-dev.in
     #   django-stubs
     #   djangorestframework-stubs
 mypy-extensions==0.4.3
     # via
-    #   -c requirements.txt
-    #   -r requirements-dev.in
     #   black
     #   mypy
 openapi-schema-validator==0.3.4
@@ -271,7 +265,6 @@ redis==4.3.4
 requests==2.28.1
     # via
     #   -c requirements.txt
-    #   coreapi
     #   djangorestframework-stubs
     #   prance
 ruamel-yaml==0.17.21
@@ -304,6 +297,7 @@ toml==0.10.1
 tomli==1.2.3
     # via
     #   black
+    #   django-stubs
     #   mypy
     #   pep517
 typed-ast==1.5.4
@@ -315,18 +309,27 @@ types-markdown==3.3.9
 types-python-dateutil==2.8.3
     # via -r requirements-dev.in
 types-pytz==2021.3.2
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   django-stubs
 types-pyyaml==6.0.1
-    # via -r requirements-dev.in
+    # via
+    #   -r requirements-dev.in
+    #   django-stubs
+    #   djangorestframework-stubs
 types-redis==4.3.20
     # via -r requirements-dev.in
 types-requests==2.26.1
     # via -r requirements-dev.in
 typing-extensions==4.4.0
     # via
-    #   -c requirements.txt
+    #   -r requirements-dev.in
+    #   djangorestframework-stubs
+typing-extensions==4.4.0
+    # via
     #   black
     #   django-stubs
+    #   django-stubs-ext
     #   djangorestframework-stubs
     #   jsonschema-spec
     #   mypy
