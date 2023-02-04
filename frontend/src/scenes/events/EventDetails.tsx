@@ -76,7 +76,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             </TabPane>
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
-                    <EventElements event={event} />
+                    <EventElements elements={event.elements} />
                 </TabPane>
             )}
         </Tabs>
