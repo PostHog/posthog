@@ -1,14 +1,14 @@
 import { ComponentMeta } from '@storybook/react'
 import { ElementType } from '~/types'
-import { EventElements } from './EventElements'
+import { HtmlElementsDisplay } from './HtmlElementsDisplay'
 
 export default {
-    title: 'Components/Html Elements',
-    component: EventElements,
-} as ComponentMeta<typeof EventElements>
+    title: 'Components/Html Elements Display',
+    component: HtmlElementsDisplay,
+} as ComponentMeta<typeof HtmlElementsDisplay>
 
 export function EmptyDisplay(): JSX.Element {
-    return <EventElements elements={[] as ElementType[]} />
+    return <HtmlElementsDisplay elements={[] as ElementType[]} />
 }
 
 const elementsExample = [
@@ -175,13 +175,13 @@ const elementsExample = [
 ] as ElementType[]
 
 export function ReadOnlyDisplay(): JSX.Element {
-    return <EventElements elements={elementsExample} />
+    return <HtmlElementsDisplay elements={elementsExample} />
 }
 
 export function WithoutCentralHghlightDisplay(): JSX.Element {
-    return <EventElements elements={elementsExample} highlight={false} />
+    return <HtmlElementsDisplay elements={elementsExample} highlight={false} />
 }
 
 export function EditableDisplay(): JSX.Element {
-    return <EventElements elements={elementsExample} highlight={false} editable={true} />
+    return <HtmlElementsDisplay elements={elementsExample} highlight={false} editable={true} />
 }

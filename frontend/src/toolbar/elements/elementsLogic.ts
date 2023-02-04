@@ -11,6 +11,7 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
+import { ElementType } from '~/types'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -330,6 +331,41 @@ export const elementsLogic = kea<elementsLogicType>({
                     }
                 }
                 return null
+            },
+        ],
+        activeMeta: [
+            (s) => [s.selectedElementMeta, s.hoverElementMeta],
+            (selectedElementMeta, hoverElementMeta) => {
+                return selectedElementMeta || hoverElementMeta
+            },
+        ],
+        activeElementChain: [
+            (s) => [s.activeMeta],
+            (activeMeta): ElementType[] => {
+                const chain: Element[] = []
+                let currentElement: HTMLElement | null | undefined = activeMeta?.element
+                while (currentElement && chain.length < 10 && currentElement !== document.body) {
+                    chain.push(currentElement)
+                    currentElement = currentElement.parentElement
+                }
+                return chain.map(
+                    (element) =>
+                        ({
+                            attr_class: element.getAttribute('class') || undefined,
+                            attr_id: element.getAttribute('id') || undefined,
+                            attributes: Array.from(element.attributes).reduce((acc, attr) => {
+                                if (!acc[attr.name]) {
+                                    acc[attr.name] = attr.value
+                                } else {
+                                    acc[attr.name] += ` ${attr.value}`
+                                }
+                                return acc
+                            }, {} as Record<string, string>),
+                            href: element.getAttribute('href') || undefined,
+                            tag_name: element.tagName.toLowerCase(),
+                            text: chain.length === 0 ? element.textContent : undefined,
+                        } as ElementType)
+                )
             },
         ],
     },

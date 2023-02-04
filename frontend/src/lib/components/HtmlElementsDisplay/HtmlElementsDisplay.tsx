@@ -1,7 +1,7 @@
 import { ElementType } from '~/types'
 import clsx from 'clsx'
-import { Fragment, useEffect, useState } from 'react'
-import './Elements.scss'
+import { Fragment, useEffect, useMemo, useState } from 'react'
+import './HtmlElementsDisplay.scss'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -23,6 +23,8 @@ function SelectableElement({
         string | Set<string> | undefined
     >)
 
+    const [lastBuiltSelector, setLastBuiltSelector] = useState('')
+
     useEffect(() => {
         const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
             if (value instanceof Set) {
@@ -36,7 +38,12 @@ function SelectableElement({
         const tagSelector = selectedParts.tag ? selectedParts.tag : ''
         const idSelector = selectedParts.id ? `[id="${selectedParts.id}"]` : ''
         const textSelector = selectedParts.text ? `[text="${selectedParts.text}"]` : ''
-        onChange(`${tagSelector}${idSelector}${attributeSelectors.join('')}${textSelector}`)
+        const builtSelector = `${tagSelector}${idSelector}${attributeSelectors.join('')}${textSelector}`
+        if (builtSelector !== lastBuiltSelector) {
+            console.log('builtSelector', builtSelector, selectedParts)
+            setLastBuiltSelector(builtSelector)
+            onChange(builtSelector)
+        }
     }, [selectedParts])
 
     const hoverSelector = readonly ? '' : 'hover:underline'
@@ -140,7 +147,7 @@ function SelectableElement({
     )
 }
 
-export function EventElements({
+export function HtmlElementsDisplay({
     elements: providedElements,
     highlight = true,
     editable = false,
@@ -149,12 +156,43 @@ export function EventElements({
     highlight?: boolean
     editable?: boolean
 }): JSX.Element {
-    let elements = [...(providedElements || [])].reverse()
-    elements = elements.slice(Math.max(elements.length - 10, 1))
-
     const [selectors, setSelectors] = useState({} as Record<number, string>)
+    const [chosenSelector, setChosenSelector] = useState('')
+    const [elements, setElements] = useState(providedElements)
+    const [lastElements, setLastElements] = useState(providedElements)
 
-    function selectorFrom(selectors: Record<number, string>): string {
+    useEffect(() => {
+        if (JSON.stringify(providedElements) !== JSON.stringify(lastElements)) {
+            console.log('setting elements', { providedElements, lastElements })
+            let elements = [...(providedElements || [])].reverse()
+            elements = elements.slice(Math.max(elements.length - 10, 1))
+            setElements(elements)
+            setLastElements(providedElements)
+        }
+    }, [providedElements, lastElements])
+
+    const elementChildren = useMemo(() => {
+        console.log('elementChildren')
+        return elements.map((element, index) => (
+            <pre
+                className={clsx(
+                    'p-0 m-0 rounded whitespace-pre-wrap break-all text-white text-sm',
+                    index === elements.length - 1 && highlight ? 'bg-primary-light' : 'bg-transparent'
+                )}
+                key={`${element.tag_name}-${index}`}
+            >
+                {indent(index)}
+                <SelectableElement
+                    element={element}
+                    isDeepestChild={index === elements.length - 1}
+                    onChange={(s) => (editable ? onChange(index, s) : () => {})}
+                    readonly={!editable}
+                />
+            </pre>
+        ))
+    }, [elements])
+
+    useEffect(() => {
         let lastKey = -2
         let chosenSelector = ''
         Object.keys(selectors)
@@ -162,41 +200,28 @@ export function EventElements({
             .sort()
             .forEach((key) => {
                 const selector = selectors[key]
-                if (lastKey === key - 1) {
-                    chosenSelector += ` > ${selector}`
-                } else {
-                    chosenSelector += ` ${selector}`
+                if (!!selector.trim().length) {
+                    if (lastKey === key - 1) {
+                        chosenSelector += ` > ${selector}`
+                    } else {
+                        chosenSelector += ` ${selector}`
+                    }
                 }
                 lastKey = key
             })
 
-        return !!chosenSelector.trim().length ? chosenSelector : 'no selectors chosen'
-    }
+        console.log('boo', { selectors, chosenSelector })
+
+        const resultingSelector = !!chosenSelector.trim().length ? chosenSelector : 'no selectors chosen'
+        if (resultingSelector !== chosenSelector) {
+            setChosenSelector(resultingSelector)
+        }
+    }, [selectors])
 
     return (
         <div>
             <div className="p-4 m-2 rounded bg-default">
-                {elements.length ? (
-                    elements.map((element, index) => (
-                        <pre
-                            className={clsx(
-                                'p-0 m-0 rounded whitespace-pre-wrap break-all text-white text-sm',
-                                index === elements.length - 1 && highlight ? 'bg-primary-light' : 'bg-transparent'
-                            )}
-                            key={index}
-                        >
-                            {indent(index)}
-                            <SelectableElement
-                                element={element}
-                                isDeepestChild={index === elements.length - 1}
-                                onChange={(s) => (editable ? setSelectors({ ...selectors, [index]: s }) : () => {})}
-                                readonly={!editable}
-                            />
-                        </pre>
-                    ))
-                ) : (
-                    <div className="text-muted-light">No elements to display</div>
-                )}
+                {elements.length ? elementChildren : <div className="text-muted-light">No elements to display</div>}
                 {[...elements]
                     .reverse()
                     .slice(1)
@@ -211,7 +236,12 @@ export function EventElements({
                         </pre>
                     ))}
             </div>
-            {editable && <div className="p-4">Selector: {selectorFrom(selectors)}</div>}
+            {editable && !!elements.length && <div className="p-4">Selector: {chosenSelector}</div>}
         </div>
     )
+
+    function onChange(index: number, s: string): void {
+        console.log('onChange', { index, s })
+        return setSelectors({ ...selectors, [index]: s })
+    }
 }

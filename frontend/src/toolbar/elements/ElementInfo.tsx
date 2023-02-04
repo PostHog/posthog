@@ -31,10 +31,8 @@ function ElementStatistic({
 export function ElementInfo(): JSX.Element | null {
     const { clickCount: totalClickCount, dateRange } = useValues(heatmapLogic)
 
-    const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
+    const { activeElementChain, activeMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
-
-    const activeMeta = hoverElementMeta || selectedElementMeta
 
     if (!activeMeta) {
         return null
@@ -47,7 +45,7 @@ export function ElementInfo(): JSX.Element | null {
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div className="p-3" style={{ borderLeft: '5px solid #8F98FF', background: 'hsla(235, 100%, 99%, 1)' }}>
                 <h1 className="section-title">Selected Element</h1>
-                <ActionStep actionStep={actionStep} />
+                <ActionStep actionStep={actionStep} activeElementChain={activeElementChain} />
             </div>
             {position ? (
                 /* eslint-disable-next-line react/forbid-dom-props */
