@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { EventElements } from 'scenes/events/EventElements'
+import { EventElements } from 'lib/components/ElementsDisplay/EventElements'
 import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
