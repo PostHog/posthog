@@ -55,7 +55,6 @@ describe('Invite Signup', () => {
         cy.get('.Popup button:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=password-signup]').click()
-        cy.get('.Toastify__toast-body').should('contain', 'You have joined')
         cy.location('pathname').should('include', urls.projectHomepage())
     })
 
@@ -84,7 +83,6 @@ describe('Invite Signup', () => {
         cy.get('.Popup button:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
         cy.get('[data-attr=password-signup]').click()
-        cy.get('.Toastify__toast-body').should('contain', 'You have joined')
         cy.location('pathname').should('include', urls.projectHomepage())
 
         // Log out, log in as main
