@@ -1,10 +1,11 @@
 .HtmlElements {
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
+    border: 1px solid transparent;
+    border-radius: 4px;
 
     &.HtmlElements__selected {
         background: var(--blue-lightest);
         color: black;
-        border: 1px solid var(--blue-light);
-        border-radius: 4px;
+        border-color: var(--blue-light);
     }
 }

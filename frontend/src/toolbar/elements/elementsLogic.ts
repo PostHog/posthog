@@ -342,14 +342,14 @@ export const elementsLogic = kea<elementsLogicType>({
         activeElementChain: [
             (s) => [s.activeMeta],
             (activeMeta): ElementType[] => {
-                const chain: Element[] = []
+                const chain: HTMLElement[] = []
                 let currentElement: HTMLElement | null | undefined = activeMeta?.element
-                while (currentElement && chain.length < 10 && currentElement !== document.body) {
+                while (currentElement && chain.length <= 10 && currentElement !== document.body) {
                     chain.push(currentElement)
                     currentElement = currentElement.parentElement
                 }
-                return chain.map(
-                    (element) =>
+                const elements = chain.map(
+                    (element, index) =>
                         ({
                             attr_class: element.getAttribute('class') || undefined,
                             attr_id: element.getAttribute('id') || undefined,
@@ -363,9 +363,11 @@ export const elementsLogic = kea<elementsLogicType>({
                             }, {} as Record<string, string>),
                             href: element.getAttribute('href') || undefined,
                             tag_name: element.tagName.toLowerCase(),
-                            text: chain.length === 0 ? element.textContent : undefined,
+                            text: index === 0 ? element.innerText : undefined,
                         } as ElementType)
                 )
+
+                return elements
             },
         ],
     },

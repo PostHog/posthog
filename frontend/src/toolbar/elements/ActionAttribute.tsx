@@ -20,26 +20,31 @@ function SelectorString({
             {rest.reverse().join(' ')} <strong>{last}</strong>
         </span>
     )
+
+    const modal = (
+        <LemonModal
+            forceAbovePopovers={true}
+            getPopupContainer={getShadowRootPopoverContainer}
+            description="Click on elements and their attributes to build a selector"
+            footer={
+                <>
+                    <LemonButton type="secondary" onClick={() => setModalOpen(false)}>
+                        Cancel
+                    </LemonButton>
+                    <LemonButton type="primary">Apply</LemonButton>
+                </>
+            }
+            onClose={() => setModalOpen(false)}
+            isOpen={modalOpen}
+            title="Manually override the selector"
+        >
+            <HtmlElementsDisplay editable={true} highlight={false} elements={activeElementChain} />
+        </LemonModal>
+    )
+
     return (
         <>
-            <LemonModal
-                forceAbovePopovers={true}
-                getPopupContainer={getShadowRootPopoverContainer}
-                description="Click on elements and their attributes to build a selector"
-                footer={
-                    <>
-                        <LemonButton type="secondary" onClick={() => setModalOpen(false)}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton type="primary">Apply</LemonButton>
-                    </>
-                }
-                onClose={() => setModalOpen(false)}
-                isOpen={modalOpen}
-                title="Manually override the selector"
-            >
-                <HtmlElementsDisplay editable={true} highlight={false} elements={activeElementChain} />
-            </LemonModal>
+            {modal}
             <div className="flex flex-row items-center">
                 {selector}
                 <LemonButton
