@@ -185,3 +185,7 @@ export function WithoutCentralHghlightDisplay(): JSX.Element {
 export function EditableDisplay(): JSX.Element {
     return <HtmlElementsDisplay elements={elementsExample} highlight={false} editable={true} />
 }
+
+export function WithUniquessCheck(): JSX.Element {
+    return <HtmlElementsDisplay elements={elementsExample} highlight={false} editable={true} checkUniqueness={true} />
+}

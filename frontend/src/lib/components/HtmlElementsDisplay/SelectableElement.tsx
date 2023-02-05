@@ -141,35 +141,6 @@ function AttributePart({
     )
 }
 
-function TextPart({
-    text,
-    selectedParts,
-    onChange,
-    readonly,
-}: {
-    text: string | undefined
-    selectedParts: SelectedParts
-    onChange: (s: SelectedParts) => void
-    readonly: boolean
-}): JSX.Element {
-    const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('HtmlElements decoration-primary-highlight', !readonly && 'cursor-pointer')
-
-    const isSelected = !!selectedParts.text
-
-    return (
-        <span
-            onClick={(e) => {
-                e.stopPropagation()
-                onChange({ ...selectedParts, text: isSelected ? undefined : text })
-            }}
-            className={clsx(htmlElementsSelector, isSelected ? 'HtmlElements__selected' : hoverSelector)}
-        >
-            {text}
-        </span>
-    )
-}
-
 export function SelectableElement({
     element,
     isDeepestChild,
@@ -191,7 +162,7 @@ export function SelectableElement({
         const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
             if (value instanceof Set) {
                 value.forEach((entry) => {
-                    acc.push(`[${key}="${entry}"]`)
+                    acc.push(`[${key}~="${entry}"]`)
                 })
             }
             return acc
@@ -241,12 +212,7 @@ export function SelectableElement({
                 )
             })}
             &gt;
-            <TextPart
-                text={element.text}
-                selectedParts={selectedParts}
-                readonly={readonly}
-                onChange={setSelectedParts}
-            />
+            {element.text}
             {isDeepestChild && <span>&lt;/{element.tag_name}&gt;</span>}
         </pre>
     )

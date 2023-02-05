@@ -2,6 +2,7 @@ import { ElementType } from '~/types'
 import { useEffect, useState } from 'react'
 import './HtmlElementsDisplay.scss'
 import { SelectableElement } from './SelectableElement'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -60,16 +61,20 @@ export function HtmlElementsDisplay({
     elements: providedElements,
     highlight = true,
     editable = false,
+    checkUniqueness = false,
 }: {
     elements: ElementType[]
     highlight?: boolean
     editable?: boolean
+    checkUniqueness?: boolean
 }): JSX.Element {
     let elements = [...(providedElements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
     const [selectors, setSelectors] = useState({} as Record<number, string>)
     const [chosenSelector, setChosenSelector] = useState('')
+
+    const [selectorMatches, setSelectorMatches] = useState([] as HTMLElement[])
 
     useEffect(() => {
         let lastKey = -2
@@ -95,9 +100,32 @@ export function HtmlElementsDisplay({
         }
     }, [selectors])
 
+    useEffect(() => {
+        if (checkUniqueness && !!chosenSelector) {
+            try {
+                setSelectorMatches(Array.from(document.querySelectorAll(chosenSelector)))
+            } catch (e) {
+                console.error(e)
+                setSelectorMatches([])
+            }
+        }
+    }, [checkUniqueness, chosenSelector])
+    console.log(chosenSelector, chosenSelector.trim().length)
     return (
-        <div>
-            <div className="p-4 m-2 rounded bg-default">
+        <div className="flex flex-col gap-1">
+            {editable && !!elements.length && <div className="px-4">Selector: {chosenSelector}</div>}
+            {checkUniqueness && (
+                <AlertMessage
+                    type={selectorMatches.length === 0 ? 'info' : selectorMatches.length === 1 ? 'success' : 'warning'}
+                >
+                    {selectorMatches.length === 0 && chosenSelector === 'no selectors chosen' ? (
+                        <>Choose parts of the HTML below to build a selector</>
+                    ) : (
+                        <>Matches: {selectorMatches.length} elements in the page</>
+                    )}
+                </AlertMessage>
+            )}
+            <div className="px-4 rounded bg-default">
                 {elements.length ? (
                     <>
                         <Tags
@@ -112,7 +140,6 @@ export function HtmlElementsDisplay({
                     <div className="text-muted-light">No elements to display</div>
                 )}
             </div>
-            {editable && !!elements.length && <div className="p-4">Selector: {chosenSelector}</div>}
         </div>
     )
 }

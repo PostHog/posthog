@@ -38,7 +38,12 @@ function SelectorString({
             isOpen={modalOpen}
             title="Manually override the selector"
         >
-            <HtmlElementsDisplay editable={true} highlight={false} elements={activeElementChain} />
+            <HtmlElementsDisplay
+                editable={true}
+                highlight={false}
+                elements={activeElementChain}
+                checkUniqueness={true}
+            />
         </LemonModal>
     )
 

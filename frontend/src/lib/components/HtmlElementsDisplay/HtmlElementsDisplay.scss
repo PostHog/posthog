@@ -3,6 +3,10 @@
     border: 1px solid transparent;
     border-radius: 4px;
 
+    &:hover {
+        background: var(--blue-lightest);
+    }
+
     &.HtmlElements__selected {
         background: var(--blue-lightest);
         color: black;
