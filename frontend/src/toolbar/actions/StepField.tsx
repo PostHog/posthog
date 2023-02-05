@@ -42,6 +42,7 @@ export function StepField({ field, step, item, label, caption }: StepFieldProps)
                 </Form.Item>
             ) : null}
             <Form.Item name={[field.name, item]} fieldKey={[field.fieldKey, item] as unknown as number}>
+                {/* TODO add a button to launch modal to override selector manually here? */}
                 {item === 'selector' ? <Input.TextArea autoSize style={fieldStyle} /> : <Input style={fieldStyle} />}
             </Form.Item>
             {item === 'url' && step?.url_matching && step.url_matching in URL_MATCHING_HINTS ? (

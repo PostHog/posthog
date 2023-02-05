@@ -119,6 +119,7 @@ export function HtmlElementsDisplay({
         <div className="flex flex-col gap-1">
             {editable && !!elements.length && <div className="px-4">Selector: {chosenSelector}</div>}
             {checkUniqueness && (
+                // TODO use the SelectorCount element here?
                 <AlertMessage
                     type={selectorMatches.length === 0 ? 'info' : selectorMatches.length === 1 ? 'success' : 'warning'}
                 >
