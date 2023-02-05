@@ -66,7 +66,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
         newActionSelectorOverride: [
             null as string | null,
             {
-                newAction: (_, { elementSelector }) => elementSelector,
+                newAction: (_, { elementSelector }) => elementSelector || null,
                 selectAction: () => null,
             },
         ],
