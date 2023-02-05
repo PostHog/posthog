@@ -1,9 +1,11 @@
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { useActions, useValues } from 'kea'
 import { HtmlElementsDisplay } from 'lib/components/HtmlElementsDisplay/HtmlElementsDisplay'
 import { IconBranch, IconClipboardEdit, IconEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { ElementType } from '~/types'
 import { getShadowRootPopoverContainer } from '../utils'
+import { elementsLogic } from './elementsLogic'
 
 function SelectorString({
     value,
@@ -12,7 +14,11 @@ function SelectorString({
     value: string
     activeElementChain: ElementType[]
 }): JSX.Element {
+    const { activeMeta } = useValues(elementsLogic)
+    const { overrideSelector } = useActions(elementsLogic)
+
     const [modalOpen, setModalOpen] = useState(false)
+    const [overriddenSelector, setOverriddenSelector] = useState<string | null>(null)
 
     const [last, ...rest] = value.split(' ').reverse()
     const selector = (
@@ -31,7 +37,18 @@ function SelectorString({
                     <LemonButton type="secondary" onClick={() => setModalOpen(false)}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary">Apply</LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            if (activeMeta !== null) {
+                                overrideSelector(activeMeta.element, overriddenSelector)
+                                setModalOpen(false)
+                            }
+                        }}
+                    >
+                        Apply
+                    </LemonButton>
                 </>
             }
             onClose={() => setModalOpen(false)}
@@ -43,6 +60,11 @@ function SelectorString({
                 highlight={false}
                 elements={activeElementChain}
                 checkUniqueness={true}
+                onChange={(selector) => {
+                    if (selector.trim() !== overriddenSelector?.trim()) {
+                        setOverriddenSelector(selector.trim())
+                    }
+                }}
             />
         </LemonModal>
     )

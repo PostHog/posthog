@@ -59,6 +59,7 @@ function Tags({
 
 export function HtmlElementsDisplay({
     elements: providedElements,
+    onChange,
     highlight = true,
     editable = false,
     checkUniqueness = false,
@@ -67,6 +68,7 @@ export function HtmlElementsDisplay({
     highlight?: boolean
     editable?: boolean
     checkUniqueness?: boolean
+    onChange?: (selector: string) => void
 }): JSX.Element {
     let elements = [...(providedElements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
@@ -97,6 +99,7 @@ export function HtmlElementsDisplay({
         builtSelector = !!builtSelector.trim().length ? builtSelector : 'no selectors chosen'
         if (builtSelector !== chosenSelector) {
             setChosenSelector(builtSelector)
+            onChange?.(builtSelector)
         }
     }, [selectors])
 
@@ -110,7 +113,7 @@ export function HtmlElementsDisplay({
             }
         }
     }, [checkUniqueness, chosenSelector])
-    console.log(chosenSelector, chosenSelector.trim().length)
+
     return (
         <div className="flex flex-col gap-1">
             {editable && !!elements.length && <div className="px-4">Selector: {chosenSelector}</div>}

@@ -42,6 +42,7 @@ export const elementsLogic = kea<elementsLogicType>({
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
 
         setRelativePositionCompensation: (compensation: number) => ({ compensation }),
+        overrideSelector: (element: HTMLElement, selector: string | null) => ({ element, selector }),
     },
 
     reducers: () => ({
@@ -101,6 +102,20 @@ export const elementsLogic = kea<elementsLogicType>({
             0,
             {
                 setRelativePositionCompensation: (_, { compensation }) => compensation,
+            },
+        ],
+        overriddenSelectors: [
+            new Map<HTMLElement, string>(),
+            {
+                overrideSelector: (state, { element, selector }) => {
+                    const newMap = new Map(state)
+                    if (newMap.has(element) && !selector) {
+                        newMap.delete(element)
+                    } else if (!!selector) {
+                        newMap.set(element, selector)
+                    }
+                    return newMap
+                },
             },
         ],
     }),
@@ -172,26 +187,25 @@ export const elementsLogic = kea<elementsLogicType>({
         ],
 
         elementMap: [
-            (s) => [s.heatmapElements, s.inspectElements, s.actionElements, s.actionsListElements],
-            (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
+            (s) => [
+                s.heatmapElements,
+                s.inspectElements,
+                s.actionElements,
+                s.actionsListElements,
+                s.overriddenSelectors,
+            ],
+            (heatmapElements, inspectElements, actionElements, actionsListElements, overridenSelectors): ElementMap => {
+                console.log('building element map', overridenSelectors)
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
                 inspectElements.forEach((e) => {
-                    elementMap.set(e.element, e)
+                    updateElementMap(overridenSelectors, e, elementMap)
                 })
                 heatmapElements.forEach((e) => {
-                    if (elementMap.get(e.element)) {
-                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
-                    } else {
-                        elementMap.set(e.element, e)
-                    }
+                    updateElementMap(overridenSelectors, e, elementMap)
                 })
                 ;[...actionElements, ...actionsListElements].forEach((e) => {
-                    if (elementMap.get(e.element)) {
-                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
-                    } else {
-                        elementMap.set(e.element, e)
-                    }
+                    updateElementMap(overridenSelectors, e, elementMap)
                 })
                 return elementMap
             },
@@ -289,7 +303,7 @@ export const elementsLogic = kea<elementsLogicType>({
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes),
+                            actionStep: elementToActionStep(meta.element, dataAttributes, meta.overriddenSelector),
                             actions: actions || [],
                         }
                     }
@@ -336,7 +350,9 @@ export const elementsLogic = kea<elementsLogicType>({
         activeMeta: [
             (s) => [s.selectedElementMeta, s.hoverElementMeta],
             (selectedElementMeta, hoverElementMeta) => {
-                return selectedElementMeta || hoverElementMeta
+                const activeMeta = selectedElementMeta || hoverElementMeta
+                console.log('activeMeta', activeMeta, 'has overridden selector: ', !!activeMeta?.selector)
+                return activeMeta
             },
         ],
         activeElementChain: [
@@ -489,3 +505,24 @@ export const elementsLogic = kea<elementsLogicType>({
         },
     }),
 })
+
+/**
+ *  Yuck warning: this relies on the instance identify of elementMap
+ * it's already expensive enough passing around and serialising the elements in the map
+ * let's not make it worse by cloning the map every time we update it
+ *
+ */
+function updateElementMap(
+    overridenSelectors: Map<HTMLElement, string>,
+    e: ElementWithMetadata,
+    elementMap: Map<HTMLElement, ElementWithMetadata>
+): void {
+    const elementWithMetadata: ElementWithMetadata = overridenSelectors.has(e.element)
+        ? { ...e, overriddenSelector: overridenSelectors.get(e.element) }
+        : { ...e }
+    if (elementMap.get(e.element)) {
+        elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
+    } else {
+        elementMap.set(e.element, elementWithMetadata)
+    }
+}

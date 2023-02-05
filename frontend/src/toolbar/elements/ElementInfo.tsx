@@ -38,14 +38,18 @@ export function ElementInfo(): JSX.Element | null {
         return null
     }
 
-    const { element, position, count, clickCount, rageclickCount, actionStep } = activeMeta
+    const { element, position, count, clickCount, rageclickCount, actionStep, overriddenSelector } = activeMeta
 
     return (
         <>
             {/* eslint-disable-next-line react/forbid-dom-props */}
             <div className="p-3" style={{ borderLeft: '5px solid #8F98FF', background: 'hsla(235, 100%, 99%, 1)' }}>
                 <h1 className="section-title">Selected Element</h1>
-                <ActionStep actionStep={actionStep} activeElementChain={activeElementChain} />
+                <ActionStep
+                    actionStep={actionStep}
+                    activeElementChain={activeElementChain}
+                    overridenSelector={overriddenSelector}
+                />
             </div>
             {position ? (
                 /* eslint-disable-next-line react/forbid-dom-props */
