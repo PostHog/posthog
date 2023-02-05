@@ -68,7 +68,7 @@ export function HtmlElementsDisplay({
     highlight?: boolean
     editable?: boolean
     checkUniqueness?: boolean
-    onChange?: (selector: string, isUnique: boolean) => void
+    onChange?: (selector: string, isUnique?: boolean) => void
 }): JSX.Element {
     let elements = [...(providedElements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
@@ -97,23 +97,23 @@ export function HtmlElementsDisplay({
             })
 
         builtSelector = !!builtSelector.trim().length ? builtSelector : 'no selectors chosen'
-        console.log('builtSelector', builtSelector, 'from selectors', selectors, 'chosenSelector', chosenSelector)
+        let selectorMatchCount = -1
         if (builtSelector !== chosenSelector) {
-            setChosenSelector(builtSelector)
-            onChange?.(builtSelector, selectorMatches.length === 1)
-        }
-    }, [selectors])
-
-    useEffect(() => {
-        if (checkUniqueness && !!chosenSelector) {
-            try {
-                setSelectorMatches(Array.from(document.querySelectorAll(chosenSelector)))
-            } catch (e) {
-                console.error(e)
-                setSelectorMatches([])
+            if (checkUniqueness && !!builtSelector) {
+                try {
+                    const newSelectorMatches: HTMLElement[] = Array.from(document.querySelectorAll(builtSelector))
+                    selectorMatchCount = newSelectorMatches.length
+                    setSelectorMatches(newSelectorMatches)
+                } catch (e) {
+                    console.error(e)
+                    setSelectorMatches([])
+                }
             }
+
+            setChosenSelector(builtSelector)
+            onChange?.(builtSelector, checkUniqueness ? selectorMatchCount === 1 : undefined)
         }
-    }, [checkUniqueness, chosenSelector])
+    }, [selectors, selectorMatches, checkUniqueness])
 
     return (
         <div className="flex flex-col gap-1">
