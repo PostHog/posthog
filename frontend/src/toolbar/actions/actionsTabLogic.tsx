@@ -12,10 +12,10 @@ import { posthog } from '~/toolbar/posthog'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
+function newAction(element: HTMLElement | null, dataAttributes: string[] = [], selector?: string): ActionDraftType {
     return {
         name: '',
-        steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes), true) : {}],
+        steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes, selector), true) : {}],
     }
 }
 
@@ -26,7 +26,10 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     actions: {
         setForm: (form: ActionFormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
-        newAction: (element?: HTMLElement) => ({ element: element || null }),
+        newAction: (element?: HTMLElement, elementSelector?: string | null) => ({
+            element: element || null,
+            elementSelector,
+        }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         setEditingFields: (editingFields: AntdFieldData[]) => ({ editingFields }),
@@ -57,6 +60,13 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
             null as HTMLElement | null,
             {
                 newAction: (_, { element }) => element,
+                selectAction: () => null,
+            },
+        ],
+        newActionSelectorOverride: [
+            null as string | null,
+            {
+                newAction: (_, { elementSelector }) => elementSelector,
                 selectAction: () => null,
             },
         ],
@@ -99,10 +109,20 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
 
     selectors: {
         selectedAction: [
-            (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
-            (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
+            (s) => [
+                s.selectedActionId,
+                s.newActionForElement,
+                actionsLogic.selectors.allActions,
+                s.newActionSelectorOverride,
+            ],
+            (
+                selectedActionId,
+                newActionForElement,
+                allActions,
+                newActionSelectorOverride
+            ): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, [])
+                    return newAction(newActionForElement, [], newActionSelectorOverride ?? undefined)
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },

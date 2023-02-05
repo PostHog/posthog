@@ -48,7 +48,7 @@ export function ElementInfo(): JSX.Element | null {
                 <ActionStep
                     actionStep={actionStep}
                     activeElementChain={activeElementChain}
-                    overridenSelector={overriddenSelector}
+                    overriddenSelector={overriddenSelector}
                 />
             </div>
             {position ? (

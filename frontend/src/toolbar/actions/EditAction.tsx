@@ -40,7 +40,7 @@ export function EditAction(): JSX.Element {
             <Button type="default" size="small" onClick={() => selectAction(null)} style={{ float: 'right' }}>
                 Cancel <CloseOutlined />
             </Button>
-            <h1 className="section-title" style={{ paddingTop: 4 }}>
+            <h1 className="section-title pt-1">
                 {selectedActionId === 'new' ? 'New ' : 'Edit '}
                 action
             </h1>

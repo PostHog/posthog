@@ -501,7 +501,7 @@ export const elementsLogic = kea<elementsLogicType>({
             actionsTabLogic.actions.showButtonActions()
             toolbarButtonLogic.actions.showActionsInfo()
             elementsLogic.actions.selectElement(null)
-            actionsTabLogic.actions.newAction(element)
+            actionsTabLogic.actions.newAction(element, values.overriddenSelectors.get(element))
         },
     }),
 })
