@@ -350,9 +350,7 @@ export const elementsLogic = kea<elementsLogicType>({
         activeMeta: [
             (s) => [s.selectedElementMeta, s.hoverElementMeta],
             (selectedElementMeta, hoverElementMeta) => {
-                const activeMeta = selectedElementMeta || hoverElementMeta
-                console.log('activeMeta', activeMeta, 'has overridden selector: ', !!activeMeta?.selector)
-                return activeMeta
+                return selectedElementMeta || hoverElementMeta
             },
         ],
         activeElementChain: [

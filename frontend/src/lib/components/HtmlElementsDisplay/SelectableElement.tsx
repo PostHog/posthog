@@ -2,7 +2,7 @@ import { ElementType } from '~/types'
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 
-type SelectedParts = Record<string, string | Set<string> | undefined>
+type SelectedParts = Record<string, string | undefined>
 
 export function TagPart({
     tagName,
@@ -74,30 +74,15 @@ function AttributeValue({
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
     const htmlElementsSelector = clsx('HtmlElements decoration-primary-highlight', !readonly && 'cursor-pointer')
-    const selectionContainer = selectedParts[attribute]
-    const isSelected = selectionContainer instanceof Set && selectionContainer.has(value)
+    const selectedPartForAttribute = selectedParts[attribute]
+    const isSelected = selectedPartForAttribute === value
 
     return (
         <>
             <span
                 onClick={(e) => {
                     e.stopPropagation()
-
-                    if (!selectionContainer) {
-                        onChange({ ...selectedParts, [attribute]: new Set([value]) })
-                    } else if (selectionContainer instanceof Set) {
-                        if (selectionContainer.has(value)) {
-                            onChange({
-                                ...selectedParts,
-                                [attribute]: new Set(Array.from(selectionContainer).filter((p) => p !== value)),
-                            })
-                        } else {
-                            onChange({
-                                ...selectedParts,
-                                [attribute]: new Set([...Array.from(selectionContainer), value]),
-                            })
-                        }
-                    }
+                    onChange({ ...selectedParts, [attribute]: isSelected ? undefined : value })
                 }}
                 className={clsx(htmlElementsSelector, isSelected ? 'HtmlElements__selected' : hoverSelector)}
             >
@@ -160,10 +145,20 @@ export function SelectableElement({
 
     useEffect(() => {
         const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
-            if (value instanceof Set) {
-                value.forEach((entry) => {
-                    acc.push(`[${key}~="${entry}"]`)
-                })
+            /**
+             * CSS supports selectors like
+             * .ClassOne.ClassTwo or [class~="ClassOne"][class~="ClassTwo"]
+             *
+             * which both match any element that has both classOne and classTwo regardless of order or other applied classes
+             *
+             * But _we_ don't :'(
+             *
+             * So this only allows a single selector with an exact value e.g. [class="ClassOne"]
+             *
+             * This should use a set for attributes since we _should_ support this but we can't without fixing action matching first
+             */
+            if (!!value) {
+                acc.push(`[${key}="${value}"]`)
             }
             return acc
         }, [] as string[])

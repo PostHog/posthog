@@ -19,6 +19,7 @@ function SelectorString({
 
     const [modalOpen, setModalOpen] = useState(false)
     const [overriddenSelector, setOverriddenSelector] = useState<string | null>(null)
+    const [overriddenSelectorIsUnique, setOverriddenSelectorIsUnique] = useState<boolean>(false)
 
     const [last, ...rest] = value.split(' ').reverse()
     const selector = (
@@ -46,6 +47,7 @@ function SelectorString({
                                 setModalOpen(false)
                             }
                         }}
+                        disabled={!overriddenSelectorIsUnique}
                     >
                         Apply
                     </LemonButton>
@@ -60,9 +62,10 @@ function SelectorString({
                 highlight={false}
                 elements={activeElementChain}
                 checkUniqueness={true}
-                onChange={(selector) => {
+                onChange={(selector, isUnique) => {
                     if (selector.trim() !== overriddenSelector?.trim()) {
                         setOverriddenSelector(selector.trim())
+                        setOverriddenSelectorIsUnique(isUnique)
                     }
                 }}
             />

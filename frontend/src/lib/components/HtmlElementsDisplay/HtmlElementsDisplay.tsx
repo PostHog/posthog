@@ -68,7 +68,7 @@ export function HtmlElementsDisplay({
     highlight?: boolean
     editable?: boolean
     checkUniqueness?: boolean
-    onChange?: (selector: string) => void
+    onChange?: (selector: string, isUnique: boolean) => void
 }): JSX.Element {
     let elements = [...(providedElements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
@@ -97,9 +97,10 @@ export function HtmlElementsDisplay({
             })
 
         builtSelector = !!builtSelector.trim().length ? builtSelector : 'no selectors chosen'
+        console.log('builtSelector', builtSelector, 'from selectors', selectors, 'chosenSelector', chosenSelector)
         if (builtSelector !== chosenSelector) {
             setChosenSelector(builtSelector)
-            onChange?.(builtSelector)
+            onChange?.(builtSelector, selectorMatches.length === 1)
         }
     }, [selectors])
 
