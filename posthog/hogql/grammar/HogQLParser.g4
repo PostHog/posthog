@@ -5,7 +5,7 @@ options {
 }
 
 // SELECT statement
-selectQuery: (selectUnionStmt | selectStmt) EOF;
+select: (selectUnionStmt | selectStmt) EOF;
 
 selectUnionStmt: selectStmtWithParens (UNION ALL selectStmtWithParens)*;
 selectStmtWithParens: selectStmt | LPAREN selectUnionStmt RPAREN;

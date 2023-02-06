@@ -471,7 +471,7 @@ SINGLE_LINE_COMMENT
 WHITESPACE
 
 rule names:
-selectQuery
+select
 selectUnionStmt
 selectStmtWithParens
 selectStmt

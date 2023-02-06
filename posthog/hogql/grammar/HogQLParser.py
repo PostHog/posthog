@@ -473,7 +473,7 @@ class HogQLParser ( Parser ):
                       "RBRACKET", "RPAREN", "SEMICOLON", "SLASH", "UNDERSCORE", 
                       "MULTI_LINE_COMMENT", "SINGLE_LINE_COMMENT", "WHITESPACE" ]
 
-    RULE_selectQuery = 0
+    RULE_select = 0
     RULE_selectUnionStmt = 1
     RULE_selectStmtWithParens = 2
     RULE_selectStmt = 3
@@ -536,7 +536,7 @@ class HogQLParser ( Parser ):
     RULE_identifierOrNull = 60
     RULE_enumValue = 61
 
-    ruleNames =  [ "selectQuery", "selectUnionStmt", "selectStmtWithParens", 
+    ruleNames =  [ "select", "selectUnionStmt", "selectStmtWithParens", 
                    "selectStmt", "withClause", "topClause", "fromClause", 
                    "arrayJoinClause", "windowClause", "prewhereClause", 
                    "whereClause", "groupByClause", "havingClause", "orderByClause", 
@@ -799,7 +799,7 @@ class HogQLParser ( Parser ):
 
 
 
-    class SelectQueryContext(ParserRuleContext):
+    class SelectContext(ParserRuleContext):
         __slots__ = 'parser'
 
         def __init__(self, parser, parent:ParserRuleContext=None, invokingState:int=-1):
@@ -818,21 +818,21 @@ class HogQLParser ( Parser ):
 
 
         def getRuleIndex(self):
-            return HogQLParser.RULE_selectQuery
+            return HogQLParser.RULE_select
 
         def accept(self, visitor:ParseTreeVisitor):
-            if hasattr( visitor, "visitSelectQuery" ):
-                return visitor.visitSelectQuery(self)
+            if hasattr( visitor, "visitSelect" ):
+                return visitor.visitSelect(self)
             else:
                 return visitor.visitChildren(self)
 
 
 
 
-    def selectQuery(self):
+    def select(self):
 
-        localctx = HogQLParser.SelectQueryContext(self, self._ctx, self.state)
-        self.enterRule(localctx, 0, self.RULE_selectQuery)
+        localctx = HogQLParser.SelectContext(self, self._ctx, self.state)
+        self.enterRule(localctx, 0, self.RULE_select)
         try:
             self.enterOuterAlt(localctx, 1)
             self.state = 126

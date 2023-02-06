@@ -1,5 +1,5 @@
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.parser import parse_expr, parse_statement
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import print_ast
 
 
@@ -10,7 +10,7 @@ def translate_hogql(query: str, context: HogQLContext) -> str:
 
     try:
         if context.select_team_id:
-            node = parse_statement(query)
+            node = parse_select(query)
         else:
             node = parse_expr(query)
     except SyntaxError as err:

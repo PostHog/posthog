@@ -5,7 +5,7 @@ from pydantic import BaseModel, Extra
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.parser import parse_statement
+from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast, quick_print_hogql
 from posthog.models import Team
 from posthog.queries.insight import insight_sync_execute
@@ -33,7 +33,7 @@ def execute_hogql_query(
         select_query = query
         query = None
     else:
-        select_query = parse_statement(str(query))
+        select_query = parse_select(str(query))
 
     if select_query.limit is None:
         select_query.limit = 1000

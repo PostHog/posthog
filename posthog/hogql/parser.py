@@ -18,8 +18,8 @@ def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) ->
     return node
 
 
-def parse_statement(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-    parse_tree = get_parser(statement).selectQuery()
+def parse_select(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+    parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
@@ -42,7 +42,7 @@ class HogQLErrorListener(ErrorListener):
 
 
 class HogQLParseTreeConverter(ParseTreeVisitor):
-    def visitSelectQuery(self, ctx: HogQLParser.SelectQueryContext):
+    def visitSelect(self, ctx: HogQLParser.SelectContext):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
