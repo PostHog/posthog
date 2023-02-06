@@ -162,7 +162,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         values: [featureFlagLogic, ['featureFlags'], trendsLogic, ['toggledLifecycles as trendsLifecycles']],
         actions: [
             insightLogic,
-            ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
+            ['setFilters', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
             trendsLogic(props),
             ['setLifecycles as setTrendsLifecycles'],
         ],
@@ -170,6 +170,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node) => ({ query }),
+        setActiveView: (activeView: InsightType) => ({ activeView }),
         updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
@@ -181,6 +182,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             getDefaultQuery(props) as Node,
             {
                 setQuery: (_, { query }) => query,
+            },
+        ],
+        activeView: [
+            InsightType.TRENDS,
+            {
+                setActiveView: (_, { activeView }) => activeView,
             },
         ],
     })),
@@ -244,18 +251,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             }
         },
-        setActiveView: ({ type }) => {
-            if (type === InsightType.TRENDS) {
+        setActiveView: ({ activeView }) => {
+            if (activeView === InsightType.TRENDS) {
                 actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
-            } else if (type === InsightType.FUNNELS) {
+            } else if (activeView === InsightType.FUNNELS) {
                 actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
-            } else if (type === InsightType.RETENTION) {
+            } else if (activeView === InsightType.RETENTION) {
                 actions.setQuery(getCleanedQuery(NodeKind.RetentionQuery))
-            } else if (type === InsightType.PATHS) {
+            } else if (activeView === InsightType.PATHS) {
                 actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
-            } else if (type === InsightType.STICKINESS) {
+            } else if (activeView === InsightType.STICKINESS) {
                 actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
-            } else if (type === InsightType.LIFECYCLE) {
+            } else if (activeView === InsightType.LIFECYCLE) {
                 actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
             }
         },

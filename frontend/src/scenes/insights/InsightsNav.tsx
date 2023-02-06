@@ -9,6 +9,7 @@ import { FunnelsCue } from './views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+import { insightDataLogic } from './insightDataLogic'
 
 const { TabPane } = Tabs
 
@@ -20,9 +21,26 @@ interface Tab {
     className?: string
 }
 
+export function InsightNavDataExploration(): JSX.Element {
+    const { activeView } = useValues(insightDataLogic)
+    const { setActiveView } = useActions(insightDataLogic)
+
+    return <InsightsNavComponent activeView={activeView} setActiveView={setActiveView} />
+}
+
 export function InsightsNav(): JSX.Element {
-    const { activeView, filters } = useValues(insightLogic)
+    const { activeView } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+
+    return <InsightsNavComponent activeView={activeView} setActiveView={setActiveView} />
+}
+
+type InsightsNavComponentProps = {
+    activeView: InsightType
+    setActiveView: (type: InsightType) => void
+}
+
+function InsightsNavComponent({ activeView, setActiveView }: InsightsNavComponentProps): JSX.Element {
     const funnelTab = useRef<HTMLSpanElement>(null)
 
     const tabs: Tab[] = useMemo(
@@ -91,7 +109,7 @@ export function InsightsNav(): JSX.Element {
                             tab={
                                 <Link
                                     className={clsx('tab-text', className)}
-                                    to={urls.insightNew({ ...filters, insight: type })}
+                                    to={urls.insightNew({ insight: type })}
                                     preventClick
                                     data-attr={dataAttr}
                                 >
