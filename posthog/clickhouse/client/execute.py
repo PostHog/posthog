@@ -55,10 +55,13 @@ def default_settings() -> Dict:
 
 
 def extra_settings(query_id) -> Dict[str, Any]:
-    join_algorithm = posthoganalytics.get_feature_flag(
-        "join-algorithm",
-        str(query_id),
-        only_evaluate_locally=True,
+    join_algorithm = (
+        posthoganalytics.get_feature_flag(
+            "join-algorithm",
+            str(query_id),
+            only_evaluate_locally=True,
+        )
+        or "default"
     )
 
     # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
