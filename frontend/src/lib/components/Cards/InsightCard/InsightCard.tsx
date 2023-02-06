@@ -256,7 +256,7 @@ function InsightMeta({
                 <>
                     <Link to={urls.insightView(short_id)}>
                         <h4 title={name} data-attr="insight-card-title">
-                            {name || summary}
+                            {name || <i>{summary}</i>}
                         </h4>
                     </Link>
 
