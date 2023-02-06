@@ -136,7 +136,7 @@ jobs:
 
             - name: Check if antlr definitions are up to date
               run: |
-                  sudo apt-get install antlr
+                  sudo apt-get install antlr4
                   npm run grammar:build && git diff --exit-code
 
     check-migrations:
