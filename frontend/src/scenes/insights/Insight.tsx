@@ -62,6 +62,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         exporterResourceParams,
         isUsingDataExploration,
         erroredQueryId,
+        isFilterBasedInsight,
+        isQueryBasedInsight,
+        isInsightVizQuery,
     } = useValues(logic)
     const {
         saveInsight,
@@ -82,7 +85,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
     let setQuery = insighVizSetQuery
-    if (!!insight.query && !isInsightVizNode(insight.query)) {
+    if (!!insight.query && isQueryBasedInsight) {
         query = insight.query
         setQuery = () => {
             // don't support editing non-insight viz queries _yet_
@@ -116,12 +119,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         }
     }, [])
 
-    const isFilterBasedInsight = Object.keys(insight.filters || {}).length > 0 && !query
-    const isQueryBasedInsight = !query
-    const isInsightVizQuery = isQueryBasedInsight && isInsightVizNode(query)
-
     // feature flag insight-editor-panels
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
+    // if this is a non-viz query-based insight e.g. an events table then don't show the insight editing chrome
+    const showFilterEditing = isFilterBasedInsight
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -353,7 +354,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 !usingEditorPanels && filters.insight === InsightType.FUNNELS,
                         })}
                     >
-                        {!!insight.query && !isInsightVizNode(insight.query) && (
+                        {showFilterEditing && (
                             <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
                         )}
                         <div className="insights-container" data-attr="insight-view">
