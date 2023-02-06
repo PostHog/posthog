@@ -73,6 +73,25 @@ class TestLoginAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
+    @patch("posthog.api.authentication.send_email_verification")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_email_unverified_user_cant_log_in_if_email_verification_true(
+        self, mock_feature_enabled, mock_send_email_verification
+    ):
+        with self.is_cloud(True):
+            self.assertFalse(self.user.is_email_verified)
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+            # Test that we're not logged in
+            response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.uuid))
+
+            # Assert the email was sent.
+            mock_send_email_verification.assert_called_once_with(self.user.id)
+
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
 

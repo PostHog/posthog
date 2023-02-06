@@ -69,6 +69,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.email, "hedgehog@posthog.com")
         self.assertFalse(user.email_opt_in)
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
+        self.assertFalse(user.is_email_verified)
 
         # Assert that the team was properly created
         self.assertEqual(team.name, "Default Project")
