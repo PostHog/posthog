@@ -3,7 +3,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -17,7 +17,6 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -66,9 +65,7 @@
              AND event = 'sign up'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -86,10 +83,17 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -101,8 +105,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-       AND notEmpty(e.person_id) )
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -115,9 +118,28 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+          AND id IN
+            (SELECT id
+             FROM person
+             WHERE team_id = 2
+               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))) )
+        GROUP BY id
+        HAVING max(is_deleted) = 0
+        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) person ON pdi.person_id = person.id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -129,8 +151,6 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -169,6 +189,25 @@
                             replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
            INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+                AND id IN
+                  (SELECT id
+                   FROM person
+                   WHERE team_id = 2
+                     AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))) )
+              GROUP BY id
+              HAVING max(is_deleted) = 0
+              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) person ON person.id = pdi.person_id
+           INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
@@ -177,12 +216,9 @@
               GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
-             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -646,7 +682,6 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
                AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
-          AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -659,10 +694,17 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            e.person_id as person_id,
+            pdi.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -682,8 +724,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-            AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))))
-       AND notEmpty(e.person_id) )
+            AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -709,6 +750,25 @@
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM events e
         INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+        INNER JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -719,9 +779,7 @@
           AND event = '$pageview'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
-          AND notEmpty(e.person_id)
+          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1062,11 +1120,11 @@
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
         UNION ALL WITH toDateTime('2020-01-05 23:59:59', 'US/Pacific') AS date_to,
                        toDateTime('2019-12-29 00:00:00', 'US/Pacific') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                        timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                      timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
@@ -1830,11 +1888,11 @@
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2019-12-31 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-24 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                   timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT e.distinct_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -1869,11 +1927,11 @@
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2019-12-31 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-24 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                   timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT e.distinct_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -2697,11 +2755,11 @@
                          toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-08 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                   timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -2743,11 +2801,11 @@
                          toStartOfDay(toDateTime('2020-01-08 00:00:00', 'US/Pacific'))
         UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'US/Pacific') AS date_to,
                        toDateTime('2020-01-08 00:00:00', 'US/Pacific') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                        timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                      timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
@@ -2789,11 +2847,11 @@
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-12 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                   timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -2847,11 +2905,11 @@
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-12 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                   timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -2905,11 +2963,11 @@
                          toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-09 17:00:00', 'UTC') AS date_to,
                        toDateTime('2020-01-09 06:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 3600)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                   timestamp AS day_start
+                       arrayMap(n -> toStartOfHour(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 3600)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                  timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfHour(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -2951,11 +3009,11 @@
                          toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                       timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                     timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -2997,11 +3055,11 @@
                          toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'US/Pacific'))
         UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'US/Pacific') AS date_to,
                        toDateTime('2019-12-01 00:00:00', 'US/Pacific') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                          timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
@@ -3043,11 +3101,11 @@
                          toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-29 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                     timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                   timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
@@ -3089,11 +3147,11 @@
                          toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
         UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'US/Pacific') AS date_to,
                        toDateTime('2019-12-29 00:00:00', 'US/Pacific') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                          timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                        timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
                      toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
