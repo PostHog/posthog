@@ -263,7 +263,7 @@
             "eslint -c plugin-server/.eslintrc.js --fix",
             "prettier --write"
         ],
-        "(!(posthog/hogql/grammar)/**).{py,pyi}": [
+        "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
             "flake8",
             "isort"
