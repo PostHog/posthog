@@ -2753,7 +2753,7 @@
      ORDER BY day_start)
   '
 ---
-# name: TestTrends.test_weekly_active_users_daily_different_timezone
+# name: TestTrends.test_weekly_active_users_daily_minus_utc
   '
   
   SELECT groupArray(day_start) as date,
@@ -2790,6 +2790,52 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'US/Pacific')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_weekly_active_users_daily_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-19 23:59:59', 'Asia/Jakarta') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-08 00:00:00', 'Asia/Jakarta')), toDateTime('2020-01-19 23:59:59', 'Asia/Jakarta')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-08 00:00:00', 'Asia/Jakarta'))
+        UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'Asia/Jakarta') AS date_to,
+                       toDateTime('2020-01-08 00:00:00', 'Asia/Jakarta') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'Asia/Jakarta'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'Asia/Jakarta')), 'Asia/Jakarta')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                              timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  arrayJoin(event_buckets) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'Asia/Jakarta') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'Asia/Jakarta'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'Asia/Jakarta')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'Asia/Jakarta')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -3007,7 +3053,7 @@
      ORDER BY day_start)
   '
 ---
-# name: TestTrends.test_weekly_active_users_monthly_different_timezone
+# name: TestTrends.test_weekly_active_users_monthly_minus_utc
   '
   
   SELECT groupArray(day_start) as date,
@@ -3044,6 +3090,52 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'US/Pacific')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'US/Pacific')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_weekly_active_users_monthly_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'Asia/Jakarta') - toIntervalMonth(number)) AS day_start
+        FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'Asia/Jakarta')), toDateTime('2020-02-29 23:59:59', 'Asia/Jakarta')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'Asia/Jakarta'))
+        UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'Asia/Jakarta') AS date_to,
+                       toDateTime('2019-12-01 00:00:00', 'Asia/Jakarta') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'Asia/Jakarta'), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'Asia/Jakarta')), 'Asia/Jakarta')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                  timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  arrayJoin(event_buckets) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'Asia/Jakarta') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'Asia/Jakarta'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'Asia/Jakarta')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'Asia/Jakarta')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -3099,7 +3191,7 @@
      ORDER BY day_start)
   '
 ---
-# name: TestTrends.test_weekly_active_users_weekly_different_timezone
+# name: TestTrends.test_weekly_active_users_weekly_minus_utc
   '
   
   SELECT groupArray(day_start) as date,
@@ -3136,6 +3228,52 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'US/Pacific')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_weekly_active_users_weekly_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'Asia/Jakarta') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'Asia/Jakarta')), toDateTime('2020-01-18 23:59:59', 'Asia/Jakarta')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'Asia/Jakarta'))
+        UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'Asia/Jakarta') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'Asia/Jakarta') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'Asia/Jakarta'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'Asia/Jakarta')), 'Asia/Jakarta')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  arrayJoin(event_buckets) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'Asia/Jakarta') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'Asia/Jakarta'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'Asia/Jakarta')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'Asia/Jakarta')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp

@@ -694,22 +694,25 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
     return wrapped
 
 
-def also_test_with_different_timezone(fn):
+def also_test_with_different_timezones(fn):
     """
-    Runs the test twice, including in a timezone other than UTC to catch timezone handling bugs.
+    Runs the test twice: once with the project in the default UTC timezone, then again with a negative UTC timezone.
+    This is intended for catching bugs around timezone-awareness.
     """
 
-    def fn_with_different_timezone(self, *args, **kwargs):
-        if not self.team:
-            return
-
+    def fn_minus_utc(self, *args, **kwargs):
         self.team.timezone = "US/Pacific"
         self.team.save()
+        fn(self, *args, **kwargs)
 
+    def fn_plus_utc(self, *args, **kwargs):
+        self.team.timezone = "Asia/Jakarta"
+        self.team.save()
         fn(self, *args, **kwargs)
 
     # To add the test, we inspect the frame this function was called in and add the test there
     frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
-    frame_locals[f"{fn.__name__}_different_timezone"] = fn_with_different_timezone
+    frame_locals[f"{fn.__name__}_minus_utc"] = fn_minus_utc
+    frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
     return fn

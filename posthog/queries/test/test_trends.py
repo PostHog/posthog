@@ -37,7 +37,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    also_test_with_different_timezone,
+    also_test_with_different_timezones,
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -4365,7 +4365,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_monthly(self):
         self._create_active_users_events()
@@ -4383,7 +4383,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # No users fall into the period of 7 days during or before the first day of any of those three months
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_daily(self):
         self._create_active_users_events()
@@ -4431,7 +4431,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     def test_weekly_active_users_daily_based_on_action(self):
         action = _create_action(name="$pageview", team=self.team)
         self._create_active_users_events()
@@ -4464,7 +4464,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Same as test_weekly_active_users_daily
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
         self._create_active_users_events()
