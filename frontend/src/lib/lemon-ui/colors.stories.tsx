@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import { Popup } from './Popup/Popup'
+import { Popover } from './Popover/Popover'
 import { useState } from 'react'
 
 export default {
@@ -37,7 +37,7 @@ export function ColorPalette(): JSX.Element {
                     <div className="font-bold text-ellipsis mb-2">{group}</div>
                     <div className="rounded-lg overflow-hidden flex flex-col flex-1">
                         {colorGroups[group].map((color: string) => (
-                            <Popup
+                            <Popover
                                 key={color}
                                 visible={hover === color}
                                 placement="right"
@@ -48,7 +48,7 @@ export function ColorPalette(): JSX.Element {
                                 }
                             >
                                 <div className={`bg-${color} flex-1`} onMouseEnter={() => setHover(color)} />
-                            </Popup>
+                            </Popover>
                         ))}
                     </div>
                 </div>

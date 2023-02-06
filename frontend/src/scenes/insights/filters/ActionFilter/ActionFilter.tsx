@@ -44,7 +44,7 @@ export interface ActionFilterProps {
     hideRename?: boolean
     /** Hides the duplicate option */
     hideDuplicate?: boolean
-    /** Whether to show the nested PropertyFilters in popup mode or not */
+    /** Whether to show the nested PropertyFilters in popover mode or not */
     propertyFiltersPopover?: boolean
     /** A limit of entities (series or funnel steps) beyond which more can't be added */
     entitiesLimit?: number
