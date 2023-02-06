@@ -13,6 +13,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureRecordMetadata
+from prometheus_client import Counter
 from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
@@ -32,7 +33,6 @@ from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
@@ -42,6 +42,13 @@ logger = structlog.get_logger(__name__)
 # events that are ingested via a separate path than analytics events. They have
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+
+
+EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
+    "capture_events_dropped_over_quota",
+    "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
+    labelnames=["resource_type", "team_id", "token"],
+)
 
 
 def parse_kafka_event_data(
@@ -76,7 +83,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     kafka_topic = (
         KAFKA_SESSION_RECORDING_EVENTS
         if event_name in SESSION_RECORDING_EVENT_NAMES
-        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
     )
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
@@ -202,6 +209,36 @@ def _ensure_web_feature_flags_in_properties(
                 event["properties"][f"$feature/{k}"] = v
 
 
+def drop_events_over_quota(
+    token: str, events: List[Any], ingestion_context: Optional[EventIngestionContext]
+) -> List[Any]:
+    if not settings.EE_AVAILABLE:
+        return events
+
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
+
+    results = []
+    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
+    team_id = ingestion_context.team_id if ingestion_context else None
+
+    for event in events:
+        if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
+            if token in limited_tokens_recordings:
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", team_id=team_id, token=token).inc()
+                if settings.QUOTA_LIMITING_ENABLED:
+                    continue
+
+        elif token in limited_tokens_events:
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", team_id=team_id, token=token).inc()
+            if settings.QUOTA_LIMITING_ENABLED:
+                continue
+
+        results.append(event)
+
+    return results
+
+
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
@@ -263,6 +300,12 @@ def get_event(request):
             events = data
         else:
             events = [data]
+
+        try:
+            events = drop_events_over_quota(token, events, ingestion_context)
+        except Exception as e:
+            # NOTE: Whilst we are testing this code we want to track exceptions but allow the events through if anything goes wrong
+            capture_exception(e)
 
         try:
             events = preprocess_session_recording_events_for_clickhouse(events)
