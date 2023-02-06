@@ -8,7 +8,6 @@ import {
     QueryEditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
-    FunnelVizType,
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -37,6 +36,7 @@ import { AttributionDataExploration } from 'scenes/insights/EditorFilters/Attrib
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
 import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -47,14 +47,16 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-    const { isTrends, isFunnels, isRetention, isPaths, isStickiness, isLifecycle, isTrendsLike, display, breakdown } =
-        useValues(insightDataLogic(insightProps))
+    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
+        isStepsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
-    const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
+    const hasAttribution = isStepsFunnel
 
     const showFilters = true // TODO: implement with insightVizLogic
 
