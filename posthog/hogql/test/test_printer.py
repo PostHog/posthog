@@ -11,7 +11,14 @@ class TestHogQLContext(TestCase):
     def _translate(self, query: str, context: Optional[HogQLContext] = None) -> str:
         return translate_hogql(query, context or HogQLContext())
 
-    def test_hogql_literals(self):
+    def _assert_error(self, expr, expected_error):
+        with self.assertRaises(ValueError) as context:
+            self._translate(expr)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
+    def test_literals(self):
         self.assertEqual(self._translate("1 + 2"), "plus(1, 2)")
         self.assertEqual(self._translate("-1 + 2"), "plus(-1, 2)")
         self.assertEqual(self._translate("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
@@ -20,11 +27,11 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("'string'"), "%(hogql_val_0)s")
         self.assertEqual(self._translate('"string"'), "%(hogql_val_0)s")
 
-    def test_hogql_equals_null(self):
+    def test_equals_null(self):
         self.assertEqual(self._translate("1 == null"), "isNull(1)")
         self.assertEqual(self._translate("1 != null"), "isNotNull(1)")
 
-    def test_hogql_fields_and_properties(self):
+    def test_fields_and_properties(self):
         self.assertEqual(
             self._translate("properties.bla"),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
@@ -103,7 +110,7 @@ class TestHogQLContext(TestCase):
             [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "person_created_at")],
         )
 
-    def test_hogql_materialized_fields_and_properties(self):
+    def test_materialized_fields_and_properties(self):
         try:
             from ee.clickhouse.materialized_columns.analyze import materialize
         except:
@@ -116,20 +123,20 @@ class TestHogQLContext(TestCase):
         materialize("events", "$initial_waffle", table_column="person_properties")
         self.assertEqual(self._translate("person.properties['$initial_waffle']"), '"mat_pp_$initial_waffle"')
 
-    def test_hogql_methods(self):
+    def test_methods(self):
         self.assertEqual(self._translate("count()"), "count(*)")
         self.assertEqual(self._translate("countDistinct(event)"), "count(distinct event)")
         self.assertEqual(self._translate("countDistinctIf(event, 1 == 2)"), "countIf(distinct event, equals(1, 2))")
         self.assertEqual(self._translate("sumIf(1, 1 == 2)"), "sumIf(1, equals(1, 2))")
 
-    def test_hogql_functions(self):
+    def test_functions(self):
         context = HogQLContext()  # inline values
         self.assertEqual(self._translate("abs(1)"), "abs(1)")
         self.assertEqual(self._translate("max2(1,2)"), "max2(1, 2)")
         self.assertEqual(self._translate("toInt('1')", context), "toInt64OrNull(%(hogql_val_0)s)")
         self.assertEqual(self._translate("toFloat('1.3')", context), "toFloat64OrNull(%(hogql_val_1)s)")
 
-    def test_hogql_expr_parse_errors(self):
+    def test_expr_parse_errors(self):
         self._assert_error("", "Empty query")
         self._assert_error("avg(bla)", "Unknown event field 'bla'")
         self._assert_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
@@ -145,7 +152,7 @@ class TestHogQLContext(TestCase):
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
 
-    def test_hogql_expr_syntax_errors(self):
+    def test_expr_syntax_errors(self):
         self._assert_error("(", "line 1, column 1: no viable alternative at input '('")
         self._assert_error("())", "line 1, column 1: no viable alternative at input '()'")
         self._assert_error("['properties']['value']", "Unsupported node: ColumnExprArray")
@@ -156,7 +163,7 @@ class TestHogQLContext(TestCase):
         self._assert_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
-    def test_hogql_returned_properties(self):
+    def test_returned_properties(self):
         context = HogQLContext()
         self._translate("avg(properties.prop) + avg(uuid) + event", context)
         self.assertEqual(
@@ -221,7 +228,7 @@ class TestHogQLContext(TestCase):
         )
         self.assertEqual(context.found_aggregation, True)
 
-    def test_hogql_logic(self):
+    def test_logic(self):
         self.assertEqual(
             self._translate("event or timestamp"),
             "or(event, timestamp)",
@@ -239,7 +246,7 @@ class TestHogQLContext(TestCase):
             "or(event, not(timestamp))",
         )
 
-    def test_hogql_comparisons(self):
+    def test_comparisons(self):
         context = HogQLContext()
         self.assertEqual(self._translate("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
         self.assertEqual(self._translate("event != 'E'", context), "notEquals(event, %(hogql_val_1)s)")
@@ -254,11 +261,11 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._translate("event in 'E'", context), "in(event, %(hogql_val_8)s)")
         self.assertEqual(self._translate("event not in 'E'", context), "not(in(event, %(hogql_val_9)s))")
 
-    def test_hogql_comments(self):
+    def test_comments(self):
         context = HogQLContext()
         self.assertEqual(self._translate("event -- something", context), "event")
 
-    def test_hogql_special_root_properties(self):
+    def test_special_root_properties(self):
         self.assertEqual(
             self._translate("*"),
             "tuple(uuid,event,properties,timestamp,team_id,distinct_id,elements_chain,created_at,person_id,person_created_at,person_properties)",
@@ -271,7 +278,7 @@ class TestHogQLContext(TestCase):
         self.assertEqual(context.values, {"hogql_val_0": "name", "hogql_val_1": "email"})
         self._assert_error("person + 1", 'Can not use the field "person" in an expression')
 
-    def test_hogql_values(self):
+    def test_values(self):
         context = HogQLContext()
         self.assertEqual(self._translate("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
         self.assertEqual(context.values, {"hogql_val_0": "E"})
@@ -281,9 +288,5 @@ class TestHogQLContext(TestCase):
         )
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
-    def _assert_error(self, expr, expected_error):
-        with self.assertRaises(ValueError) as context:
-            self._translate(expr)
-        if expected_error not in str(context.exception):
-            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
-        self.assertTrue(expected_error in str(context.exception))
+    def test_select(self):
+        pass
