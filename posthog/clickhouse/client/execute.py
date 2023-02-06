@@ -24,6 +24,19 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
 
+# As of CH 22.8 - more algorithms have been added on newer versions
+CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
+    "default",
+    "hash",
+    "parallel_hash",
+    "direct",
+    "full_sorting_merge",
+    "partial_merge",
+    "auto",
+]
+
+is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
+
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
@@ -47,6 +60,10 @@ def extra_settings(query_id) -> Dict[str, Any]:
         str(query_id),
         only_evaluate_locally=True,
     )
+
+    # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
+    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 1:
+        join_algorithm = "default"
 
     return {"join_algorithm": join_algorithm}
 
