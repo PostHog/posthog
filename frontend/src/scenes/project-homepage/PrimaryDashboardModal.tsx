@@ -7,11 +7,12 @@ import { IconCottage } from 'lib/lemon-ui/icons'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { LemonInput } from '@posthog/lemon-ui'
 
 export function PrimaryDashboardModal(): JSX.Element {
-    const { isOpen, primaryDashboardId } = useValues(primaryDashboardModalLogic)
-    const { closePrimaryDashboardModal, setPrimaryDashboard } = useActions(primaryDashboardModalLogic)
-    const { nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
+    const { isOpen, primaryDashboardId, dashboards, searchTerm } = useValues(primaryDashboardModalLogic)
+    const { closePrimaryDashboardModal, setPrimaryDashboard, setSearchTerm } = useActions(primaryDashboardModalLogic)
+    const { dashboardsLoading } = useValues(dashboardsModel)
 
     return (
         <LemonModal
@@ -36,7 +37,16 @@ export function PrimaryDashboardModal(): JSX.Element {
                 </div>
             ) : (
                 <div className="space-y-2">
-                    {nameSortedDashboards.map((dashboard: DashboardType) => {
+                    <LemonInput
+                        type="search"
+                        placeholder="Search for dashboards"
+                        onChange={setSearchTerm}
+                        value={searchTerm}
+                        fullWidth={true}
+                        allowClear={true}
+                    />
+                    <hr />
+                    {dashboards.map((dashboard: DashboardType) => {
                         const isPrimary = dashboard.id === primaryDashboardId
                         const rowContents = (
                             <div className="flex flex-1 items-center justify-between overflow-hidden">
