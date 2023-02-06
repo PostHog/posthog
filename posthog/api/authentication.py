@@ -264,7 +264,6 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
 
         token = self.request.query_params.get("token")
         user_uuid = self.kwargs.get("user_uuid")
-
         if not token:
             raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
 
@@ -287,6 +286,7 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
         report_user_verified_email(user)
 
         login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        report_user_logged_in(user)
         return {"success": True, "token": token}
 
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:

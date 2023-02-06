@@ -11,6 +11,7 @@ from posthog.tasks.email import (
     send_async_migration_complete_email,
     send_async_migration_errored_email,
     send_canary_email,
+    send_email_verification,
     send_fatal_plugin_error,
     send_invite,
     send_member_join,
@@ -78,6 +79,16 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
 
         send_password_reset(user.id)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
+
+    def test_send_email_verification(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+
+        send_email_verification(user.id)
 
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
