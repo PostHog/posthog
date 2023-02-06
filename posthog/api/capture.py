@@ -522,7 +522,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
 
             statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
             logger.warning(
-                "Partition key %s overriden as bucket capacity of %s tokens exceeded",
+                "Partition key %s overridden as bucket capacity of %s tokens exceeded",
                 candidate_partition_key,
                 LIMITER._capacity,
             )
