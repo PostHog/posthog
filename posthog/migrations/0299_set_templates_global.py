@@ -18,5 +18,6 @@ class Migration(migrations.Migration):
             WHERE team_id IS NOT NULL
             -- not-null-ignore
             """,
+            reverse_sql=migrations.RunSQL.noop,
         ),
     ]
