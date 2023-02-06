@@ -51,6 +51,9 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DashboardTemplateSerializer
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
+        if not request.user.is_staff:
+            return response.Response(status=status.HTTP_403_FORBIDDEN)
+
         serializer = DashboardTemplateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save()

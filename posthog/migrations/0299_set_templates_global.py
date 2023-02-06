@@ -11,17 +11,11 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
+            # at the point of this migration, the only team that has templates is the PostHog team in cloud
             """
             UPDATE posthog_dashboardtemplate
             SET team_id = NULL
             WHERE team_id IS NOT NULL
-            """,
-            # at the point of this migration, the only team that has templates is the PostHog team in cloud
-            # nobody else could be in a state to rollback this migration and need to have their templates' team id restored
-            """
-            UPDATE posthog_dashboardtemplate
-            SET team_id = 2
-            WHERE team_id IS NULL
             """,
         ),
     ]
