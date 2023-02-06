@@ -348,6 +348,15 @@ class TestParser(BaseTest):
 
     def test_select_columns(self):
         self.assertEqual(parse_select("select 1"), ast.SelectQuery(select=[ast.Constant(value=1)]))
+        self.assertEqual(
+            parse_select("select 1, 4, 'string'"),
+            ast.SelectQuery(select=[ast.Constant(value=1), ast.Constant(value=4), ast.Constant(value="string")]),
+        )
+
+    def test_select_columns_distinct(self):
+        self.assertEqual(
+            parse_select("select distinct 1"), ast.SelectQuery(select=[ast.Constant(value=1)], distinct=True)
+        )
 
     def test_select_where(self):
         self.assertEqual(

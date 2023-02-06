@@ -157,6 +157,7 @@ class SelectQuery(Expr):
     order_by: Optional[List[OrderExpr]] = None
     limit: Optional[int] = None
     offset: Optional[int] = None
+    distinct: Optional[bool] = None
 
     def children(self) -> List[AST]:
         return cast(

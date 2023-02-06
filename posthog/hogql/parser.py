@@ -97,6 +97,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
         return ast.SelectQuery(
             select=select,
+            distinct=True if ctx.DISTINCT() else None,
             select_from=select_from,
             where=where,
             prewhere=prewhere,
