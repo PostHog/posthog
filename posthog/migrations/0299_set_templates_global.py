@@ -16,6 +16,7 @@ class Migration(migrations.Migration):
             UPDATE posthog_dashboardtemplate
             SET team_id = NULL
             WHERE team_id IS NOT NULL
+            -- not-null-ignore
             """,
         ),
     ]
