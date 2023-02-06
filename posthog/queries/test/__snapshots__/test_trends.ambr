@@ -785,6 +785,32 @@
      ORDER BY day_start)
   '
 ---
+# name: TestTrends.test_non_deterministic_timezones
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2022-11-30 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific')), toDateTime('2022-11-30 23:59:59', 'US/Pacific')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0)
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2022-11-30 23:59:59', 'US/Pacific')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
 # name: TestTrends.test_person_property_filtering
   '
   
