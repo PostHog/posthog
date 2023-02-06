@@ -997,17 +997,69 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific')), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC')), toDateTime('2020-01-26 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'))
+                         toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'), 0))
+          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-26 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezone_weekly_minus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'US/Pacific')), toDateTime('2020-01-26 23:59:59', 'US/Pacific')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
                          toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
-          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-25 23:59:59', 'US/Pacific')
+          AND toDateTime(timestamp, 'US/Pacific') >= toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'US/Pacific'), 0)
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-26 23:59:59', 'US/Pacific')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezone_weekly_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59', 'Europe/Moscow') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Europe/Moscow')), toDateTime('2020-01-26 23:59:59', 'Europe/Moscow')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Europe/Moscow'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'Europe/Moscow')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp, 'Europe/Moscow'), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Europe/Moscow'), 0))
+          AND toTimeZone(toDateTime(timestamp, 'Europe/Moscow'), 'UTC') <= toDateTime('2020-01-26 23:59:59', 'Europe/Moscow')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)

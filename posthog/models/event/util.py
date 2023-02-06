@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import uuid
 from typing import Any, Dict, List, Optional, Set, Union
@@ -109,16 +110,17 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
     inserts = []
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
-        timestamp = event.get("timestamp")
         datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
-        if not timestamp:
-            timestamp = timezone.now()
-        # clickhouse specific formatting
+        timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
-        else:
-            timestamp = timestamp.astimezone(pytz.utc)
-
+        # Adjust timezone
+        if timestamp.tzinfo is None:
+            timestamp = timestamp.replace(tzinfo=pytz.utc)
+            team_timezone = event["team"].timezone if event.get("team") else None
+            if team_timezone:
+                timestamp = timestamp.astimezone(pytz.timezone(team_timezone))
+        # Format for ClickHouse
         timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
 
         elements_chain = ""

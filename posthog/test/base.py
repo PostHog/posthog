@@ -1,3 +1,4 @@
+import datetime as dt
 import inspect
 import re
 import threading
@@ -14,7 +15,6 @@ from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
-from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
 from posthog.clickhouse.client import sync_execute
@@ -486,7 +486,7 @@ def _create_event(**kwargs):
     if not kwargs.get("event_uuid"):
         kwargs["event_uuid"] = str(uuid.uuid4())
     if not kwargs.get("timestamp"):
-        kwargs["timestamp"] = now()
+        kwargs["timestamp"] = dt.datetime.now()
     events_cache_tests.append(kwargs)
     return kwargs["event_uuid"]
 
@@ -503,7 +503,9 @@ def _create_person(*args, **kwargs):
         )  # make sure the ordering of uuids is always consistent
     persons_ordering_int += 1
     # If we've done freeze_time just create straight away
-    if kwargs.get("immediate") or (hasattr(now(), "__module__") and now().__module__ == "freezegun.api"):
+    if kwargs.get("immediate") or (
+        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
+    ):
         if kwargs.get("immediate"):
             del kwargs["immediate"]
         create_person(
@@ -701,12 +703,12 @@ def also_test_with_different_timezones(fn):
     """
 
     def fn_minus_utc(self, *args, **kwargs):
-        self.team.timezone = "US/Pacific"
+        self.team.timezone = "America/Phoenix"  # UTC-7. Arizona does NOT observe DST, which is good for determinism
         self.team.save()
         fn(self, *args, **kwargs)
 
     def fn_plus_utc(self, *args, **kwargs):
-        self.team.timezone = "Asia/Jakarta"
+        self.team.timezone = "Europe/Moscow"  # UTC+3. Russia does NOT observe DST, which is good for determinism
         self.team.save()
         fn(self, *args, **kwargs)
 

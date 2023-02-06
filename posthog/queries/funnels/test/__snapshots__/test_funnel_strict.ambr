@@ -8,8 +8,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -77,8 +77,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -98,8 +98,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'buy'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(e.properties, '$version'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -170,8 +170,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) ) ARRAY
                  JOIN prop_vals as prop
                  WHERE prop != [] ))
@@ -193,8 +193,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -261,8 +261,8 @@
                        GROUP BY distinct_id
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                       AND (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,

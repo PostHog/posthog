@@ -91,8 +91,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-10 23:59:59', 'UTC')
+                         AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                         AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-10 23:59:59', 'UTC')
                          AND ((replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%g0%'
                                OR replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', '') ILIKE '%g0%'
                                OR replaceRegexpAll(JSONExtractRaw(e.properties, 'distinct_id'), '^"|"$', '') ILIKE '%g0%'

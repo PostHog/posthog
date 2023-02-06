@@ -5349,12 +5349,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # The key is to not get any 0s here
         self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0])
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_timezone_weekly(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-12T02:01:01Z"):  # This event should be ignored, as it's before the -14d range
+        with freeze_time("2020-01-11T19:01:01"):  # This event should be ignored, as it's before the -14d range
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -5362,7 +5361,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
             )
 
-        with freeze_time("2020-01-12T09:01:01Z"):
+        with freeze_time("2020-01-12T02:01:01"):
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -5370,7 +5369,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
             )
 
-        with freeze_time("2020-01-22T01:01:01Z"):
+        with freeze_time("2020-01-21T18:01:01"):
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -5379,7 +5378,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         # Total volume query
-        with freeze_time("2020-01-26T11:00:00Z"):  # This was 2020-01-26 03:00:00 in PST
+        with freeze_time("2020-01-26T11:00:00"):
             response = Trends().run(
                 Filter(
                     data={
@@ -5393,7 +5392,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(response[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
-        self.assertEqual(response[0]["data"], [1, 1, 0])
+        self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
 
     def test_same_day(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
