@@ -176,11 +176,9 @@ class QueryDateRange(Generic[F]):
 
     def _get_timezone_aware_date_condition(self, operator: str, date_clause: str) -> str:
         if self.should_round:
-            return f"AND toDateTime({self._table}timestamp, 'UTC') {operator} {self._timezone_date_clause(date_clause)}"
+            return f"AND toDateTime({self._table}timestamp, %(timezone)s) {operator} {self._timezone_date_clause(date_clause)}"
         else:
-            return (
-                f"AND toDateTime({self._table}timestamp, 'UTC') {operator} toDateTime(%({date_clause})s, %(timezone)s)"
-            )
+            return f"AND toDateTime({self._table}timestamp, %(timezone)s) {operator} toDateTime(%({date_clause})s, %(timezone)s)"
 
     def _timezone_date_clause(self, date_clause: str) -> str:
         clause = f"toDateTime({self.interval_annotation}(toDateTime(%({date_clause})s, %(timezone)s)), %(timezone)s)"

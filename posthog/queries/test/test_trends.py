@@ -5354,7 +5354,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.team.timezone = "US/Pacific"
         self.team.save()
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-12T02:01:01Z"):
+        with freeze_time("2020-01-12T02:01:01Z"):  # This event should be ignored, as it's before the -14d range
             _create_event(
                 team=self.team,
                 event="sign up",
@@ -5378,8 +5378,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
             )
 
-        #  volume
-        with freeze_time("2020-01-26T07:00:00Z"):  # this is UTC
+        # Total volume query
+        with freeze_time("2020-01-26T11:00:00Z"):  # This was 2020-01-26 03:00:00 in PST
             response = Trends().run(
                 Filter(
                     data={
@@ -5392,8 +5392,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0])
-        self.assertEqual(response[0]["labels"], ["5-Jan-2020", "12-Jan-2020", "19-Jan-2020"])
+        self.assertEqual(response[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
+        self.assertEqual(response[0]["data"], [1, 1, 0])
 
     def test_same_day(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
