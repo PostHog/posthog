@@ -6,8 +6,11 @@ def parse_string_literal(ctx):
     elif text.startswith('"') and text.endswith('"'):
         text = text[1:-1]
         text = text.replace('""', '"')
+    elif text.startswith("`") and text.endswith("`"):
+        text = text[1:-1]
+        text = text.replace("``", "`")
     else:
-        raise ValueError(f"Invalid string literal, must start and end with the same quotes: {text}")
+        raise ValueError(f"Invalid string literal, must start and end with the same quote symbol: {text}")
 
     # copied from clickhouse_driver/util/escape.py
     text = text.replace("\\b", "\b")

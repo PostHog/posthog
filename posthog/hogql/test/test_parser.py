@@ -332,10 +332,10 @@ class TestParser(BaseTest):
             ast.Column(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
-            parse_expr("1 as 'asd'"),
+            parse_expr("1 as `asd`"),
             ast.Column(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
-            parse_expr("1 as '🍄'"),
+            parse_expr("1 as `🍄`"),
             ast.Column(alias="🍄", expr=ast.Constant(value=1)),
         )
