@@ -97,6 +97,7 @@ jobs:
               uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -155,6 +156,7 @@ jobs:
               uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -230,6 +232,7 @@ jobs:
                   clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
@@ -299,6 +302,7 @@ jobs:
               uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
@@ -388,6 +392,7 @@ jobs:
               uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
+                  token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Install SAML (python3-saml) dependencies
               shell: bash
