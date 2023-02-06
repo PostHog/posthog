@@ -82,6 +82,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                                     className="dashboard-row"
                                     onClick={() => {
                                         setPrimaryDashboard(dashboard.id)
+                                        setSearchTerm('')
                                         closePrimaryDashboardModal()
                                     }}
                                 >
