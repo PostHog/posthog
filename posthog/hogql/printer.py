@@ -53,7 +53,7 @@ def print_ast(
 
         from_table = None
         if node.select_from:
-            if isinstance(node.select_from.table, ast.FieldAccess):
+            if isinstance(node.select_from.table, ast.Field):
                 if node.select_from.table.field != "events":
                     raise ValueError('Only selecting from the "events" table is supported')
                 from_table = "events"
@@ -169,24 +169,16 @@ def print_ast(
             raise ValueError(
                 f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
             )
-    elif isinstance(node, ast.FieldAccess):
-        if dialect == "hogql":
-            # TODO: check sanitization when printing HogQL fields
-            response = node.field
-        elif node.field == "*":
-            query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-            response = print_ast(parse_expr(query), stack, context, dialect)
-        elif node.field == "person":
-            query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
-            response = print_ast(parse_expr(query), stack, context, dialect)
-        else:
-            field_access = parse_field_access([node.field], context)
-            context.field_access_logs.append(field_access)
-            response = field_access.sql
-    elif isinstance(node, ast.FieldAccessChain):
+    elif isinstance(node, ast.Field):
         if dialect == "hogql":
             # TODO: check sanitization when printing HogQL fields
             response = ".".join(node.chain)
+        elif node.chain == ["*"]:
+            query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+            response = print_ast(parse_expr(query), stack, context, dialect)
+        elif node.chain == ["person"]:
+            query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+            response = print_ast(parse_expr(query), stack, context, dialect)
         else:
             field_access = parse_field_access(node.chain, context)
             context.field_access_logs.append(field_access)

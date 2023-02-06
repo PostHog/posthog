@@ -40,7 +40,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
         )
         return ast.CompareOperation(
             op=op,
-            left=ast.FieldAccessChain(chain=["properties", property.key]),
+            left=ast.Field(chain=["properties", property.key]),
             right=ast.Constant(value=value),
         )
     elif property.type == "person":
@@ -49,7 +49,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
         )
         return ast.CompareOperation(
             op=op,
-            left=ast.FieldAccessChain(chain=["person", "properties", property.key]),
+            left=ast.Field(chain=["person", "properties", property.key]),
             right=ast.Constant(value=value),
         )
     elif property.type == "hogql":

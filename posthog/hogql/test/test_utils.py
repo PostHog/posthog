@@ -16,7 +16,7 @@ class TestUtils(BaseTest):
             property_to_expr({"key": "a", "value": "b"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=ast.FieldAccessChain(chain=["properties", "a"]),
+                left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="b"),
             ),
         )
@@ -24,7 +24,7 @@ class TestUtils(BaseTest):
             property_to_expr({"type": "event", "key": "a", "value": "b"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=ast.FieldAccessChain(chain=["properties", "a"]),
+                left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="b"),
             ),
         )
@@ -32,7 +32,7 @@ class TestUtils(BaseTest):
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=ast.FieldAccessChain(chain=["properties", "a"]),
+                left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="b"),
             ),
         )
@@ -40,7 +40,7 @@ class TestUtils(BaseTest):
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.NotEq,
-                left=ast.FieldAccessChain(chain=["properties", "a"]),
+                left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="b"),
             ),
         )
@@ -48,7 +48,7 @@ class TestUtils(BaseTest):
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Lt,
-                left=ast.FieldAccessChain(chain=["properties", "a"]),
+                left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="3"),
             ),
         )
@@ -58,7 +58,7 @@ class TestUtils(BaseTest):
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=ast.FieldAccessChain(chain=["properties", "a"]),
+                left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="b"),
             ),
         )
@@ -68,7 +68,7 @@ class TestUtils(BaseTest):
             property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=ast.FieldAccessChain(chain=["person", "properties", "a"]),
+                left=ast.Field(chain=["person", "properties", "a"]),
                 right=ast.Constant(value="b"),
             ),
         )

@@ -98,7 +98,7 @@ def run_events_query_v3(
 
     stmt = ast.SelectQuery(
         select=select,
-        select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
         where=where,
         having=having,
         group_by=group_by if has_any_aggregation else None,

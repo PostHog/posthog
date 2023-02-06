@@ -101,14 +101,7 @@ class Constant(Expr):
         return cast(List[AST], [])
 
 
-class FieldAccess(Expr):
-    field: str
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], [])
-
-
-class FieldAccessChain(Expr):
+class Field(Expr):
     chain: List[str]
 
     def children(self) -> List[AST]:
@@ -131,7 +124,7 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
-    table: Optional[Union["SelectQuery", FieldAccess, FieldAccessChain]] = None
+    table: Optional[Union["SelectQuery", Field]] = None
     table_final: Optional[bool] = None
     alias: Optional[str] = None
     join_type: Optional[str] = None

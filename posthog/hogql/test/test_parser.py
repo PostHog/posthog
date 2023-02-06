@@ -273,12 +273,12 @@ class TestParser(BaseTest):
     def test_field_access(self):
         self.assertEqual(
             parse_expr("event"),
-            ast.FieldAccess(field="event"),
+            ast.Field(chain=["event"]),
         )
         self.assertEqual(
             parse_expr("event like '$%'"),
             ast.CompareOperation(
-                left=ast.FieldAccess(field="event"), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
+                left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
             ),
         )
 
@@ -286,26 +286,26 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("properties.something == 1"),
             ast.CompareOperation(
-                left=ast.FieldAccessChain(chain=["properties", "something"]),
+                left=ast.Field(chain=["properties", "something"]),
                 right=ast.Constant(value=1),
                 op=ast.CompareOperationType.Eq,
             ),
         )
         self.assertEqual(
             parse_expr("properties.something"),
-            ast.FieldAccessChain(chain=["properties", "something"]),
+            ast.Field(chain=["properties", "something"]),
         )
         self.assertEqual(
             parse_expr("properties.$something"),
-            ast.FieldAccessChain(chain=["properties", "$something"]),
+            ast.Field(chain=["properties", "$something"]),
         )
         self.assertEqual(
             parse_expr("person.properties.something"),
-            ast.FieldAccessChain(chain=["person", "properties", "something"]),
+            ast.Field(chain=["person", "properties", "something"]),
         )
         self.assertEqual(
             parse_expr("this.can.go.on.for.miles"),
-            ast.FieldAccessChain(chain=["this", "can", "go", "on", "for", "miles"]),
+            ast.Field(chain=["this", "can", "go", "on", "for", "miles"]),
         )
 
     def test_calls(self):
@@ -424,28 +424,28 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("select 1 from events"),
             ast.SelectQuery(
-                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"))
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
             ),
         )
         self.assertEqual(
             parse_select("select 1 from events as e"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"), alias="e"),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
             ),
         )
         self.assertEqual(
             parse_select("select 1 from complex.table"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccessChain(chain=["complex", "table"])),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"])),
             ),
         )
         self.assertEqual(
             parse_select("select 1 from complex.table as a"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccessChain(chain=["complex", "table"]), alias="a"),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
             ),
         )
         self.assertEqual(
@@ -454,7 +454,7 @@ class TestParser(BaseTest):
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.SelectQuery(
-                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"))
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
                     )
                 ),
             ),
@@ -465,7 +465,7 @@ class TestParser(BaseTest):
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.SelectQuery(
-                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.FieldAccess(field="events"))
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
                     ),
                     alias="sq",
                 ),
@@ -478,22 +478,22 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
-                    table=ast.FieldAccess(field="events"),
+                    table=ast.Field(chain=["events"]),
                     join_type="JOIN",
                     join_constraint=ast.Constant(value=1),
-                    join_expr=ast.JoinExpr(table=ast.FieldAccess(field="events2")),
+                    join_expr=ast.JoinExpr(table=ast.Field(chain=["events2"])),
                 ),
             ),
         )
         self.assertEqual(
             parse_select("select * from events LEFT OUTER JOIN events2 ON 1"),
             ast.SelectQuery(
-                select=[ast.FieldAccess(field="*")],
+                select=[ast.Field(chain=["*"])],
                 select_from=ast.JoinExpr(
-                    table=ast.FieldAccess(field="events"),
+                    table=ast.Field(chain=["events"]),
                     join_type="LEFT OUTER JOIN",
                     join_constraint=ast.Constant(value=1),
-                    join_expr=ast.JoinExpr(table=ast.FieldAccess(field="events2")),
+                    join_expr=ast.JoinExpr(table=ast.Field(chain=["events2"])),
                 ),
             ),
         )
@@ -502,14 +502,14 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
-                    table=ast.FieldAccess(field="events"),
+                    table=ast.Field(chain=["events"]),
                     join_type="LEFT OUTER JOIN",
                     join_constraint=ast.Constant(value=1),
                     join_expr=ast.JoinExpr(
-                        table=ast.FieldAccess(field="events2"),
+                        table=ast.Field(chain=["events2"]),
                         join_type="RIGHT ANY JOIN",
                         join_constraint=ast.Constant(value=2),
-                        join_expr=ast.JoinExpr(table=ast.FieldAccess(field="events3")),
+                        join_expr=ast.JoinExpr(table=ast.Field(chain=["events3"])),
                     ),
                 ),
             ),
@@ -520,8 +520,8 @@ class TestParser(BaseTest):
             parse_select("select 1 from events GROUP BY 1, event"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
-                group_by=[ast.Constant(value=1), ast.FieldAccess(field="event")],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                group_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
             ),
         )
 
@@ -530,11 +530,11 @@ class TestParser(BaseTest):
             parse_select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 order_by=[
                     ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
-                    ast.OrderExpr(expr=ast.FieldAccess(field="event"), order="ASC"),
-                    ast.OrderExpr(expr=ast.FieldAccess(field="timestamp"), order="DESC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
                 ],
             ),
         )
@@ -544,7 +544,7 @@ class TestParser(BaseTest):
             parse_select("select 1 from events LIMIT 1"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 limit=1,
             ),
         )
@@ -552,7 +552,7 @@ class TestParser(BaseTest):
             parse_select("select 1 from events LIMIT 1 OFFSET 3"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
-                select_from=ast.JoinExpr(table=ast.FieldAccess(field="events")),
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 limit=1,
                 offset=3,
             ),

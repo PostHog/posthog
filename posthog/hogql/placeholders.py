@@ -58,7 +58,7 @@ def replace_placeholders(node: ast.Expr, placeholders: Dict[str, ast.Expr]) -> a
             limit=node.limit,
             offset=node.offset,
         )
-    elif isinstance(node, ast.Constant) or isinstance(node, ast.FieldAccess) or isinstance(node, ast.FieldAccessChain):
+    elif isinstance(node, ast.Constant) or isinstance(node, ast.Field):
         pass
     elif isinstance(node, ast.Expr):
         raise NotImplementedError(f"replace_placeholders not implemented for {type(node).__name__}")

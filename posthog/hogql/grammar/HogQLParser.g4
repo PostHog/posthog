@@ -166,7 +166,7 @@ columnLambdaExpr:
 // This is slightly different in HogQL compared to ClickHouse SQL
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
-// to just one ast.FieldAccessChain(chain=['a','b','columnIdentifier','on','and','on']).
+// to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
 columnIdentifier: (tableIdentifier DOT)? nestedIdentifier;
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr

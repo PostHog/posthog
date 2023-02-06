@@ -313,7 +313,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [self.visit(c) for c in ctx.columnsExpr()]
 
     def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
-        return ast.FieldAccess(field="*")
+        return ast.Field(field="*")
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
@@ -441,10 +441,8 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         property = self.visit(ctx.columnExpr(1))
         if not isinstance(property, ast.Constant):
             raise NotImplementedError(f"Array access must be performed with a constant.")
-        if isinstance(object, ast.FieldAccess):
-            return ast.FieldAccessChain(chain=[object.field, property.value])
-        if isinstance(object, ast.FieldAccessChain):
-            return ast.FieldAccessChain(chain=object.chain + [property.value])
+        if isinstance(object, ast.Field):
+            return ast.Field(chain=object.chain + [property.value])
 
         raise NotImplementedError(
             f"Unsupported combination for ColumnExprArrayAccess: {object.__class__.__name__}[{property.__class__.__name__}]"
@@ -505,13 +503,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprWinFunction")
 
     def visitColumnExprIdentifier(self, ctx: HogQLParser.ColumnExprIdentifierContext):
-        chain = self.visitChildren(ctx)
-        if isinstance(chain, ast.Expr):
-            return chain
-        if len(chain) == 1:
-            return ast.FieldAccess(field=chain[0])
-
-        return ast.FieldAccessChain(chain=chain)
+        return self.visit(ctx.columnIdentifier())
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
         if ctx.columnExprList():
@@ -521,7 +513,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(name=name, args=args)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
-        return ast.FieldAccess(field="*")
+        return ast.Field(field=["*"])
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
         return [self.visit(arg) for arg in ctx.columnArgExpr()]
@@ -542,16 +534,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
                 return ast.Constant(value=True)
             if text == "false":
                 return ast.Constant(value=False)
-            return nested
+            return ast.Field(chain=nested)
 
-        return ast.FieldAccessChain(chain=table + nested)
+        return ast.Field(chain=table + nested)
 
     def visitNestedIdentifier(self, ctx: HogQLParser.NestedIdentifierContext):
         chain = [self.visit(identifier) for identifier in ctx.identifier()]
         return chain
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
-        return self.visit(ctx.tableIdentifier())
+        chain = self.visit(ctx.tableIdentifier())
+        return ast.Field(chain=chain)
 
     def visitTableExprSubquery(self, ctx: HogQLParser.TableExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
