@@ -6,6 +6,7 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+import posthoganalytics
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
@@ -40,6 +41,16 @@ def default_settings() -> Dict:
         return {"optimize_move_to_prewhere": 0}
 
 
+def extra_settings(query_id) -> Dict[str, Any]:
+    join_algorithm = posthoganalytics.get_feature_flag(
+        "join-algorithm",
+        str(query_id),
+        only_evaluate_locally=True,
+    )
+
+    return {"join_algorithm": join_algorithm}
+
+
 def validated_client_query_id() -> Optional[str]:
     client_query_id = get_query_tag_value("client_query_id")
     client_query_team_id = get_query_tag_value("team_id")
@@ -72,14 +83,18 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
+
+        query_id = validated_client_query_id()
+        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        tags["query_settings"] = core_settings
+        settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validated_client_query_id(),
+                query_id=query_id,
             )
         except Exception as err:
             err = wrap_query_error(err)

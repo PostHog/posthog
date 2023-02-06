@@ -174,11 +174,6 @@ CONSTANCE_CONFIG = {
         "Used to enable Sentry error tracking in PostHog",
         str,
     ),
-    "PARALLEL_HASH_ENABLED_TEAMS": (
-        get_from_env("PARALLEL_HASH_ENABLED_TEAMS", ""),
-        "Team ids for which to use the 'parallel_hash' join algorithm instead of the default 'hash' algorithm",
-        str,
-    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -213,7 +208,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
-    "PARALLEL_HASH_ENABLED_TEAMS",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)
