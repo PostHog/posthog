@@ -105,6 +105,21 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.json() == expected_listing
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_dashboards_are_installed_with_no_team_id(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "Website traffic", "url": "a github url"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        patched_requests.assert_called_with("a github url")
+
+        assert DashboardTemplate.objects.count() == 1
+        assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_can_update_from_github(self, patched_requests) -> None:
         self._patch_request_get(patched_requests, website_traffic_template_listing)
 

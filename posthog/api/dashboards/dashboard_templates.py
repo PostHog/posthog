@@ -39,7 +39,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
             )
 
         return DashboardTemplate.objects.update_or_create(
-            team_id=validated_data["team_id"], template_name=template.get("template_name"), defaults=template
+            team_id=None, template_name=template.get("template_name"), defaults=template
         )[0]
 
 
@@ -53,7 +53,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: request.Request, **kwargs) -> response.Response:
         serializer = DashboardTemplateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(team_id=self.team_id)
+        serializer.save()
         return response.Response(data="", status=status.HTTP_200_OK)
 
     @timed("dashboard_templates.api_repository_load")
