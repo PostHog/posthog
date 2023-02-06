@@ -119,12 +119,12 @@ jobs:
 
             - name: Check formatting
               run: |
-                  black --check .
-                  isort --check-only .
+                  black --exclude posthog/hogql/grammar --check .
+                  isort --skip posthog/hogql/grammar --check-only .
 
             - name: Check for errors and code style violations
               run: |
-                  flake8 .
+                  flake8 --exclude posthog/hogql/grammar .
 
             - name: Check static typing
               run: |
