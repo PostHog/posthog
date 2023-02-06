@@ -315,6 +315,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
         reportIngestionLandingSeen: true,
+        reportIngestionWaitThreeMinutes: true,
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
@@ -839,6 +840,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportIngestionLandingSeen: async () => {
             posthog.capture('ingestion landing seen')
+        },
+        reportIngestionWaitThreeMinutes: async () => {
+            posthog.capture('ingestion wait 3 minutes')
         },
         reportProjectHomeItemClicked: async ({ module, item, extraProps }) => {
             const defaultProps = { module, item }

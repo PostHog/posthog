@@ -23,11 +23,12 @@ import { PanelHeader } from './panels/PanelComponents'
 
 export function IngestionWizardV1(): JSX.Element {
     const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
-    const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
+    const { reportIngestionLandingSeen, reportIngestionWaitThreeMinutes } = useActions(eventUsageLogic)
 
     useEffect(() => {
         if (!platform) {
             reportIngestionLandingSeen()
+            setTimeout(() => reportIngestionWaitThreeMinutes(), 3 * 60 * 1000)
         }
     }, [platform])
 
