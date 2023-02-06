@@ -2,7 +2,6 @@ import './LemonTextArea.scss'
 import React, { createRef, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import TextareaAutosize from 'react-textarea-autosize'
-import { Tabs } from 'antd'
 import { IconMarkdown, IconTools } from 'lib/lemon-ui/icons'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import api from 'lib/api'
@@ -13,6 +12,7 @@ import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LemonTabs } from '../LemonTabs'
 
 export interface LemonTextAreaProps
     extends Pick<
@@ -71,6 +71,7 @@ interface LemonTextMarkdownProps {
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
     const { objectStorageAvailable } = useValues(preflightLogic)
 
+    const [isPreviewShown, setIsPreviewShown] = useState(false)
     const [uploading, setUploading] = useState(false)
     const [filesToUpload, setFilesToUpload] = useState<File[]>([])
     const dropRef = createRef<HTMLDivElement>()
@@ -104,44 +105,59 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
     }, [filesToUpload])
 
     return (
-        // Setting overflow: visible so that the LemonFileInput hover outline isn't clipped
-        <Tabs style={{ overflow: 'visible' }}>
-            <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
-                <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col space-y-1 rounded')}>
-                    <LemonTextArea ref={textAreaRef} {...editAreaProps} autoFocus value={value} onChange={onChange} />
-                    <div className="text-muted inline-flex items-center space-x-1">
-                        <IconMarkdown className={'text-2xl'} />
-                        <span>Markdown formatting support</span>
-                    </div>
-                    {objectStorageAvailable ? (
-                        <LemonFileInput
-                            accept={'image/*'}
-                            multiple={false}
-                            alternativeDropTargetRef={dropRef}
-                            onChange={setFilesToUpload}
-                            loading={uploading}
-                            value={filesToUpload}
-                        />
-                    ) : (
-                        <div className="text-muted inline-flex items-center space-x-1">
-                            <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
-                                <IconTools className={'text-xl mr-1'} />
-                            </Tooltip>
-                            <span>
-                                Add external images using{' '}
-                                <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
-                                    {' '}
-                                    Markdown image links
-                                </Link>
-                                .
-                            </span>
+        <LemonTabs
+            activeKey={isPreviewShown ? 'preview' : 'write'}
+            onChange={(key) => setIsPreviewShown(key === 'preview')}
+            tabs={[
+                {
+                    key: 'write',
+                    label: 'Write',
+                    content: (
+                        <div ref={dropRef} className="LemonTextMarkdown flex flex-col space-y-1 rounded">
+                            <LemonTextArea
+                                ref={textAreaRef}
+                                {...editAreaProps}
+                                autoFocus
+                                value={value}
+                                onChange={onChange}
+                            />
+                            <div className="text-muted inline-flex items-center space-x-1">
+                                <IconMarkdown className={'text-2xl'} />
+                                <span>Markdown formatting support</span>
+                            </div>
+                            {objectStorageAvailable ? (
+                                <LemonFileInput
+                                    accept={'image/*'}
+                                    multiple={false}
+                                    alternativeDropTargetRef={dropRef}
+                                    onChange={setFilesToUpload}
+                                    loading={uploading}
+                                    value={filesToUpload}
+                                />
+                            ) : (
+                                <div className="text-muted inline-flex items-center space-x-1">
+                                    <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
+                                        <IconTools className={'text-xl mr-1'} />
+                                    </Tooltip>
+                                    <span>
+                                        Add external images using{' '}
+                                        <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
+                                            {' '}
+                                            Markdown image links
+                                        </Link>
+                                        .
+                                    </span>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
-            </Tabs.TabPane>
-            <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                {value ? <TextContent text={value} /> : <i>Nothing to preview</i>}
-            </Tabs.TabPane>
-        </Tabs>
+                    ),
+                },
+                {
+                    key: 'preview',
+                    label: 'Preview',
+                    content: value ? <TextContent text={value} /> : <i>Nothing to preview</i>,
+                },
+            ]}
+        />
     )
 }

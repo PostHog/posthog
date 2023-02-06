@@ -1,7 +1,7 @@
 import clsx from 'clsx'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import React, { useLayoutEffect, useCallback, useRef, useState } from 'react'
+import React from 'react'
 import { LemonButton } from '../LemonButton'
+import { useSliderPositioning } from '../hooks'
 import './LemonSegmentedButton.scss'
 
 export interface LemonSegmentedButtonOption<T extends React.Key> {
@@ -22,8 +22,8 @@ export interface LemonSegmentedButtonProps<T extends React.Key> {
 }
 
 interface LemonSegmentedButtonCSSProperties extends React.CSSProperties {
-    '--lemon-segmented-button-selection-width': `${number}px`
-    '--lemon-segmented-button-selection-offset': `${number}px`
+    '--lemon-segmented-button-slider-width': `${number}px`
+    '--lemon-segmented-button-slider-offset': `${number}px`
 }
 
 /** Button-radio hybrid. Single choice. */
@@ -33,21 +33,10 @@ export function LemonSegmentedButton<T extends React.Key>({
     options,
     size,
 }: LemonSegmentedButtonProps<T>): JSX.Element {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const selectedOptionRef = useRef<HTMLButtonElement>(null)
-    const [selectionWidth, setSelectionWidth] = useState(0)
-    const [selectionOffset, setSelectionOffset] = useState(0)
-
-    const recalculateSelectionBounds = useCallback(() => {
-        if (containerRef.current && selectedOptionRef.current) {
-            const { left: containerLeft } = containerRef.current.getBoundingClientRect()
-            const { width, left: selectedOptionleft } = selectedOptionRef.current.getBoundingClientRect()
-            setSelectionWidth(width)
-            setSelectionOffset(selectedOptionleft - containerLeft - 1) // -1px to account for border
-        }
-    }, [])
-    useLayoutEffect(() => recalculateSelectionBounds(), [value])
-    useResizeObserver({ ref: containerRef, onResize: () => recalculateSelectionBounds() })
+    const { containerRef, selectionRef, sliderWidth, sliderOffset } = useSliderPositioning<
+        HTMLDivElement,
+        HTMLButtonElement
+    >(value)
 
     return (
         <div
@@ -55,13 +44,14 @@ export function LemonSegmentedButton<T extends React.Key>({
             // eslint-disable-next-line react/forbid-dom-props
             style={
                 {
-                    '--lemon-segmented-button-selection-width': `${selectionWidth}px`,
-                    '--lemon-segmented-button-selection-offset': `${selectionOffset}px`,
+                    '--lemon-segmented-button-slider-width': `${sliderWidth}px`,
+                    // Subtract 1px from offset to account for border-right
+                    '--lemon-segmented-button-slider-offset': `${sliderOffset - 1}px`,
                 } as LemonSegmentedButtonCSSProperties
             }
             ref={containerRef}
         >
-            {selectionWidth > 0 && (
+            {sliderWidth > 0 && (
                 <div
                     className={clsx(
                         'LemonSegmentedButton__slider',
@@ -84,7 +74,7 @@ export function LemonSegmentedButton<T extends React.Key>({
                         )}
                     >
                         <LemonButton /* The ref is on the button and not on the list item so that the border isn't counted */
-                            ref={option.value === value ? selectedOptionRef : undefined}
+                            ref={option.value === value ? selectionRef : undefined}
                             size={size}
                             disabledReason={option.disabledReason}
                             onClick={() => {
