@@ -8,6 +8,23 @@ To generate source code you need to install locally the `antlr4` binary:
 brew install antlr
 ```
 
+or this piece of art if you're using bash on ubuntu for quick access:
+
+```bash
+export ANTLR_VERSION=4.11.1
+
+sudo apt-get install default-jre
+mkdir antlr
+cd antlr
+curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
+export PWD=`pwd`
+echo '#!/bin/bash' > antlr4
+echo "java -jar $PWD/antlr.jar \$*" >> antlr4
+chmod +x antlr4
+export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
+export PATH="$PWD:$PATH"
+```
+
 Then either run
 
 ```bash

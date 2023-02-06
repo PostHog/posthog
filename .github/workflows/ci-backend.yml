@@ -149,10 +149,12 @@ jobs:
                   mkdir antlr
                   cd antlr
                   curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
-                  export ANTLR_HOME=`pwd`
-                  export ANTLR_JAR="$ANTLR_HOME/antlr.jar"
-                  export CLASSPATH=".:$ANTLR_JAR:$CLASSPATH"
-                  alias antlr4="java -jar $ANTLR_JAR"
+                  export PWD=`pwd`
+                  echo '#!/bin/bash' > antlr4
+                  echo "java -jar $PWD/antlr.jar \$*" >> antlr4
+                  chmod +x antlr4
+                  export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
+                  export PATH="$PWD:$PATH"
                   cd ..
 
                   cd current
