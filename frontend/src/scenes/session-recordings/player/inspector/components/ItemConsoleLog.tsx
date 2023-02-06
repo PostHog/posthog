@@ -1,7 +1,7 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { InspectorListItemConsole } from '../../playerInspectorLogic'
+import { InspectorListItemConsole } from '../playerInspectorLogic'
 
 export interface ItemConsoleLogProps {
     item: InspectorListItemConsole

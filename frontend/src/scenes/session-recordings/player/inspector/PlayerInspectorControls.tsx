@@ -17,9 +17,9 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
-import { playerSettingsLogic } from '../../playerSettingsLogic'
-import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
-import { playerInspectorLogic } from '../playerInspectorLogic'
+import { playerSettingsLogic } from '../playerSettingsLogic'
+import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { playerInspectorLogic } from './playerInspectorLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
