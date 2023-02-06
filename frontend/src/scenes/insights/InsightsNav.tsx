@@ -21,9 +21,10 @@ interface Tab {
     className?: string
 }
 
-export function InsightNavDataExploration(): JSX.Element {
-    const { activeView } = useValues(insightDataLogic)
-    const { setActiveView } = useActions(insightDataLogic)
+export function InsightsNavDataExploration(): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { activeView } = useValues(insightDataLogic(insightProps))
+    const { setActiveView } = useActions(insightDataLogic(insightProps))
 
     return <InsightsNavComponent activeView={activeView} setActiveView={setActiveView} />
 }
