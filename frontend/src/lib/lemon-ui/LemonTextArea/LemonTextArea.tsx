@@ -105,7 +105,6 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
     }, [filesToUpload])
 
     return (
-        // Setting overflow: visible so that the LemonFileInput hover outline isn't clipped
         <LemonTabs
             activeKey={isPreviewShown ? 'preview' : 'write'}
             onChange={(key) => setIsPreviewShown(key === 'preview')}
@@ -114,7 +113,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                     key: 'write',
                     label: 'Write',
                     content: (
-                        <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col space-y-1 rounded')}>
+                        <div ref={dropRef} className="LemonTextMarkdown flex flex-col space-y-1 rounded">
                             <LemonTextArea
                                 ref={textAreaRef}
                                 {...editAreaProps}
