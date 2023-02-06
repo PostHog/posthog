@@ -318,6 +318,20 @@ class TestParser(BaseTest):
             ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
 
+    def test_column_alias(self):
+        self.assertEqual(
+            parse_expr("1 as asd"),
+            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+        )
+        self.assertEqual(
+            parse_expr("1 as `asd`"),
+            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+        )
+        self.assertEqual(
+            parse_expr("1 as `🍄`"),
+            ast.Column(alias="🍄", expr=ast.Constant(value=1)),
+        )
+
     def test_expr_with_ignored_python_comment(self):
         self.assertEqual(
             parse_expr("1 # asd"),

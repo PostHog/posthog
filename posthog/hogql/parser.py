@@ -1,4 +1,4 @@
-from typing import Dict, List, Literal, Optional, cast
+from typing import Dict, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -11,7 +11,7 @@ from posthog.hogql.placeholders import replace_placeholders
 
 
 def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-    parse_tree = get_parser(expr).columnExpr()
+    parse_tree = get_parser(expr).expr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
@@ -290,6 +290,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitWinFrameBound(self, ctx: HogQLParser.WinFrameBoundContext):
         raise NotImplementedError(f"Unsupported node: WinFrameBound")
 
+    def visitExpr(self, ctx: HogQLParser.ExprContext):
+        return self.visit(ctx.columnExpr())
+
     def visitColumnTypeExprSimple(self, ctx: HogQLParser.ColumnTypeExprSimpleContext):
         raise NotImplementedError(f"Unsupported node: ColumnTypeExprSimple")
 
@@ -321,7 +324,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprTernaryOp")
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprAliasContext")
+        if ctx.alias():
+            alias = self.visit(ctx.alias())
+        elif ctx.identifier():
+            alias = self.visit(ctx.identifier())
+        elif ctx.STRING_LITERAL():
+            alias = parse_string_literal(ctx.STRING_LITERAL())
+        else:
+            raise NotImplementedError(f"Must specify an alias.")
+        expr = self.visit(ctx.columnExpr())
+        return ast.Column(expr=expr, alias=alias)
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprExtract")
@@ -492,12 +504,18 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprWinFunction")
 
     def visitColumnExprIdentifier(self, ctx: HogQLParser.ColumnExprIdentifierContext):
-        return self.visitChildren(ctx)
+        chain = self.visitChildren(ctx)
+        if isinstance(chain, ast.Expr):
+            return chain
+        if len(chain) == 1:
+            return ast.FieldAccess(field=chain[0])
+
+        return ast.FieldAccessChain(chain=chain)
 
     def visitColumnExprFunction(self, ctx: HogQLParser.ColumnExprFunctionContext):
         if ctx.columnExprList():
             raise NotImplementedError(f"Functions that return functions are not supported")
-        name = ctx.identifier().getText()
+        name = self.visit(ctx.identifier())
         args = self.visit(ctx.columnArgList()) if ctx.columnArgList() else []
         return ast.Call(name=name, args=args)
 
@@ -514,40 +532,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnLambdaExpr")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
-        table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else None
-        nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else None
+        table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else []
+        nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
 
-        if table is None:
-            if isinstance(nested, ast.FieldAccess):
-                text = ctx.getText().lower()
-                if text == "true":
-                    return ast.Constant(value=True)
-                if text == "false":
-                    return ast.Constant(value=False)
+        if len(table) == 0 and len(nested) > 0:
+            text = ctx.getText().lower()
+            if text == "true":
+                return ast.Constant(value=True)
+            if text == "false":
+                return ast.Constant(value=False)
             return nested
 
-        chain = []
-        if isinstance(table, ast.FieldAccess):
-            chain.append(table.field)
-        elif isinstance(table, ast.FieldAccessChain):
-            chain.extend(table.chain)
-        else:
-            raise NotImplementedError(f"Unsupported property access: {ctx.getText()}")
-
-        if isinstance(nested, ast.FieldAccess):
-            chain.append(nested.field)
-        elif isinstance(nested, ast.FieldAccessChain):
-            chain.extend(nested.chain)
-        else:
-            raise NotImplementedError(f"Unsupported property access: {ctx.getText()}")
-
-        return ast.FieldAccessChain(chain=chain)
+        return ast.FieldAccessChain(chain=table + nested)
 
     def visitNestedIdentifier(self, ctx: HogQLParser.NestedIdentifierContext):
-        identifiers: List[ast.FieldAccess] = [self.visit(identifier) for identifier in ctx.identifier()]
-        if len(identifiers) == 1:
-            return identifiers[0]
-        return ast.FieldAccessChain(chain=[identifier.field for identifier in identifiers])
+        chain = [self.visit(identifier) for identifier in ctx.identifier()]
+        return chain
 
     def visitTableExprIdentifier(self, ctx: HogQLParser.TableExprIdentifierContext):
         return self.visit(ctx.tableIdentifier())
@@ -565,10 +565,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: TableFunctionExpr")
 
     def visitTableIdentifier(self, ctx: HogQLParser.TableIdentifierContext):
-        identifier = ctx.identifier().getText()
+        text = self.visit(ctx.identifier())
         if ctx.databaseIdentifier():
-            return ast.FieldAccessChain(chain=[ctx.databaseIdentifier().getText(), identifier])
-        return ast.FieldAccess(field=identifier)
+            return [self.visit(ctx.databaseIdentifier()), text]
+        return [text]
 
     def visitTableArgList(self, ctx: HogQLParser.TableArgListContext):
         raise NotImplementedError(f"Unsupported node: TableArgList")
@@ -577,7 +577,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: TableArgExpr")
 
     def visitDatabaseIdentifier(self, ctx: HogQLParser.DatabaseIdentifierContext):
-        return ast.FieldAccess(field=ctx.identifier().getText())
+        return self.visit(ctx.identifier())
 
     def visitFloatingLiteral(self, ctx: HogQLParser.FloatingLiteralContext):
         raise NotImplementedError(f"Unsupported node: visitFloatingLiteral")
@@ -607,7 +607,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: KeywordForAlias")
 
     def visitAlias(self, ctx: HogQLParser.AliasContext):
-        raise NotImplementedError(f"Unsupported node: Alias")
+        text = ctx.getText()
+        if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
+            text = parse_string_literal(ctx)
+        return text
 
     def visitTemplateString(self, ctx: HogQLParser.TemplateStringContext):
         return ast.Placeholder(field=parse_string_literal(ctx))
@@ -615,7 +618,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
         if ctx.templateString():
             return self.visit(ctx.templateString())
-        return ast.FieldAccess(field=ctx.getText())
+        text = ctx.getText()
+        if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
+            text = parse_string_literal(ctx)
+        return text
 
     def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):
         raise NotImplementedError(f"Unsupported node: IdentifierOrNull")

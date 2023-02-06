@@ -8,6 +8,23 @@ To generate source code you need to install locally the `antlr4` binary:
 brew install antlr
 ```
 
+or this piece of art if you're using bash on ubuntu for quick access:
+
+```bash
+export ANTLR_VERSION=4.11.1
+
+sudo apt-get install default-jre
+mkdir antlr
+cd antlr
+curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
+export PWD=`pwd`
+echo '#!/bin/bash' > antlr4
+echo "java -jar $PWD/antlr.jar \$*" >> antlr4
+chmod +x antlr4
+export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
+export PATH="$PWD:$PATH"
+```
+
 Then either run
 
 ```bash
@@ -26,7 +43,7 @@ Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse
 
 Changes with ClickHouse's grammar:
 - removed all statements except for "select"
-- support aliases with a string literal "as '🍄'"
 - strings can also be entered with double quotes, not just single quotes
+- identifiers are entered with only backticks, not with double quotes (those are used for strings) 
 - raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
 - supports placeholders like "team_id = {val1}"
