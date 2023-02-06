@@ -192,13 +192,15 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
-            filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+            filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = insight_sync_execute(query, params, filter=filter, query_type="person_list")
+        raw_result = insight_sync_execute(
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+        )
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
@@ -635,7 +637,7 @@ T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
 
 def prepare_actor_query_filter(filter: T) -> T:
     if not filter.limit:
-        filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
     search = getattr(filter, "search", None)
     if not search:
@@ -675,7 +677,7 @@ def prepare_actor_query_filter(filter: T) -> T:
         else new_group
     )
 
-    return filter.with_data({"properties": prop_group, "search": None})
+    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):

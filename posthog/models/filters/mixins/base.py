@@ -1,6 +1,6 @@
 from typing import Dict, Literal
 
-BreakdownType = Literal["event", "person", "cohort", "group", "session"]
+BreakdownType = Literal["event", "person", "cohort", "group", "session", "hogql"]
 IntervalType = Literal["hour", "day", "week", "month"]
 FunnelWindowIntervalType = Literal["minute", "hour", "day", "week", "month"]
 

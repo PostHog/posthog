@@ -81,7 +81,7 @@ specifiers:
   posthog-node: 2.0.2
   prettier: ^2.7.1
   pretty-bytes: ^5.6.0
-  prom-client: ^14.1.0
+  prom-client: ^14.1.1
   re2: ^1.17.7
   safe-stable-stringify: ^2.4.0
   snowflake-sdk: ^1.6.10
@@ -131,7 +131,7 @@ dependencies:
   pino: 8.7.0
   posthog-node: 2.0.2
   pretty-bytes: 5.6.0
-  prom-client: 14.1.0
+  prom-client: 14.1.1
   re2: 1.17.7
   safe-stable-stringify: 2.4.1
   snowflake-sdk: 1.6.15_asn1.js@5.4.1
@@ -7284,8 +7284,8 @@ packages:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==}
     engines: {node: '>= 0.6.0'}
 
-  /prom-client/14.1.0:
-    resolution: {integrity: sha512-iFWCchQmi4170omLpFXbzz62SQTmPhtBL35v0qGEVRHKcqIeiexaoYeP0vfZTujxEq3tA87iqOdRbC9svS1B9A==}
+  /prom-client/14.1.1:
+    resolution: {integrity: sha512-hFU32q7UZQ59bVJQGUtm3I2PrJ3gWvoCkilX9sF165ks1qflhugVCeK+S1JjJYHvyt3o5kj68+q3bchormjnzw==}
     engines: {node: '>=10'}
     dependencies:
       tdigest: 0.1.2

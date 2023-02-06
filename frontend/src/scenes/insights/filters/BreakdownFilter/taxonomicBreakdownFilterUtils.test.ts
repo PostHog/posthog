@@ -11,7 +11,7 @@ const taxonomicGroupFor = (
     searchPlaceholder: 'unused in these tests',
     getName: () => 'unused in these tests',
     getValue: () => 'unused in these tests',
-    getPopupHeader: () => 'unused in these tests',
+    getPopoverHeader: () => 'unused in these tests',
 })
 
 const setFilters = jest.fn()

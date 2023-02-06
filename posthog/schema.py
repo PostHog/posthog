@@ -214,8 +214,14 @@ class FunnelStepRangeEntityFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    custom_name: Optional[str] = None
     funnel_from_step: Optional[float] = None
     funnel_to_step: Optional[float] = None
+    id: Optional[Union[str, float]] = None
+    index: Optional[float] = None
+    name: Optional[str] = None
+    order: Optional[float] = None
+    type: Optional[EntityType] = None
 
 
 class FunnelStepReference(str, Enum):
@@ -350,6 +356,13 @@ class RecordingDurationFilter(BaseModel):
 class RetentionReference1(str, Enum):
     total = "total"
     previous = "previous"
+
+
+class RetentionPeriod(str, Enum):
+    Hour = "Hour"
+    Day = "Day"
+    Week = "Week"
+    Month = "Month"
 
 
 class RetentionType(str, Enum):
@@ -548,7 +561,7 @@ class RetentionFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    period: Optional[str] = None
+    period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference1] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
@@ -832,6 +845,7 @@ class RetentionQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -863,6 +877,7 @@ class StickinessQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -900,6 +915,7 @@ class TrendsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -930,40 +946,6 @@ class TrendsQuery(BaseModel):
     ] = Field(None, description="Property filters for all series")
     series: List[Union[EventsNode, ActionsNode]] = Field(..., description="Events and actions to include")
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
-
-
-class UnimplementedQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
-    )
-    kind: str = Field(
-        "UnimplementedQuery",
-        const=True,
-        description="Used for insights that haven't been converted to the new query format yet",
-    )
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = Field(None, description="Property filters for all series")
 
 
 class AnyPartialFilterTypeItem(BaseModel):
@@ -1220,7 +1202,7 @@ class AnyPartialFilterTypeItem4(BaseModel):
     insight: Optional[InsightType] = None
     interval: Optional[IntervalType] = None
     new_entity: Optional[List[Dict[str, Any]]] = None
-    period: Optional[str] = None
+    period: Optional[RetentionPeriod] = None
     properties: Optional[
         Union[
             List[
@@ -1340,6 +1322,7 @@ class FunnelsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     breakdown: Optional[BreakdownFilter] = Field(None, description="Breakdown of the events and actions")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
@@ -1392,6 +1375,7 @@ class LifecycleQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -1427,6 +1411,7 @@ class PathsQuery(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     filterTestAccounts: Optional[bool] = Field(
         None, description="Exclude internal and test users by applying the respective filters"
@@ -1459,9 +1444,7 @@ class InsightVizNode(BaseModel):
         extra = Extra.forbid
 
     kind: str = Field("InsightVizNode", const=True)
-    source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, UnimplementedQuery
-    ]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 
 class Model(BaseModel):

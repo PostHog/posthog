@@ -8,9 +8,11 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
         viewMode: 'story',
         mockDate: '2022-03-11',
-        chromatic: { disableSnapshot: true },
     },
     decorators: [
         mswDecorator({

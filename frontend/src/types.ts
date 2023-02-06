@@ -17,7 +17,7 @@ import { PluginInstallationType } from 'scenes/plugins/types'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import { PopupProps } from 'lib/lemon-ui/Popup/Popup'
+import { PopoverProps } from 'lib/lemon-ui/Popover/Popover'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
@@ -878,11 +878,7 @@ export interface RecordingTimeMixinType {
     capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
-export interface RecordingEventType extends EventType, RecordingTimeMixinType {
-    percentageOfRecordingDuration: number // Used to place the event on the seekbar
-    // Can be removed once inspector V1 is removed
-    level?: 'match' | 'information' // If undefined, by default information row
-}
+export interface RecordingEventType extends EventType, RecordingTimeMixinType {}
 
 export interface EventsTableRowItem {
     event?: EventType
@@ -2308,8 +2304,8 @@ export interface Breadcrumb {
     symbol?: React.ReactNode
     /** Path to link to. */
     path?: string
-    /** Whether to show a custom popup */
-    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
+    /** Whether to show a custom popover */
+    popover?: Pick<PopoverProps, 'overlay' | 'sameWidth' | 'actionable'>
 }
 
 export enum GraphType {
@@ -2567,11 +2563,6 @@ export interface ExportedAssetType {
     export_context?: ExportContext
     has_content: boolean
     filename: string
-}
-
-export enum YesOrNoResponse {
-    Yes = 'yes',
-    No = 'no',
 }
 
 export enum FeatureFlagReleaseType {
