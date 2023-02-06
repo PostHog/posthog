@@ -15,7 +15,7 @@ import {
     IconCorporate,
     IconPlus,
 } from 'lib/lemon-ui/icons'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from '../../../scenes/urls'
 import { navigationLogic } from '../navigationLogic'
@@ -285,7 +285,7 @@ export function SitePopover(): JSX.Element {
     const billingV2 = billingVersion === 'v2'
 
     return (
-        <Popup
+        <Popover
             visible={isSitePopoverOpen}
             className="SitePopover"
             onClickOutside={closeSitePopover}
@@ -348,6 +348,6 @@ export function SitePopover(): JSX.Element {
                 </div>
                 <IconArrowDropDown />
             </div>
-        </Popup>
+        </Popover>
     )
 }

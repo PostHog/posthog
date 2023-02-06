@@ -5,7 +5,7 @@ import { range } from 'lib/utils'
 import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from '../../teamLogic'
 import { IngestionWarningSummary } from './ingestionWarningsLogic'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { offset } from '@floating-ui/react-dom-interactions'
 
 import './WarningEventsGraph.scss'
@@ -15,8 +15,8 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
     const tooltipRef = useRef<HTMLDivElement | null>(null)
     const { timezone } = useValues(teamLogic)
 
-    const [popupContent, setPopupContent] = useState<JSX.Element | null>(null)
-    const [popupOffset, setPopupOffset] = useState(0)
+    const [popoverContent, setPopoverContent] = useState<JSX.Element | null>(null)
+    const [popoverOffset, setPopoverOffset] = useState(0)
 
     const dates = useMemo(
         () =>
@@ -69,17 +69,17 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
                             enabled: false, // using external tooltip
                             external({ tooltip }: { chart: Chart; tooltip: TooltipModel<'bar'> }) {
                                 if (tooltip.opacity === 0) {
-                                    setPopupContent(null)
+                                    setPopoverContent(null)
                                     return
                                 }
 
                                 const datapoint = tooltip.dataPoints[0]
-                                setPopupContent(
+                                setPopoverContent(
                                     <>
                                         {datapoint.label}: {datapoint.formattedValue}
                                     </>
                                 )
-                                setPopupOffset(tooltip.x)
+                                setPopoverOffset(tooltip.x)
                             },
                         },
                     },
@@ -100,14 +100,14 @@ export function WarningEventsGraph({ summary }: { summary: IngestionWarningSumma
     return (
         <div className="warning-events-graph">
             <canvas ref={canvasRef} />
-            <Popup
-                visible={!!popupContent}
-                overlay={popupContent}
+            <Popover
+                visible={!!popoverContent}
+                overlay={popoverContent}
                 placement="bottom-start"
-                middleware={[offset({ crossAxis: popupOffset })]}
+                middleware={[offset({ crossAxis: popoverOffset })]}
             >
                 <div ref={tooltipRef} />
-            </Popup>
+            </Popover>
         </div>
     )
 }
