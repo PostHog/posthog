@@ -170,7 +170,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         # Filter by distinct ID
-        with self.assertNumQueries(12):
+        with self.assertNumQueries(11):
             response = self.client.get("/api/person/?distinct_id=distinct_id")  # must be exact matches
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
