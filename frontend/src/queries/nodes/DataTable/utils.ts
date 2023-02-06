@@ -5,7 +5,7 @@ export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
     'person',
-    'coalesce(properties.$current_url, properties.$screen_name) # Url / Screen',
+    'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
     'timestamp',
 ]

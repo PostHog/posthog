@@ -3,12 +3,25 @@ import time
 from functools import lru_cache
 from typing import List, Optional
 
+from prometheus_client import Counter
 from rest_framework.throttling import SimpleRateThrottle
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
+
+RATE_LIMIT_EXCEEDED_COUNTER = Counter(
+    "rate_limit_exceeded_total",
+    "Dropped requests due to rate-limiting, per team_id, scope and path.",
+    labelnames=["team_id", "scope", "path"],
+)
+
+RATE_LIMIT_BYPASSED_COUNTER = Counter(
+    "rate_limit_bypassed_total",
+    "Requests that should be dropped by rate-limiting but allowed by configuration.",
+    labelnames=["team_id", "path"],
+)
 
 
 @lru_cache(maxsize=1)
@@ -68,6 +81,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
                         "team_allowed_to_bypass_rate_limit_exceeded",
                         tags={"team_id": team_id, "path": path},
                     )
+                    RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
                 else:
                     scope = getattr(self, "scope", None)
                     rate = getattr(self, "rate", None)
@@ -76,6 +90,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
                         "rate_limit_exceeded",
                         tags={"team_id": team_id, "scope": scope, "rate": rate, "path": path},
                     )
+                    RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
             except Exception as e:
                 capture_exception(e)
         return True
@@ -134,3 +149,10 @@ class PassThroughClickHouseSustainedRateThrottle(PassThroughTeamRateThrottle):
     # Intended to block slower but sustained bursts of requests
     scope = "clickhouse_sustained"
     rate = "1200/hour"
+
+
+class PassThroughFeatureFlagThrottle(PassThroughTeamRateThrottle):
+    # Throttle class that's applied on the decide endpoint
+    # Intended to block quick bursts of requests
+    scope = "feature_flag_evaluations"
+    rate = "400/minute"

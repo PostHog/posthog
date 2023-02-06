@@ -5,11 +5,12 @@ import insightsJson from './__mocks__/insights.json'
 
 import { useEffect } from 'react'
 import { router } from 'kea-router'
-import { mswDecorator } from '~/mocks/browser'
+import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 
 import trendsBarBreakdown from '../insights/__mocks__/trendsBarBreakdown.json'
 import trendsPieBreakdown from '../insights/__mocks__/trendsPieBreakdown.json'
 import funnelTopToBottom from '../insights/__mocks__/funnelTopToBottom.json'
+import { EMPTY_PAGINATED_RESPONSE, toPaginatedResponse } from '~/mocks/handlers'
 
 const insights = [trendsBarBreakdown, trendsPieBreakdown, funnelTopToBottom]
 
@@ -18,20 +19,22 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
         viewMode: 'story',
-        chromatic: { disableSnapshot: true }, // FIXME: This is currently excluded due to unreliable rendering in tests
     },
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/insights': {
-                    ...insightsJson,
-                    results: insightsJson.results.map((result, i) => ({
+                '/api/projects/:team_id/insights': toPaginatedResponse(
+                    insightsJson.results.slice(0, 6).map((result, i) => ({
+                        // Keep size of response in check
                         ...result,
                         filters: insights[i % insights.length].filters,
                         result: insights[i % insights.length].result,
-                    })),
-                },
+                    }))
+                ),
             },
         }),
     ],
@@ -47,6 +50,18 @@ export const ListView = (): JSX.Element => {
 export const CardView = (): JSX.Element => {
     useEffect(() => {
         router.actions.push('/insights?layoutView=card')
+    })
+    return <App />
+}
+
+export const EmptyState = (): JSX.Element => {
+    useStorybookMocks({
+        get: {
+            '/api/projects/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
+        },
+    })
+    useEffect(() => {
+        router.actions.push('/insights')
     })
     return <App />
 }

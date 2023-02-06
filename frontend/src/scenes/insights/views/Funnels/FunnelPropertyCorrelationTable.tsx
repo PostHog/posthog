@@ -14,7 +14,7 @@ import { IconSelectProperties } from 'lib/lemon-ui/icons'
 import './FunnelCorrelationTable.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -284,7 +284,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
 
     return (
         <Row style={{ justifyContent: 'flex-end' }}>
-            <Popup
+            <Popover
                 visible={popoverOpen}
                 actionable
                 onClickOutside={() => setPopoverOpen(false)}
@@ -308,7 +308,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
                     <EllipsisOutlined className="insight-dropdown-actions" />
                 </LemonButton>
-            </Popup>
+            </Popover>
         </Row>
     )
 }

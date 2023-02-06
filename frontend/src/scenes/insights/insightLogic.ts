@@ -757,17 +757,9 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         isUsingDataExploration: [
-            (s) => [s.featureFlags, s.filters],
-            (featureFlags: FeatureFlagsSet, filters: Partial<FilterType>): boolean => {
-                const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
-                return (
-                    !!featureDataExploration &&
-                    (isTrendsFilter(filters) ||
-                        isFunnelsFilter(filters) ||
-                        isPathsFilter(filters) ||
-                        isStickinessFilter(filters) ||
-                        isLifecycleFilter(filters))
-                )
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
     }),

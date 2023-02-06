@@ -65,6 +65,7 @@ jobs:
                         - requirements-dev.txt
                         - mypy.ini
                         - pytest.ini
+                        - frontend/src/queries/schema.json # Used for generating schema.py
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/workflows/backend-tests-action/action.yml
@@ -118,12 +119,12 @@ jobs:
 
             - name: Check formatting
               run: |
-                  black --check .
-                  isort --check-only .
+                  black --exclude posthog/hogql/grammar --check .
+                  isort --skip posthog/hogql/grammar --check-only .
 
             - name: Check for errors and code style violations
               run: |
-                  flake8 .
+                  flake8 --exclude posthog/hogql/grammar .
 
             - name: Check static typing
               run: |
@@ -136,7 +137,7 @@ jobs:
             - name: Check if antlr definitions are up to date
               run: |
                   sudo apt-get install antlr
-                  npm run antlr:build && git diff --exit-code
+                  npm run grammar:build && git diff --exit-code
 
     check-migrations:
         needs: changes

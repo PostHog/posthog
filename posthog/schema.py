@@ -367,6 +367,13 @@ class RetentionReference1(str, Enum):
     previous = "previous"
 
 
+class RetentionPeriod(str, Enum):
+    Hour = "Hour"
+    Day = "Day"
+    Week = "Week"
+    Month = "Month"
+
+
 class RetentionType(str, Enum):
     retention_recurring = "retention_recurring"
     retention_first_time = "retention_first_time"
@@ -563,7 +570,7 @@ class RetentionFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    period: Optional[str] = None
+    period: Optional[RetentionPeriod] = None
     retention_reference: Optional[RetentionReference1] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
@@ -950,41 +957,6 @@ class TrendsQuery(BaseModel):
     trendsFilter: Optional[TrendsFilter] = Field(None, description="Properties specific to the trends insight")
 
 
-class UnimplementedQuery(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    aggregation_group_type_index: Optional[float] = Field(None, description="Groups aggregation")
-    dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
-    filterTestAccounts: Optional[bool] = Field(
-        None, description="Exclude internal and test users by applying the respective filters"
-    )
-    kind: str = Field(
-        "UnimplementedQuery",
-        const=True,
-        description="Used for insights that haven't been converted to the new query format yet",
-    )
-    properties: Optional[
-        Union[
-            List[
-                Union[
-                    EventPropertyFilter,
-                    PersonPropertyFilter,
-                    ElementPropertyFilter,
-                    SessionPropertyFilter,
-                    CohortPropertyFilter,
-                    RecordingDurationFilter,
-                    GroupPropertyFilter,
-                    FeaturePropertyFilter,
-                    HogQLPropertyFilter,
-                    EmptyPropertyFilter,
-                ]
-            ],
-            PropertyGroupFilter,
-        ]
-    ] = Field(None, description="Property filters for all series")
-
-
 class AnyPartialFilterTypeItem(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -1239,7 +1211,7 @@ class AnyPartialFilterTypeItem4(BaseModel):
     insight: Optional[InsightType] = None
     interval: Optional[IntervalType] = None
     new_entity: Optional[List[Dict[str, Any]]] = None
-    period: Optional[str] = None
+    period: Optional[RetentionPeriod] = None
     properties: Optional[
         Union[
             List[
@@ -1481,9 +1453,7 @@ class InsightVizNode(BaseModel):
         extra = Extra.forbid
 
     kind: str = Field("InsightVizNode", const=True)
-    source: Union[
-        TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery, UnimplementedQuery
-    ]
+    source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 
 class Model(BaseModel):
