@@ -86,9 +86,6 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | number
 
 
 // Columns
-columnComment: (HASH .*);
-column: columnExpr columnComment? EOF;
-
 columnTypeExpr
     : identifier                                                                             # ColumnTypeExprSimple   // UInt64
     | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* RPAREN  # ColumnTypeExprNested   // Nested

@@ -8,7 +8,7 @@ from posthog.hogql.parser_utils import parse_string_literal
 
 
 def parse_expr(expr: str) -> ast.Expr:
-    parse_tree = get_parser(expr).column()
+    parse_tree = get_parser(expr).columnExpr()
     return HogQLParseTreeConverter().visit(parse_tree)
 
 
