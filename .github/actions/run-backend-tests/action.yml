@@ -22,6 +22,10 @@ inputs:
     person-on-events:
         required: true
         type: boolean
+    token:
+        required: false
+        type: string
+        description: GitHub token
 
 runs:
     using: 'composite'
@@ -40,9 +44,10 @@ runs:
           run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
 
         - name: Set up Python
-          uses: actions/setup-python@v2
+          uses: actions/setup-python@v4
           with:
               python-version: ${{ inputs.python-version }}
+              token: ${{ inputs.token }}
 
         - name: Install SAML (python3-saml) dependencies
           shell: bash
@@ -50,7 +55,7 @@ runs:
               sudo apt-get update
               sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
 
-        - uses: syphar/restore-virtualenv@v1.2
+        - uses: syphar/restore-virtualenv@v1
           id: cache-backend-tests
           with:
               custom_cache_key_element: v1
