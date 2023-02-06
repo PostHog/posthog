@@ -65,7 +65,7 @@ def extra_settings(query_id) -> Dict[str, Any]:
     )
 
     # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
-    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 1:
+    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
         join_algorithm = "default"
 
     return {"join_algorithm": join_algorithm}
