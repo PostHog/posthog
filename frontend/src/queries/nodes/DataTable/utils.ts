@@ -34,15 +34,17 @@ export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
 }
 
 export function extractExpressionComment(query: string): string {
-    if (query.includes('#')) {
-        return query.split('#').pop()?.trim() || query
+    if (query.includes('--')) {
+        // This is far from perfect, but works for now
+        return query.split('--').pop()?.trim() || query
     }
     return query
 }
 
 export function removeExpressionComment(query: string): string {
-    if (query.includes('#')) {
-        return query.split('#').slice(0, -1).join('#').trim()
+    if (query.includes('--')) {
+        // This is far from perfect, but works for now
+        return query.split('--').slice(0, -1).join('--').trim()
     }
     return query.trim()
 }

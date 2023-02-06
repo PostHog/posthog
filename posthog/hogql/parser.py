@@ -11,7 +11,7 @@ from posthog.hogql.placeholders import replace_placeholders
 
 
 def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
-    parse_tree = get_parser(expr).columnExprWithComment()
+    parse_tree = get_parser(expr).columnExpr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
@@ -319,9 +319,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnExprTernaryOp(self, ctx: HogQLParser.ColumnExprTernaryOpContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprTernaryOp")
-
-    def visitColumnExprWithComment(self, ctx: HogQLParser.ColumnExprWithCommentContext):
-        return self.visit(ctx.columnExpr())
 
     def visitColumnExprAlias(self, ctx: HogQLParser.ColumnExprAliasContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprAliasContext")

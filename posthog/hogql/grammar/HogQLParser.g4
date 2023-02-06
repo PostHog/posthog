@@ -84,11 +84,7 @@ winFrameBound: (CURRENT ROW | UNBOUNDED PRECEDING | UNBOUNDED FOLLOWING | number
 //rangeClause: RANGE LPAREN (MIN identifier MAX identifier | MAX identifier MIN identifier) RPAREN;
 
 
-
 // Columns
-columnComment: (HASH .*);
-columnExprWithComment: columnExpr columnComment? EOF;
-
 columnTypeExpr
     : identifier                                                                             # ColumnTypeExprSimple   // UInt64
     | identifier LPAREN identifier columnTypeExpr (COMMA identifier columnTypeExpr)* RPAREN  # ColumnTypeExprNested   // Nested

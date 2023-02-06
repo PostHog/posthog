@@ -66,7 +66,7 @@ const PropertyFormulas: EventsQuery = {
         '1 + 2 + 3',
         'event',
         'person.created_at',
-        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) # Browser 💚 City",
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) -- Browser 💚 City",
         "'random string'",
     ],
     limit: 100,
@@ -84,9 +84,9 @@ const EventAggregations: DataTableNode = {
     source: {
         kind: NodeKind.EventsQuery,
         select: [
-            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') -- City",
             'event',
-            'count() + 100000 # Inflamed total',
+            'count() + 100000 -- Inflamed total',
             '1 + 2',
         ],
         orderBy: ['-count()'],
