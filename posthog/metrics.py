@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 
 import structlog
+from django.conf import settings
 from prometheus_client import CollectorRegistry, push_to_gateway
 from sentry_sdk import capture_exception
 
@@ -32,13 +33,11 @@ def pushed_metrics_registry(job_name: str):
     region makes sense (e.g. instance metrics computed by celery jobs).
     """
 
-    from django.conf import settings
-
     registry = CollectorRegistry()
     yield registry
     try:
-        if PROM_PUSHGATEWAY_ADDRESS:
-            push_to_gateway(PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
+        if settings.PROM_PUSHGATEWAY_ADDRESS:
+            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
-        logger.error("push_to_gateway", target=PROM_PUSHGATEWAY_ADDRESS, exception=err)
+        logger.error("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
         capture_exception(err)
