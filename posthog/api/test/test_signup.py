@@ -44,6 +44,7 @@ class TestSignupAPI(APIBaseTest):
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
                 "email_opt_in": False,
+                "is_email_verified": False,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -180,6 +181,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
                 "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -315,6 +317,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
                 "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -766,6 +769,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "Alice",
                 "email": "test+99@posthog.com",
                 "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -921,6 +925,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "",
                 "email": "test+159@posthog.com",
                 "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -989,6 +994,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "",
                 "email": "test+189@posthog.com",
                 "redirect_url": "/",
+                "is_email_verified": False,
             },  # note the unchanged attributes
         )
 
