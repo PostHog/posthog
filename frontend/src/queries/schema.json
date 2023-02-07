@@ -1606,32 +1606,8 @@
                     "type": "array"
                 },
                 "response": {
-                    "additionalProperties": false,
-                    "description": "Cached query response",
-                    "properties": {
-                        "columns": {
-                            "items": {},
-                            "type": "array"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "results": {
-                            "items": {
-                                "items": {},
-                                "type": "array"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["columns", "types", "results"],
-                    "type": "object"
+                    "$ref": "#/definitions/EventsQueryResponse",
+                    "description": "Cached query response"
                 },
                 "select": {
                     "description": "Return a limited set of data. Required.",
@@ -1649,6 +1625,33 @@
                 }
             },
             "required": ["kind", "select"],
+            "type": "object"
+        },
+        "EventsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columns", "types", "results"],
             "type": "object"
         },
         "FeaturePropertyFilter": {
@@ -1958,11 +1961,38 @@
                     "type": "string"
                 },
                 "response": {
-                    "description": "Cached query response",
-                    "type": "object"
+                    "$ref": "#/definitions/HogQLQueryResponse",
+                    "description": "Cached query response"
                 }
             },
             "required": ["kind", "query"],
+            "type": "object"
+        },
+        "HogQLQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "clickhouse": {
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "InsightQueryNode": {

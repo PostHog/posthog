@@ -14,11 +14,10 @@ from posthog.models import Action, Person, Team
 from posthog.models.event.query_event_list import (
     QUERY_DEFAULT_LIMIT,
     QUERY_MAXIMUM_LIMIT,
-    EventsQueryResponse,
     convert_person_select_to_dict,
     convert_star_select_to_dict,
 )
-from posthog.schema import EventsQuery
+from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
 

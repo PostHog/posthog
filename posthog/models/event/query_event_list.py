@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
-from pydantic import BaseModel
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
@@ -21,20 +20,13 @@ from posthog.models.event.sql import (
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns, insight_sync_execute
-from posthog.schema import EventsQuery
+from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
 # Return at most this number of events in CSV export
 QUERY_DEFAULT_LIMIT = 100
 QUERY_DEFAULT_EXPORT_LIMIT = 3_500
 QUERY_MAXIMUM_LIMIT = 100_000
-
-
-class EventsQueryResponse(BaseModel):
-    columns: List[str]
-    types: List[str]
-    results: List[List]
-    hasMore: bool
 
 
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:

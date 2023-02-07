@@ -176,7 +176,7 @@ class Response(BaseModel):
     results: List[EventType]
 
 
-class Response1(BaseModel):
+class EventsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
@@ -240,13 +240,16 @@ class FunnelCorrelationPersonConverted1(str, Enum):
     false = "false"
 
 
-class HogQLQuery(BaseModel):
+class HogQLQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    kind: str = Field("HogQLQuery", const=True)
-    query: str
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    clickhouse: Optional[str] = None
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    query: Optional[str] = None
+    results: Optional[List] = None
+    types: Optional[List] = None
 
 
 class InsightType(str, Enum):
@@ -545,6 +548,15 @@ class HogQLPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
+
+
 class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -677,7 +689,7 @@ class EventsQuery(BaseModel):
             ]
         ]
     ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Response1] = Field(None, description="Cached query response")
+    response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
 
