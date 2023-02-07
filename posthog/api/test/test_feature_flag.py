@@ -152,6 +152,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": True,
+                "payload_count": 0,
             },
         )
 
@@ -182,6 +183,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -230,6 +232,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -271,6 +274,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -449,6 +453,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 1,
                 "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
