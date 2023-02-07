@@ -119,7 +119,7 @@ interface UserBaseType {
 
 /* Type for User objects in nested serializers (e.g. created_by) */
 export interface UserBasicType extends UserBaseType {
-    is_email_verified: any
+    is_email_verified?: any
     id: number
 }
 
