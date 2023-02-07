@@ -236,6 +236,8 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_rate_limit_non_personal_api_key_endpoints(self, rate_limit_enabled_mock, incr_mock):
+        self.client.logout()
+
         for _ in range(6):
             response = self.client.get(
                 f"/api/organizations/{self.organization.pk}/plugins",
@@ -246,7 +248,13 @@ class TestUserAPI(APIBaseTest):
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.reset_mock()
 
-        # but not without personal API key
+        # if not logged in, we 401
+        for _ in range(3):
+            response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+        self.client.force_login(self.user)
+        # but no rate limits when logged in and not using personal API key
         response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
