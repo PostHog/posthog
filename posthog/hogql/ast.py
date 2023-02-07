@@ -1,16 +1,23 @@
-from __future__ import annotations
-
+import re
 from enum import Enum
 from typing import Any, List, Literal, cast
 
 from pydantic import BaseModel, Extra
+
+camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
 
 class AST(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    def children(self) -> List[AST]:
+    def accept(self, visitor):
+        camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
+        method_name = "visit_{}".format(camel_case_name)
+        visit = getattr(visitor, method_name)
+        return visit(self)
+
+    def children(self) -> List["AST"]:
         raise NotImplementedError("AST.children() not implemented")
 
 
