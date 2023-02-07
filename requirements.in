@@ -6,7 +6,7 @@
 #
 antlr4-python3-runtime==4.11.1
 amqp==2.6.0
-boto3==1.21.29
+boto3==1.26.66
 celery==4.4.7
 celery-redbeat==2.0.0
 clickhouse-driver==0.2.1
