@@ -1,5 +1,5 @@
 import './InstructionsPanel.scss'
-import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import {
     AndroidInstructions,
     APIInstructions,
@@ -12,11 +12,12 @@ import {
     PythonInstructions,
     RNInstructions,
     RubyInstructions,
-} from 'scenes/ingestion/v1/frameworks'
-import { API, MOBILE, BACKEND, WEB } from 'scenes/ingestion/v1/constants'
+} from 'scenes/ingestion/frameworks'
+import { API, MOBILE, BACKEND, WEB } from '../constants'
 import { useValues } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import { WebInstructions } from '../frameworks/WebInstructions'
+import { Link } from '@posthog/lemon-ui'
 
 const frameworksSnippet: Record<string, React.ComponentType> = {
     NODEJS: NodeInstructions,
@@ -33,7 +34,7 @@ const frameworksSnippet: Record<string, React.ComponentType> = {
 }
 
 export function InstructionsPanel(): JSX.Element {
-    const { platform, framework, frameworkString } = useValues(ingestionLogic)
+    const { platform, framework, frameworkString } = useValues(ingestionLogicV2)
 
     if (platform !== WEB && !framework) {
         return <></>
@@ -51,9 +52,9 @@ export function InstructionsPanel(): JSX.Element {
                 <CardContainer showFooter>
                     <h2>{frameworkString}</h2>
                     <p className="prompt-text">
-                        {
-                            "Below is an easy format for capturing events using the API we've provided. Use this endpoint to send your first event!"
-                        }
+                        Need a different framework? Our HTTP API is a flexible way to use PostHog anywhere. Try the
+                        endpoint below to send your first event, and view our API docs{' '}
+                        <Link to="https://posthog.com/docs/api">here</Link>.
                     </p>
                     <FrameworkSnippet />
                 </CardContainer>
@@ -64,7 +65,7 @@ export function InstructionsPanel(): JSX.Element {
                     {platform === BACKEND ? (
                         <>
                             <p className="prompt-text">
-                                {`Follow the instructions below to send custom events from your ${frameworkString} backend.`}
+                                Follow the instructions below to send custom events from your {frameworkString} backend.
                             </p>
                             <FrameworkSnippet />
                         </>

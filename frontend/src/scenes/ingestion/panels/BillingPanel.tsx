@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import { CardContainer } from 'scenes/ingestion/v2/CardContainer'
-import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
+import { ingestionLogicV2 } from 'scenes/ingestion/ingestionLogicV2'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
