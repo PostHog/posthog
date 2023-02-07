@@ -160,18 +160,16 @@ def run_events_query(
     person_id = query.personId
     order_by = query.orderBy
     select = query.select
-    where = []  # make a new object since we'll be modifying it
-    if query.where:
-        where.extend(query.where)
+    where = query.where.copy() if query.where else []  # Shallow-copy since we'll be modifying it
     event = query.event
 
-    all_properties = []
-    all_properties.extend(query.fixedProperties or [])
-    all_properties.extend(query.properties or [])
+    classic_properties = []
+    classic_properties.extend(query.fixedProperties or [])
+    classic_properties.extend(query.properties or [])
 
     # Split HogQL properties from the rest, as "where" supports filtering by "having" aggregations like "count() > 2"
     properties = []
-    for prop in all_properties:
+    for prop in classic_properties:
         if prop.type == "hogql":
             where.append(str(prop.key))
         else:
