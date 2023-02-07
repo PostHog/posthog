@@ -346,10 +346,10 @@ def ingestion_lag():
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
-        with pushed_metrics_registry("ingestion_lag") as registry:
+        with pushed_metrics_registry("celery_ingestion_lag") as registry:
             lag_gauge = Gauge(
                 "posthog_celery_observed_ingestion_lag_seconds",
-                "End-to-end ingestion lag through several ingestion scenarios. Prone to ",
+                "End-to-end ingestion lag observed through several scenarios. Can be overestimated by up to 60 seconds.",
                 labelnames=["scenario"],
                 registry=registry,
             )
