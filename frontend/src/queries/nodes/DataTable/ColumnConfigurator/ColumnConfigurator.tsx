@@ -1,10 +1,10 @@
 import './ColumnConfigurator.scss'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     SortableContainer as sortableContainer,
     SortableElement as sortableElement,
@@ -18,7 +18,7 @@ import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { LemonModal } from 'lib/components/LemonModal'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

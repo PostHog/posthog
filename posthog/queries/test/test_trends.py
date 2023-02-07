@@ -37,6 +37,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_different_timezone,
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -4364,6 +4365,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
 
+    @also_test_with_different_timezone
     @snapshot_clickhouse_queries
     def test_weekly_active_users_monthly(self):
         self._create_active_users_events()
@@ -4381,6 +4383,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # No users fall into the period of 7 days during or before the first day of any of those three months
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
+    @also_test_with_different_timezone
     @snapshot_clickhouse_queries
     def test_weekly_active_users_daily(self):
         self._create_active_users_events()
@@ -4428,6 +4431,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @also_test_with_different_timezone
     def test_weekly_active_users_daily_based_on_action(self):
         action = _create_action(name="$pageview", team=self.team)
         self._create_active_users_events()
@@ -4460,6 +4464,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Same as test_weekly_active_users_daily
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
+    @also_test_with_different_timezone
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
         self._create_active_users_events()
@@ -4783,7 +4788,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
         result = Trends().run(filter2, self.team)
         self.assertEqual(result[0]["count"], 2)
-        result = Trends().run(filter.with_data({"breakdown": "key"}), self.team)
+        result = Trends().run(filter.shallow_clone({"breakdown": "key"}), self.team)
         self.assertEqual(result[0]["count"], 1)
 
     @also_test_with_materialized_columns(["$some_property"])
@@ -5802,7 +5807,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["breakdown_value"], "technology")
         self.assertEqual(response[1]["count"], 1)
 
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
         )
         entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
@@ -5863,7 +5868,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["breakdown_value"], "technology")
             self.assertEqual(response[1]["count"], 1)
 
-            filter = filter.with_data(
+            filter = filter.shallow_clone(
                 {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02"}
             )
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
@@ -6104,7 +6109,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[0]["count"], 1)
             self.assertEqual(response[0]["data"], [0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
-            filter = filter.with_data({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
+            filter = filter.shallow_clone({"date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02T00:00:00Z"})
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
             res = self._get_trend_people(filter, entity)
 

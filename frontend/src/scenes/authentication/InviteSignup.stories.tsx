@@ -8,7 +8,11 @@ import { inviteSignupLogic } from './inviteSignupLogic'
 
 export default {
     title: 'Scenes-Other/InviteSignup',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+    },
     decorators: [
         mswDecorator({
             get: {

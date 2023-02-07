@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ActorType } from '~/types'
 import { groupsModel } from '~/models/groupsModel'
 import UserOutlined from '@ant-design/icons/lib/icons/UserOutlined'

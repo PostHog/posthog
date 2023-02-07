@@ -9,7 +9,11 @@ import { urls } from 'scenes/urls'
 
 export default {
     title: 'Scenes-Other/Login',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+    },
 } as Meta
 
 const sharedMocks = {

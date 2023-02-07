@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { compactNumber } from 'lib/utils'
 import { useEffect, useMemo, useState } from 'react'
 import './BillingGauge.scss'

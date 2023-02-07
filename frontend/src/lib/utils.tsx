@@ -17,6 +17,7 @@ import {
     EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
+    FunnelVizType,
     GroupActorType,
     InsightType,
     IntervalType,
@@ -41,11 +42,12 @@ import {
     isPropertyFilterWithOperator,
     isValidPropertyFilter,
 } from './components/PropertyFilters/utils'
-import { IconCopy } from './components/icons'
-import { lemonToast } from './components/lemonToast'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -1169,6 +1171,10 @@ export const disableHourFor: Record<string, boolean> = {
 export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
     if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
         // Non-time-series insights should not have an interval
+        return undefined
+    }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
         return undefined
     }
     if (!filters.interval) {

@@ -6,7 +6,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { useAvailableFeatures } from '~/mocks/features'
 import { uuid } from 'lib/utils'
 import { useStorybookMocks } from '~/mocks/browser'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
 
 export default {
@@ -16,6 +16,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
+        mockDate: '2023-01-31 12:00:00',
     },
 } as ComponentMeta<typeof SubscriptionsModal>
 

@@ -3,7 +3,7 @@ import { Checkbox, Input } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { propertySelectLogic } from './propertyNamesSelectLogic'
 import './PropertyNamesSelect.scss'
-import { IconArrowDropDown } from '../icons'
+import { IconArrowDropDown } from 'lib/lemon-ui/icons'
 import React, { useEffect } from 'react'
 
 // Incrementing counter to ensure uniqueness of logic for each component

@@ -8,23 +8,26 @@ import { AvailableFeature, PropertyDefinition } from '~/types'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { useActions, useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
-import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
+import { DefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopover'
 import {
     definitionLogic,
     DefinitionLogicProps,
     DefinitionPageMode,
 } from 'scenes/data-management/definition/definitionLogic'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DefinitionEdit } from 'scenes/data-management/definition/DefinitionEdit'
-import { formatTimeFromNow } from 'lib/components/DefinitionPopup/utils'
+import { formatTimeFromNow } from 'lib/components/DefinitionPopover/utils'
 import { humanFriendlyNumber } from 'lib/utils'
-import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import {
+    ThirtyDayQueryCountTitle,
+    ThirtyDayVolumeTitle,
+} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 import { EventsTable } from 'scenes/events'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
-import { IconPlayCircle } from 'lib/components/icons'
+import { IconPlayCircle } from 'lib/lemon-ui/icons'
 import { combineUrl } from 'kea-router/lib/utils'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -104,7 +107,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     className="definition-tags"
                                     saving={definitionLoading}
                                 />
-                                <DefinitionPopup.TimeMeta
+                                <DefinitionPopover.TimeMeta
                                     createdAt={
                                         (definition && 'created_at' in definition && definition.created_at) || undefined
                                     }
@@ -161,18 +164,18 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         }
                     />
                     <Divider />
-                    <DefinitionPopup.Grid cols={2}>
+                    <DefinitionPopover.Grid cols={2}>
                         {isEvent && (
                             <>
-                                <DefinitionPopup.Card
+                                <DefinitionPopover.Card
                                     title="First seen"
                                     value={formatTimeFromNow(definition.created_at)}
                                 />
-                                <DefinitionPopup.Card
+                                <DefinitionPopover.Card
                                     title="Last seen"
                                     value={formatTimeFromNow(definition.last_seen_at)}
                                 />
-                                <DefinitionPopup.Card
+                                <DefinitionPopover.Card
                                     title={<ThirtyDayVolumeTitle />}
                                     value={
                                         definition.volume_30_day == null
@@ -183,7 +186,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             </>
                         )}
 
-                        <DefinitionPopup.Card
+                        <DefinitionPopover.Card
                             title={<ThirtyDayQueryCountTitle />}
                             value={
                                 definition.query_usage_30_day == null
@@ -192,12 +195,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                             }
                         />
                         {!isEvent && (
-                            <DefinitionPopup.Card
+                            <DefinitionPopover.Card
                                 title="Property Type"
                                 value={(definition as PropertyDefinition).property_type ?? '-'}
                             />
                         )}
-                    </DefinitionPopup.Grid>
+                    </DefinitionPopover.Grid>
                     <Divider />
                     {isEvent && definition.id !== 'new' && (
                         <>

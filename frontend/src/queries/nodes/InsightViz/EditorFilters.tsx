@@ -8,6 +8,7 @@ import {
     QueryEditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
+    FunnelVizType,
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -15,15 +16,14 @@ import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import {
     isTrendsQuery,
     isFunnelsQuery,
-    isRetentionQuery,
     isPathsQuery,
     isStickinessQuery,
+    isRetentionQuery,
     isLifecycleQuery,
 } from '~/queries/utils'
 
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
-import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
@@ -41,7 +41,10 @@ import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/Pa
 import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-
+import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
+import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
+import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -50,11 +53,8 @@ export interface EditorFiltersProps {
 export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
-    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-    // const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
-    const advancedOptionsUsedCount = 0
 
-    const showFilters = true // TODO: implement with insightVizLogic
+    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
 
     const isTrends = isTrendsQuery(query)
     const isFunnels = isFunnelsQuery(query)
@@ -62,23 +62,27 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const isPaths = isPathsQuery(query)
     const isStickiness = isStickinessQuery(query)
     const isLifecycle = isLifecycleQuery(query)
-
+    const isTrendsLike = isTrends || isLifecycle || isStickiness
     const display = getDisplay(query)
     const breakdown = getBreakdown(query)
 
-    const isTrendsLike = isTrends || isLifecycle || isStickiness
-    const hasBreakdown = isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
-    // || (isRetention &&
-    //     featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-    //     (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
-    // (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
-    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
+    const hasBreakdown =
+        (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
+        (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
+    const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
+
+    const showFilters = true // TODO: implement with insightVizLogic
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
             title: 'General',
             editorFilters: filterFalsy([
+                isRetention && {
+                    key: 'retention-summary',
+                    label: 'Retention Summary',
+                    component: RetentionSummaryDataExploration,
+                },
                 ...(isPaths
                     ? filterFalsy([
                           {
@@ -112,6 +116,14 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           },
                       ])
                     : []),
+                ...(isFunnels
+                    ? filterFalsy([
+                          {
+                              key: 'query-steps',
+                              component: FunnelsQueryStepsDataExploration,
+                          },
+                      ])
+                    : []),
             ]),
         },
         {
@@ -137,28 +149,18 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
             editorFilters: filterFalsy([
                 isLifecycle
                     ? {
-                          key: 'properties',
-                          label: 'Filters',
-                          position: 'right',
-                          component: LifecycleGlobalFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
-                isLifecycle
-                    ? {
                           key: 'toggles',
                           label: 'Lifecycle Toggles',
                           position: 'right',
                           component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
                       }
                     : null,
-                hasPropertyFilters
-                    ? {
-                          key: 'properties',
-                          label: 'Filters',
-                          position: 'right',
-                          component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
+                {
+                    key: 'properties',
+                    label: 'Filters',
+                    position: 'right',
+                    component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
+                },
             ]),
         },
         {
@@ -180,6 +182,28 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           component: Breakdown,
                       }
                     : null,
+                hasAttribution
+                    ? {
+                          key: 'attribution',
+                          label: 'Attribution type',
+                          position: 'right',
+                          tooltip: (
+                              <div>
+                                  Attribution type determines which property value to use for the entire funnel.
+                                  <ul className="list-disc pl-4">
+                                      <li>First step: the first property value seen from all steps is chosen.</li>
+                                      <li>Last step: last property value seen from all steps is chosen.</li>
+                                      <li>Specific step: the property value seen at that specific step is chosen.</li>
+                                      <li>All steps: the property value must be seen in all steps.</li>
+                                      <li>
+                                          Any step: the property value must be seen on at least one step of the funnel.
+                                      </li>
+                                  </ul>
+                              </div>
+                          ),
+                          component: AttributionDataExploration,
+                      }
+                    : null,
             ]),
         },
         {
@@ -198,16 +222,20 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         },
         {
             title: 'Advanced Options',
-            defaultExpanded: !!advancedOptionsUsedCount,
-            count: advancedOptionsUsedCount,
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
+                    position: 'left',
                     component: (props) => (
                         <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
                             <PathsAdvancedDataExploration {...props} />
                         </PayGateMini>
                     ),
+                },
+                isFunnels && {
+                    key: 'funnels-advanced',
+                    position: 'left',
+                    component: FunnelsAdvancedDataExploration,
                 },
             ]),
         },
@@ -243,7 +271,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                 })}
             >
                 <div className="EditorFilters">
-                    {editorFilterGroups.map((editorFilterGroup) => (
+                    {(isFunnels ? editorFilters : editorFilterGroups).map((editorFilterGroup) => (
                         <EditorFilterGroup
                             key={editorFilterGroup.title}
                             editorFilterGroup={editorFilterGroup}

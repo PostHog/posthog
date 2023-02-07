@@ -99,7 +99,9 @@ class ActorBaseQuery:
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         """Get actors in data model and dict formats. Builds query and executes"""
         query, params = self.actor_query()
-        raw_result = insight_sync_execute(query, params, query_type=self.QUERY_TYPE, filter=self._filter)
+        raw_result = insight_sync_execute(
+            query, {**params, **self._filter.hogql_context.values}, query_type=self.QUERY_TYPE, filter=self._filter
+        )
         actors, serialized_actors = self.get_actors_from_result(raw_result)
 
         if hasattr(self._filter, "include_recordings") and self._filter.include_recordings and self._filter.insight in [INSIGHT_PATHS, INSIGHT_TRENDS, INSIGHT_FUNNELS]:  # type: ignore
@@ -118,7 +120,9 @@ class ActorBaseQuery:
             and session_id in %(session_ids)s
         """
         params = {"team_id": self._team.pk, "session_ids": list(session_ids)}
-        raw_result = insight_sync_execute(query, params, query_type="actors_session_ids_with_recordings")
+        raw_result = insight_sync_execute(
+            query, params, query_type="actors_session_ids_with_recordings", filter=self._filter
+        )
         return {row[0] for row in raw_result}
 
     def add_matched_recordings_to_serialized_actors(

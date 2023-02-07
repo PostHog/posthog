@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription, insightUrlForEvent } from 'lib/utils'
@@ -13,16 +13,16 @@ import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ActionType, AnyPropertyFilter, ColumnChoice, EventsTableRowItem } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import clsx from 'clsx'
 import { tableConfigLogic } from 'lib/components/ResizableTable/tableConfigLogic'
 import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
-import { TableCellRepresentation } from 'lib/components/LemonTable/types'
-import { IconExport, IconPlayCircle, IconSync } from 'lib/components/icons'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
+import { TableCellRepresentation } from 'lib/lemon-ui/LemonTable/types'
+import { IconExport, IconPlayCircle, IconSync } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 import { createActionFromEvent } from './createActionFromEvent'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
@@ -458,8 +458,8 @@ export function EventsTable({
                                 />
                             )}
                             {showExport && (
-                                <LemonButtonWithPopup
-                                    popup={{
+                                <LemonButtonWithDropdown
+                                    dropdown={{
                                         sameWidth: false,
                                         closeOnClickInside: false,
                                         overlay: [
@@ -493,7 +493,7 @@ export function EventsTable({
                                     icon={<IconExport />}
                                 >
                                     Export
-                                </LemonButtonWithPopup>
+                                </LemonButtonWithDropdown>
                             )}
                         </div>
                     </div>

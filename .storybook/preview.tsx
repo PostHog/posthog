@@ -1,6 +1,6 @@
 import '~/styles'
 import './storybook.scss'
-import type { Meta } from '@storybook/react'
+import type { Meta, Parameters } from '@storybook/react'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
 import { getStorybookAppContext } from './app-context'
@@ -29,8 +29,7 @@ const setupPosthogJs = () => {
 setupPosthogJs()
 
 /** Storybook global parameters. See https://storybook.js.org/docs/react/writing-stories/parameters#global-parameters */
-export const parameters = {
-    chromatic: { disableSnapshot: true }, // TODO: Make snapshots the default, instead disable them on a per-story basis
+export const parameters: Parameters = {
     actions: { argTypesRegex: '^on[A-Z].*', disabled: true },
     controls: {
         matchers: {
@@ -52,7 +51,6 @@ export const parameters = {
                 'Filters',
                 'Layout',
             ],
-            includeName: true,
         },
     },
     viewMode: 'docs',

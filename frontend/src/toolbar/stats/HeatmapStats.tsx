@@ -1,15 +1,15 @@
 import { useActions, useValues } from 'kea'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { getShadowRootPopupContainer } from '~/toolbar/utils'
+import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconSync } from 'lib/components/icons'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
-import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconSync } from 'lib/lemon-ui/icons'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function HeatmapStats(): JSX.Element {
     const {
@@ -39,7 +39,7 @@ export function HeatmapStats(): JSX.Element {
                             dateFrom={heatmapFilter.date_from ?? '-7d'}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                            getPopupContainer={getShadowRootPopupContainer}
+                            getPopupContainer={getShadowRootPopoverContainer}
                         />
 
                         {heatmapLoading ? <Spinner /> : null}
@@ -57,7 +57,7 @@ export function HeatmapStats(): JSX.Element {
                             disabledReason={
                                 canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                             }
-                            getPopupContainer={getShadowRootPopupContainer}
+                            getTooltipPopupContainer={getShadowRootPopoverContainer}
                         >
                             Load more
                         </LemonButton>
@@ -67,7 +67,7 @@ export function HeatmapStats(): JSX.Element {
                         title={
                             'Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.'
                         }
-                        getPopupContainer={getShadowRootPopupContainer}
+                        getPopupContainer={getShadowRootPopoverContainer}
                     >
                         <div>
                             <LemonSwitch

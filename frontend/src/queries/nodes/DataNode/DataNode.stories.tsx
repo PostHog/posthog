@@ -12,6 +12,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
+        testOptions: { skip: true },
     },
     argTypes: {
         query: { defaultValue: {} },

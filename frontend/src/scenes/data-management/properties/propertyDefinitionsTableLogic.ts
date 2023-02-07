@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 
 import type { propertyDefinitionsTableLogicType } from './propertyDefinitionsTableLogicType'
 import { groupsModel } from '../../../models/groupsModel'
-import { LemonSelectOption } from '../../../lib/components/LemonSelect'
+import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export interface Filters {
     property: string

@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 import { Field, Form } from 'kea-forms'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 
 export function KafkaInspectorTab(): JSX.Element {
     const { kafkaMessage } = useValues(kafkaInspectorLogic)

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import type { InsightLogicProps, InsightModel, QueryInsightEditorFilterGroup } from '~/types'
 import '../../../scenes/insights/EditorFilters/EditorFilterGroup.scss'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { slugify } from 'lib/utils'
-import { LemonBadge } from 'lib/components/LemonBadge/LemonBadge'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { PureField } from 'lib/forms/Field'
 import { InsightQueryNode } from '~/queries/schema'
 

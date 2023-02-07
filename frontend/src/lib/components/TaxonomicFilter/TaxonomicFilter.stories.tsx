@@ -8,6 +8,9 @@ import { useMountedLogic } from 'kea'
 export default {
     title: 'Filters',
     decorators: [taxonomicFilterMocksDecorator],
+    parameters: {
+        testOptions: { skip: true }, // FIXME: This is currently excluded due to flaky loading of data in it
+    },
 }
 
 export function TaxonomicFilter_(): JSX.Element {

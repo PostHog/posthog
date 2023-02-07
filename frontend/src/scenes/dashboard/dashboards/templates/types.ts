@@ -5,4 +5,5 @@ export interface DashboardTemplatesRepositoryEntry {
     maintainer?: string
     verified?: boolean
     installed?: boolean
+    has_new_version?: boolean
 }

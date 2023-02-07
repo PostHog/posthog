@@ -3,8 +3,8 @@ import { useValues } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, PathsFilterType } from '~/types'
-import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
-import { IconEllipsis } from 'lib/components/icons'
+import { LemonButton, LemonButtonWithDropdown } from '@posthog/lemon-ui'
+import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils'
 
 import { pageUrl, PathNodeData } from './pathUtils'
@@ -57,11 +57,11 @@ export function PathNodeCardButton({
                         {count}
                     </span>
                 </LemonButton>
-                <LemonButtonWithPopup
+                <LemonButtonWithDropdown
                     size="small"
                     status="muted"
                     icon={<IconEllipsis />}
-                    popup={{
+                    dropdown={{
                         overlay: (
                             <>
                                 <LemonButton size="small" fullWidth status="stealth" onClick={setAsPathStart}>

@@ -55,34 +55,28 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
-                       FROM
-                         (SELECT e.event as event,
-                                 e.team_id as team_id,
-                                 e.distinct_id as distinct_id,
-                                 e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id
-                          FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
                           WHERE team_id = 2
-                            AND event IN ['step one', 'step three', 'step two']
-                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                       WHERE (step_0 = 1
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                         AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))
@@ -186,34 +180,28 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
-                       FROM
-                         (SELECT e.event as event,
-                                 e.team_id as team_id,
-                                 e.distinct_id as distinct_id,
-                                 e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id
-                          FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
                           WHERE team_id = 2
-                            AND event IN ['step one', 'step three', 'step two']
-                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                       WHERE (step_0 = 1
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                         AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))
@@ -317,34 +305,28 @@
                                               min(latest_2) over (PARTITION by aggregation_target
                                                                   ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(event = 'step two', 1, 0) as step_1,
                               if(step_1 = 1, timestamp, null) as latest_1,
                               if(event = 'step three', 1, 0) as step_2,
                               if(step_2 = 1, timestamp, null) as latest_2
-                       FROM
-                         (SELECT e.event as event,
-                                 e.team_id as team_id,
-                                 e.distinct_id as distinct_id,
-                                 e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 pdi.person_id as person_id
-                          FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
                           WHERE team_id = 2
-                            AND event IN ['step one', 'step three', 'step two']
-                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                       WHERE (step_0 = 1
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                         AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))
@@ -429,33 +411,27 @@
                                         min(latest_2) over (PARTITION by aggregation_target
                                                             ORDER BY timestamp DESC ROWS BETWEEN 2 PRECEDING AND 2 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step two', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'step three', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                 WHERE (1=1) ))
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
@@ -536,34 +512,28 @@
                                         min(latest_2) over (PARTITION by aggregation_target
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'step one', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step two', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'step three', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['step one', 'step three', 'step two']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event IN ['step one', 'step three', 'step two']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))
            WHERE step_0 = 1
@@ -587,34 +557,28 @@
                                         min(latest_2) over (PARTITION by aggregation_target
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'step two', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step three', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'step one', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['step one', 'step three', 'step two']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event IN ['step one', 'step three', 'step two']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))
            WHERE step_0 = 1
@@ -638,34 +602,28 @@
                                         min(latest_2) over (PARTITION by aggregation_target
                                                             ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_2
               FROM
-                (SELECT aggregation_target,
-                        timestamp,
+                (SELECT e.timestamp as timestamp,
+                        pdi.person_id as aggregation_target,
+                        pdi.person_id as person_id ,
                         if(event = 'step three', 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'step one', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1,
                         if(event = 'step two', 1, 0) as step_2,
                         if(step_2 = 1, timestamp, null) as latest_2
-                 FROM
-                   (SELECT e.event as event,
-                           e.team_id as team_id,
-                           e.distinct_id as distinct_id,
-                           e.timestamp as timestamp,
-                           pdi.person_id as aggregation_target,
-                           pdi.person_id as person_id
-                    FROM events e
-                    INNER JOIN
-                      (SELECT distinct_id,
-                              argMax(person_id, version) as person_id
-                       FROM person_distinct_id2
-                       WHERE team_id = 2
-                       GROUP BY distinct_id
-                       HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
                     WHERE team_id = 2
-                      AND event IN ['step one', 'step three', 'step two']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC') ) events
-                 WHERE (step_0 = 1
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                 WHERE team_id = 2
+                   AND event IN ['step one', 'step three', 'step two']
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-06-07 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-06-13 23:59:59', 'UTC')
+                   AND (step_0 = 1
                         OR step_1 = 1
                         OR step_2 = 1) ))
            WHERE step_0 = 1 ))

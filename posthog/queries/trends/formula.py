@@ -75,10 +75,11 @@ class TrendsFormula:
         with push_scope() as scope:
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
-            scope.set_context("query", {"sql": sql, "params": params})
+            query_params = {**params, **filter.hogql_context.values}
+            scope.set_context("query", {"sql": sql, "params": query_params})
             result = insight_sync_execute(
                 sql,
-                params,
+                query_params,
                 query_type="trends_formula",
                 filter=filter,
             )

@@ -3,7 +3,7 @@ import { ComponentMeta } from '@storybook/react'
 import { SharingModal, SharingModalProps } from './SharingModal'
 import { AvailableFeature, InsightModel, InsightShortId, InsightType } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useAvailableFeatures } from '~/mocks/features'
 
 const fakeInsight: Partial<InsightModel> = {

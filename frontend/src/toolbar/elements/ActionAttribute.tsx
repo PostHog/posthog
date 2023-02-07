@@ -1,4 +1,4 @@
-import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/components/icons'
+import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()

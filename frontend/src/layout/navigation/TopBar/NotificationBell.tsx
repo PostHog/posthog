@@ -1,14 +1,14 @@
-import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
+import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
-import { Popup } from 'lib/components/Popup/Popup'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { Link } from 'lib/components/Link'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
@@ -20,7 +20,7 @@ export function NotificationBell(): JSX.Element {
     })
 
     return (
-        <Popup
+        <Popover
             visible={isNotificationPopoverOpen}
             onClickOutside={toggleNotificationsPopover}
             overlay={
@@ -47,7 +47,7 @@ export function NotificationBell(): JSX.Element {
                     )}
                 </div>
             }
-            className="NotificationsBell-Popup"
+            className="NotificationsBell-Popover"
         >
             <div
                 className={clsx('h-10 items-center cursor-pointer flex text-primary-alt text-2xl')}
@@ -59,6 +59,6 @@ export function NotificationBell(): JSX.Element {
                 </IconWithCount>
                 <IconArrowDropDown />
             </div>
-        </Popup>
+        </Popover>
     )
 }
