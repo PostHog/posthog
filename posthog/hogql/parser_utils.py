@@ -1,4 +1,5 @@
 def parse_string_literal(ctx):
+    """Converts a string literal received from antlr via ctx.getText() into a Python string"""
     text = ctx.getText()
     if text.startswith("'") and text.endswith("'"):
         text = text[1:-1]
