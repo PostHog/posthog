@@ -94,7 +94,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
                     "distinct_id": str(user.distinct_id),
                     "first_name": user.first_name,
                     "email": user.email,
-                    "is_email_verified": False,
+                    "is_email_verified": None,
                 },
                 "level": OrganizationMembership.Level.ADMIN.value,
             },

@@ -26,6 +26,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "first_name": "",
             "id": user.id,
             "uuid": str(user.uuid),
+            "is_email_verified": None,
         }
 
     def _expected_text(
