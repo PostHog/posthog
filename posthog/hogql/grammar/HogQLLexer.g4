@@ -212,6 +212,9 @@ ESCAPE_CHAR
     | BACKSLASH BACKSLASH
     | BACKSLASH QUOTE_SINGLE;
 
+// ClickHouse supports identifier with double quotes and back quotes (select from "table"; select from `table`)
+// HogQL only uses backquotes. Double quotes and single quotes are used in strings.
+// This is to make query editing in the UI nicer by supporting intuitive syntax like: event == "$pageview"
 IDENTIFIER
     : (LETTER | UNDERSCORE | DOLLAR) (LETTER | UNDERSCORE | DEC_DIGIT | DOLLAR)*
     | BACKQUOTE ( ~([\\`]) | ESCAPE_CHAR | (BACKQUOTE BACKQUOTE) )* BACKQUOTE

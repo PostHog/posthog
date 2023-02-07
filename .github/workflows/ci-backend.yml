@@ -143,9 +143,11 @@ jobs:
 
             - name: Check if antlr definitions are up to date
               run: |
+                  # Installing a version of ant compatible with what we use in development from homebrew (4.11)
+                  # "apt-get install antlr" would install 4.7 which is incompatible with our grammar. 
                   export ANTLR_VERSION=4.11.1
-
-                  sudo apt-get install default-jre
+                  # java version doesn't matter
+                  sudo apt-get install default-jre 
                   mkdir antlr
                   cd antlr
                   curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
@@ -155,10 +157,9 @@ jobs:
                   chmod +x antlr4
                   export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
                   export PATH="$PWD:$PATH"
-                  cd ..
 
-                  cd current
-                  antlr4 |grep Version
+                  cd ../current
+                  antlr4 | grep "Version"
                   npm run grammar:build && git diff --exit-code
 
     check-migrations:

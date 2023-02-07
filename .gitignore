@@ -33,6 +33,7 @@ cypress/screenshots/
 cypress/downloads/
 cypress/**/*.diff.png
 docker-compose.prod.yml
+# pyenv local config
 .python-version
 *.isorted
 build-storybook.log
@@ -47,4 +48,5 @@ a11y/
 /test-results/
 /playwright-report/
 playwright/e2e-vrt/**/*-darwin.png
+# antlr4 generated temp files when "npm run grammar:build" crashes
 gen
