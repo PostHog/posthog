@@ -13,8 +13,10 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
+from prometheus_client import Gauge
 
 from posthog.cloud_utils import is_cloud
+from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
@@ -344,9 +346,17 @@ def ingestion_lag():
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
-        for event, lag in results:
-            metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
-            statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+        with pushed_metrics_registry("ingestion_lag") as registry:
+            lag_gauge = Gauge(
+                "posthog_celery_observed_ingestion_lag_seconds",
+                "End-to-end ingestion lag through several ingestion scenarios. Prone to ",
+                labelnames=["scenario"],
+                registry=registry,
+            )
+            for event, lag in results:
+                metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
+                statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+                lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
 
