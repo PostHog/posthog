@@ -98,6 +98,13 @@ def get_person_name(person: Person) -> str:
     return person.pk
 
 
+class PersonsThrottle(PassThroughClickHouseSustainedRateThrottle):
+    # Throttle class that's scoped just to the person endpoint.
+    # This makes the rate limit apply to all endpoints under /api/person/
+    # and independent of other endpoints.
+    scope = "persons"
+
+
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
     name = serializers.SerializerMethodField()
 
@@ -158,7 +165,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness

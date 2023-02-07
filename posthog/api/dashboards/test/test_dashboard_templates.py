@@ -61,12 +61,18 @@ website_traffic_template_listing: Dict = {
 
 
 class TestDashboardTemplates(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+
+        self.user.is_staff = True
+        self.user.save()
+
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
         self._patch_request_get(patched_requests, template_listing_json)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/repository")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         expected_listing: List[Dict[str, Any]] = []
         for tl in template_listing_json:
@@ -84,7 +90,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         patched_requests.assert_called_with("a github url")
 
@@ -95,7 +101,7 @@ class TestDashboardTemplates(APIBaseTest):
         self._patch_request_get(patched_requests, template_listing_json)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/repository")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
         assert len(response.json()) == 2
 
         expected_listing: List[Dict[str, Any]] = []
@@ -103,6 +109,37 @@ class TestDashboardTemplates(APIBaseTest):
             expected_listing.append({**tl, "installed": True, "has_new_version": False})
 
         assert response.json() == expected_listing
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_non_staff_user_cannot_install_templates(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        assert DashboardTemplate.objects.count() == 0
+
+        self.user.is_staff = False
+        self.user.save()
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "Website traffic", "url": "a github url"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response)
+
+        assert DashboardTemplate.objects.count() == 0
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_dashboards_are_installed_with_no_team_id(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": "Website traffic", "url": "a github url"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        patched_requests.assert_called_with("a github url")
+
+        assert DashboardTemplate.objects.count() == 1
+        assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_can_update_from_github(self, patched_requests) -> None:
@@ -114,7 +151,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         patched_requests.assert_called_with("a github url")
 
@@ -124,7 +161,7 @@ class TestDashboardTemplates(APIBaseTest):
         self._patch_request_get(patched_requests, updated_template_listing_json)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/repository")
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
         assert [r["has_new_version"] for r in response.json()] == [False, True]
 
         self._patch_request_get(
@@ -139,7 +176,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         assert DashboardTemplate.objects.count() == 1
         assert DashboardTemplate.objects.first().tags == ["updated"]  # type: ignore
@@ -154,8 +191,8 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "this is never going to match", "url": "a github url"},
         )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         response_json = response.json()
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response_json)
         assert (
             response_json["detail"]
             == 'The requested template "this is never going to match" does not match the requested template URL which loaded the template "Website traffic"'
