@@ -333,6 +333,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 doneDates.add(date)
                 runningDates.delete(date)
                 progress += progressPerDay
+                continue
             } else {
                 progress += progressPerDay * (dateStatus?.progress ?? 0)
             }

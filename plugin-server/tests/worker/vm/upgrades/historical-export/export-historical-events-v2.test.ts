@@ -652,6 +652,32 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 exportIsDone: false,
             })
         })
+
+        it('does not resume tasks that are done', async () => {
+            const dateStatus = {
+                done: true,
+                progress: 1,
+                statusTime: Date.now() - 70 * 60 * 1000,
+                retriesPerformedSoFar: 0,
+            }
+            await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
+
+            const result = await calculateCoordination(params, [], [
+                '2021-10-29T00:00:00.000Z',
+                '2021-10-30T00:00:00.000Z',
+                '2021-10-31T00:00:00.000Z',
+            ] as ISOTimestamp[])
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: ['2021-10-29T00:00:00.000Z'],
+                running: ['2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
+                toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']],
+                toResume: [],
+                progress: 0.25,
+                exportIsDone: false,
+            })
+        })
     })
 
     describe('nextCursor()', () => {
