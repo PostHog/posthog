@@ -4,7 +4,7 @@ import api from 'lib/api'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
-import { LemonSelectOption } from 'lib/components/LemonSelect'
+import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
@@ -13,7 +13,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             {} as Record<string, DashboardTemplatesRepositoryEntry>,
             {
                 loadRepository: async () => {
-                    const results = await api.get('api/projects/@current/dashboard_templates/repository')
+                    const results = await api.get('/api/projects/@current/dashboard_templates/repository')
                     const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
                     for (const template of results as DashboardTemplatesRepositoryEntry[]) {
                         if (template.url) {
@@ -34,15 +34,24 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
         ],
     }),
     reducers(() => ({
+        templateBeingSaved: [
+            null as string | null,
+            {
+                installTemplateSuccess: () => null,
+                installTemplate: (_, { name }) => name,
+            },
+        ],
         templatesList: [
             [] as LemonSelectOption<string>[],
             {
                 loadRepositorySuccess: (_, { repository }) => {
-                    return Object.values(repository).map((entry) => ({
-                        value: entry.name,
-                        label: entry.name,
-                        'data-attr': `dashboard-select-${entry.name.replace(' ', '-')}`,
-                    }))
+                    return Object.values(repository)
+                        .filter((r) => !!r.installed)
+                        .map((entry) => ({
+                            value: entry.name,
+                            label: entry.name,
+                            'data-attr': `dashboard-select-${entry.name.replace(' ', '-')}`,
+                        }))
                 },
             },
         ],

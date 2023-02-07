@@ -1,10 +1,10 @@
 import { FilterType, TrendsFilterType } from '~/types'
 import { RefCallback, useEffect, useState } from 'react'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PureField } from 'lib/forms/Field'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { HandleUnitChange } from 'lib/components/UnitPicker/UnitPicker'
 
 function chooseFormativeElementValue(
@@ -53,7 +53,7 @@ export function CustomUnitModal({
             overlayRef={overlayRef}
             isOpen={isOpen}
             onClose={onClose}
-            forceAbovePopups={true}
+            forceAbovePopovers={true}
             title={`Custom ${formativeElement}`}
             footer={
                 <>

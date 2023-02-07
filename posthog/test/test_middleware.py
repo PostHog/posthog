@@ -92,7 +92,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 42
+        cls.base_app_num_queries = 39
         if settings.MULTI_TENANCY:
             cls.base_app_num_queries += 2
         # Create another team that the user does have access to

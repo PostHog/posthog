@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, listeners, connect, props, key, selectors } from 'kea'
+import { actions, kea, reducers, path, connect, props, key, selectors, listeners } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -9,7 +9,6 @@ import {
     SessionRecordingPlayerTab,
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
@@ -20,8 +19,24 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
-import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
-import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
+
+export const IMAGE_WEB_EXTENSIONS = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'tif',
+    'tiff',
+    'gif',
+    'svg',
+    'webp',
+    'bmp',
+    'ico',
+    'cur',
+]
 
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -46,7 +61,7 @@ export type InspectorListItemConsole = InspectorListItemBase & {
 }
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.PERFORMANCE
+    type: SessionRecordingPlayerTab.NETWORK
     data: PerformanceEvent
 }
 
@@ -57,8 +72,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
-        logic: [eventUsageLogic],
-        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter']],
+        actions: [
+            playerSettingsLogic,
+            ['setTab', 'setMiniFilter', 'setSyncScroll'],
+            eventUsageLogic,
+            ['reportRecordingInspectorItemExpanded'],
+        ],
         values: [
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
@@ -69,6 +88,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
+                'sessionPlayerSnapshotDataLoading',
                 'sessionEventsData',
                 'sessionEventsDataLoading',
                 'windowIds',
@@ -83,7 +103,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
-        setSyncScroll: (syncScroll: boolean) => ({ syncScroll }),
+        setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
     reducers(({}) => ({
         searchQuery: [
@@ -110,39 +130,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        syncScroll: [
+        syncScrollingPaused: [
             false,
             {
-                setSyncScroll: (_, { syncScroll }) => syncScroll,
-                setItemExpanded: () => false,
+                setTab: () => false,
+                setSyncScrollPaused: (_, { paused }) => paused,
+                setItemExpanded: () => true,
+                setSyncScroll: () => false,
             },
         ],
     })),
-    listeners(() => ({
-        setTab: ({ tab }) => {
-            if (tab === SessionRecordingPlayerTab.CONSOLE) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.consoleListData?.length ?? 0
-                    )
-            }
-        },
-    })),
-
     selectors(({}) => ({
-        loading: [
-            (s) => [s.sessionEventsDataLoading, s.performanceEventsLoading, s.sessionPlayerMetaDataLoading],
-            (sessionEventsDataLoading, performanceEventsLoading, sessionPlayerMetaDataLoading) => {
-                return {
-                    [SessionRecordingPlayerTab.ALL]: false,
-                    [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading,
-                    [SessionRecordingPlayerTab.CONSOLE]: sessionPlayerMetaDataLoading,
-                    [SessionRecordingPlayerTab.PERFORMANCE]: performanceEventsLoading,
-                }
-            },
-        ],
-
         recordingTimeInfo: [
             (s) => [s.sessionPlayerMetaData],
             (sessionPlayerMetaData): { start: Dayjs; end: Dayjs; duration: number } => {
@@ -158,6 +156,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             () => [(_, props) => props.matching],
             (matchingEvents): MatchedRecordingEvent[] => {
                 return matchingEvents?.map((x: any) => x.events).flat() ?? []
+            },
+        ],
+
+        showMatchingEventsFilter: [
+            (s) => [s.matchingEvents, s.tab],
+            (matchingEvents, tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && matchingEvents.length > 0
             },
         ],
 
@@ -208,28 +213,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         allItems: [
             (s) => [
-                s.tab,
                 s.recordingTimeInfo,
                 s.performanceEvents,
                 s.consoleLogs,
                 s.sessionEventsData,
                 s.featureFlags,
-                s.miniFiltersByKey,
                 s.matchingEvents,
-                s.showOnlyMatching,
-                s.windowIdFilter,
             ],
             (
-                tab,
                 recordingTimeInfo,
                 performanceEvents,
                 consoleLogs,
                 eventsData,
                 featureFlags,
-                miniFiltersByKey,
-                matchingEvents,
-                showOnlyMatching,
-                windowIdFilter
+                matchingEvents
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -237,14 +234,195 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const items: InspectorListItem[] = []
 
                 // PERFORMANCE EVENTS
-                if (
-                    !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
-                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
-                ) {
-                    for (const event of performanceEvents || []) {
+                if (!!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]) {
+                    const performanceEventsArr = performanceEvents || []
+                    for (const event of performanceEventsArr) {
                         const timestamp = dayjs(event.timestamp)
+                        const responseStatus = event.response_status || 200
 
-                        let include = false
+                        // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
+                        if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
+                            const firstContentfulPaint = performanceEventsArr.find(
+                                (x) =>
+                                    x.pageview_id === event.pageview_id &&
+                                    x.entry_type === 'paint' &&
+                                    x.name === 'first-contentful-paint'
+                            )
+                            if (firstContentfulPaint) {
+                                event.first_contentful_paint = firstContentfulPaint.start_time
+                            }
+                        }
+
+                        if (event.entry_type === 'paint') {
+                            // We don't include paint events as they are covered in the navigation events
+                            continue
+                        }
+
+                        items.push({
+                            type: SessionRecordingPlayerTab.NETWORK,
+                            timestamp,
+                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                            search: event.name || '',
+                            data: event,
+                            highlightColor: responseStatus >= 400 ? 'danger' : undefined,
+                            windowId: event.window_id,
+                        })
+                    }
+                }
+
+                // CONSOLE LOGS
+                for (const event of consoleLogs || []) {
+                    const timestamp = dayjs(event.timestamp)
+                    items.push({
+                        type: SessionRecordingPlayerTab.CONSOLE,
+                        timestamp,
+                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        search: event.content,
+                        data: event,
+                        highlightColor:
+                            event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
+                        windowId: event.windowId,
+                    })
+                }
+
+                for (const event of eventsData?.events || []) {
+                    const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
+
+                    const timestamp = dayjs(event.timestamp)
+                    const search = `${
+                        getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''
+                    } ${eventToDescription(event)}`.replace(/['"]+/g, '')
+
+                    items.push({
+                        type: SessionRecordingPlayerTab.EVENTS,
+                        timestamp,
+                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        search: search,
+                        data: event,
+                        highlightColor: isMatchingEvent ? 'primary' : undefined,
+                        windowId: event.properties?.$window_id,
+                    })
+                }
+
+                // NOTE: Native JS sorting is relatively slow here - be careful changing this
+                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
+
+                return items
+            },
+        ],
+
+        filteredItems: [
+            (s) => [
+                s.allItems,
+                s.tab,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.showMatchingEventsFilter,
+                s.windowIdFilter,
+            ],
+            (
+                allItems,
+                tab,
+                miniFiltersByKey,
+                showOnlyMatching,
+                showMatchingEventsFilter,
+                windowIdFilter
+            ): InspectorListItem[] => {
+                const items: InspectorListItem[] = []
+
+                for (const item of allItems) {
+                    let include = false
+
+                    // EVENTS
+                    if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                        if (tab !== SessionRecordingPlayerTab.EVENTS && tab !== SessionRecordingPlayerTab.ALL) {
+                            continue
+                        }
+
+                        if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['events-posthog']?.enabled && item.data.event.startsWith('$')) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['events-custom']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            !item.data.event.startsWith('$')
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['events-pageview']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            ['$pageview', 'screen'].includes(item.data.event)
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['events-autocapture']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            item.data.event === '$autocapture'
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['all-errors']?.enabled &&
+                            (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error'))
+                        ) {
+                            include = true
+                        }
+
+                        if (showMatchingEventsFilter && showOnlyMatching) {
+                            // Special case - overrides the others
+                            include = include && item.highlightColor === 'primary'
+                        }
+
+                        if (windowIdFilter && item.data.properties?.$window_id !== windowIdFilter) {
+                            include = false
+                        }
+                    }
+
+                    // CONSOLE LOGS
+                    if (item.type === SessionRecordingPlayerTab.CONSOLE) {
+                        if (tab !== SessionRecordingPlayerTab.CONSOLE && tab !== SessionRecordingPlayerTab.ALL) {
+                            continue
+                        }
+
+                        if (miniFiltersByKey['console-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['console-warn']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            item.data.level === 'warn'
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['console-error']?.enabled ||
+                                miniFiltersByKey['all-errors']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            item.data.level === 'error'
+                        ) {
+                            include = true
+                        }
+
+                        if (windowIdFilter && item.data.windowId !== windowIdFilter) {
+                            include = false
+                        }
+                    }
+
+                    // NETWORK
+                    if (item.type === SessionRecordingPlayerTab.NETWORK) {
+                        if (tab !== SessionRecordingPlayerTab.NETWORK && tab !== SessionRecordingPlayerTab.ALL) {
+                            continue
+                        }
+
+                        const responseStatus = item.data.response_status || 200
 
                         if (
                             miniFiltersByKey['performance-all']?.enabled ||
@@ -255,186 +433,143 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'navigation'
+                            ['navigation'].includes(item.data.entry_type || '')
                         ) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['performance-fetch']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'resource' &&
-                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '')
+                            item.data.entry_type === 'resource' &&
+                            ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
                         ) {
                             include = true
                         }
 
                         if (
-                            miniFiltersByKey['performance-assets']?.enabled &&
-                            event.entry_type === 'resource' &&
-                            ['img', 'script', 'css', 'link'].includes(event.initiator_type || '')
+                            miniFiltersByKey['performance-assets-js']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            (item.data.initiator_type === 'script' ||
+                                (['link', 'other'].includes(item.data.initiator_type || '') &&
+                                    item.data.name?.includes('.js')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-css']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            (item.data.initiator_type === 'css' ||
+                                (['link', 'other'].includes(item.data.initiator_type || '') &&
+                                    item.data.name?.includes('.css')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-img']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            (item.data.initiator_type === 'img' ||
+                                (['link', 'other'].includes(item.data.initiator_type || '') &&
+                                    !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
                         ) {
                             include = true
                         }
 
                         if (
                             miniFiltersByKey['performance-other']?.enabled &&
-                            event.entry_type === 'resource' &&
-                            ['other'].includes(event.initiator_type || '')
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['performance-paint']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'paint'
+                            item.data.entry_type === 'resource' &&
+                            ['other'].includes(item.data.initiator_type || '') &&
+                            ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
                         ) {
                             include = true
                         }
 
-                        if (windowIdFilter && event.window_id !== windowIdFilter) {
+                        if (
+                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            responseStatus >= 400
+                        ) {
+                            include = true
+                        }
+
+                        if (windowIdFilter && item.data.window_id !== windowIdFilter) {
                             include = false
                         }
 
-                        if (!include) {
-                            continue
-                        }
-
-                        items.push({
-                            type: SessionRecordingPlayerTab.PERFORMANCE,
-                            timestamp,
-                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: event.name || '',
-                            data: event,
-                            windowId: event.window_id,
-                        })
-                    }
-                }
-
-                // CONSOLE LOGS
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
-                    for (const event of consoleLogs || []) {
-                        const timestamp = dayjs(event.timestamp)
-
-                        let include = false
-
-                        if (miniFiltersByKey['console-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
-                            include = true
-                        }
-                        if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(event.level)) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['console-warn']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.level === 'warn'
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['console-error']?.enabled ||
-                                miniFiltersByKey['all-errors']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.level === 'error'
-                        ) {
-                            include = true
-                        }
-
-                        if (windowIdFilter && event.windowId !== windowIdFilter) {
+                        if (item.data.entry_type === 'paint') {
+                            // We don't include paint events as they are covered in the navigation events
                             include = false
                         }
-
-                        if (!include) {
-                            continue
-                        }
-
-                        items.push({
-                            type: SessionRecordingPlayerTab.CONSOLE,
-                            timestamp,
-                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: event.content,
-                            data: event,
-                            highlightColor:
-                                event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
-                            windowId: event.windowId,
-                        })
                     }
-                }
 
-                // EVENTS
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.EVENTS) {
-                    for (const event of eventsData?.events || []) {
-                        let include = false
-
-                        if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
-                            include = true
-                        }
-                        if (miniFiltersByKey['events-posthog']?.enabled && event.event.startsWith('$')) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['events-custom']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            !event.event.startsWith('$')
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['events-pageview']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['$pageview', 'screen'].includes(event.event)
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['events-autocapture']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.event === '$autocapture'
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            miniFiltersByKey['all-errors']?.enabled &&
-                            (event.event === '$exception' || event.event.toLowerCase().includes('error'))
-                        ) {
-                            include = true
-                        }
-
-                        const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
-
-                        if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
-                            // Special case - overrides the others
-                            include = include && isMatchingEvent
-                        }
-
-                        if (windowIdFilter && event.properties?.$window_id !== windowIdFilter) {
-                            include = false
-                        }
-
-                        if (!include) {
-                            continue
-                        }
-
-                        const timestamp = dayjs(event.timestamp)
-                        const search = `${
-                            getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''
-                        } ${eventToDescription(event)}`.replace(/['"]+/g, '')
-
-                        items.push({
-                            type: SessionRecordingPlayerTab.EVENTS,
-                            timestamp,
-                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: search,
-                            data: event,
-                            highlightColor: isMatchingEvent ? 'primary' : undefined,
-                            windowId: event.properties?.$window_id,
-                        })
+                    if (!include) {
+                        continue
                     }
-                }
 
-                // NOTE: Native JS sorting is relatively slow here - be careful changing this
-                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
+                    items.push(item)
+                }
 
                 return items
+            },
+        ],
+
+        seekbarItems: [
+            (s) => [s.allItems, s.showOnlyMatching, s.showMatchingEventsFilter],
+            (allItems, showOnlyMatching, showMatchingEventsFilter): InspectorListItemEvent[] => {
+                return allItems.filter((item) => {
+                    if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+                        return false
+                    }
+
+                    if (showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
+                        return false
+                    }
+
+                    return true
+                }) as InspectorListItemEvent[]
+            },
+        ],
+
+        tabsState: [
+            (s) => [
+                s.sessionEventsDataLoading,
+                s.performanceEventsLoading,
+                s.sessionPlayerMetaDataLoading,
+                s.sessionPlayerSnapshotDataLoading,
+                s.sessionEventsData,
+                s.consoleLogs,
+                s.performanceEvents,
+            ],
+            (
+                sessionEventsDataLoading,
+                performanceEventsLoading,
+                sessionPlayerMetaDataLoading,
+                sessionPlayerSnapshotDataLoading,
+                events,
+                logs,
+                performanceEvents
+            ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
+                return {
+                    [SessionRecordingPlayerTab.ALL]: 'ready',
+                    [SessionRecordingPlayerTab.EVENTS]:
+                        sessionEventsDataLoading || !events?.events
+                            ? 'loading'
+                            : events?.events.length
+                            ? 'ready'
+                            : 'empty',
+                    [SessionRecordingPlayerTab.CONSOLE]:
+                        sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
+                            ? 'loading'
+                            : logs.length
+                            ? 'ready'
+                            : 'empty',
+                    [SessionRecordingPlayerTab.NETWORK]:
+                        performanceEventsLoading || !performanceEvents
+                            ? 'loading'
+                            : performanceEvents.length
+                            ? 'ready'
+                            : 'empty',
+                }
             },
         ],
 
@@ -459,9 +594,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         fuse: [
-            (s) => [s.allItems],
-            (allItems): Fuse =>
-                new FuseClass<InspectorListItem>(allItems, {
+            (s) => [s.filteredItems],
+            (filteredItems): Fuse =>
+                new FuseClass<InspectorListItem>(filteredItems, {
                     threshold: 0.3,
                     keys: ['search'],
                     findAllMatches: true,
@@ -471,15 +606,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         items: [
-            (s) => [s.allItems, s.fuse, s.searchQuery],
-            (allItems, fuse, searchQuery): InspectorListItem[] => {
+            (s) => [s.filteredItems, s.fuse, s.searchQuery],
+            (filteredItems, fuse, searchQuery): InspectorListItem[] => {
                 if (searchQuery === '') {
-                    return allItems
+                    return filteredItems
                 }
                 const items = fuse.search(searchQuery).map((x: any) => x.item)
 
                 return items
             },
         ],
+    })),
+    listeners(({ values }) => ({
+        setItemExpanded: ({ index, expanded }) => {
+            if (expanded) {
+                eventUsageLogic.actions.reportRecordingInspectorItemExpanded(values.tab, index)
+            }
+        },
     })),
 ])

@@ -38,8 +38,8 @@ export const urls = {
     actions: (): string => '/data-management/actions',
     eventDefinitions: (): string => '/data-management/events',
     eventDefinition: (id: string | number): string => `/data-management/events/${id}`,
-    eventPropertyDefinitions: (): string => '/data-management/event-properties',
-    eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
+    propertyDefinitions: (): string => '/data-management/properties',
+    propertyDefinition: (id: string | number): string => `/data-management/properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
     insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
@@ -59,6 +59,7 @@ export const urls = {
             : ''
         return `/web-performance/waterfall${queryParams}`
     },
+
     sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
         combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
     sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>

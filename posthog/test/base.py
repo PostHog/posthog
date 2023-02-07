@@ -42,7 +42,6 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.settings import CLICKHOUSE_REPLICATION
 from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
@@ -387,7 +386,7 @@ def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_n
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 
@@ -557,19 +556,39 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
+@contextmanager
+def failhard_threadhook_context():
+    """
+    Context manager to ensure that exceptions raised by threads are treated as a
+    test failure.
+    """
+
+    def raise_hook(args: threading.ExceptHookArgs):
+        if args.exc_value is not None:
+            raise args.exc_type(args.exc_value)
+
+    old_hook, threading.excepthook = threading.excepthook, raise_hook
+    try:
+        yield old_hook
+    finally:
+        assert threading.excepthook is raise_hook
+        threading.excepthook = old_hook
+
+
 def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
-    for item in statements:
-        thread = threading.Thread(target=sync_execute, args=(item,))
-        jobs.append(thread)
+    with failhard_threadhook_context():
+        for item in statements:
+            thread = threading.Thread(target=sync_execute, args=(item,))
+            jobs.append(thread)
 
-    # Start the threads (i.e. calculate the random number lists)
-    for j in jobs:
-        j.start()
+        # Start the threads (i.e. calculate the random number lists)
+        for j in jobs:
+            j.start()
 
-    # Ensure all of the threads have finished
-    for j in jobs:
-        j.join()
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
@@ -596,10 +615,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
     def tearDown(self):
         super().tearDown()
@@ -615,10 +633,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
 
 def snapshot_clickhouse_queries(fn):
@@ -675,3 +692,24 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
+
+
+def also_test_with_different_timezone(fn):
+    """
+    Runs the test twice, including in a timezone other than UTC to catch timezone handling bugs.
+    """
+
+    def fn_with_different_timezone(self, *args, **kwargs):
+        if not self.team:
+            return
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_different_timezone"] = fn_with_different_timezone
+
+    return fn

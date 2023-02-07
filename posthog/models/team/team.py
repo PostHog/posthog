@@ -1,6 +1,6 @@
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import Any, List, Optional
 
 import posthoganalytics
 import pytz
@@ -8,23 +8,23 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
+from django.db.models.signals import post_delete, post_save
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
-from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
+from posthog.models.signals import mutable_receiver
 from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
 
-if TYPE_CHECKING:
-    from posthog.models.organization import OrganizationMembership
+from .team_caching import get_team_in_cache, set_team_in_cache
 
 TIMEZONES = [(tz, tz) for tz in pytz.common_timezones]
 
@@ -90,6 +90,21 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
+    def get_team_from_cache_or_token(self, token: Optional[str]) -> Optional["Team"]:
+        if not token:
+            return None
+        try:
+            team = get_team_in_cache(token)
+            if team:
+                return team
+
+            team = Team.objects.get(api_token=token)
+            set_team_in_cache(token, team)
+            return team
+
+        except Team.DoesNotExist:
+            return None
+
 
 def get_default_data_attributes() -> List[str]:
     return ["data-attr"]
@@ -135,7 +150,7 @@ class Team(UUIDClassicModel):
     recording_domains: ArrayField = ArrayField(models.CharField(max_length=200, null=True), blank=True, null=True)
 
     primary_dashboard: models.ForeignKey = models.ForeignKey(
-        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams"
+        "posthog.Dashboard", on_delete=models.SET_NULL, null=True, related_name="primary_dashboard_teams", blank=True
     )  # Dashboard shown on project homepage
 
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
@@ -160,60 +175,14 @@ class Team(UUIDClassicModel):
     # DEPRECATED, DISUSED: replaced with env variable OPT_OUT_CAPTURE and User.anonymized_data
     opt_out_capture: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED: in favor of `EventDefinition` model
-    event_names: models.JSONField = models.JSONField(default=list)
-    event_names_with_usage: models.JSONField = models.JSONField(default=list)
+    event_names: models.JSONField = models.JSONField(default=list, blank=True)
+    event_names_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
     # DEPRECATED: in favor of `PropertyDefinition` model
-    event_properties: models.JSONField = models.JSONField(default=list)
-    event_properties_with_usage: models.JSONField = models.JSONField(default=list)
-    event_properties_numerical: models.JSONField = models.JSONField(default=list)
+    event_properties: models.JSONField = models.JSONField(default=list, blank=True)
+    event_properties_with_usage: models.JSONField = models.JSONField(default=list, blank=True)
+    event_properties_numerical: models.JSONField = models.JSONField(default=list, blank=True)
 
     objects: TeamManager = TeamManager()
-
-    def get_effective_membership_level_for_parent_membership(
-        self, requesting_parent_membership: "OrganizationMembership"
-    ) -> Optional["OrganizationMembership.Level"]:
-        if (
-            not requesting_parent_membership.organization.is_feature_available(
-                AvailableFeature.PROJECT_BASED_PERMISSIONING
-            )
-            or not self.access_control
-        ):
-            return requesting_parent_membership.level
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            from ee.models import ExplicitTeamMembership
-        except ImportError:
-            # Only organizations admins and above get implicit project membership
-            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                return None
-            return requesting_parent_membership.level
-        else:
-            try:
-                return (
-                    requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                    .get(team=self)
-                    .effective_level
-                )
-            except ExplicitTeamMembership.DoesNotExist:
-                # Only organizations admins and above get implicit project membership
-                if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                    return None
-                return requesting_parent_membership.level
-
-    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
-        """Return an effective membership level.
-        None returned if the user has no explicit membership and organization access is too low for implicit membership.
-        """
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
-                "organization"
-            ).get(organization_id=self.organization_id, user_id=user_id)
-        except OrganizationMembership.DoesNotExist:
-            return None
-        return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
 
     @property
     def person_on_events_querying_enabled(self) -> bool:
@@ -265,7 +234,7 @@ class Team(UUIDClassicModel):
                 {person_query}
             )
         """,
-            person_query_params,
+            {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
     @lru_cache(maxsize=5)
@@ -291,6 +260,16 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+@mutable_receiver(post_save, sender=Team)
+def put_team_in_cache_on_save(sender, instance: Team, **kwargs):
+    set_team_in_cache(instance.api_token, instance)
+
+
+@mutable_receiver(post_delete, sender=Team)
+def delete_team_in_cache_on_delete(sender, instance: Team, **kwargs):
+    set_team_in_cache(instance.api_token, None)
 
 
 def groups_on_events_querying_enabled():

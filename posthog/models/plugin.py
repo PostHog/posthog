@@ -156,17 +156,17 @@ class Plugin(models.Model):
     icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
-    config_schema: models.JSONField = models.JSONField(default=dict)
+    config_schema: models.JSONField = models.JSONField(default=dict, blank=True)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
-    metrics: models.JSONField = models.JSONField(default=dict, null=True)
-    public_jobs: models.JSONField = models.JSONField(default=dict, null=True)
+    metrics: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
+    public_jobs: models.JSONField = models.JSONField(default=dict, null=True, blank=True)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
-    error: models.JSONField = models.JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
     # DEPRECATED: this was used when syncing posthog.json with the db on app start

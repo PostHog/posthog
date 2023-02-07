@@ -23,7 +23,7 @@ import { getCurrentTeamId } from 'lib/utils/logics'
 import { groupsModelType } from '~/models/groupsModelType'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { retentionOptions } from 'scenes/retention/retentionTableLogic'
+import { retentionOptions } from 'scenes/retention/constants'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
@@ -39,8 +39,16 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
-import { isEventsNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
+import {
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -154,19 +162,19 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): string[] {
+export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
-    if (filters.include_event_types) {
+    if (include_event_types) {
         let matchCount = 0
-        if (filters.include_event_types.includes(PathType.PageView)) {
+        if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.Screen)) {
+        if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.CustomEvent)) {
+        if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
             matchCount++
         }
@@ -178,7 +186,7 @@ export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): stri
 }
 
 export function summarizeBreakdown(
-    filters: Partial<FilterType>,
+    filters: Partial<FilterType> | BreakdownFilter,
     aggregationLabel: groupsModelType['values']['aggregationLabel'],
     cohortsById: cohortsModelType['values']['cohortsById']
 ): string | null {
@@ -232,7 +240,7 @@ export function summarizeInsightFilters(
         )
     } else if (isPathsFilter(filters)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
+        let summary = `User paths based on ${humanizePathsEventTypes(filters.include_event_types).join(' and ')}`
         if (filters.start_point) {
             summary += ` starting at ${filters.start_point}`
         }
@@ -329,9 +337,106 @@ export function summarizeInsightFilters(
 
 export function summarizeInsightQuery(
     query: InsightQueryNode,
-    aggregationLabel: groupsModelType['values']['aggregationLabel']
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsById: cohortsModelType['values']['cohortsById'],
+    mathDefinitions: mathsLogicType['values']['mathDefinitions']
 ): string {
-    if (isStickinessQuery(query)) {
+    if (isTrendsQuery(query)) {
+        let summary = query.series
+            .map((s, index) => {
+                const mathType = apiValueToMathType(s.math, s.math_group_type_index)
+                const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
+                let series: string
+                if (mathDefinition?.category === MathCategory.EventCountPerActor) {
+                    series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
+                } else if (mathDefinition?.category === MathCategory.PropertyValue) {
+                    series = `${getDisplayNameFromEntityNode(s)}'s ${
+                        keyMapping.event[s.math_property as string]?.label || s.math_property
+                    } ${
+                        mathDefinition
+                            ? mathDefinition.shortName
+                            : s.math === 'unique_group'
+                            ? 'unique groups'
+                            : mathType
+                    }`
+                } else {
+                    series = `${getDisplayNameFromEntityNode(s)} ${
+                        mathDefinition
+                            ? mathDefinition.shortName
+                            : s.math === 'unique_group'
+                            ? 'unique groups'
+                            : mathType
+                    }`
+                }
+                if (query.trendsFilter?.formula) {
+                    series = `${alphabet[index].toUpperCase()}. ${series}`
+                }
+                return series
+            })
+            .join(' & ')
+
+        if (query.breakdown?.breakdown_type) {
+            summary += `${query.series.length > 1 ? ',' : ''} by ${summarizeBreakdown(
+                query.breakdown,
+                aggregationLabel,
+                cohortsById
+            )}`
+        }
+        if (query.trendsFilter?.formula) {
+            summary = `${query.trendsFilter.formula} on ${summary}`
+        }
+
+        return summary
+    } else if (isFunnelsQuery(query)) {
+        let summary = ''
+        const linkSymbol =
+            query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
+                ? '⇉'
+                : query.funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED
+                ? '&'
+                : '→'
+        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
+            aggregationLabel(query.aggregation_group_type_index, true).singular
+        } conversion`
+        if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+            summary += ' time'
+        } else if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+            summary += ' trend'
+        } else {
+            // Steps are the default viz type
+            summary += ' rate'
+        }
+        if (query.breakdown?.breakdown_type) {
+            summary += ` by ${summarizeBreakdown(query.breakdown, aggregationLabel, cohortsById)}`
+        }
+        return summary
+    } else if (isRetentionQuery(query)) {
+        const areTargetAndReturningIdentical =
+            query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
+            query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
+        return (
+            `Retention of ${aggregationLabel(query.aggregation_group_type_index, true).plural}` +
+            ` based on doing ${getDisplayNameFromEntityFilter(
+                (query.retentionFilter?.target_entity || {}) as EntityFilter
+            )}` +
+            ` ${retentionOptions[query.retentionFilter?.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+            (areTargetAndReturningIdentical
+                ? 'the same event'
+                : getDisplayNameFromEntityFilter((query.retentionFilter?.returning_entity || {}) as EntityFilter))
+        )
+    } else if (isPathsQuery(query)) {
+        // Sync format with PathsSummary in InsightDetails
+        let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(
+            ' and '
+        )}`
+        if (query.pathsFilter?.start_point) {
+            summary += ` starting at ${query.pathsFilter?.start_point}`
+        }
+        if (query.pathsFilter?.end_point) {
+            summary += `${query.pathsFilter?.start_point ? ' and' : ''} ending at ${query.pathsFilter?.end_point}`
+        }
+        return summary
+    } else if (isStickinessQuery(query)) {
         return capitalizeFirstLetter(
             (query as StickinessQuery).series
                 .map((s) => {

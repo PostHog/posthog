@@ -1,11 +1,12 @@
 import { dashboardLogic } from './dashboardLogic'
 import { useValues } from 'kea'
 import { urls } from 'scenes/urls'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { IconPlus } from 'lib/components/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { IconPlus } from 'lib/lemon-ui/icons'
 import './EmptyDashboardComponent.scss'
 import React from 'react'
+import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
@@ -95,7 +96,7 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                                 icon={<IconPlus />}
                                 center
                                 fullWidth
-                                disabled={!canEdit}
+                                disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                             >
                                 Add insight
                             </LemonButton>

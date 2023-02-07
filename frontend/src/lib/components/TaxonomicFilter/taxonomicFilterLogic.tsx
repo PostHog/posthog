@@ -32,7 +32,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { CohortIcon } from 'lib/components/icons'
+import { IconCohort } from 'lib/lemon-ui/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -46,8 +46,8 @@ import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
 
-export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
-    getPopupHeader: (eventDefinition: EventDefinition): string => {
+export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> = {
+    getPopoverHeader: (eventDefinition: EventDefinition): string => {
         if (!!keyMapping.event[eventDefinition.name]) {
             return 'PostHog event'
         }
@@ -58,8 +58,8 @@ export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeade
 
 export const propertyTaxonomicGroupProps = (
     verified: boolean = false
-): Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> => ({
-    getPopupHeader: (propertyDefinition: PropertyDefinition): string => {
+): Pick<TaxonomicFilterGroup, 'getPopoverHeader' | 'getIcon'> => ({
+    getPopoverHeader: (propertyDefinition: PropertyDefinition): string => {
         if (verified || !!keyMapping.event[propertyDefinition.name]) {
             return 'PostHog property'
         }
@@ -145,13 +145,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (excludedProperties) => excludedProperties ?? {},
         ],
         taxonomicGroups: [
-            (selectors) => [
-                selectors.currentTeamId,
-                selectors.groupAnalyticsTaxonomicGroups,
-                selectors.groupAnalyticsTaxonomicGroupNames,
-                selectors.eventNames,
-                selectors.excludedProperties,
-                featureFlagLogic.selectors.featureFlags,
+            (s) => [
+                s.currentTeamId,
+                s.groupAnalyticsTaxonomicGroups,
+                s.groupAnalyticsTaxonomicGroupNames,
+                s.eventNames,
+                s.excludedProperties,
+                s.featureFlags,
             ],
             (
                 teamId,
@@ -166,7 +166,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     searchPlaceholder: 'HogQL',
                     type: TaxonomicFilterGroupType.HogQLExpression,
                     render: InlineHogQLEditor,
-                    getPopupHeader: () => 'HogQL',
+                    getPopoverHeader: () => 'HogQL',
                 }
                 return [
                     {
@@ -188,7 +188,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'actions',
                         getName: (action: ActionType) => action.name || '',
                         getValue: (action: ActionType) => action.id,
-                        getPopupHeader: () => 'Action',
+                        getPopoverHeader: () => 'Action',
                         getIcon: getEventDefinitionIcon,
                     },
                     {
@@ -200,7 +200,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         })) as SimpleOption[],
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => 'Autocapture Element',
+                        getPopoverHeader: () => 'Autocapture Element',
                     },
                     {
                         name: 'Event properties',
@@ -215,7 +215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                       event_names: eventNames,
                                       is_feature_flag: false,
-                                      is_event_property: true,
+                                      filter_by_event_names: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }) =>
@@ -243,7 +243,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                                 ? combineUrl(`api/projects/${teamId}/property_definitions`, {
                                       event_names: eventNames,
                                       is_feature_flag: true,
-                                      is_event_property: true,
+                                      filter_by_event_names: true,
                                   }).url
                                 : undefined,
                         expandLabel: ({ count, expandedCount }) =>
@@ -274,8 +274,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         name: 'Person properties',
                         searchPlaceholder: 'person properties',
                         type: TaxonomicFilterGroupType.PersonProperties,
-                        logic: personPropertiesModel,
-                        value: 'personProperties',
+                        logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                            ? undefined
+                            : personPropertiesModel,
+                        value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                            ? undefined
+                            : 'personProperties',
+                        endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                            ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                                  type: 'person',
+                              }).url
+                            : undefined,
                         getName: (personProperty: PersonProperty) => personProperty.name,
                         getValue: (personProperty: PersonProperty) => personProperty.name,
                         ...propertyTaxonomicGroupProps(true),
@@ -288,9 +297,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'cohorts',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
-                        getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
+                        getPopoverHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                         getIcon: function _getIcon(): JSX.Element {
-                            return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
+                            return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
                     },
                     {
@@ -301,9 +310,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'cohortsWithAllUsers',
                         getName: (cohort: CohortType) => cohort.name || `Cohort ${cohort.id}`,
                         getValue: (cohort: CohortType) => cohort.id,
-                        getPopupHeader: () => `All Users`,
+                        getPopoverHeader: () => `All Users`,
                         getIcon: function _getIcon(): JSX.Element {
-                            return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
+                            return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
                     },
                     {
@@ -314,7 +323,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => `Pageview URL`,
+                        getPopoverHeader: () => `Pageview URL`,
                     },
                     {
                         name: 'Screens',
@@ -324,7 +333,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         searchAlias: 'value',
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => `Screen`,
+                        getPopoverHeader: () => `Screen`,
                     },
                     {
                         name: 'Custom Events',
@@ -344,7 +353,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         // Populated via optionsFromProp
                         getName: (option: SimpleOption) => option.name,
                         getValue: (option: SimpleOption) => option.name,
-                        getPopupHeader: () => `Wildcard`,
+                        getPopoverHeader: () => `Wildcard`,
                     },
                     {
                         name: 'Persons',
@@ -353,7 +362,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         endpoint: `api/projects/${teamId}/persons/`,
                         getName: (person: PersonType) => person.name || 'Anon user?',
                         getValue: (person: PersonType) => person.distinct_ids[0],
-                        getPopupHeader: () => `Person`,
+                        getPopoverHeader: () => `Person`,
                     },
                     {
                         name: 'Insights',
@@ -364,7 +373,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         }).url,
                         getName: (insight: InsightModel) => insight.name,
                         getValue: (insight: InsightModel) => insight.short_id,
-                        getPopupHeader: () => `Insights`,
+                        getPopoverHeader: () => `Insights`,
                     },
                     {
                         name: 'Feature Flags',
@@ -374,7 +383,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'featureFlags',
                         getName: (featureFlag: FeatureFlagType) => featureFlag.key || featureFlag.name,
                         getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
-                        getPopupHeader: () => `Feature Flags`,
+                        getPopoverHeader: () => `Feature Flags`,
                     },
                     {
                         name: 'Experiments',
@@ -384,7 +393,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'experiments',
                         getName: (experiment: Experiment) => experiment.name,
                         getValue: (experiment: Experiment) => experiment.id,
-                        getPopupHeader: () => `Experiments`,
+                        getPopoverHeader: () => `Experiments`,
                     },
                     {
                         name: 'Plugins',
@@ -394,7 +403,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'allPossiblePlugins',
                         getName: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
                         getValue: (plugin: Pick<PluginType, 'name' | 'url'>) => plugin.name,
-                        getPopupHeader: () => `Plugins`,
+                        getPopoverHeader: () => `Plugins`,
                     },
                     {
                         name: 'Dashboards',
@@ -404,7 +413,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         value: 'nameSortedDashboards',
                         getName: (dashboard: DashboardType) => dashboard.name,
                         getValue: (dashboard: DashboardType) => dashboard.id,
-                        getPopupHeader: () => `Dashboards`,
+                        getPopoverHeader: () => `Dashboards`,
                     },
                     {
                         name: 'Sessions',
@@ -418,7 +427,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         ],
                         getName: (option) => option.name,
                         getValue: (option) => option.value,
-                        getPopupHeader: () => 'Session',
+                        getPopoverHeader: () => 'Session',
                     },
                     ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] ? [hogQl] : []),
                     ...groupAnalyticsTaxonomicGroups,
@@ -431,12 +440,17 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         taxonomicGroupTypes: [
-            (selectors) => [(_, props) => props.taxonomicGroupTypes, selectors.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] =>
-                groupTypes || taxonomicGroups.map((g) => g.type),
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.featureFlags],
+            (groupTypes, taxonomicGroups, featureFlags): TaxonomicFilterGroupType[] =>
+                (groupTypes || taxonomicGroups.map((g) => g.type)).filter((type) => {
+                    return (
+                        type !== TaxonomicFilterGroupType.HogQLExpression ||
+                        !!featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS]
+                    )
+                }),
         ],
         groupAnalyticsTaxonomicGroupNames: [
-            (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
+            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel],
             (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).plural)}`,
@@ -446,21 +460,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         group_type_index: type.group_type_index,
                     }).url,
                     searchAlias: 'group_key',
-                    getPopupHeader: () => `Group Names`,
+                    getPopoverHeader: () => `Group Names`,
                     getName: (group: Group) => groupDisplayId(group.group_key, group.group_properties),
                     getValue: (group: Group) => group.group_key,
                     groupTypeIndex: type.group_type_index,
                 })),
         ],
         groupAnalyticsTaxonomicGroups: [
-            (selectors) => [selectors.groupTypes, selectors.currentTeamId, selectors.aggregationLabel],
-            (groupTypes, teamId, aggregationLabel): TaxonomicFilterGroup[] =>
+            (s) => [s.groupTypes, s.currentTeamId, s.aggregationLabel, s.featureFlags],
+            (groupTypes, teamId, aggregationLabel, featureFlags): TaxonomicFilterGroup[] =>
                 groupTypes.map((type) => ({
                     name: `${capitalizeFirstLetter(aggregationLabel(type.group_type_index).singular)} properties`,
                     searchPlaceholder: `${aggregationLabel(type.group_type_index).singular} properties`,
                     type: `${TaxonomicFilterGroupType.GroupsPrefix}_${type.group_type_index}` as unknown as TaxonomicFilterGroupType,
-                    logic: groupPropertiesModel,
-                    value: `groupProperties_${type.group_type_index}`,
+                    logic: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                        ? undefined
+                        : groupPropertiesModel,
+                    value: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                        ? undefined
+                        : `groupProperties_${type.group_type_index}`,
+                    endpoint: featureFlags[FEATURE_FLAGS.PERSON_GROUPS_PROPERTY_DEFINITIONS]
+                        ? combineUrl(`api/projects/${teamId}/property_definitions`, {
+                              type: 'group',
+                              group_type_index: type.group_type_index,
+                          }).url
+                        : undefined,
                     valuesEndpoint: (key) =>
                         `api/projects/${teamId}/groups/property_values/?${toParams({
                             key,
@@ -468,7 +492,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         })}`,
                     getName: (group) => group.name,
                     getValue: (group) => group.name,
-                    getPopupHeader: () => `Property`,
+                    getPopoverHeader: () => `Property`,
                     getIcon: getPropertyDefinitionIcon,
                     groupTypeIndex: type.group_type_index,
                 })),
@@ -521,6 +545,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                     return taxonomicGroup.searchPlaceholder
                 })
                 return names
+                    .filter((a) => !!a)
                     .map(
                         (name, index) =>
                             `${index !== 0 ? (index === searchGroupTypes.length - 1 ? ' or ' : ', ') : ''}${name}`

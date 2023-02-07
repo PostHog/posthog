@@ -223,7 +223,7 @@ describe('eventDefinitionsTableLogic', () => {
                 limit: PROPERTY_DEFINITIONS_PER_EVENT,
                 event_names: ['event1'],
                 excluded_properties: keyMappingKeys,
-                is_event_property: true,
+                filter_by_event_names: true,
                 is_feature_flag: false,
             }).search
         }`

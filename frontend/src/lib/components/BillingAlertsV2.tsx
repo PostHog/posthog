@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
-import { billingLogic } from 'scenes/billing/v2/control/billingLogic'
+import { billingV2Logic } from 'scenes/billing/v2/billingV2Logic'
 import { urls } from 'scenes/urls'
-import { AlertMessage } from './AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
 export function BillingAlertsV2(): JSX.Element | null {
-    const { billingAlert, billingVersion } = useValues(billingLogic)
-    const { reportBillingAlertShown } = useActions(billingLogic)
+    const { billingAlert, billingVersion } = useValues(billingV2Logic)
+    const { reportBillingAlertShown } = useActions(billingV2Logic)
     const { currentLocation } = useValues(router)
     const [alertHidden, setAlertHidden] = useState(false)
 

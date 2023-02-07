@@ -6,7 +6,6 @@ import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
-import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -14,20 +13,19 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
-import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconLock } from 'lib/components/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { summarizeInsightFilters, summarizeInsightQuery } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { EditorFilters } from './EditorFilters/EditorFilters'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -41,6 +39,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -61,7 +60,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        showErrorMessage,
+        erroredQueryId,
     } = useValues(logic)
     const {
         saveInsight,
@@ -97,7 +96,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     useEffect(() => {
         // if users navigate away from insights then we may cancel an API call
         // and when they come back they may see an error state, so clear it
-        if (showErrorMessage) {
+        if (!!erroredQueryId) {
             loadResults()
         }
         return () => {
@@ -141,7 +140,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={
                             isUsingDataExploration
-                                ? summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel)
+                                ? summarizeInsightQuery(
+                                      (query as InsightVizNode).source,
+                                      aggregationLabel,
+                                      cohortsById,
+                                      mathDefinitions
+                                  )
                                 : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}
@@ -271,6 +275,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 insightChanged={insightChanged}
                             />
                         )}
+                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
                     </div>
                 }
                 caption={
@@ -336,13 +341,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </div>
                 </>
             )}
-
-            {insightMode !== ItemMode.View ? (
-                <>
-                    <NPSPrompt />
-                    <FeedbackCallCTA />
-                </>
-            ) : null}
         </div>
     )
 

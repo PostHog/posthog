@@ -25,7 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from 'lib/utils'
 import { canInstallPlugins } from '../access'
 import { PluginUpdateButton } from './PluginUpdateButton'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
@@ -150,8 +150,8 @@ export function PluginCard({
                         <PluginImage pluginType={pluginType} icon={icon} url={url} />
                     </Col>
                     <Col style={{ flex: 1 }}>
-                        <div>
-                            <strong style={{ marginRight: 8 }}>
+                        <div className="flex items-center">
+                            <strong className="flex items-center mr-2 gap-1">
                                 {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
                                     <SuccessRateBadge
                                         deliveryRate={pluginConfig.delivery_rate_24h ?? null}

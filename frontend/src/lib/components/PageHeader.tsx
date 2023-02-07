@@ -1,6 +1,6 @@
 import { Row } from 'antd'
 import clsx from 'clsx'
-import { LemonDivider } from './LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 interface PageHeaderProps {
     title: string | JSX.Element

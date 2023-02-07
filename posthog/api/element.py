@@ -1,3 +1,5 @@
+from typing import Literal, Tuple
+
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -48,6 +50,12 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
 
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
+        """
+        The original version of this API always and only returned $autocapture elements
+        If no include query parameter is sent this remains true.
+        Now, you can pass a combination of include query parameters to get different types of elements
+        Currently only $autocapture and $rageclick are supported
+        """
         filter = Filter(request=request, team=self.team)
 
         date_params = {}
@@ -67,33 +75,34 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except ValueError:
             raise ValidationError("offset must be an integer")
 
+        events_filter = self._events_filter(request)
+
         paginate_response = request.query_params.get("paginate_response", "false") == "true"
         if not paginate_response:
             # once we are getting no hits on this counter we can default to paginated responses
             statsd.incr("toolbar_element_stats_unpaginated_api_request_tombstone", tags={"team_id": self.team_id})
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
         )
         result = sync_execute(
             GET_ELEMENTS.format(
-                date_from=date_from,
-                date_to=date_to,
-                query=prop_filters,
-                limit=limit + 1,
-                offset=offset,
+                date_from=date_from, date_to=date_to, query=prop_filters, limit=limit + 1, offset=offset
             ),
             {
                 "team_id": self.team.pk,
                 "timezone": self.team.timezone,
                 **prop_filter_params,
                 **date_params,
+                "filter_event_types": events_filter,
+                **filter.hogql_context.values,
             },
         )
         serialized_elements = [
             {
                 "count": elements[1],
                 "hash": None,
+                "type": elements[2],
                 "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
             }
             for elements in result[:limit]
@@ -106,6 +115,24 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
         else:
             return response.Response(serialized_elements)
+
+    def _events_filter(self, request) -> Tuple[Literal["$autocapture", "$rageclick"], ...]:
+        event_to_filter: Tuple[Literal["$autocapture", "$rageclick"], ...] = ()
+        events_to_include = request.query_params.getlist("include", [])
+        if not events_to_include:
+            event_to_filter += ("$autocapture",)
+        else:
+            if "$rageclick" in events_to_include:
+                events_to_include.remove("$rageclick")
+                event_to_filter += ("$rageclick",)
+
+            if "$autocapture" in events_to_include:
+                events_to_include.remove("$autocapture")
+                event_to_filter += ("$autocapture",)
+
+            if events_to_include:
+                raise ValidationError("Only $autocapture and $rageclick are supported for now.")
+        return event_to_filter
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:

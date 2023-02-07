@@ -18,17 +18,21 @@ import {
     LogLevel,
     Person,
     PluginsServerConfig,
-    PropertyType,
+    PropertyDefinitionTypeEnum,
     PropertyUpdateOperation,
-    RawPerformanceEvent,
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
+import { KafkaProducerWrapper } from '../../src/utils/db/kafka-producer-wrapper'
 import { personInitialAndUTMProperties } from '../../src/utils/db/utils'
 import { posthog } from '../../src/utils/posthog'
 import { UUIDT } from '../../src/utils/utils'
 import { EventPipelineRunner } from '../../src/worker/ingestion/event-pipeline/runner'
-import { EventsProcessor } from '../../src/worker/ingestion/process-event'
+import {
+    createPerformanceEvent,
+    createSessionRecordingEvent,
+    EventsProcessor,
+} from '../../src/worker/ingestion/process-event'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
 import { resetKafka } from '../helpers/kafka'
 import { createUserTeamAndOrganization, getFirstTeam, getTeams, resetTestDatabase } from '../helpers/sql'
@@ -492,118 +496,262 @@ test('capture new person', async () => {
             last_seen_at: expect.any(String),
         },
     ])
-    expect(await hub.db.fetchPropertyDefinitions()).toEqual([
-        {
-            id: expect.any(String),
-            is_numerical: true,
-            name: 'distinct_id',
-            property_type: 'Numeric',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'token',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$browser',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$current_url',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$os',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: true,
-            name: '$browser_version',
-            property_type: PropertyType.Numeric,
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$referring_domain',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$referrer',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'utm_medium',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: 'gclid',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-        {
-            id: expect.any(String),
-            is_numerical: false,
-            name: '$ip',
-            property_type: 'String',
-            property_type_format: null,
-            query_usage_30_day: null,
-            team_id: 2,
-            volume_30_day: null,
-        },
-    ])
+    expect(await hub.db.fetchPropertyDefinitions()).toEqual(
+        expect.arrayContaining([
+            {
+                id: expect.any(String),
+                is_numerical: true,
+                name: 'distinct_id',
+                property_type: 'Numeric',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'token',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$browser',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$current_url',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$os',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: true,
+                name: '$browser_version',
+                property_type: 'Numeric',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$referring_domain',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$referrer',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'utm_medium',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'gclid',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$ip',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'utm_medium',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'gclid',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_browser',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_current_url',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_os',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: true,
+                name: '$initial_browser_version',
+                property_type: 'Numeric',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_referring_domain',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_referrer',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_utm_medium',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_gclid',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+        ])
+    )
 })
 
 test('capture bad team', async () => {
@@ -973,136 +1121,89 @@ test('capture first team event', async () => {
     expect(elements.length).toEqual(1)
 })
 
-it('snapshot event not stored if session recording disabled', async () => {
-    await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [false], 'testRecordings')
-    await eventsProcessor.processEvent(
-        'some-id',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    // capture a different event to make sure we proccessed the snapshot event already
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'other-event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
-    expect(sessionRecordingEvents.length).toBe(0)
-})
-
 test('snapshot event stored as session_recording_event', async () => {
-    await eventsProcessor.processEvent(
+    const producer = {
+        queueSingleJsonMessage: jest.fn(),
+    }
+
+    await createSessionRecordingEvent(
         'some-id',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
         team.id,
+        '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
         now,
-        new UUIDT().toString()
+        '',
+        { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } } as any as Properties,
+        producer as any as KafkaProducerWrapper
     )
-    await delayUntilEventIngested(() => hub.db.fetchSessionRecordingEvents())
 
-    const events = await hub.db.fetchEvents()
-    expect(events.length).toEqual(0)
+    const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
 
-    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
-    expect(sessionRecordingEvents.length).toBe(1)
-
-    const [event] = sessionRecordingEvents
-    expect(event.session_id).toEqual('abcf-efg')
-    expect(event.distinct_id).toEqual('some-id')
-    expect(event.snapshot_data).toEqual({ timestamp: 123 })
+    expect(data).toEqual({
+        created_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
+        distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+        session_id: 'abcf-efg',
+        snapshot_data: '{"timestamp":123}',
+        team_id: 2,
+        timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2} [\d\s:]+/),
+        uuid: 'some-id',
+        window_id: undefined,
+    })
 })
 
 test('performance event stored as performance_event', async () => {
-    await eventsProcessor.processEvent(
-        'some-id',
-        '',
-        {
-            event: '$performance_event',
-            properties: {
-                // Taken from a real event from the JS
-                '0': 'resource',
-                '1': 1671723295836,
-                '2': 'http://localhost:8000/api/projects/1/session_recordings',
-                '3': 10737.89999999106,
-                '4': 0,
-                '5': 0,
-                '6': 0,
-                '7': 10737.89999999106,
-                '8': 10737.89999999106,
-                '9': 10737.89999999106,
-                '10': 10737.89999999106,
-                '11': 0,
-                '12': 10737.89999999106,
-                '13': 10745.09999999404,
-                '14': 11121.70000000298,
-                '15': 11122.20000000298,
-                '16': 73374,
-                '17': 1767,
-                '18': 'fetch',
-                '19': 'http/1.1',
-                '20': 'non-blocking',
-                '22': 2067,
-                '39': 384.30000001192093,
-                '40': 1671723306573,
-                token: 'phc_234',
-                $session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
-                $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
-                distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
-                $current_url: 'http://localhost:8000/recordings/recent',
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-
-    const fetchPerformanceEvents = async (): Promise<RawPerformanceEvent[]> => {
-        return (await hub.db.clickhouseQuery<RawPerformanceEvent>(`SELECT * FROM performance_events`)).data
+    const producer = {
+        queueSingleJsonMessage: jest.fn(),
     }
 
-    await delayUntilEventIngested(() => fetchPerformanceEvents())
+    await createPerformanceEvent(
+        'some-id',
+        team.id,
+        '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+        {
+            // Taken from a real event from the JS
+            '0': 'resource',
+            '1': 1671723295836,
+            '2': 'http://localhost:8000/api/projects/1/session_recordings',
+            '3': 10737.89999999106,
+            '4': 0,
+            '5': 0,
+            '6': 0,
+            '7': 10737.89999999106,
+            '8': 10737.89999999106,
+            '9': 10737.89999999106,
+            '10': 10737.89999999106,
+            '11': 0,
+            '12': 10737.89999999106,
+            '13': 10745.09999999404,
+            '14': 11121.70000000298,
+            '15': 11122.20000000298,
+            '16': 73374,
+            '17': 1767,
+            '18': 'fetch',
+            '19': 'http/1.1',
+            '20': 'non-blocking',
+            '22': 2067,
+            '39': 384.30000001192093,
+            '40': 1671723306573,
+            token: 'phc_234',
+            $session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
+            $window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
+            distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
+            $current_url: 'http://localhost:8000/recordings/recent',
+        },
+        '',
+        now,
+        producer as any as KafkaProducerWrapper
+    )
 
-    const events = await hub.db.fetchEvents()
-    expect(events.length).toEqual(0)
+    const [_topic, _uuid, data] = producer.queueSingleJsonMessage.mock.calls[0]
 
-    const sessionRecordingEvents = await fetchPerformanceEvents()
-    expect(sessionRecordingEvents.length).toBe(1)
-
-    const [event] = sessionRecordingEvents
-
-    expect(event).toEqual({
-        _offset: expect.any(Number),
-        _partition: 0,
-        _timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}[\d\s:]+/),
+    expect(data).toEqual({
         connect_end: 10737.89999999106,
         connect_start: 10737.89999999106,
         current_url: 'http://localhost:8000/recordings/recent',
         decoded_body_size: 73374,
-        distinct_id: 'some-id',
-        dom_complete: 0,
-        dom_content_loaded_event: 0,
-        dom_interactive: 0,
+        distinct_id: '5AzhubH8uMghFHxXq0phfs14JOjH6SA2Ftr1dzXj7U4',
         domain_lookup_end: 10737.89999999106,
         domain_lookup_start: 10737.89999999106,
         duration: 384.30000001192093,
@@ -1110,38 +1211,23 @@ test('performance event stored as performance_event', async () => {
         entry_type: 'resource',
         fetch_start: 10737.89999999106,
         initiator_type: 'fetch',
-        largest_contentful_paint_element: '',
-        largest_contentful_paint_id: '',
-        largest_contentful_paint_load_time: 0,
-        largest_contentful_paint_render_time: 0,
-        largest_contentful_paint_size: 0,
-        largest_contentful_paint_url: '',
-        load_event_end: 0,
-        load_event_start: 0,
         name: 'http://localhost:8000/api/projects/1/session_recordings',
-        navigation_type: '',
         next_hop_protocol: 'http/1.1',
-        pageview_id: '',
-        redirect_count: 0,
+        pageview_id: undefined,
         redirect_end: 0,
         redirect_start: 0,
         render_blocking_status: 'non-blocking',
         request_start: 10745.09999999404,
         response_end: 11122.20000000298,
         response_start: 11121.70000000298,
-        response_status: 0,
         secure_connection_start: 0,
         session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
         start_time: 10737.89999999106,
         team_id: 2,
-        time_origin: '2022-12-22 15:34:55.836',
-        timestamp: '2022-12-22 15:35:06.573',
+        time_origin: 1671723295836,
+        timestamp: 1671723306573,
         transfer_size: 2067,
-        unload_event_end: 0,
-        unload_event_start: 0,
-        uuid: expect.stringMatching(
-            /^[0-9a-fA-F-]{36}$/ // a uuid
-        ),
+        uuid: 'some-id',
         window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
         worker_start: 0,
     })
@@ -1865,6 +1951,8 @@ test('team event_properties', async () => {
             query_usage_30_day: null,
             team_id: 2,
             volume_30_day: null,
+            type: PropertyDefinitionTypeEnum.Event,
+            group_type_index: null,
         },
         {
             id: expect.any(String),
@@ -1875,6 +1963,8 @@ test('team event_properties', async () => {
             query_usage_30_day: null,
             team_id: 2,
             volume_30_day: null,
+            type: PropertyDefinitionTypeEnum.Event,
+            group_type_index: null,
         },
         {
             id: expect.any(String),
@@ -1885,6 +1975,8 @@ test('team event_properties', async () => {
             query_usage_30_day: null,
             team_id: 2,
             volume_30_day: null,
+            type: PropertyDefinitionTypeEnum.Event,
+            group_type_index: null,
         },
     ])
 

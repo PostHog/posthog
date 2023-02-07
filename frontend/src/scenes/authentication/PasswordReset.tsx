@@ -7,12 +7,12 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { passwordResetLogic } from './passwordResetLogic'
 import { router } from 'kea-router'
 import { SceneExport } from 'scenes/sceneTypes'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { IconCheckCircleOutline } from 'lib/components/icons'
+import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 
 export const scene: SceneExport = {
     component: PasswordReset,

@@ -1,14 +1,14 @@
 import { querySceneLogic } from './querySceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { PageHeader } from 'lib/components/PageHeader'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import React from 'react'
 import clsx from 'clsx'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { Query } from '~/queries/Query/Query'
 import { useActions, useValues } from 'kea'
 import { stringifiedExamples } from '~/queries/examples'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export function QueryScene(): JSX.Element {
     const { query } = useValues(querySceneLogic)

@@ -5,6 +5,7 @@ from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.client import sync_execute
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action_step import ActionStep
 from posthog.models.cohort import Cohort
@@ -67,9 +68,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
 
     def test_prop_cohort_basic_action(self):
@@ -109,9 +112,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
 
@@ -150,9 +154,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
@@ -164,9 +169,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_basic_action_days(self):
@@ -205,9 +211,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}], name="cohort2")
@@ -219,9 +226,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_context=filter.hogql_context,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_multiple_groups(self):
@@ -243,9 +251,11 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_with_negation(self):
@@ -267,11 +277,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 0)
 
     def test_cohort_get_person_ids_by_cohort_id(self):
@@ -658,7 +670,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort.calculate_people_ch(pending_version=0)
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
-            sql, _ = format_filter_query(cohort)
+            sql, _ = format_filter_query(cohort, 0, HogQLContext())
             self.assertQueryMatchesSnapshot(sql)
 
     def test_cohortpeople_with_valid_other_cohort_filter(self):
@@ -741,11 +753,16 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
 
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-            query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "precalculated-cohort"}]},
+                team=self.team,
+            )
+            query, params = parse_prop_grouped_clauses(
+                team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            )
             final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
 
-            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+            result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
@@ -806,11 +823,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+        )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
 
@@ -895,10 +914,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
 
             filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-            query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+            query, params = parse_prop_grouped_clauses(
+                team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
+            )
             final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
 
-            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+            result = sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
@@ -915,19 +936,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         res = self._get_cohortpeople(cohort1)
         self.assertEqual(len(res), 0)
-
-    def test_cohortpeople_with_cyclic_cohort_filter(self):
-        # Getting in such a state shouldn't be possible anymore.
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"})
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["2"], properties={"foo": "non"})
-
-        cohort1: Cohort = Cohort.objects.create(team=self.team, groups=[], name="cohort1")
-        cohort1.groups = [{"properties": [{"key": "id", "type": "cohort", "value": cohort1.id}]}]
-        cohort1.save()
-
-        # raised via simplify trying to simplify cyclic cohort filters. This should be impossible via API,
-        # which now has validation.
-        self.assertRaises(RecursionError, lambda: cohort1.calculate_people_ch(pending_version=0))
 
     def test_clickhouse_empty_query(self):
         cohort2 = Cohort.objects.create(

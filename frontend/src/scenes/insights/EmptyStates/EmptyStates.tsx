@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
-import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/components/icons'
+import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
@@ -11,7 +11,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
 import './EmptyStates.scss'
 import { urls } from 'scenes/urls'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -24,13 +24,19 @@ export function InsightEmptyState(): JSX.Element {
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
                 <h2>There are no matching events for this query</h2>
-                <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
+                <p className="text-center">Try changing the date range, or pick another action, event or breakdown.</p>
             </div>
         </div>
     )
 }
 
-export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
+export function InsightTimeoutState({
+    isLoading,
+    queryId,
+}: {
+    isLoading: boolean
+    queryId?: string | null
+}): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state warning">
@@ -84,6 +90,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
                         .
                     </li>
                 </ol>
+                {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -92,9 +99,10 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
     return (
         <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
@@ -146,6 +154,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
                         </ol>
                     </div>
                 )}
+                {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -170,7 +179,7 @@ export function FunnelSingleStepState({ actionable = true }: { actionable?: bool
                         ' Once you have two steps defined, additional changes will recalculate automatically.'}
                 </p>
                 {actionable && (
-                    <div className="mt-4 flex justify-center">
+                    <div className="flex justify-center mt-4">
                         <LemonButton
                             size="large"
                             type="secondary"
@@ -266,7 +275,14 @@ export function SavedInsightsEmptyState(): JSX.Element {
                             : title.replace('$CONDITION', `matching these filters`)
                         : title.replace('$CONDITION', 'for this project')}
                 </h2>
-                <p className="empty-state__description">{description}</p>
+                {usingFilters ? (
+                    <p className="empty-state__description">
+                        Refine your keyword search, or try using other filters such as type, last modified or
+                        created by.
+                    </p>
+                ) : (
+                    <p className="empty-state__description">{description}</p>
+                )}
                 {tab !== SavedInsightsTabs.Favorites && (
                     <Link to={urls.insightNew()}>
                         <Button

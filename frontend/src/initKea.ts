@@ -5,7 +5,7 @@ import { loadersPlugin } from 'kea-loaders'
 import { windowValuesPlugin } from 'kea-window-values'
 import { identifierToHuman } from 'lib/utils'
 import { waitForPlugin } from 'kea-waitfor'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { formsPlugin } from 'kea-forms'
 
@@ -22,6 +22,7 @@ const ERROR_FILTER_WHITELIST = [
     'signup', // Special error handling on login
     'loadLatestVersion',
     'loadBilling', // Gracefully handled if it fails
+    'loadData', // Gracefully handled in the data table
 ]
 
 interface InitKeaProps {

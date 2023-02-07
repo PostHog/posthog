@@ -5,8 +5,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { FilterType } from '~/types'
 import { breakdownTagLogic } from './breakdownTagLogic'
 import { isAllCohort, isCohort, isPersonEventOrGroup } from './TaxonomicBreakdownFilter'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconInfo } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 type BreakdownTagProps = {
     isHistogramable: boolean
@@ -40,7 +40,7 @@ export function BreakdownTag({
             closable={!!setFilters && !isHistogramable && !isURLNormalizeable}
             onClose={onClose}
             style={{ textTransform: 'capitalize' }}
-            popup={{
+            popover={{
                 overlay: isURLNormalizeable ? (
                     <>
                         <LemonSwitch
@@ -69,7 +69,7 @@ export function BreakdownTag({
                                             </>
                                         }
                                     >
-                                        <IconInfo className="text-xl text-muted-alt ml-1" />
+                                        <IconInfo className="text-xl text-muted-alt ml-1 shrink-0" />
                                     </Tooltip>
                                 </div>
                             }

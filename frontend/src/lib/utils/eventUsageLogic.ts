@@ -13,7 +13,6 @@ import {
     InsightModel,
     InsightType,
     HelpType,
-    AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
     ItemMode,
@@ -23,12 +22,12 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
     InsightShortId,
-    YesOrNoResponse,
     SessionPlayerData,
     AnyPartialFilterType,
     Resource,
     AccessLevel,
     RecordingReportLoadTimes,
+    SessionRecordingPlayerTab,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -134,8 +133,11 @@ function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilte
 }
 
 function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
-    const flattenedProperties = convertPropertyGroupToProperties(properties)
-    const cohortIds = flattenedProperties?.filter((p) => p.type === 'cohort').map((p) => p.value)
+    const flattenedProperties = convertPropertyGroupToProperties(properties) || []
+    const cohortIds = flattenedProperties
+        .filter((p) => p.type === 'cohort')
+        .map((p) => p.value)
+        .filter((a) => !!a) as number[]
 
     return cohortIds || []
 }
@@ -354,8 +356,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
-        reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
-        reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
@@ -385,14 +385,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingConsoleFeedback: (logCount: number, response: YesOrNoResponse, question: string) => ({
-            logCount,
-            response,
-            question,
-        }),
-        reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
         reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
             recordingViewedSummary,
+        }),
+        reportRecordingInspectorTabViewed: (tab: SessionRecordingPlayerTab) => ({ tab }),
+        reportRecordingInspectorItemExpanded: (tab: SessionRecordingPlayerTab, index: number) => ({ tab, index }),
+        reportRecordingInspectorMiniFilterViewed: (tab: SessionRecordingPlayerTab, minifilterKey: string) => ({
+            tab,
+            minifilterKey,
         }),
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
@@ -429,7 +429,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }),
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
-        // Definition Popup
+        // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -935,15 +935,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture(`recording ${type}`, payload)
         },
-        reportRecordingScrollTo: ({ rowIndex }) => {
-            posthog.capture(`recording event list scrolled`, { rowIndex })
-        },
-        reportPayGateShown: (props) => {
-            posthog.capture('pay gate shown', props)
-        },
-        reportPayGateDismissed: (props) => {
-            posthog.capture('pay gate dismissed', props)
-        },
         reportPersonMerged: (props) => {
             posthog.capture('merge person completed', props)
         },
@@ -993,14 +984,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
-        reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
-            posthog.capture('recording console feedback', { question, response, log_count: logCount })
-        },
-        reportRecordingConsoleViewed: ({ logCount }) => {
-            posthog.capture('recording console logs viewed', { log_count: logCount })
-        },
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
             posthog.capture('recording viewed summary', { ...recordingViewedSummary })
+        },
+        reportRecordingInspectorTabViewed: ({ tab }) => {
+            posthog.capture('recording inspector tab viewed', { tab })
+        },
+        reportRecordingInspectorItemExpanded: ({ tab, index }) => {
+            posthog.capture('recording inspector item expanded', { tab, index })
+        },
+        reportRecordingInspectorMiniFilterViewed: ({ tab, minifilterKey }) => {
+            posthog.capture('recording inspector minifilter selected', { tab, minifilterKey })
         },
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })

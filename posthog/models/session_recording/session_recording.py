@@ -81,7 +81,7 @@ class SessionRecording(UUIDModel):
             self.duration = metadata["duration"]
             self.click_count = metadata["click_count"]
             self.keypress_count = metadata["keypress_count"]
-            self.start_url = metadata["urls"][0] if metadata["urls"] else None
+            self.set_start_url_from_urls(metadata["urls"])
 
         return True
 
@@ -208,10 +208,15 @@ class SessionRecording(UUIDModel):
             recording.keypress_count = ch_recording["keypress_count"]
             recording.duration = ch_recording["duration"]
             recording.distinct_id = ch_recording["distinct_id"]
-            recording.start_url = ch_recording["urls"][0] if ch_recording["urls"] else None
+            recording.matching_events = ch_recording["matching_events"]
+            recording.set_start_url_from_urls(ch_recording["urls"])
             recordings.append(recording)
 
         return recordings
+
+    def set_start_url_from_urls(self, urls: Optional[List[str]] = None):
+        url = urls[0] if urls else None
+        self.start_url = url.split("?")[0][:512] if url else None
 
 
 @receiver(models.signals.post_save, sender=SessionRecording)

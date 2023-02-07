@@ -1,7 +1,16 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType, RetentionPeriod } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import {
+    BreakdownFilter,
+    DateRange,
+    InsightFilter,
+    InsightNodeKind,
+    InsightQueryNode,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema'
 import { BaseMathType } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
@@ -9,7 +18,17 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { filterPropertyForQuery, isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
+import {
+    filterForQuery,
+    filterPropertyForQuery,
+    isTrendsQuery,
+    isFunnelsQuery,
+    isRetentionQuery,
+    isPathsQuery,
+    isStickinessQuery,
+    isLifecycleQuery,
+    isInsightQueryWithBreakdown,
+} from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
@@ -17,14 +36,12 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
-const getCleanedQuery = (
-    kind: NodeKind.LifecycleQuery | NodeKind.StickinessQuery | NodeKind.UnimplementedQuery
-): InsightVizNode => {
-    if (kind === NodeKind.LifecycleQuery) {
+const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
+    if (kind === NodeKind.TrendsQuery) {
         return {
             kind: NodeKind.InsightVizNode,
             source: {
-                kind: NodeKind.LifecycleQuery,
+                kind: NodeKind.TrendsQuery,
                 series: [
                     {
                         kind: NodeKind.EventsNode,
@@ -33,7 +50,56 @@ const getCleanedQuery = (
                         math: BaseMathType.TotalCount,
                     },
                 ],
-                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
+                trendsFilter: {},
+            },
+        }
+    } else if (kind === NodeKind.FunnelsQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.FunnelsQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                    },
+                ],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
+            },
+        }
+    } else if (kind === NodeKind.RetentionQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.RetentionQuery,
+                retentionFilter: {
+                    period: RetentionPeriod.Day,
+                    total_intervals: 11,
+                    target_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                    },
+                    returning_entity: {
+                        id: '$pageview',
+                        name: '$pageview',
+                        type: 'events',
+                    },
+                    retention_type: 'retention_first_time',
+                },
+            },
+        }
+    } else if (kind === NodeKind.PathsQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.PathsQuery,
+                pathsFilter: {
+                    include_event_types: [PathType.PageView],
+                },
             },
         }
     } else if (kind === NodeKind.StickinessQuery) {
@@ -52,13 +118,24 @@ const getCleanedQuery = (
                 stickinessFilter: {},
             },
         }
-    } else {
+    } else if (kind === NodeKind.LifecycleQuery) {
         return {
             kind: NodeKind.InsightVizNode,
             source: {
-                kind: NodeKind.UnimplementedQuery,
+                kind: NodeKind.LifecycleQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
             },
         }
+    } else {
+        throw new Error('should not reach here')
     }
 }
 
@@ -95,24 +172,48 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: (query: Node) => ({ query }),
         updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
+        updateDateRange: (dateRange: DateRange) => ({ dateRange }),
+        updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
     }),
 
-    reducers(({ props }) => ({ query: [getDefaultQuery(props) as Node, { setQuery: (_, { query }) => query }] })),
+    reducers(({ props }) => ({
+        query: [
+            getDefaultQuery(props) as Node,
+            {
+                setQuery: (_, { query }) => query,
+            },
+        ],
+    })),
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
+
+        dateRange: [(s) => [s.querySource], (q) => q.dateRange],
+        breakdown: [(s) => [s.querySource], (q) => (isInsightQueryWithBreakdown(q) ? q.breakdown : null)],
+
+        insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
+        trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
+        funnelsFilter: [(s) => [s.querySource], (q) => (isFunnelsQuery(q) ? q.funnelsFilter : null)],
+        retentionFilter: [(s) => [s.querySource], (q) => (isRetentionQuery(q) ? q.retentionFilter : null)],
+        pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
+        stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
+        lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
     }),
 
     listeners(({ actions, values }) => ({
+        updateDateRange: ({ dateRange }) => {
+            const newQuerySource = { ...values.querySource, dateRange }
+            actions.updateQuerySource(newQuerySource)
+        },
+        updateBreakdown: ({ breakdown }) => {
+            const newQuerySource = { ...values.querySource, breakdown }
+            actions.updateQuerySource(newQuerySource)
+        },
         updateInsightFilter: ({ insightFilter }) => {
-            if (isUnimplementedQuery(values.querySource)) {
-                return
-            }
-
-            const filterPropery = filterPropertyForQuery(values.querySource)
+            const filterProperty = filterPropertyForQuery(values.querySource)
             const newQuerySource = { ...values.querySource }
-            newQuerySource[filterPropery] = {
-                ...values.querySource[filterPropery],
+            newQuerySource[filterProperty] = {
+                ...values.querySource[filterProperty],
                 ...insightFilter,
             }
             actions.updateQuerySource(newQuerySource)
@@ -144,12 +245,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         setActiveView: ({ type }) => {
-            if (type === InsightType.LIFECYCLE) {
-                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
+            if (type === InsightType.TRENDS) {
+                actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
+            } else if (type === InsightType.FUNNELS) {
+                actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
+            } else if (type === InsightType.RETENTION) {
+                actions.setQuery(getCleanedQuery(NodeKind.RetentionQuery))
+            } else if (type === InsightType.PATHS) {
+                actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
             } else if (type === InsightType.STICKINESS) {
                 actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
-            } else {
-                actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
+            } else if (type === InsightType.LIFECYCLE) {
+                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
             }
         },
         setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
@@ -158,14 +265,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
             if (insight.filters) {
                 const query = getQueryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
         },
         loadResultsSuccess: ({ insight }) => {
-            // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
             if (insight.filters) {
                 const query = getQueryFromFilters(insight.filters)
                 actions.setQuery(query)

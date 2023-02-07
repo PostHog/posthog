@@ -5,21 +5,22 @@ import { userLogic } from 'scenes/userLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { DashboardPrivilegeLevel } from 'lib/constants'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage, IconLock, IconPin, IconPinFilled, IconShare } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCottage, IconLock, IconPinOutline, IconPinFilled, IconShare } from 'lib/lemon-ui/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
-import { More } from 'lib/components/LemonButton/More'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonRow } from 'lib/components/LemonRow'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 
 export function DashboardsTable(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
@@ -46,7 +47,7 @@ export function DashboardsTable(): JSX.Element {
                                 : () => pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
                         tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
-                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
                     />
                 )
             },
@@ -70,7 +71,7 @@ export function DashboardsTable(): JSX.Element {
                                 </Tooltip>
                             )}
                             {!canEditDashboard && (
-                                <Tooltip title="You don't have edit permissions for this dashboard.">
+                                <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
                                     <IconLock className="ml-1 text-base text-muted" />
                                 </Tooltip>
                             )}

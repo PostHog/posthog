@@ -138,6 +138,10 @@ module.exports = {
                         element: 'Spin',
                         message: 'use Spinner instead',
                     },
+                    {
+                        element: 'Badge',
+                        message: 'use LemonBadge instead',
+                    },
                 ],
             },
         ],

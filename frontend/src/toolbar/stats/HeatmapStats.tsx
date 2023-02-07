@@ -1,20 +1,27 @@
 import { useActions, useValues } from 'kea'
-import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { getShadowRootPopupContainer } from '~/toolbar/utils'
+import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconSync } from 'lib/components/icons'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconSync } from 'lib/lemon-ui/icons'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function HeatmapStats(): JSX.Element {
-    const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter, canLoadMoreElementStats } =
-        useValues(heatmapLogic)
-    const { setHeatmapFilter, loadMoreElementStats } = useActions(heatmapLogic)
+    const {
+        matchLinksByHref,
+        countedElements,
+        clickCount,
+        heatmapEnabled,
+        heatmapLoading,
+        heatmapFilter,
+        canLoadMoreElementStats,
+    } = useValues(heatmapLogic)
+    const { setHeatmapFilter, loadMoreElementStats, setMatchLinksByHref } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
@@ -32,7 +39,7 @@ export function HeatmapStats(): JSX.Element {
                             dateFrom={heatmapFilter.date_from ?? '-7d'}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
-                            getPopupContainer={getShadowRootPopupContainer}
+                            getPopupContainer={getShadowRootPopoverContainer}
                         />
 
                         {heatmapLoading ? <Spinner /> : null}
@@ -46,53 +53,56 @@ export function HeatmapStats(): JSX.Element {
                             type={'secondary'}
                             status={'primary-alt'}
                             size={'small'}
-                            onClick={() => loadMoreElementStats()}
-                            disabled={!canLoadMoreElementStats}
+                            onClick={loadMoreElementStats}
+                            disabledReason={
+                                canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
+                            }
+                            getTooltipPopupContainer={getShadowRootPopoverContainer}
                         >
                             Load more
                         </LemonButton>
-                        {canLoadMoreElementStats ? null : (
-                            <AlertMessage type={'info'} className={'mt-2'}>
-                                Loaded all elements in this data range.
-                            </AlertMessage>
-                        )}
                     </div>
-                    <List
-                        itemLayout="horizontal"
-                        dataSource={countedElements}
-                        renderItem={({ element, count, actionStep }, index) => (
-                            <List.Item
-                                onClick={() => setSelectedElement(element)}
-                                onMouseEnter={() => setHighlightElement(element)}
-                                onMouseLeave={() => setHighlightElement(null)}
-                                style={{ cursor: 'pointer' }}
-                            >
-                                <List.Item.Meta
-                                    title={
-                                        <Space>
-                                            <span
-                                                style={{
-                                                    display: 'inline-block',
-                                                    width: Math.floor(Math.log10(countedElements.length) + 1) * 12 + 6,
-                                                    textAlign: 'right',
-                                                    marginRight: 4,
-                                                }}
-                                            >
-                                                {index + 1}.
-                                            </span>
-                                            {actionStep?.text ||
-                                                (actionStep?.tag_name ? (
-                                                    <code>&lt;{actionStep.tag_name}&gt;</code>
-                                                ) : (
-                                                    <em>Element</em>
-                                                ))}
-                                        </Space>
-                                    }
-                                />
-                                <div>{count} clicks</div>
-                            </List.Item>
-                        )}
-                    />
+
+                    <Tooltip
+                        title={
+                            'Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.'
+                        }
+                        getPopupContainer={getShadowRootPopoverContainer}
+                    >
+                        <div>
+                            <LemonSwitch
+                                checked={matchLinksByHref}
+                                label={'Match links by their target URL'}
+                                onChange={(checked) => setMatchLinksByHref(checked)}
+                                fullWidth={true}
+                                bordered={true}
+                            />
+                        </div>
+                    </Tooltip>
+                    <div className="flex flex-col w-full">
+                        {countedElements.map(({ element, count, actionStep }, index) => {
+                            return (
+                                <div
+                                    className="p-2 flex flex-row justify-between cursor-pointer hover:bg-primary-highlight"
+                                    key={index}
+                                    onClick={() => setSelectedElement(element)}
+                                    onMouseEnter={() => setHighlightElement(element)}
+                                    onMouseLeave={() => setHighlightElement(null)}
+                                >
+                                    <div>
+                                        {index + 1}.&nbsp;
+                                        {actionStep?.text ||
+                                            (actionStep?.tag_name ? (
+                                                <code>&lt;{actionStep.tag_name}&gt;</code>
+                                            ) : (
+                                                <em>Element</em>
+                                            ))}
+                                    </div>
+                                    <div>{count} clicks</div>
+                                </div>
+                            )
+                        })}
+                    </div>
                 </div>
             ) : null}
         </div>

@@ -1,10 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { GroupType } from '~/types'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { groupAnalyticsConfigLogic } from 'scenes/project/Settings/groupAnalyticsConfigLogic'
-import { InfoCircleOutlined } from '@ant-design/icons'
-import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 export function GroupAnalytics(): JSX.Element | null {
@@ -21,12 +19,8 @@ export function GroupAnalytics(): JSX.Element | null {
 
     const columns: LemonTableColumns<GroupType> = [
         {
-            title: (
-                <Tooltip title="As used in code">
-                    Group type
-                    <InfoCircleOutlined className="ml-2" />
-                </Tooltip>
-            ),
+            title: 'Group type',
+            tooltip: 'As used in code',
             dataIndex: 'group_type',
             key: 'name',
             render: function RenderName(name) {

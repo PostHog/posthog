@@ -10,7 +10,7 @@ import {
 } from '~/types'
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
-import { Paths } from 'scenes/paths/Paths'
+import { PathsDataExploration } from 'scenes/paths/Paths'
 import {
     // BindLogic,
     useValues,
@@ -19,9 +19,9 @@ import {
 // import { InsightsTable } from 'scenes/insights/views/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
-    // FunnelInvalidExclusionState,
-    // FunnelSingleStepState,
-    // InsightEmptyState,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
@@ -29,14 +29,13 @@ import {
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-// import { Tooltip } from 'lib/components/Tooltip'
+// import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
-// import { FunnelInsight } from './views/Funnels/FunnelInsight'
 // import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-// import { AlertMessage } from 'lib/components/AlertMessage'
+// import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,
@@ -44,14 +43,18 @@ import {
     // isTrendsFilter
 } from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+import { FunnnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
+import { FunnelsQuery } from '~/queries/schema'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    // [`${InsightType.FUNNELS}`]: <FunnelInsight />,
+    [`${InsightType.FUNNELS}`]: <FunnnelInsightDataExploration />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <Paths />,
+    [`${InsightType.PATHS}`]: <PathsDataExploration />,
 }
 
 export function InsightContainer({
@@ -68,14 +71,14 @@ export function InsightContainer({
     insightMode?: ItemMode
 }): JSX.Element {
     const {
-        // insightProps,
+        insightProps,
         // canEditInsight,
         insightLoading,
         activeView,
         loadedView,
         filters,
-        showTimeoutMessage,
-        showErrorMessage,
+        timedOutQueryId,
+        erroredQueryId,
         // exporterResourceParams,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
@@ -85,10 +88,16 @@ export function InsightContainer({
     //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
+    const { querySource } = useValues(funnelDataLogic(insightProps))
+    // TODO: convert to data exploration with insightLogic
+    const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+
+    // TODO: implement in funnelDataLogic
+    const isValidFunnel = true
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -96,25 +105,25 @@ export function InsightContainer({
             )
         }
 
-        // // Insight specific empty states - note order is important here
-        // if (loadedView === InsightType.FUNNELS) {
-        //     if (!areFiltersValid) {
-        //         return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
-        //     }
-        //     if (!areExclusionFiltersValid) {
-        //         return <FunnelInvalidExclusionState />
-        //     }
-        //     if (!isValidFunnel && !insightLoading) {
-        //         return <InsightEmptyState />
-        //     }
-        // }
+        // Insight specific empty states - note order is important here
+        if (loadedView === InsightType.FUNNELS) {
+            if (((querySource as FunnelsQuery).series || []).length <= 1) {
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionState />
+            }
+            if (!isValidFunnel && !insightLoading) {
+                return <InsightEmptyState />
+            }
+        }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <InsightErrorState />
+        if (!!erroredQueryId) {
+            return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={insightLoading} />
+        if (!!timedOutQueryId) {
+            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 
         return null

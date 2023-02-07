@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { useState } from 'react'
 import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
@@ -15,15 +15,15 @@ import {
     IconLive,
     IconOpenInApp,
     IconPerson,
-    IconPin,
+    IconPinOutline,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
-    UnverifiedEvent,
-} from 'lib/components/icons'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { Lettermark } from 'lib/components/Lettermark/Lettermark'
+    IconUnverifiedEvent,
+} from 'lib/lemon-ui/icons'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { canViewPlugins } from '~/scenes/plugins/access'
@@ -42,10 +42,10 @@ import { SideBarApps } from '~/layout/navigation/SideBar/SideBarApps'
 import { PageButton } from '~/layout/navigation/SideBar/PageButton'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { AuthorizedUrlListType, authorizedUrlListLogic } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Tooltip } from 'lib/components/Tooltip'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import Typography from 'antd/lib/typography'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
 import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 
@@ -85,7 +85,7 @@ function Pages(): JSX.Element {
                 sideAction={{
                     'aria-label': 'switch project',
                     onClick: () => toggleProjectSwitcher(),
-                    popup: {
+                    dropdown: {
                         visible: isProjectSwitcherShown,
                         onClickOutside: hideProjectSwitcher,
                         overlay: <ProjectSwitcherOverlay />,
@@ -104,7 +104,7 @@ function Pages(): JSX.Element {
                             identifier: 'pinned-dashboards',
                             tooltip: 'Pinned dashboards',
                             onClick: () => setArePinnedDashboardsShown((state) => !state),
-                            popup: {
+                            dropdown: {
                                 visible: arePinnedDashboardsShown,
                                 onClickOutside: () => setArePinnedDashboardsShown(false),
                                 onClickInside: hideSideBarMobile,
@@ -127,7 +127,7 @@ function Pages(): JSX.Element {
                                         ) : (
                                             <>
                                                 <div className="flex items-center gap-2">
-                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <IconPinOutline className="text-2xl text-muted-alt" />
                                                     <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
@@ -177,9 +177,16 @@ function Pages(): JSX.Element {
                     )}
                     <div className="SideBar__heading">Data</div>
 
-                    <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
-                        icon={<UnverifiedEvent />}
+                        icon={<IconLive />}
+                        identifier={Scene.Events}
+                        to={urls.events()}
+                        title={
+                            featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS] ? 'Event Explorer' : 'Live Events'
+                        }
+                    />
+                    <PageButton
+                        icon={<IconUnverifiedEvent />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
                     />
@@ -215,7 +222,7 @@ function Pages(): JSX.Element {
                             identifier: 'toolbar-launch',
                             tooltip: 'Launch toolbar',
                             onClick: () => setIsToolbarLaunchShown((state) => !state),
-                            popup: {
+                            dropdown: {
                                 visible: isToolbarLaunchShown,
                                 onClickOutside: () => setIsToolbarLaunchShown(false),
                                 onClickInside: hideSideBarMobile,

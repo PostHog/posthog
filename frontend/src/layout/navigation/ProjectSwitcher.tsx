@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { IconPlus, IconSettings } from 'lib/components/icons'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
-import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
+import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -109,7 +109,6 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             title={`Switch to project ${team.name}`}
             status="stealth"
             fullWidth
-            disabled={!team.effective_membership_level}
         >
             <ProjectName team={team} />
         </LemonButtonWithSideAction>

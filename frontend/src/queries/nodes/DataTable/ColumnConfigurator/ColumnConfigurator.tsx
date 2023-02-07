@@ -1,10 +1,10 @@
 import './ColumnConfigurator.scss'
 import { BindLogic, useActions, useValues } from 'kea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import {
     SortableContainer as sortableContainer,
     SortableElement as sortableElement,
@@ -16,10 +16,10 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableColumns, extractExpressionComment } from '../utils'
+import { defaultDataTableColumns, extractExpressionComment, removeExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
-import { LemonModal } from 'lib/components/LemonModal'
-import { isEventsQuery } from '~/queries/utils'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -34,34 +34,32 @@ interface ColumnConfiguratorProps {
 }
 
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
-    const { columns } = useValues(dataTableLogic)
+    const { columnsInQuery } = useValues(dataTableLogic)
 
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
-        columns,
+        columns: columnsInQuery,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
-                // We removed the timestamp column, and can't order by it anymore.
-                if (!columns.includes('timestamp') && query.source.orderBy?.includes('-timestamp')) {
-                    setQuery?.({
-                        ...query,
-                        source: {
-                            ...query.source,
-                            orderBy: [],
-                            select: columns,
-                        },
-                        allowSorting: true,
-                    })
-                } else {
-                    setQuery?.({
-                        ...query,
-                        source: {
-                            ...query.source,
-                            select: columns,
-                        },
-                    })
+                let orderBy = query.source.orderBy
+                if (orderBy && orderBy.length > 0) {
+                    const orderColumn = removeExpressionComment(
+                        orderBy[0].startsWith('-') ? orderBy[0].slice(1) : orderBy[0]
+                    )
+                    // the old orderBy column was removed, so remove it from the new query
+                    if (!columns.some((c) => removeExpressionComment(c) === orderColumn)) {
+                        orderBy = undefined
+                    }
                 }
+                setQuery?.({
+                    ...query,
+                    source: {
+                        ...query.source,
+                        orderBy,
+                        select: columns,
+                    },
+                })
             } else {
                 setQuery?.({ ...query, columns })
             }
@@ -237,17 +235,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         ]}
                                         value={undefined}
                                         onChange={(group, value) => {
-                                            if (group.type === TaxonomicFilterGroupType.EventProperties) {
-                                                selectColumn(`properties.${value}`)
-                                            }
-                                            if (group.type === TaxonomicFilterGroupType.PersonProperties) {
-                                                selectColumn(`person.properties.${value}`)
-                                            }
-                                            if (group.type === TaxonomicFilterGroupType.EventFeatureFlags) {
-                                                selectColumn(`properties.${value}`)
-                                            }
-                                            if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
-                                                selectColumn(String(value))
+                                            const column = taxonomicFilterToHogQl(group.type, value)
+                                            if (column !== null) {
+                                                selectColumn(column)
                                             }
                                         }}
                                         popoverEnabled={false}

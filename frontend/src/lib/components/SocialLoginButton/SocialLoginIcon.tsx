@@ -1,5 +1,4 @@
-import { KeyOutlined } from '@ant-design/icons'
-import { GithubIcon, GitlabIcon, GoogleIcon } from 'lib/components/icons'
+import { GithubIcon, GitlabIcon, GoogleIcon, IconKey } from 'lib/lemon-ui/icons'
 import { SSOProviders } from '~/types'
 
 export const SocialLoginIcon = (provider: SSOProviders): JSX.Element | undefined => {
@@ -10,6 +9,6 @@ export const SocialLoginIcon = (provider: SSOProviders): JSX.Element | undefined
     } else if (provider === 'gitlab') {
         return <GitlabIcon />
     } else if (provider === 'saml') {
-        return <KeyOutlined />
+        return <IconKey />
     }
 }

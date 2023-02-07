@@ -1,7 +1,7 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
@@ -30,10 +30,10 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                 remove: (state, { index }) => {
                     const newState = state.filter((_, i) => i !== index)
                     if (newState.length === 0) {
-                        return [{} as AnyPropertyFilter]
+                        return [{} as EmptyPropertyFilter]
                     }
                     if (Object.keys(newState[newState.length - 1]).length !== 0) {
-                        return [...newState, {}]
+                        return [...newState, {} as EmptyPropertyFilter]
                     }
                     return newState
                 },
@@ -44,10 +44,8 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
     listeners(({ actions, props, values }) => ({
         // Only send update if value is set to something
         setFilter: ({ property }) => {
-            if (props.sendAllKeyUpdates) {
+            if (props.sendAllKeyUpdates || property?.value || (property?.key && property.type === 'hogql')) {
                 actions.update()
-            } else {
-                property?.value && actions.update()
             }
         },
         remove: () => actions.update(),
@@ -63,7 +61,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
             (s) => [s.filters],
             (filters) => {
                 if (filters.length === 0 || isValidPropertyFilter(filters[filters.length - 1])) {
-                    return [...filters, {}]
+                    return [...filters, {} as AnyPropertyFilter]
                 } else {
                     return filters
                 }

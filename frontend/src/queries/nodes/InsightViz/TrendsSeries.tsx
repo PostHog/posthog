@@ -8,17 +8,12 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsQuery, FunnelsQuery, LifecycleQuery, StickinessQuery } from '~/queries/schema'
-import {
-    isLifecycleQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-    isInsightQueryWithDisplay,
-    isUnimplementedQuery,
-} from '~/queries/utils'
+import { isLifecycleQuery, isStickinessQuery, isTrendsQuery, isInsightQueryWithDisplay } from '~/queries/utils'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { getDisplay } from './utils'
 
 type TrendsSeriesProps = {
     insightProps: InsightLogicProps
@@ -41,19 +36,12 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
         ...(isTrendsQuery(querySource) ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
 
-    if (isUnimplementedQuery(querySource)) {
-        return null
-    }
-
-    const display = isStickinessQuery(querySource)
-        ? querySource.stickinessFilter?.display
-        : isTrendsQuery(querySource)
-        ? querySource.trendsFilter?.display
-        : undefined
-
+    const display = getDisplay(querySource)
     const filters = queryNodeToFilter(querySource)
+
     return (
         <>
             {isLifecycleQuery(querySource) && (

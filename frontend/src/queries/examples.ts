@@ -50,7 +50,7 @@ const EventsTableFull: DataTableNode = {
 
 const TotalEvents: EventsQuery = {
     kind: NodeKind.EventsQuery,
-    select: ['total()'],
+    select: ['count()'],
 }
 
 const TotalEventsTable: DataTableNode = {
@@ -85,10 +85,10 @@ const EventAggregations: DataTableNode = {
         select: [
             "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
             'event',
-            'total() + 100000 # Inflamed total',
+            'count() + 100000 # Inflamed total',
             '1 + 2',
         ],
-        orderBy: ['-total()'],
+        orderBy: ['-count()'],
     },
 }
 

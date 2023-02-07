@@ -7,7 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,7 +16,7 @@ import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingLogic as billingLogicV2 } from './v2/control/billingLogic'
+import { billingV2Logic } from './v2/billingV2Logic'
 
 export const UTM_TAGS = 'utm_medium=in-product&utm_campaign=billing-management'
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
@@ -36,7 +36,7 @@ export const billingLogic = kea<billingLogicType>([
         referer: (referer: string) => ({ referer }),
     }),
     connect({
-        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingLogicV2, ['billingVersion']],
+        values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags'], billingV2Logic, ['billingVersion']],
         actions: [eventUsageLogic, ['reportIngestionBillingCancelled']],
     }),
     reducers({

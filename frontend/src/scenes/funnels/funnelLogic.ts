@@ -6,6 +6,7 @@ import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/uti
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import type { funnelLogicType } from './funnelLogicType'
 import {
+    AnyPropertyFilter,
     AvailableFeature,
     BinCountValue,
     BreakdownKeyType,
@@ -32,7 +33,6 @@ import {
     HistogramGraphDatum,
     InsightLogicProps,
     InsightType,
-    PropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     StepOrderValue,
@@ -65,8 +65,8 @@ import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilit
 import { elementsToAction } from 'scenes/events/createActionFromEvent'
 import { groupsModel, Noun } from '~/models/groupsModel'
 import { dayjs } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
-import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
@@ -526,7 +526,6 @@ export const funnelLogic = kea<funnelLogicType>({
             () => [selectors.filters, selectors.loadedFilters],
             (filters, lastFilters): boolean => !equal(cleanFilters(filters), cleanFilters(lastFilters)),
         ],
-        barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
         histogramGraphData: [
             () => [selectors.timeConversionResults],
             (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
@@ -700,9 +699,15 @@ export const funnelLogic = kea<funnelLogicType>({
                             },
                         }
                     })
+
+                    const conversionRatesTotal = step.count / steps[0].count
                     const conversionRates = {
                         fromPrevious: previousCount === 0 ? 0 : step.count / previousCount,
-                        total: step.count / steps[0].count,
+
+                        // We get NaN from dividing 0/0 so we just show 0 instead
+                        // This is an empty funnel so dropped off percentage will show as 100%
+                        // and conversion percentage as 0% but that's better for users than `NaN%`
+                        total: Number.isNaN(conversionRatesTotal) ? 0 : conversionRatesTotal,
                     }
                     return {
                         ...step,
@@ -821,12 +826,8 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         flattenedStepsByBreakdown: [
-            () => [
-                selectors.stepsWithConversionMetrics,
-                selectors.barGraphLayout,
-                selectors.disableFunnelBreakdownBaseline,
-            ],
-            (steps, layout, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
+            () => [selectors.stepsWithConversionMetrics, selectors.filters, selectors.disableFunnelBreakdownBaseline],
+            (steps, filters, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
                 // Initialize with two rows for rendering graph and header
                 const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
                     { rowKey: 'steps-meta' },
@@ -838,7 +839,8 @@ export const funnelLogic = kea<funnelLogicType>({
                     const lastStep = steps[steps.length - 1]
                     const hasBaseline =
                         !baseStep.breakdown ||
-                        (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
+                        ((filters.layout || FunnelLayout.vertical) === FunnelLayout.vertical &&
+                            (baseStep.nested_breakdown?.length ?? 0) > 1)
                     // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
                     if (hasBaseline && !disableBaseline) {
                         flattenedStepsByBreakdown.push({
@@ -1508,7 +1510,7 @@ const parseEventAndProperty = (
     event: FunnelCorrelation['event']
 ): {
     name: string
-    properties?: PropertyFilter[]
+    properties?: AnyPropertyFilter[]
 } => {
     const components = event.event.split('::')
     /*

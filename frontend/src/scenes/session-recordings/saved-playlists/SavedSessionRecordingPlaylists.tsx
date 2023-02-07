@@ -1,18 +1,17 @@
 import { useActions, useValues } from 'kea'
-import { cloneElement } from 'react'
 import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
-import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
-import { CalendarOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
+import { LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
-import { createdByColumn } from 'lib/components/LemonTable/columnUtils'
+import { createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { TZLabel } from '@posthog/apps-common'
 import { SavedSessionRecordingPlaylistsEmptyState } from 'scenes/session-recordings/saved-playlists/SavedSessionRecordingPlaylistsEmptyState'
 import clsx from 'clsx'
-import { More } from 'lib/components/LemonButton/More'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { IconPinOutline, IconPinFilled, IconCalendar } from 'lib/lemon-ui/icons'
 
 export type SavedSessionRecordingPlaylistsProps = {
     tab: SessionRecordingsTabs.Playlists
@@ -34,9 +33,8 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                         size="small"
                         status="primary-alt"
                         onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
-                    >
-                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                    </LemonButton>
+                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
+                    />
                 )
             },
         },
@@ -133,9 +131,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             status="stealth"
                             center
                             onClick={() => setSavedPlaylistsFilters({ pinned: !filters.pinned })}
-                            icon={cloneElement(filters.pinned ? <PushpinFilled /> : <PushpinOutlined />, {
-                                className: 'text-base flex items-center',
-                            })}
+                            icon={filters.pinned ? <IconPinFilled /> : <IconPinOutline />}
                         >
                             Pinned
                         </LemonButton>
@@ -151,7 +147,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             }
                             makeLabel={(key) => (
                                 <>
-                                    <CalendarOutlined />
+                                    <IconCalendar />
                                     <span className="hide-when-small"> {key}</span>
                                 </>
                             )}

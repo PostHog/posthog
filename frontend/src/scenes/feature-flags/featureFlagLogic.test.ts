@@ -3,7 +3,13 @@ import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
-import { FeatureFlagGroupType, FeatureFlagType, MultivariateFlagOptions, PropertyFilterType } from '~/types'
+import {
+    FeatureFlagGroupType,
+    FeatureFlagType,
+    MultivariateFlagOptions,
+    PropertyFilterType,
+    PropertyOperator,
+} from '~/types'
 
 function generateFeatureFlag(
     groups: FeatureFlagGroupType[],
@@ -15,12 +21,12 @@ function generateFeatureFlag(
         created_at: null,
         key: 'beta-feature',
         name: 'Beta Feature',
-        filters: { groups, multivariate: multivariate ?? null },
+        filters: { groups, multivariate: multivariate ?? null, payloads: {} },
         deleted: false,
         active: true,
         created_by: null,
         is_simple_flag: false,
-        rollout_percentage: null,
+        rollout_percentage: 0,
         ensure_experience_continuity: false,
         experiment_set: null,
         rollback_conditions: [],
@@ -57,7 +63,14 @@ describe('the feature flag logic', () => {
                 logic.actions.setFeatureFlag(
                     generateFeatureFlag([
                         {
-                            properties: [{ key: 'aloha', value: 'aloha', type: PropertyFilterType.Person }],
+                            properties: [
+                                {
+                                    key: 'aloha',
+                                    value: 'aloha',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
                             rollout_percentage: 50,
                             variant: null,
                         },
@@ -83,17 +96,38 @@ describe('the feature flag logic', () => {
                     generateFeatureFlag([
                         { properties: [], rollout_percentage: 86, variant: null },
                         {
-                            properties: [{ key: 'aloha', value: 'aloha', type: PropertyFilterType.Person }],
+                            properties: [
+                                {
+                                    key: 'aloha',
+                                    value: 'aloha',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
                             rollout_percentage: 50,
                             variant: null,
                         },
                         {
-                            properties: [{ key: 'aloha', value: 'aloha2', type: PropertyFilterType.Person }],
+                            properties: [
+                                {
+                                    key: 'aloha',
+                                    value: 'aloha2',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
                             rollout_percentage: 75,
                             variant: null,
                         },
                         {
-                            properties: [{ key: 'aloha', value: 'aloha3', type: PropertyFilterType.Person }],
+                            properties: [
+                                {
+                                    key: 'aloha',
+                                    value: 'aloha3',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
                             rollout_percentage: 86,
                             variant: null,
                         },
@@ -155,7 +189,14 @@ describe('the feature flag logic', () => {
             expect(api.create).not.toHaveBeenCalled()
 
             await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(0, 20, [{ key: 'aloha', type: PropertyFilterType.Person }])
+                logic.actions.updateConditionSet(0, 20, [
+                    {
+                        key: 'aloha',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: null,
+                    },
+                ])
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
@@ -166,7 +207,12 @@ describe('the feature flag logic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(0, 20, [
-                    { key: 'aloha', value: 'aloha', type: PropertyFilterType.Person },
+                    {
+                        key: 'aloha',
+                        value: 'aloha',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                    },
                 ])
             })
                 .toDispatchActions(['setAffectedUsers'])
@@ -193,7 +239,14 @@ describe('the feature flag logic', () => {
 
             // update newly added condition set
             await expectLogic(logic, () => {
-                logic.actions.updateConditionSet(1, 20, [{ key: 'aloha', type: PropertyFilterType.Person }])
+                logic.actions.updateConditionSet(1, 20, [
+                    {
+                        key: 'aloha',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                        value: null,
+                    },
+                ])
             })
                 .toDispatchActions(['setAffectedUsers'])
                 .toMatchValues({
@@ -205,7 +258,12 @@ describe('the feature flag logic', () => {
             // select its value
             await expectLogic(logic, () => {
                 logic.actions.updateConditionSet(1, 20, [
-                    { key: 'aloha', value: 'aloha', type: PropertyFilterType.Person },
+                    {
+                        key: 'aloha',
+                        value: 'aloha',
+                        type: PropertyFilterType.Person,
+                        operator: PropertyOperator.Exact,
+                    },
                 ])
             })
                 .toDispatchActions(['setAffectedUsers'])
@@ -265,12 +323,26 @@ describe('the feature flag logic', () => {
                     generateFeatureFlag([
                         { properties: [], rollout_percentage: null, variant: null },
                         {
-                            properties: [{ key: 'aloha', value: 'aloha', type: PropertyFilterType.Person }],
+                            properties: [
+                                {
+                                    key: 'aloha',
+                                    value: 'aloha',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
                             rollout_percentage: null,
                             variant: null,
                         },
                         {
-                            properties: [{ key: 'aloha', value: 'aloha2', type: PropertyFilterType.Person }],
+                            properties: [
+                                {
+                                    key: 'aloha',
+                                    value: 'aloha2',
+                                    type: PropertyFilterType.Person,
+                                    operator: PropertyOperator.Exact,
+                                },
+                            ],
                             rollout_percentage: null,
                             variant: null,
                         },

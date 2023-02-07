@@ -3,7 +3,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { allOperatorsMapping, alphabet, capitalizeFirstLetter, formatPropertyLabel } from 'lib/utils'
 import { LocalFilter, toLocalFilters } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
-import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { humanizePathsEventTypes } from 'scenes/insights/utils'
 import { apiValueToMathType, MathCategory, MathDefinition, mathsLogic } from 'scenes/trends/mathsLogic'
 import { urls } from 'scenes/urls'
@@ -15,12 +15,12 @@ import {
     PathsFilterType,
     PropertyGroupFilter,
 } from '~/types'
-import { IconCalculate, IconSubdirectoryArrowRight } from '../../icons'
-import { LemonRow } from '../../LemonRow'
-import { LemonDivider } from '../../LemonDivider'
-import { Lettermark } from '../../Lettermark/Lettermark'
-import { Link } from '../../Link'
-import { ProfilePicture } from '../../ProfilePicture'
+import { IconCalculate, IconSubdirectoryArrowRight } from 'lib/lemon-ui/icons'
+import { LemonRow } from 'lib/lemon-ui/LemonRow'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { Lettermark } from 'lib/lemon-ui/Lettermark'
+import { Link } from 'lib/lemon-ui/Link'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { keyMapping, PropertyKeyInfo } from '../../PropertyKeyInfo'
 import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -32,6 +32,7 @@ import {
     isCohortPropertyFilter,
     isPropertyFilterWithOperator,
 } from 'lib/components/PropertyFilters/utils'
+import { filterForQuery, isInsightQueryNode } from '~/queries/utils'
 
 function CompactPropertyFiltersDisplay({
     groupFilter,
@@ -197,7 +198,7 @@ function PathsSummary({ filters }: { filters: Partial<PathsFilterType> }): JSX.E
     return (
         <div className="SeriesDisplay">
             <div>
-                User paths based on <b>{humanizePathsEventTypes(filters).join(' and ')}</b>
+                User paths based on <b>{humanizePathsEventTypes(filters.include_event_types).join(' and ')}</b>
             </div>
             {filters.start_point && (
                 <div>
@@ -288,7 +289,7 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
     return (
         <div>
             <h5>Breakdown by</h5>
-            <BreakdownFilter
+            <TaxonomicBreakdownFilter
                 filters={filters}
                 useMultiBreakdown={
                     isFunnelsFilter(filters) && !!featureFlags[FEATURE_FLAGS.BREAKDOWN_BY_MULTIPLE_PROPERTIES]
@@ -299,8 +300,11 @@ export function BreakdownSummary({ filters }: { filters: Partial<FilterType> }):
 }
 
 function InsightDetailsInternal({ insight }: { insight: InsightModel }, ref: React.Ref<HTMLDivElement>): JSX.Element {
-    const { filters, created_at, created_by } = insight
-
+    let { filters } = insight
+    const { created_at, created_by } = insight
+    if (!!insight.query && isInsightQueryNode(insight.query)) {
+        filters = filterForQuery(insight.query) as Partial<FilterType>
+    }
     return (
         <div className="InsightDetails" ref={ref}>
             <QuerySummary filters={filters} />

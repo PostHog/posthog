@@ -374,6 +374,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         loadRecordingSnapshotsFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setErrorPlayerState(true)
             }
         },
@@ -411,6 +412,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setErrorPlayerState: ({ show }) => {
             if (show) {
+                actions.incrementErrorCount()
                 actions.stopAnimation()
             }
         },
@@ -453,6 +455,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
+                console.error("Error: Player tried to seek to a position that hasn't loaded yet")
                 actions.setErrorPlayerState(true)
             }
 
@@ -583,6 +586,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
+                console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
                 actions.setErrorPlayerState(true)
             }
 
@@ -664,9 +668,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (cache.originalWarning) {
                 console.warn = cache.originalWarning
             }
-            if (cache.errorHandler) {
-                window.removeEventListener('error', cache.errorHandler)
-            }
             actions.reportRecordingViewedSummary({
                 viewed_time_ms: cache.openTime !== undefined ? performance.now() - cache.openTime : undefined,
                 recording_duration_ms: values.sessionPlayerData?.metadata
@@ -690,11 +691,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
 
             cache.openTime = performance.now()
-
-            cache.errorHandler = () => {
-                actions.incrementErrorCount()
-            }
-            window.addEventListener('error', cache.errorHandler)
             cache.originalWarning = console.warn
             console.warn = function (...args: Array<unknown>) {
                 if (typeof args[0] === 'string' && args[0].includes('[replayer]')) {

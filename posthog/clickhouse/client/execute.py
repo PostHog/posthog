@@ -6,9 +6,9 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+import posthoganalytics
 import sqlparse
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
@@ -23,6 +23,19 @@ NonInsertParams = Dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
+
+# As of CH 22.8 - more algorithms have been added on newer versions
+CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
+    "default",
+    "hash",
+    "parallel_hash",
+    "direct",
+    "full_sorting_merge",
+    "partial_merge",
+    "auto",
+]
+
+is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
 
 
 @lru_cache(maxsize=1)
@@ -39,6 +52,23 @@ def default_settings() -> Dict:
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
+
+
+def extra_settings(query_id) -> Dict[str, Any]:
+    join_algorithm = (
+        posthoganalytics.get_feature_flag(
+            "join-algorithm",
+            str(query_id),
+            only_evaluate_locally=True,
+        )
+        or "default"
+    )
+
+    # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
+    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
+        join_algorithm = "default"
+
+    return {"join_algorithm": join_algorithm}
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -74,15 +104,17 @@ def sync_execute(
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
-        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
-
+        query_id = validated_client_query_id()
+        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        tags["query_settings"] = core_settings
+        settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validated_client_query_id(),
+                query_id=query_id,
             )
         except Exception as err:
             err = wrap_query_error(err)
@@ -127,25 +159,6 @@ def query_with_columns(
         rows.append(result)
 
     return rows
-
-
-def substitute_params(query, params):
-    """
-    Helper method to ease rendering of sql clickhouse queries progressively.
-    For example, there are many places where we construct queries to be used
-    as subqueries of others. Each time we generate a subquery we also pass
-    up the "bound" parameters to be used to render the query, which
-    otherwise only happens at the point of calling clickhouse via the
-    clickhouse_driver `Client`.
-
-    This results in sometimes large lists of parameters with no relevance to
-    the containing query being passed up. Rather than do this, we can
-    instead "render" the subqueries prior to using as a subquery, so our
-    containing code is only responsible for it's parameters, and we can
-    avoid any potential param collisions.
-    """
-    escaped = escape_params(params)
-    return query % escaped
 
 
 @patchable

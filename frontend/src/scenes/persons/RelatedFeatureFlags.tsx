@@ -1,6 +1,6 @@
 import { LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { capitalizeFirstLetter } from 'lib/utils'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -74,7 +74,9 @@ export function RelatedFeatureFlags({ distinctId, groups }: Props): JSX.Element 
             render: function Render(_, featureFlag: RelatedFeatureFlag) {
                 return (
                     <div style={{ wordBreak: 'break-word' }}>
-                        {featureFlag.active ? capitalizeFirstLetter(featureFlag.value.toString()) : '--'}
+                        {featureFlag.active && featureFlag.value
+                            ? capitalizeFirstLetter(featureFlag.value.toString())
+                            : '--'}
                     </div>
                 )
             },

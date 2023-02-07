@@ -1,17 +1,19 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { useActions, useValues } from 'kea'
-import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
-import { LemonButton } from 'lib/components/LemonButton'
-import { CloudDownloadOutlined } from '@ant-design/icons'
+import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CommunityTag } from 'lib/CommunityTag'
+import { IconCloudUpload } from 'lib/lemon-ui/icons'
+import { userLogic } from 'scenes/userLogic'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
-    const { repository, repositoryLoading, templateLoading } = useValues(dashboardTemplatesLogic)
+    const { repository, repositoryLoading, templateLoading, templateBeingSaved } = useValues(dashboardTemplatesLogic)
     const { installTemplate } = useActions(dashboardTemplatesLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <LemonTable
@@ -51,18 +53,24 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                         ) {
                             return (
                                 <div className="template-installed">
-                                    {installed ? (
+                                    {installed && !record.has_new_version ? (
                                         <LemonSnack>INSTALLED</LemonSnack>
                                     ) : (
                                         <LemonButton
                                             status={'primary'}
                                             type={'primary'}
+                                            icon={<IconCloudUpload />}
                                             onClick={() => installTemplate({ name: record.name, url: record.url })}
-                                            icon={<CloudDownloadOutlined />}
-                                            loading={templateLoading}
-                                            disabled={templateLoading}
+                                            loading={templateLoading && templateBeingSaved === record.name}
+                                            disabledReason={
+                                                templateLoading
+                                                    ? 'Installing template...'
+                                                    : !user?.is_staff
+                                                    ? 'Only staff users can install templates'
+                                                    : undefined
+                                            }
                                         >
-                                            Install
+                                            {record.has_new_version ? 'Update' : 'Install'}
                                         </LemonButton>
                                     )}
                                 </div>

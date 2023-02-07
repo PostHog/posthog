@@ -10,6 +10,7 @@ import {
     PathsFilterType,
     PathType,
     RetentionFilterType,
+    RetentionPeriod,
     TrendsFilterType,
 } from '~/types'
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
@@ -29,7 +30,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
@@ -150,7 +151,7 @@ export function cleanFilters(
             },
             returning_entity: filters.returning_entity || { id: '$pageview', type: 'events', name: '$pageview' },
             date_to: filters.date_to,
-            period: filters.period || 'Day',
+            period: filters.period || RetentionPeriod.Day,
             retention_type: filters.retention_type || (filters as any)['retentionType'] || RETENTION_FIRST_TIME,
             breakdowns: filters.breakdowns,
             breakdown_type: filters.breakdown_type,

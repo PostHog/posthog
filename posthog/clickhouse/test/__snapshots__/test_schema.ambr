@@ -36,7 +36,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '
   
-  CREATE TABLE kafka_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -237,7 +237,7 @@
 # name: test_create_kafka_table_with_different_kafka_host[kafka_person_distinct_id]
   '
   
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -245,6 +245,38 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('test.kafka.broker:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
+      ON CLUSTER 'posthog'
+  
+      ENGINE = Kafka(
+          'kafka:9092', -- Kafka hosts
+          'clickhouse_person_override_test', -- Kafka topic
+          'clickhouse-person-overrides', -- Kafka consumer group id
+          'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
+      )
+  
+      -- Take the types from the `person_overrides` table, except for the
+      -- `created_at`, which we want to use the DEFAULT now() from the
+      -- `person_overrides` definition. See
+      -- https://github.com/ClickHouse/ClickHouse/pull/38272 for details of `EMPTY
+      -- AS SELECT`
+      EMPTY AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          oldest_event,
+          -- We don't want to insert this column via Kafka, as it's
+          -- set as a default value in the `person_overrides` table.
+          -- created_at,
+          version
+      FROM `posthog_test`.`person_overrides`
   
   '
 ---
@@ -289,7 +321,7 @@
 # name: test_create_table_query[app_metrics]
   '
   
-  CREATE TABLE app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -315,7 +347,7 @@
 # name: test_create_table_query[app_metrics_mv]
   '
   
-  CREATE MATERIALIZED VIEW app_metrics_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
   TO posthog_test.sharded_app_metrics
   AS SELECT
   team_id,
@@ -343,7 +375,7 @@
       team_id Int64,
       sign Int8,
       version UInt64
-  ) ENGINE = CollapsingMergeTree(sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
   
   
@@ -389,7 +421,7 @@
   , _offset UInt64
   
       
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
   '
 ---
@@ -421,7 +453,7 @@
   
       , INDEX kafka_timestamp_minmax_events_dead_letter_queue _timestamp TYPE minmax GRANULARITY 3
       
-  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.events_dead_letter_queue', '{replica}-{shard}', _timestamp)
   ORDER BY (id, event_uuid, distinct_id, team_id)
   
   SETTINGS index_granularity=512
@@ -459,8 +491,8 @@
 # name: test_create_table_query[events_json_mv]
   '
   
-  CREATE MATERIALIZED VIEW events_json_mv ON CLUSTER 'posthog'
-  TO posthog_test.events
+  CREATE MATERIALIZED VIEW IF NOT EXISTS events_json_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_events
   AS SELECT
   uuid,
   event,
@@ -503,7 +535,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.groups', '{replica}-{shard}', _timestamp)
   Order By (team_id, group_type_index, group_key)
   
   
@@ -512,7 +544,7 @@
 # name: test_create_table_query[groups_mv]
   '
   
-  CREATE MATERIALIZED VIEW groups_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS groups_mv ON CLUSTER 'posthog'
   TO posthog_test.groups
   AS SELECT
   group_type_index,
@@ -548,7 +580,7 @@
 # name: test_create_table_query[ingestion_warnings_mv]
   '
   
-  CREATE MATERIALIZED VIEW ingestion_warnings_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_mv ON CLUSTER 'posthog'
   TO posthog_test.ingestion_warnings
   AS SELECT
   team_id,
@@ -566,7 +598,7 @@
 # name: test_create_table_query[kafka_app_metrics]
   '
   
-  CREATE TABLE kafka_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -767,7 +799,7 @@
 # name: test_create_table_query[kafka_person_distinct_id]
   '
   
-  CREATE TABLE kafka_person_distinct_id ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS kafka_person_distinct_id ON CLUSTER 'posthog'
   (
       distinct_id VARCHAR,
       person_id UUID,
@@ -775,6 +807,38 @@
       _sign Nullable(Int8),
       is_deleted Nullable(Int8)
   ) ENGINE = Kafka('kafka:9092', 'clickhouse_person_unique_id_test', 'group1', 'JSONEachRow')
+  
+  '
+---
+# name: test_create_table_query[kafka_person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`kafka_person_overrides`
+      ON CLUSTER 'posthog'
+  
+      ENGINE = Kafka(
+          'kafka:9092', -- Kafka hosts
+          'clickhouse_person_override_test', -- Kafka topic
+          'clickhouse-person-overrides', -- Kafka consumer group id
+          'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
+      )
+  
+      -- Take the types from the `person_overrides` table, except for the
+      -- `created_at`, which we want to use the DEFAULT now() from the
+      -- `person_overrides` definition. See
+      -- https://github.com/ClickHouse/ClickHouse/pull/38272 for details of `EMPTY
+      -- AS SELECT`
+      EMPTY AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          oldest_event,
+          -- We don't want to insert this column via Kafka, as it's
+          -- set as a default value in the `person_overrides` table.
+          -- created_at,
+          version
+      FROM `posthog_test`.`person_overrides`
   
   '
 ---
@@ -880,7 +944,7 @@
 # name: test_create_table_query[performance_events_mv]
   '
   
-  CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS performance_events_mv ON CLUSTER 'posthog'
   TO posthog_test.writeable_performance_events
   AS SELECT
   uuid, session_id, window_id, pageview_id, distinct_id, timestamp, time_origin, entry_type, name, team_id, current_url, start_time, duration, redirect_start, redirect_end, worker_start, fetch_start, domain_lookup_start, domain_lookup_end, connect_start, secure_connection_start, connect_end, request_start, response_start, response_end, decoded_body_size, encoded_body_size, initiator_type, next_hop_protocol, render_blocking_status, response_status, transfer_size, largest_contentful_paint_element, largest_contentful_paint_render_time, largest_contentful_paint_load_time, largest_contentful_paint_size, largest_contentful_paint_id, largest_contentful_paint_url, dom_complete, dom_content_loaded_event, dom_interactive, load_event_end, load_event_start, redirect_count, navigation_type, unload_event_end, unload_event_start
@@ -908,7 +972,7 @@
   
       , INDEX kafka_timestamp_minmax_person _timestamp TYPE minmax GRANULARITY 3
       
-  ) ENGINE = ReplacingMergeTree(version)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person', '{replica}-{shard}', version)
   Order By (team_id, id)
   
   
@@ -932,7 +996,7 @@
       , _partition UInt64
       , INDEX kafka_timestamp_minmax_person_distinct_id2 _timestamp TYPE minmax GRANULARITY 3
       
-  ) ENGINE = ReplacingMergeTree(version)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id2', '{replica}-{shard}', version)
   
       ORDER BY (team_id, distinct_id)
       SETTINGS index_granularity = 512
@@ -942,7 +1006,7 @@
 # name: test_create_table_query[person_distinct_id2_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_distinct_id2_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id2_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id2
   AS SELECT
   team_id,
@@ -971,7 +1035,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = CollapsingMergeTree(_sign)
+  ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_distinct_id', '{replica}-{shard}', _sign)
   Order By (team_id, distinct_id, person_id)
   
   
@@ -980,7 +1044,7 @@
 # name: test_create_table_query[person_distinct_id_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_distinct_id_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_distinct_id_mv ON CLUSTER 'posthog'
   TO posthog_test.person_distinct_id
   AS SELECT
   distinct_id,
@@ -996,7 +1060,7 @@
 # name: test_create_table_query[person_mv]
   '
   
-  CREATE MATERIALIZED VIEW person_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS person_mv ON CLUSTER 'posthog'
   TO posthog_test.person
   AS SELECT
   id,
@@ -1009,6 +1073,94 @@
   _timestamp,
   _offset
   FROM posthog_test.kafka_person
+  
+  '
+---
+# name: test_create_table_query[person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
+      ON CLUSTER 'posthog' (
+          team_id INT NOT NULL,
+  
+          -- When we merge two people `old_person_id` and `override_person_id`, we
+          -- want to keep track of a mapping from the `old_person_id` to the
+          -- `override_person_id`. This allows us to join with the
+          -- `sharded_events` table to find all events that were associated with
+          -- the `old_person_id` and update them to be associated with the
+          -- `override_person_id`.
+          old_person_id UUID NOT NULL,
+          override_person_id UUID NOT NULL,
+  
+          -- The timestamp the merge of the two people was completed.
+          merged_at DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp of the oldest event associated with the
+          -- `old_person_id`.
+          oldest_event DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp rows are created. This isn't part of the JOIN process
+          -- with the events table but rather a housekeeping column to allow us to
+          -- see when the row was created. This shouldn't have any impact of the
+          -- JOIN as it will be stored separately with the Wide ClickHouse table
+          -- storage.
+          created_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+          -- the specific version of the `old_person_id` mapping. This is used to
+          -- allow us to discard old mappings as new ones are added. This version
+          -- will be provided by the corresponding PostgreSQL
+          --`posthog_personoverrides` table
+          version INT NOT NULL
+      )
+  
+      -- By specifying Replacing merge tree on version, we allow ClickHouse to
+      -- discard old versions of a `old_person_id` mapping. This should help keep
+      -- performance in check as new versions are added. Note that given we can
+      -- have partitioning by `oldest_event` which will change as we update
+      -- `person_id` on old partitions.
+      --
+      -- We also need to ensure that the data is replicated to all replicas in the
+      -- cluster, as we do not have any constraints on person_id and which shard
+      -- associated events are on. To do this we use the ReplicatedReplacingMergeTree
+      -- engine specifying a static `zk_path`. This will cause the Engine to
+      -- consider all replicas as the same. See
+      -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
+      -- for details.
+      ENGINE = ReplicatedReplacingMergeTree(
+          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          '{replica}-{shard}',
+          version
+      )
+  
+      -- We partition the table by the `oldest_event` column. This allows us to
+      -- handle updating the events table partition by partition, progressing each
+      -- override partition by partition in lockstep with the events table. Note
+      -- that this means it is possible that we have a mapping from
+      -- `old_person_id` in multiple partitions during the merge process.
+      PARTITION BY toYYYYMM(oldest_event)
+  
+      -- We want to collapse down on the `old_person_id` such that we end up with
+      -- the newest known mapping for it in the table. Query side we will need to
+      -- ensure that we are always querying the latest version of the mapping.
+      ORDER BY (team_id, old_person_id)
+  
+  '
+---
+# name: test_create_table_query[person_overrides_mv]
+  '
+  
+      CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
+      ON CLUSTER 'posthog'
+      TO `posthog_test`.`person_overrides`
+      AS SELECT
+          team_id,
+          old_person_id,
+          override_person_id,
+          merged_at,
+          oldest_event,
+          -- We don't want to insert this column via Kafka, as it's
+          -- set as a default value in the `person_overrides` table.
+          -- created_at,
+          version
+      FROM `posthog_test`.`kafka_person_overrides`
   
   '
 ---
@@ -1025,7 +1177,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
   Order By (team_id, cohort_id, person_id, id)
   
   
@@ -1049,7 +1201,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
   PARTITION BY plugin_id ORDER BY (team_id, id)
   
   SETTINGS index_granularity=512
@@ -1059,7 +1211,7 @@
 # name: test_create_table_query[plugin_log_entries_mv]
   '
   
-  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER 'posthog'
+  CREATE MATERIALIZED VIEW IF NOT EXISTS plugin_log_entries_mv ON CLUSTER 'posthog'
   TO posthog_test.plugin_log_entries
   AS SELECT
   id,
@@ -1095,15 +1247,15 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '
 ---
 # name: test_create_table_query[session_recording_events_mv]
   '
   
-  CREATE MATERIALIZED VIEW session_recording_events_mv ON CLUSTER 'posthog'
-  TO posthog_test.session_recording_events
+  CREATE MATERIALIZED VIEW IF NOT EXISTS session_recording_events_mv ON CLUSTER 'posthog'
+  TO posthog_test.writable_session_recording_events
   AS SELECT
   uuid,
   timestamp,
@@ -1122,7 +1274,7 @@
 # name: test_create_table_query[sharded_app_metrics]
   '
   
-  CREATE TABLE sharded_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -1141,7 +1293,7 @@
   , _partition UInt64
   
   )
-  ENGINE = AggregatingMergeTree()
+  ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_app_metrics', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, plugin_config_id, job_id, category, toStartOfHour(timestamp), error_type, error_uuid)
   
@@ -1150,7 +1302,7 @@
 # name: test_create_table_query[sharded_events]
   '
   
-  CREATE TABLE IF NOT EXISTS events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       event VARCHAR,
@@ -1187,10 +1339,10 @@
   , _offset UInt64
   
       
-      , PROJECTION fast_max_kafka_timestamp_events (SELECT max(_timestamp))
-      , INDEX kafka_timestamp_minmax_events _timestamp TYPE minmax GRANULARITY 3
+      , PROJECTION fast_max_kafka_timestamp_sharded_events (SELECT max(_timestamp))
+      , INDEX kafka_timestamp_minmax_sharded_events _timestamp TYPE minmax GRANULARITY 3
       
-  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.events', '{replica}', _timestamp)
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64(uuid))
   SAMPLE BY cityHash64(distinct_id)
@@ -1213,7 +1365,7 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = MergeTree()
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_ingestion_warnings', '{replica}')
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), type, source, timestamp)
   
@@ -1276,9 +1428,10 @@
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = MergeTree()
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+  
   
   
   '
@@ -1286,7 +1439,7 @@
 # name: test_create_table_query[sharded_session_recording_events]
   '
   
-  CREATE TABLE IF NOT EXISTS session_recording_events ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_session_recording_events ON CLUSTER 'posthog'
   (
       uuid UUID,
       timestamp DateTime64(6, 'UTC'),
@@ -1296,15 +1449,15 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
       
   , _timestamp DateTime
   , _offset UInt64
   
-      , INDEX kafka_timestamp_minmax_session_recording_events _timestamp TYPE minmax GRANULARITY 3
+      , INDEX kafka_timestamp_minmax_sharded_session_recording_events _timestamp TYPE minmax GRANULARITY 3
       
-  ) ENGINE = ReplacingMergeTree(_timestamp)
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.session_recording_events', '{replica}', _timestamp)
   PARTITION BY toYYYYMMDD(timestamp)
   ORDER BY (team_id, toHour(timestamp), session_id, timestamp, uuid)
   
@@ -1344,7 +1497,7 @@
   , _offset UInt64
   
       
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_events', sipHash64(distinct_id))
   
   '
 ---
@@ -1366,7 +1519,7 @@
   , _timestamp DateTime
   , _offset UInt64
   
-  ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_session_recording_events', sipHash64(distinct_id))
   
   '
 ---
@@ -1572,6 +1725,74 @@
   
   '
 ---
+# name: test_create_table_query_replicated_and_storage[person_overrides]
+  '
+  
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
+      ON CLUSTER 'posthog' (
+          team_id INT NOT NULL,
+  
+          -- When we merge two people `old_person_id` and `override_person_id`, we
+          -- want to keep track of a mapping from the `old_person_id` to the
+          -- `override_person_id`. This allows us to join with the
+          -- `sharded_events` table to find all events that were associated with
+          -- the `old_person_id` and update them to be associated with the
+          -- `override_person_id`.
+          old_person_id UUID NOT NULL,
+          override_person_id UUID NOT NULL,
+  
+          -- The timestamp the merge of the two people was completed.
+          merged_at DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp of the oldest event associated with the
+          -- `old_person_id`.
+          oldest_event DateTime64(6, 'UTC') NOT NULL,
+          -- The timestamp rows are created. This isn't part of the JOIN process
+          -- with the events table but rather a housekeeping column to allow us to
+          -- see when the row was created. This shouldn't have any impact of the
+          -- JOIN as it will be stored separately with the Wide ClickHouse table
+          -- storage.
+          created_at DateTime64(6, 'UTC') DEFAULT now(),
+  
+          -- the specific version of the `old_person_id` mapping. This is used to
+          -- allow us to discard old mappings as new ones are added. This version
+          -- will be provided by the corresponding PostgreSQL
+          --`posthog_personoverrides` table
+          version INT NOT NULL
+      )
+  
+      -- By specifying Replacing merge tree on version, we allow ClickHouse to
+      -- discard old versions of a `old_person_id` mapping. This should help keep
+      -- performance in check as new versions are added. Note that given we can
+      -- have partitioning by `oldest_event` which will change as we update
+      -- `person_id` on old partitions.
+      --
+      -- We also need to ensure that the data is replicated to all replicas in the
+      -- cluster, as we do not have any constraints on person_id and which shard
+      -- associated events are on. To do this we use the ReplicatedReplacingMergeTree
+      -- engine specifying a static `zk_path`. This will cause the Engine to
+      -- consider all replicas as the same. See
+      -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
+      -- for details.
+      ENGINE = ReplicatedReplacingMergeTree(
+          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          '{replica}-{shard}',
+          version
+      )
+  
+      -- We partition the table by the `oldest_event` column. This allows us to
+      -- handle updating the events table partition by partition, progressing each
+      -- override partition by partition in lockstep with the events table. Note
+      -- that this means it is possible that we have a mapping from
+      -- `old_person_id` in multiple partitions during the merge process.
+      PARTITION BY toYYYYMM(oldest_event)
+  
+      -- We want to collapse down on the `old_person_id` such that we end up with
+      -- the newest known mapping for it in the table. Query side we will need to
+      -- ensure that we are always querying the latest version of the mapping.
+      ORDER BY (team_id, old_person_id)
+  
+  '
+---
 # name: test_create_table_query_replicated_and_storage[person_static_cohort]
   '
   
@@ -1619,7 +1840,7 @@
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '
   
-  CREATE TABLE sharded_app_metrics ON CLUSTER 'posthog'
+  CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
       timestamp DateTime64(6, 'UTC'),
@@ -1776,6 +1997,7 @@
   ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
+  
   SETTINGS storage_policy = 'hot_to_cold'
   
   '
@@ -1793,7 +2015,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
       
   , _timestamp DateTime

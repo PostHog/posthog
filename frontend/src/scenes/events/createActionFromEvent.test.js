@@ -87,7 +87,7 @@ describe('createActionFromEvent()', () => {
                                 url_matching: 'exact',
                                 tag_name: 'form',
                                 text: 'Submit form!',
-                                properties: [{ key: '$event_type', value: 'submit' }],
+                                properties: [{ key: '$event_type', operator: 'exact', type: 'event', value: 'submit' }],
                             },
                         ],
                     })

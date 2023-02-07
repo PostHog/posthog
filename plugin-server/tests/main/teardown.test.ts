@@ -1,3 +1,4 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
@@ -10,7 +11,8 @@ import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
-const defaultEvent = {
+const defaultEvent: PluginEvent = {
+    uuid: '00000000-0000-0000-0000-000000000000',
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
@@ -21,7 +23,7 @@ const defaultEvent = {
 }
 
 describe('teardown', () => {
-    const processEvent = async (piscina: any, event: PluginEvent) => {
+    const processEvent = async (piscina: Piscina, event: PluginEvent) => {
         const result = await piscina.run({ task: 'runEventPipeline', args: { event } })
         const resultEvent = result.args[0]
         return resultEvent

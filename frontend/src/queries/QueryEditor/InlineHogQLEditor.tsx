@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export interface InlineHogQLEditorProps {
@@ -21,7 +21,9 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
                 className="font-mono"
                 minRows={6}
                 maxRows={6}
-                placeholder={'Enter HogQL Expression...'}
+                placeholder={
+                    'Enter HogQL Expression, such as:\n- properties.$current_url\n- count()\n- sum(toInt(properties.$screen_width)) * 10\n- concat(event, " ", distinct_id)\n- ifElse(1 < 2, "small", "large")'
+                }
                 autoFocus
             />
             <LemonButton
@@ -34,8 +36,13 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
                 disabled={!localValue}
                 center
             >
-                Add expression
+                {value ? 'Update HogQL expression' : 'Add HogQL expression'}
             </LemonButton>
+            <div className="text-right">
+                <a href="https://github.com/PostHog/meta/issues/86" target={'_blank'}>
+                    Learn more about HogQL
+                </a>
+            </div>
         </div>
     )
 }

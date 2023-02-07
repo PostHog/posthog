@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 
 describe('Licenses', () => {
     it('Licenses loaded for billing v1', () => {
-        cy.intercept('GET', '/api/billing-v2/', { statusCode: 500 }).as('billingServerFailure')
+        cy.intercept('GET', '/api/billing-v2**', { statusCode: 500 }).as('billingServerFailure')
         cy.visit(urls.savedInsights())
         cy.wait('@billingServerFailure')
         cy.get('[data-attr=top-menu-toggle]').click()
@@ -14,7 +14,7 @@ describe('Licenses', () => {
     })
 
     it('License page not visible on billing v2', () => {
-        cy.intercept('GET', '/api/billing-v2/', { statusCode: 200 }).as('billingServerSuccess')
+        cy.intercept('GET', '/api/billing-v2**', { statusCode: 200 }).as('billingServerSuccess')
         cy.visit(urls.savedInsights())
         cy.wait('@billingServerSuccess')
         cy.get('[data-attr=top-menu-toggle]').click()

@@ -288,7 +288,6 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                no_items_field: true,
                 tiles: [
                     {
                         id: 0,
@@ -314,7 +313,6 @@ describe('dashboardLogic', () => {
             }).toFinishAllListeners()
 
             expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
-                no_items_field: true,
                 tiles: [
                     {
                         id: 1,

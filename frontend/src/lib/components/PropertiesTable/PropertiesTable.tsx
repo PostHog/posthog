@@ -3,13 +3,13 @@ import { useMemo, useState } from 'react'
 import { keyMappingKeys, PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
-import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
+import { IconDeleteForever, IconOpenInNew } from 'lib/lemon-ui/icons'
 import './PropertiesTable.scss'
-import { LemonTable, LemonTableColumns, LemonTableProps } from '../LemonTable'
+import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { CopyToClipboardInline } from '../CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 import { LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -41,6 +41,8 @@ function EditTextValueComponent({
             autoFocus
             onBlur={() => onChange(null, false)}
             onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+            autoComplete="off"
+            autoCapitalize="off"
         />
     )
 }

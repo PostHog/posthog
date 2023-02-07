@@ -8,8 +8,8 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconCalculate } from 'lib/components/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCalculate } from 'lib/lemon-ui/icons'
 import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
@@ -84,7 +84,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
                 }
             >
                 {/** The negative margin negates the button's effect on label sizing. */}
-                <div style={{ margin: '-0.25rem 0' }}>
+                <div className="-my-1">
                     <LemonButton
                         size="small"
                         onClick={() => setIsFormulaOn(!isFormulaOn)}

@@ -1,23 +1,21 @@
 import { useState } from 'react'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { AvailableFeature, CohortType } from '~/types'
 import './Cohorts.scss'
 import Fuse from 'fuse.js'
-import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
-import { Tooltip } from 'lib/components/Tooltip'
-import { Link } from 'lib/components/Link'
+import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { Link } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { urls } from 'scenes/urls'
-import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { userLogic } from 'scenes/userLogic'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { combineUrl, router } from 'kea-router'
 import { LemonInput } from '@posthog/lemon-ui'
 
@@ -69,14 +67,9 @@ export function Cohorts(): JSX.Element {
         createdByColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         createdAtColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         {
-            title: (
-                <span>
-                    <Tooltip title="PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated.">
-                        Last calculated
-                        <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                    </Tooltip>
-                </span>
-            ),
+            title: 'Last calculated',
+            tooltip:
+                'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>

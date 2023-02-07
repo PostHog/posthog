@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FullScreen } from 'lib/components/FullScreen'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
@@ -14,16 +14,16 @@ import { dashboardLogic } from './dashboardLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
-import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
-import { IconLock } from 'lib/components/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { isLemonSelectSection } from 'lib/components/LemonSelect'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -31,6 +31,9 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+export const DASHBOARD_CANNOT_EDIT_MESSAGE =
+    "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
     const {
@@ -130,8 +133,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 dashboard && !canEditDashboard
                                     ? {
                                           icon: <IconLock />,
-                                          tooltip:
-                                              "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you.",
+                                          tooltip: DASHBOARD_CANNOT_EDIT_MESSAGE,
                                       }
                                     : undefined
                             }
@@ -279,9 +281,9 @@ export function DashboardHeader(): JSX.Element | null {
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
-                                    disabled={!canEditDashboard}
+                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
-                                        popup: {
+                                        dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>

@@ -1,8 +1,8 @@
 import { HTMLProps } from 'react'
 import { copyToClipboard } from 'lib/utils'
-import { Tooltip } from 'lib/components/Tooltip'
-import { IconCopy } from './icons'
-import { LemonButton } from './LemonButton'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface InlineProps extends HTMLProps<HTMLSpanElement> {
     children?: JSX.Element | string

@@ -91,7 +91,7 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 1)
         # always True if not scoping by event names
-        self.assertEqual(response_data["results"][0]["is_event_property"], None)
+        self.assertEqual(response_data["results"][0]["is_seen_on_filtered_events"], None)
 
         # add event_names=['$pageview'] to get properties that have been seen by this event
         response = self.client.get(
@@ -101,9 +101,16 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(len(response_data["results"]), 2)
         self.assertEqual(response_data["results"][0]["name"], "enterprise property")
-        self.assertEqual(response_data["results"][0]["is_event_property"], True)
+        self.assertEqual(response_data["results"][0]["is_seen_on_filtered_events"], True)
         self.assertEqual(response_data["results"][1]["name"], "other property")
-        self.assertEqual(response_data["results"][1]["is_event_property"], False)
+        self.assertEqual(response_data["results"][1]["is_seen_on_filtered_events"], False)
+
+        response = self.client.get(
+            f"/api/projects/@current/property_definitions/?search=property&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
 
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=er pr")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

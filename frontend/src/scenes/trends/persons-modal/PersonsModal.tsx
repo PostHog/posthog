@@ -5,19 +5,19 @@ import { personsModalLogic } from './personsModalLogic'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
 import { GroupActorHeader, groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { IconPlayCircle, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { LemonButton, LemonBadge, LemonDivider, LemonInput, LemonModal, LemonSelect, Link } from '@posthog/lemon-ui'
 import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import ReactDOM from 'react-dom'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { SaveCohortModal } from './SaveCohortModal'
-import { ProfilePicture } from 'lib/components/ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Skeleton, Tabs } from 'antd'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { AlertMessage } from 'lib/components/AlertMessage'
-import { Tooltip } from 'lib/components/Tooltip'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { Noun } from '~/models/groupsModel'
 import { LemonModalProps } from '@posthog/lemon-ui'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
@@ -75,7 +75,7 @@ export function PersonsModal({
                 onClose={closeModal}
                 onAfterClose={onAfterClose}
                 simple
-                width={600}
+                width={560}
                 inline={inline}
             >
                 <LemonModal.Header>

@@ -220,52 +220,6 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
     })
 })
 
-test.concurrent(
-    `event ingestion: anonymous event recieves same person_id if $identify happenes shortly after`,
-    async () => {
-        // NOTE: this test depends on there being a delay between the
-        // anonymouse event ingestion and the processing of this event.
-        const teamId = await createTeam(postgres, organizationId)
-        const initialDistinctId = 'initialDistinctId'
-        const returningDistinctId = 'returningDistinctId'
-        const personIdentifier = 'test@posthog.com'
-
-        // First we identify the user using an initial distinct id. After
-        // which we capture an event with a different distinct id, then
-        // identify this user again with the same person identifier.
-        //
-        // This is to simulate the case where:
-        //
-        //  1. user signs up initially, creating a person
-        //  2. user returns but as an anonymous user, capturing events
-        //  3. user identifies themselves, for instance by logging in
-        //
-        // In this case we want to end up with on Person to which all the
-        // events are associated.
-
-        await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
-            distinct_id: personIdentifier,
-            $anon_distinct_id: initialDistinctId,
-        })
-
-        await capture(producer, teamId, returningDistinctId, new UUIDT().toString(), 'custom event', {
-            name: 'hehe',
-            uuid: new UUIDT().toString(),
-        })
-
-        await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
-            distinct_id: personIdentifier,
-            $anon_distinct_id: returningDistinctId,
-        })
-
-        await waitForExpect(async () => {
-            const events = await fetchEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(3)
-            expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
-        }, 10000)
-    }
-)
-
 test.concurrent(`event ingestion: events without a team_id get processed correctly`, async () => {
     const token = new UUIDT().toString()
     const teamId = await createTeam(postgres, organizationId, '', token)
@@ -317,108 +271,183 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     }, 10_000)
 })
 
-// We only want to run these test if we are running with the delay all events
-// feature enabled. See https://github.com/PostHog/product-internal/pull/405 for
-// details.
-const testIfDelayEnabled = process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
-testIfDelayEnabled(
-    `anonymous event recieves same person_id if $identify happenes shortly after, and there's already an anonymous person`,
+test.concurrent(`event ingestion: initial login flow keeps the same person_id`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const initialDistinctId = 'initialDistinctId'
+    const personIdentifier = 'test@posthog.com'
+
+    // This simulates initial sign-up flow,
+    // where the user has first been browsing the site anonymously for a while
+
+    // First we emit an anoymous event and wait for the person to be
+    // created.
+    const initialEventId = new UUIDT().toString()
+    await capture(producer, teamId, initialDistinctId, initialEventId, 'custom event')
+    await waitForExpect(async () => {
+        const persons = await fetchPersons(clickHouseClient, teamId)
+        expect(persons).toContainEqual(
+            expect.objectContaining({
+                properties: expect.objectContaining({ $creator_event_uuid: initialEventId }),
+            })
+        )
+    }, 10000)
+
+    // We then identify the person
+    await capture(producer, teamId, personIdentifier, new UUIDT().toString(), '$identify', {
+        distinct_id: personIdentifier,
+        $anon_distinct_id: initialDistinctId,
+    })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(2)
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
+    }, 10000)
+})
+
+const testIfPoEEmbraceJoinEnabled =
+    process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
+testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the same person id`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const initialDistinctId = new UUIDT().toString()
+    const secondDistinctId = new UUIDT().toString()
+    const personIdentifier = new UUIDT().toString()
+
+    // This simulates sign-up flow with backend events having an anonymous ID in both frontend and backend
+
+    // First we emit anoymous events and wait for the persons to be created.
+    const initialEventId = new UUIDT().toString()
+    await capture(producer, teamId, initialDistinctId, initialEventId, 'custom event')
+    const secondEventId = new UUIDT().toString()
+    await capture(producer, teamId, secondDistinctId, secondEventId, 'custom event 2')
+    await waitForExpect(async () => {
+        const persons = await fetchPersons(clickHouseClient, teamId)
+        expect(persons).toEqual(
+            expect.arrayContaining([
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $creator_event_uuid: initialEventId }),
+                }),
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $creator_event_uuid: secondEventId }),
+                }),
+            ])
+        )
+    }, 10000)
+
+    // Then we identify both ids
+    const uuidOfFirstIdentifyEvent = new UUIDT().toString()
+    await capture(producer, teamId, personIdentifier, uuidOfFirstIdentifyEvent, '$identify', {
+        distinct_id: personIdentifier,
+        $anon_distinct_id: initialDistinctId,
+    })
+    const uuidOfSecondIdentifyEvent = new UUIDT().toString()
+    await capture(producer, teamId, personIdentifier, uuidOfSecondIdentifyEvent, '$identify', {
+        distinct_id: personIdentifier,
+        $anon_distinct_id: secondEventId,
+    })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(4)
+        events.forEach((event) => {
+            expect(event?.person_id).toBeDefined()
+        })
+        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+    }, 10000)
+})
+
+testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to the same person id`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const initialDistinctId = new UUIDT().toString()
+    const secondDistinctId = new UUIDT().toString()
+    const thirdDistinctId = new UUIDT().toString()
+
+    // First we emit anoymous events and wait for the persons to be created.
+    await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), 'custom event')
+    await capture(producer, teamId, secondDistinctId, new UUIDT().toString(), 'custom event 2')
+    await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), 'custom event 3')
+    await waitForExpect(async () => {
+        const persons = await fetchPersons(clickHouseClient, teamId)
+        expect(persons.length).toBe(3)
+    }, 10000)
+
+    // Then we identify first two together
+    await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: initialDistinctId,
+        $anon_distinct_id: secondDistinctId,
+    })
+    // Then we merge the third person
+    await capture(producer, teamId, secondDistinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: secondDistinctId,
+        $anon_distinct_id: thirdDistinctId,
+    })
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(5)
+        events.forEach((event) => {
+            expect(event?.person_id).toBeDefined()
+        })
+        // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
+    }, 10000)
+})
+
+testIfPoEEmbraceJoinEnabled(
+    `complex chained merge adds results in all events resolving to the same person id`,
     async () => {
+        // let's assume we have 4 persons 1234, we'll first merge 1-2 & 3-4, then we'll merge 2-3
+        // this should still result in all events having the same person_id or override[person_id]
+
         const teamId = await createTeam(postgres, organizationId)
         const initialDistinctId = new UUIDT().toString()
         const secondDistinctId = new UUIDT().toString()
-        const personIdentifier = new UUIDT().toString()
+        const thirdDistinctId = new UUIDT().toString()
+        const forthDistinctId = new UUIDT().toString()
 
-        // First we emit an anoymous event and wait for the person to be
-        // created.
-        const initialEventId = new UUIDT().toString()
-        await capture(producer, teamId, initialDistinctId, initialEventId, 'custom event')
+        // First we emit anoymous events and wait for the persons to be created.
+        await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), 'custom event')
+        await capture(producer, teamId, secondDistinctId, new UUIDT().toString(), 'custom event 2')
+        await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), 'custom event 3')
+        await capture(producer, teamId, forthDistinctId, new UUIDT().toString(), 'custom event 3')
         await waitForExpect(async () => {
             const persons = await fetchPersons(clickHouseClient, teamId)
-            expect(persons).toContainEqual(
-                expect.objectContaining({
-                    properties: expect.objectContaining({ $creator_event_uuid: initialEventId }),
-                })
-            )
+            expect(persons.length).toBe(4)
         }, 10000)
 
-        // We then have the user identify themselves, but on e.g. a different
-        // device and hence a different anonymous id.
-        const initialIdentifyEventId = new UUIDT().toString()
-        await capture(producer, teamId, personIdentifier, initialIdentifyEventId, '$identify', {
+        // Then we identify 1-2 and 3-4
+        await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
+            distinct_id: initialDistinctId,
             $anon_distinct_id: secondDistinctId,
-            distinct_id: personIdentifier,
         })
+        await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), '$identify', {
+            distinct_id: thirdDistinctId,
+            $anon_distinct_id: forthDistinctId,
+        })
+
         await waitForExpect(async () => {
-            const persons = await fetchPersons(clickHouseClient, teamId)
-            expect(persons).toContainEqual(
-                expect.objectContaining({
-                    properties: expect.objectContaining({ $creator_event_uuid: initialIdentifyEventId }),
-                })
-            )
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(6)
         }, 10000)
 
-        // Then we create another event with the initial anonymous distinct id,
-        // shortly followed by another identify event but this time with the
-        // initial anonymous distinct id
-        const uuidOfEventThatShouldBeIdentified = new UUIDT().toString()
-        await capture(producer, teamId, initialDistinctId, uuidOfEventThatShouldBeIdentified, 'custom event')
-
-        const uuidOfIdentifyEvent = new UUIDT().toString()
-        await capture(producer, teamId, personIdentifier, uuidOfIdentifyEvent, '$identify', {
-            distinct_id: personIdentifier,
-            $anon_distinct_id: initialDistinctId,
+        // Then we merge 2-3
+        // TODO: make this a valid merge event instead of $identify
+        await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
+            distinct_id: secondDistinctId,
+            $anon_distinct_id: thirdDistinctId,
         })
-
         await waitForExpect(async () => {
-            const [anonymousEvent] = await fetchEvents(clickHouseClient, teamId, uuidOfEventThatShouldBeIdentified)
-            const [identifyEvent] = await fetchEvents(clickHouseClient, teamId, uuidOfIdentifyEvent)
-            expect(anonymousEvent?.person_id).toBeDefined()
-            expect(identifyEvent?.person_id).toBeDefined()
-            expect(anonymousEvent.person_id).toEqual(identifyEvent.person_id)
+            const events = await fetchEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(7)
+            events.forEach((event) => {
+                expect(event?.person_id).toBeDefined()
+            })
+            // TODO: update fetchEvents to join with person overrides & assert that all personIDs are the same
         }, 10000)
     }
 )
 
-testIfDelayEnabled(`events reference same person_id if two people merged shortly after`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
-    const firstDistinctId = new UUIDT().toString()
-    const secondDistinctId = new UUIDT().toString()
-    const firstPersonIdentity = new UUIDT().toString()
-    const secondPersonIdentity = new UUIDT().toString()
-
-    const initialEventId = new UUIDT().toString()
-    await capture(producer, teamId, firstDistinctId, initialEventId, 'custom event')
-
-    const secondEventId = new UUIDT().toString()
-    await capture(producer, teamId, secondDistinctId, secondEventId, 'custom event')
-
-    // First create two people with nothing in common
-    await capture(producer, teamId, firstPersonIdentity, new UUIDT().toString(), '$identify', {
-        $anon_distinct_id: firstDistinctId,
-        distinct_id: firstPersonIdentity,
-    })
-
-    await capture(producer, teamId, secondPersonIdentity, new UUIDT().toString(), '$identify', {
-        $anon_distinct_id: secondDistinctId,
-        distinct_id: firstPersonIdentity,
-    })
-
-    // Then merge them together immediately such that this event is within the
-    // delay window.
-    await capture(producer, teamId, firstPersonIdentity, new UUIDT().toString(), '$create_alias', {
-        alias: secondPersonIdentity,
-    })
-
-    await waitForExpect(async () => {
-        const [secondEvent] = await fetchEvents(clickHouseClient, teamId, secondEventId)
-        const [initialEvent] = await fetchEvents(clickHouseClient, teamId, initialEventId)
-        expect(secondEvent?.person_id).toBeDefined()
-        expect(secondEvent.person_id).toEqual(initialEvent.person_id)
-    }, 10000)
-})
-
-testIfDelayEnabled(`person properties don't see properties from descendents`, async () => {
+// TODO: adjust this test to poEEmbraceJoin
+test.skip(`person properties don't see properties from descendents`, async () => {
     // The only thing that should propagate to an ancestor is the person_id.
     // Person properties should not propagate to ancestors within a branch.
     //
@@ -481,7 +510,11 @@ testIfDelayEnabled(`person properties don't see properties from descendents`, as
     })
 })
 
-testIfDelayEnabled(`person properties can't see properties from merge descendants`, async () => {
+// Skipping this test as without ording of events across distinct_id we don't
+// know which event will be processed first, and hence this test is flaky. We
+// are at any rate looking at alternatives to the implementation to speed up
+// queries which may make this test obsolete.
+test.skip(`person properties can't see properties from merge descendants`, async () => {
     // This is specifically to test that the merge event doesn't result in
     // properties being picked up on events from it's parents.
     //

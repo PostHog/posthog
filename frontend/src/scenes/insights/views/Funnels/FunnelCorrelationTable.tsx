@@ -3,7 +3,7 @@ import { Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
-import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { IconSelectEvents, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { FunnelCorrelation, FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import Checkbox from 'antd/lib/checkbox/Checkbox'
@@ -11,14 +11,14 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import './FunnelCorrelationTable.scss'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { VisibilitySensor } from 'lib/components/VisibilitySensor/VisibilitySensor'
-import { LemonButton } from 'lib/components/LemonButton'
-import { Popup } from 'lib/components/Popup/Popup'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -351,7 +351,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
 
     return (
         <Row style={{ justifyContent: 'flex-end' }}>
-            <Popup
+            <Popover
                 visible={popoverOpen}
                 actionable
                 onClickOutside={() => setPopoverOpen(false)}
@@ -385,7 +385,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
                     <EllipsisOutlined className="insight-dropdown-actions" />
                 </LemonButton>
-            </Popup>
+            </Popover>
         </Row>
     )
 }

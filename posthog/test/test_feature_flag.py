@@ -1,12 +1,14 @@
 import concurrent.futures
 from typing import cast
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
-from posthog.models.feature_flag import (
+from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
+from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,
@@ -445,6 +447,91 @@ class TestFeatureFlagCohortExpansion(BaseTest):
         )
 
 
+class TestModelCache(BaseTest):
+    def setUp(self):
+        cache.clear()
+        return super().setUp()
+
+    def test_save_updates_cache(self):
+        initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        self.assertIsNone(initial_cached_flags)
+
+        key = "test-flag"
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key=key,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, key)
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [{"properties": [], "rollout_percentage": None}],
+            },
+        )
+        self.assertEqual(cached_flags[0].name, "Beta feature")
+        self.assertEqual(cached_flags[0].active, True)
+        self.assertEqual(cached_flags[0].deleted, False)
+
+        flag.name = "New name"
+        flag.key = "new-key"
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, "new-key")
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [{"properties": [], "rollout_percentage": None}],
+            },
+        )
+        self.assertEqual(cached_flags[0].name, "New name")
+        self.assertEqual(cached_flags[0].active, True)
+        self.assertEqual(cached_flags[0].deleted, False)
+
+        flag.deleted = True
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
+
+        flag.deleted = False
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+
+        flag.active = False
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
+
+        flag.active = True
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+
+        flag.delete()
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
+
+
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
     maxDiff = None
 
@@ -839,10 +926,27 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                        },
                     ]
+                },
+                "payloads": {
+                    "first-variant": {"color": "blue"},
+                    "second-variant": {"color": "green"},
+                    "third-variant": {"color": "red"},
                 },
             },
             key="variant",
@@ -851,7 +955,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4), snapshot_postgres_queries_context(
             self
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons = FeatureFlagMatcher(
+            matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -900,10 +1004,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
+        self.assertEqual(payloads, {"variant": {"color": "blue"}})
+
         with self.assertNumQueries(3), snapshot_postgres_queries_context(
             self
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons = FeatureFlagMatcher(
+            matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -918,6 +1024,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 {"organization": "foo2"},
                 FlagsMatcherCache(self.team.id),
             ).get_matches()
+
+        self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
         self.assertEqual(
             matches,
@@ -1608,7 +1716,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
 
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         set_feature_flag_hash_key_overrides(
             all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
@@ -1624,7 +1732,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
 
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         set_feature_flag_hash_key_overrides(
             all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
@@ -1636,7 +1744,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
 
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         # existing overrides
         hash_key = "bazinga"
@@ -1664,7 +1772,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags, reasons = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons, payloads, _ = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(
             flags,
             {
@@ -1691,6 +1799,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 },
             },
         )
+
+        self.assertEqual(payloads, {})
 
 
 class TestHashKeyOverridesRaceConditions(TransactionTestCase):
@@ -1742,7 +1852,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
-                flags, reasons = future.result()
+                flags, reasons, payloads, _ = future.result()
                 assert flags == {
                     "beta-feature": True,
                     "multivariate-flag": "first-variant",

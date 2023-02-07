@@ -20,7 +20,7 @@ import { teamLogic } from '../teamLogic'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { urls } from 'scenes/urls'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export type PluginForm = FormInstance
 
@@ -767,6 +767,9 @@ export const pluginsLogic = kea<pluginsLogicType>([
         }
         return {
             setPluginTab: () => {
+                if (router.values.location.pathname !== urls.projectApps()) {
+                    return // This logic can be mounted when on outside of the Apps page too - don't change the URL then
+                }
                 const searchParams = {
                     ...router.values.searchParams,
                 }

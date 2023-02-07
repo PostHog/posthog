@@ -1,28 +1,67 @@
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { EditorFilterProps, PathEdgeParameters } from '~/types'
-import { SettingOutlined } from '@ant-design/icons'
-
-import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { InputNumber } from 'antd'
-import { Link } from 'lib/components/Link'
-import { PathCleaningFilter } from '../filters/PathCleaningFilter'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 
-export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
+import { EditorFilterProps, PathEdgeParameters, PathsFilterType, QueryEditorFilterProps } from '~/types'
+import { LemonDivider } from '@posthog/lemon-ui'
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+
+import { Link } from 'lib/lemon-ui/Link'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { IconSettings } from 'lib/lemon-ui/icons'
+
+import { PathCleaningFilter, PathCleaningFilterDataExploration } from '../filters/PathCleaningFilter'
+
+export function PathsAdvancedDataExploration({ insightProps, ...rest }: QueryEditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+
+    return (
+        <PathsAdvancedComponent
+            setFilter={updateInsightFilter}
+            cleaningFilterComponent={<PathCleaningFilterDataExploration insightProps={insightProps} {...rest} />}
+            {...insightFilter}
+        />
+    )
+}
+
+export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
+
+    return (
+        <PathsAdvancedComponent
+            setFilter={setFilter}
+            cleaningFilterComponent={<PathCleaningFilter insightProps={insightProps} {...rest} />}
+            {...filter}
+        />
+    )
+}
+
+type PathsAdvancedComponentProps = {
+    setFilter: (filter: PathsFilterType) => void
+    cleaningFilterComponent: JSX.Element
+} & PathsFilterType
+
+export function PathsAdvancedComponent({
+    setFilter,
+    edge_limit,
+    min_edge_weight,
+    max_edge_weight,
+    cleaningFilterComponent,
+}: PathsAdvancedComponentProps): JSX.Element {
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
-        edge_limit: filter.edge_limit,
-        min_edge_weight: filter.min_edge_weight,
-        max_edge_weight: filter.max_edge_weight,
+        edge_limit: edge_limit,
+        min_edge_weight: min_edge_weight,
+        max_edge_weight: max_edge_weight,
     })
 
     const updateEdgeParameters = (): void => {
         if (
-            localEdgeParameters.edge_limit !== filter.edge_limit ||
-            localEdgeParameters.min_edge_weight !== filter.min_edge_weight ||
-            localEdgeParameters.max_edge_weight !== filter.max_edge_weight
+            localEdgeParameters.edge_limit !== edge_limit ||
+            localEdgeParameters.min_edge_weight !== min_edge_weight ||
+            localEdgeParameters.max_edge_weight !== max_edge_weight
         ) {
             setFilter({ ...localEdgeParameters })
         }
@@ -30,6 +69,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
 
     return (
         <div className="flex flex-col gap-2">
+            <LemonDivider />
             <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                 Maximum number of paths
             </LemonLabel>
@@ -46,11 +86,14 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                 onBlur={updateEdgeParameters}
                 onPressEnter={updateEdgeParameters}
             />
-            <LemonLabel info="Determines the minimum and maximum number of persons in each path. Helps adjust the density of the visualization.">
+            <LemonLabel
+                info="Determines the minimum and maximum number of persons in each path. Helps adjust the density of the visualization."
+                className="mt-2"
+            >
                 Number of people on each path
             </LemonLabel>
             <div>
-                between{' '}
+                <span className="mr-2">Between</span>
                 <InputNumber
                     min={0}
                     max={100000}
@@ -62,8 +105,8 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                     }
                     onBlur={updateEdgeParameters}
                     onPressEnter={updateEdgeParameters}
-                />{' '}
-                and{' '}
+                />
+                <span className="mx-2">and</span>
                 <InputNumber
                     onChange={(value): void =>
                         setLocalEdgeParameters((state) => ({
@@ -76,9 +119,10 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                     onBlur={updateEdgeParameters}
                     onPressEnter={updateEdgeParameters}
                 />
+                <span className="ml-2">persons.</span>
             </div>
             <div>
-                <div className="flex mb-2">
+                <div className="flex items-center my-2">
                     <LemonLabel
                         showOptional
                         info={
@@ -91,11 +135,12 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                     >
                         Path Cleaning Rules
                     </LemonLabel>
-                    <Link className="grow-1 text-right" to="/project/settings#path_cleaning_filtering">
-                        <SettingOutlined /> Configure Project Rules
+                    <Link className="flex items-center ml-2" to="/project/settings#path_cleaning_filtering">
+                        <IconSettings fontSize="16" className="mr-0.5" />
+                        Configure Project Rules
                     </Link>
                 </div>
-                <PathCleaningFilter />
+                {cleaningFilterComponent}
             </div>
         </div>
     )

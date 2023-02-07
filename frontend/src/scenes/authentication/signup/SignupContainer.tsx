@@ -6,8 +6,8 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SignupForm } from './signupForm/SignupForm'
 import { Region } from '~/types'
 import { router } from 'kea-router'
-import { Link } from 'lib/components/Link'
-import { IconCheckCircleOutline } from 'lib/components/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { IconCheckCircleOutline } from 'lib/lemon-ui/icons'
 import { CLOUD_HOSTNAMES } from 'lib/constants'
 
 export const scene: SceneExport = {
@@ -68,7 +68,7 @@ export function SignupLeftContainer(): JSX.Element {
             description: 'Integrate with developer-friendly APIs or use our easy autocapture script.',
         },
         {
-            benefit: 'Join industry leaders who run their product on PostHog',
+            benefit: 'Join industry leaders that run on PostHog',
             description:
                 'ClickHouse, Airbus, Hasura, Y Combinator, and thousands more trust Posthog as their Product OS.',
         },

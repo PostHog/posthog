@@ -16,8 +16,8 @@ import { RenameModal } from 'scenes/insights/filters/ActionFilter/RenameModal'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../teamLogic'
 import clsx from 'clsx'
-import { LemonButton, LemonButtonProps } from 'lib/components/LemonButton'
-import { IconPlusMini } from 'lib/components/icons'
+import { LemonButton, LemonButtonProps } from 'lib/lemon-ui/LemonButton'
+import { IconPlusMini } from 'lib/lemon-ui/icons'
 
 export interface ActionFilterProps {
     setFilters: (filters: FilterType) => void
@@ -44,7 +44,7 @@ export interface ActionFilterProps {
     hideRename?: boolean
     /** Hides the duplicate option */
     hideDuplicate?: boolean
-    /** Whether to show the nested PropertyFilters in popup mode or not */
+    /** Whether to show the nested PropertyFilters in popover mode or not */
     propertyFiltersPopover?: boolean
     /** A limit of entities (series or funnel steps) beyond which more can't be added */
     entitiesLimit?: number

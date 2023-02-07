@@ -87,23 +87,23 @@ const calculateBufferedTo = (
 ): PlayerPosition | null => {
     let bufferedTo: PlayerPosition | null = null
     // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
-    if (segments && snapshotsByWindowId && startAndEndTimesByWindowId) {
-        for (const segment of segments) {
-            const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
+    if (!segments || !snapshotsByWindowId || !startAndEndTimesByWindowId) {
+        return bufferedTo
+    }
 
-            if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
-                // If we've buffered past the start of the segment, see how far.
-                const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
-                bufferedTo = {
-                    windowId: segment.windowId,
-                    time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
-                }
-            } else {
-                // If we haven't buffered past the start of the segment, then return our current bufferedTo.
-                return bufferedTo
+    for (const segment of segments) {
+        const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
+
+        if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
+            // If we've buffered past the start of the segment, see how far.
+            const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
+            bufferedTo = {
+                windowId: segment.windowId,
+                time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
             }
         }
     }
+
     return bufferedTo
 }
 
@@ -344,8 +344,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const incomingSnapshotByWindowId: {
                         [key: string]: eventWithTime[]
                     } = response.snapshot_data_by_window_id
+
+                    // We merge the new snapshots with the existing ones and sort by timestamp to ensure they are in order
                     Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
-                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots]
+                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots].sort(
+                            (a, b) => a.timestamp - b.timestamp
+                        )
                     })
                     return {
                         ...values.sessionPlayerSnapshotData,
@@ -410,10 +414,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
                                     capturedInWindow: !!event.properties.$window_id,
-                                    percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
-                                        ? (100 * eventPlayerTime) /
-                                          values.sessionPlayerData.metadata.recordingDurationMs
-                                        : 0,
                                 })
                             }
                         }
@@ -444,7 +444,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         !values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] ||
                         !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
                     ) {
-                        return null
+                        return []
                     }
 
                     await breakpoint(1)
@@ -457,7 +457,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     breakpoint()
 
-                    return response.results ?? []
+                    return response.results
                 },
             },
         ],

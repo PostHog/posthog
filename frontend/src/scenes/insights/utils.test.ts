@@ -1,4 +1,16 @@
-import { CohortType, Entity, EntityFilter, FilterLogicalOperator, FilterType, InsightType, PathType } from '~/types'
+import {
+    BaseMathType,
+    CohortType,
+    CountPerActorMathType,
+    Entity,
+    EntityFilter,
+    FilterLogicalOperator,
+    FilterType,
+    GroupMathType,
+    InsightType,
+    PathType,
+    PropertyMathType,
+} from '~/types'
 import {
     extractObjectDiffKeys,
     formatAggregationValue,
@@ -18,7 +30,17 @@ import {
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { Noun } from '~/models/groupsModel'
-import { EventsNode, ActionsNode, NodeKind, LifecycleQuery, StickinessQuery } from '~/queries/schema'
+import {
+    EventsNode,
+    ActionsNode,
+    NodeKind,
+    LifecycleQuery,
+    StickinessQuery,
+    TrendsQuery,
+    PathsQuery,
+    FunnelsQuery,
+    RetentionQuery,
+} from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
@@ -597,6 +619,329 @@ describe('summarizeInsightQuery()', () => {
                   plural: 'organizations',
               }
             : { singular: 'user', plural: 'users' }
+    const cohortIdsMapped: Partial<Record<CohortType['id'], CohortType>> = {
+        1: {
+            id: 1,
+            name: 'Poles',
+            filters: { properties: { id: '1', type: FilterLogicalOperator.Or, values: [] } },
+            groups: [],
+        },
+    }
+    const mathDefinitions: Record<string, MathDefinition> = {
+        ...BASE_MATH_DEFINITIONS,
+        'unique_group::0': {
+            name: 'Unique organizations',
+            shortName: 'unique organizations',
+            description: 'Foo.',
+            category: MathCategory.ActorCount,
+        },
+        ...PROPERTY_MATH_DEFINITIONS,
+        ...COUNT_PER_ACTOR_MATH_DEFINITIONS,
+    }
+
+    it('summarizes a Trends insight with four event and actor count series', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: BaseMathType.UniqueUsers,
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$rageclick',
+                    name: '$rageclick',
+                    math: BaseMathType.MonthlyActiveUsers,
+                },
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 1,
+                    name: 'Random action',
+                    math: BaseMathType.TotalCount,
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: 0,
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$autocapture',
+                    name: '$autocapture',
+                    math: GroupMathType.UniqueGroup,
+                    math_group_type_index: 4, // Non-existent group
+                },
+            ],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual(
+            'Pageview unique users & Rageclick MAUs & Random action count & Pageview unique organizations & Autocapture unique groups'
+        )
+    })
+
+    it('summarizes a Trends insight with two property value and event count per actor series', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 1,
+                    name: 'Random action',
+                    math: CountPerActorMathType.Average,
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'purchase',
+                    name: 'purchase',
+                    math: PropertyMathType.Sum,
+                    math_property: 'price',
+                },
+            ],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual("Random action count per user average & purchase's price sum")
+    })
+
+    it('summarizes a Trends insight with no series', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('')
+    })
+
+    it('summarizes a Trends insight with event property breakdown', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: BaseMathType.UniqueUsers,
+                },
+            ],
+            breakdown: {
+                breakdown_type: 'event',
+                breakdown: '$browser',
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual("Pageview unique users by event's Browser")
+    })
+
+    it('summarizes a Trends insight with cohort breakdown', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: BaseMathType.UniqueUsers,
+                },
+            ],
+            breakdown: {
+                breakdown_type: 'cohort',
+                breakdown: ['all', 1],
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('Pageview count & Pageview unique users, by cohorts: all users, Poles')
+    })
+
+    it('summarizes a Trends insight with a formula', () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                    math: BaseMathType.UniqueUsers,
+                },
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 1,
+                    name: 'Random action',
+                    math: BaseMathType.TotalCount,
+                },
+            ],
+            trendsFilter: {
+                formula: '(A + B) / 100',
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('(A + B) / 100 on A. Pageview unique users & B. Random action count')
+    })
+
+    it('summarizes a user-based Funnels insight with 3 steps', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'random_event',
+                    name: 'random_event',
+                },
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 1,
+                    name: 'Random action',
+                },
+            ],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('Pageview → random_event → Random action user conversion rate')
+    })
+
+    it('summarizes an organization-based Funnels insight with 2 steps and a breakdown', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'random_event',
+                    name: 'random_event',
+                },
+            ],
+            aggregation_group_type_index: 0,
+            breakdown: {
+                breakdown_type: 'person',
+                breakdown: 'some_prop',
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
+    })
+
+    it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
+        const query: RetentionQuery = {
+            kind: NodeKind.RetentionQuery,
+            retentionFilter: {
+                target_entity: {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: 'event',
+                },
+                returning_entity: {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: 'event',
+                },
+                retention_type: RETENTION_FIRST_TIME,
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual(
+            'Retention of users based on doing Autocapture for the first time and returning with the same event'
+        )
+    })
+
+    it('summarizes an organization recurring Retention insight with the different events for cohortizing and returning', () => {
+        const query: RetentionQuery = {
+            kind: NodeKind.RetentionQuery,
+            retentionFilter: {
+                target_entity: {
+                    id: 'purchase',
+                    name: 'purchase',
+                    type: 'event',
+                },
+                returning_entity: {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'event',
+                },
+                retention_type: RETENTION_RECURRING,
+            },
+            aggregation_group_type_index: 0,
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual(
+            'Retention of organizations based on doing purchase recurringly and returning with Pageview'
+        )
+    })
+
+    it('summarizes a Paths insight based on all events', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                include_event_types: [PathType.PageView, PathType.Screen, PathType.CustomEvent],
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('User paths based on all events')
+    })
+
+    it('summarizes a Paths insight based on all events (empty include_event_types case)', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                include_event_types: [],
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('User paths based on all events')
+    })
+
+    it('summarizes a Paths insight based on pageviews with start and end points', () => {
+        const query: PathsQuery = {
+            kind: NodeKind.PathsQuery,
+            pathsFilter: {
+                include_event_types: [PathType.PageView],
+                start_point: '/landing-page',
+                end_point: '/basket',
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual('User paths based on page views starting at /landing-page and ending at /basket')
+    })
 
     it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
         const query: StickinessQuery = {
@@ -616,7 +961,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel)
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
 
         expect(result).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
     })
@@ -633,7 +978,7 @@ describe('summarizeInsightQuery()', () => {
             ],
         }
 
-        const result = summarizeInsightQuery(query, aggregationLabel)
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
 
         expect(result).toEqual('User lifecycle based on Rageclick')
     })

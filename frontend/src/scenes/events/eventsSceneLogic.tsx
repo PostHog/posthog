@@ -6,10 +6,10 @@ import equal from 'fast-deep-equal'
 import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { urls } from 'scenes/urls'
 import { objectsEqual } from 'lib/utils'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
-const getDefaultQuery = (): DataTableNode => ({
+export const getDefaultEventsSceneQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
     full: true,
     source: {
@@ -20,20 +20,20 @@ const getDefaultQuery = (): DataTableNode => ({
         limit: 100,
     },
     propertiesViaUrl: true,
-    allowSorting: false,
+    showSavedQueries: true,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
     path(['scenes', 'events', 'eventsSceneLogic']),
 
     actions({ setQuery: (query: Node) => ({ query }) }),
-    reducers({ query: [getDefaultQuery() as Node, { setQuery: (_, { query }) => query }] }),
+    reducers({ query: [getDefaultEventsSceneQuery() as Node, { setQuery: (_, { query }) => query }] }),
 
     actionToUrl(({ values }) => ({
         setQuery: () => [
             urls.events(),
             {},
-            objectsEqual(values.query, getDefaultQuery()) ? {} : { q: values.query },
+            objectsEqual(values.query, getDefaultEventsSceneQuery()) ? {} : { q: values.query },
             { replace: true },
         ],
     })),
@@ -44,8 +44,8 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
                 // nothing in the URL
                 if (!queryParam) {
                     // set the default unless it's already there
-                    if (!objectsEqual(values.query, getDefaultQuery())) {
-                        actions.setQuery(getDefaultQuery())
+                    if (!objectsEqual(values.query, getDefaultEventsSceneQuery())) {
+                        actions.setQuery(getDefaultEventsSceneQuery())
                     }
                 } else {
                     if (typeof queryParam === 'object') {

@@ -1,5 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import {
     BreakdownKeyType,
     PropertyDefinition,
@@ -11,6 +11,8 @@ import type { propertyDefinitionsModelType } from './propertyDefinitionsModelTyp
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
+import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { teamLogic } from '../scenes/teamLogic'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
@@ -22,7 +24,7 @@ const localProperties: PropertyDefinitionStorage = {
         name: '$session_duration',
         description: 'Duration of the session',
         is_numerical: true,
-        is_event_property: false,
+        is_seen_on_filtered_events: false,
         property_type: PropertyType.Duration,
     },
 }
@@ -37,6 +39,18 @@ export const updatePropertyDefinitions = (
     propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage
 ): void => {
     propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions(propertyDefinitions)
+}
+
+export type PropValue = {
+    id?: number
+    name?: string | boolean
+}
+
+export type Option = {
+    label?: string
+    name?: string
+    status?: 'loading' | 'loaded'
+    values?: PropValue[]
 }
 
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce */
@@ -61,8 +75,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage) => ({
             propertyDefinitions,
         }),
+        // PropertyValue
+        loadPropertyValues: (payload: {
+            endpoint: string | undefined
+            type: string
+            newInput: string | undefined
+            propertyKey: string
+            eventNames?: string[]
+        }) => payload,
+        setOptionsLoading: (key: string) => ({ key }),
+        setOptions: (key: string, values: PropValue[]) => ({ key, values }),
         // internal
         fetchAllPendingDefinitions: true,
+        abortAnyRunningQuery: true,
     }),
     reducers({
         propertyDefinitionStorage: [
@@ -76,8 +101,21 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 }),
             },
         ],
+        options: [
+            {} as Record<string, Option>,
+            {
+                setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
+                setOptions: (state, { key, values }) => ({
+                    ...state,
+                    [key]: {
+                        values: [...Array.from(new Set(values))],
+                        status: 'loaded',
+                    },
+                }),
+            },
+        ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadPropertyDefinitions: async ({ propertyKeys }) => {
             const { propertyDefinitionStorage } = values
 
@@ -148,6 +186,58 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             // otherwise rerun if any properties remain pending
             if (values.pendingProperties.length > 0) {
                 actions.fetchAllPendingDefinitions()
+            }
+        },
+
+        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
+            if (['cohort', 'session'].includes(type)) {
+                return
+            }
+            if (!propertyKey) {
+                return
+            }
+
+            const start = performance.now()
+
+            await breakpoint(300)
+            const key = propertyKey.split('__')[0]
+            actions.setOptionsLoading(propertyKey)
+            actions.abortAnyRunningQuery()
+
+            cache.abortController = new AbortController()
+            const methodOptions: ApiMethodOptions = {
+                signal: cache.abortController.signal,
+            }
+
+            let eventParams = ''
+            for (const eventName of eventNames || []) {
+                eventParams += `&event_name=${eventName}`
+            }
+
+            const propValues: PropValue[] = await api.get(
+                endpoint ||
+                    'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '') + eventParams,
+                methodOptions
+            )
+            breakpoint()
+            actions.setOptions(propertyKey, propValues)
+            cache.abortController = null
+
+            await captureTimeToSeeData(teamLogic.values.currentTeamId, {
+                type: 'property_values_load',
+                context: 'filters',
+                action: type,
+                primary_interaction_id: '',
+                status: 'success',
+                time_to_see_data_ms: Math.floor(performance.now() - start),
+                api_response_bytes: 0,
+            })
+        },
+
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
             }
         },
     })),

@@ -8,12 +8,7 @@ import { SlackIntegration } from './SlackIntegration'
 export default {
     title: 'Components/Integrations/Slack',
     component: SlackIntegration,
-    parameters: {
-        layout: 'fullscreen',
-        options: { showPanel: false },
-        viewMode: 'story',
-        chromatic: { disableSnapshot: false },
-    },
+    parameters: {},
 } as ComponentMeta<typeof SlackIntegration>
 
 const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }): JSX.Element => {
@@ -41,11 +36,7 @@ const Template = (args: { instanceConfigured?: boolean; integrated?: boolean }):
         },
     })
 
-    return (
-        <div className="rounded border p-4 m-4">
-            <SlackIntegration />
-        </div>
-    )
+    return <SlackIntegration />
 }
 
 export const SlackIntegration_ = (): JSX.Element => {

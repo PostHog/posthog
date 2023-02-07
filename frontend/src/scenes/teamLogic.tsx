@@ -1,16 +1,17 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, TeamType } from '~/types'
+import { CorrelationConfigType, PropertyOperator, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
-import { getAppContext } from '../lib/utils/getAppContext'
-import { lemonToast } from 'lib/components/lemonToast'
-import { IconSwapHoriz } from 'lib/components/icons'
+import { getAppContext } from 'lib/utils/getAppContext'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { loaders } from 'kea-loaders'
-import { OrganizationMembershipLevel } from '../lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -20,6 +21,12 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
         return 'Authorized URLs'
     }
     return attr ? identifierToHuman(attr) : 'Project'
+}
+
+export interface FrequentMistakeAdvice {
+    key: string
+    type: 'event' | 'person'
+    fix: string
 }
 
 export const teamLogic = kea<teamLogicType>([
@@ -114,12 +121,6 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam, currentOrganization): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
         ],
-        pathCleaningFiltersWithNew: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam): Record<string, any>[] => {
-                return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
-            },
-        ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): CorrelationConfigType => {
@@ -132,6 +133,64 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam): boolean =>
                 !!currentTeam?.effective_membership_level &&
                 currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
+        testAccountFilterWarningLabels: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam) => {
+                if (!currentTeam) {
+                    return null
+                }
+                const positiveFilterOperators = [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.IsSet,
+                ]
+                const positiveFilters = []
+                for (const filter of currentTeam.test_account_filters) {
+                    if (
+                        'operator' in filter &&
+                        !!filter.operator &&
+                        positiveFilterOperators.includes(filter.operator)
+                    ) {
+                        positiveFilters.push(filter)
+                    }
+                }
+
+                return positiveFilters.map((filter) => {
+                    if (!!filter.type && !!filter.key) {
+                        // person properties can be checked for a label as if they were event properties
+                        // so, we can check each acceptable type and see if it returns a value
+                        return (
+                            getPropertyLabel(filter.key, 'event') ||
+                            getPropertyLabel(filter.key, 'element') ||
+                            filter.key
+                        )
+                    } else {
+                        return filter.key
+                    }
+                })
+            },
+        ],
+        testAccountFilterFrequentMistakes: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): FrequentMistakeAdvice[] => {
+                if (!currentTeam) {
+                    return []
+                }
+                const frequentMistakes: FrequentMistakeAdvice[] = []
+
+                for (const filter of currentTeam.test_account_filters) {
+                    if (filter.key === 'email' && filter.type === 'event') {
+                        frequentMistakes.push({
+                            key: 'email',
+                            type: 'event',
+                            fix: 'it is more common to filter email by person properties, not event properties',
+                        })
+                    }
+                }
+                return frequentMistakes
+            },
         ],
     }),
     listeners(({ actions }) => ({

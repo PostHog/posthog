@@ -1,11 +1,9 @@
 import { compactNumber, uuid } from 'lib/utils'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
-import './Actions.scss'
 import { ActionStep } from './ActionStep'
 import { Col, Row } from 'antd'
-import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
 import { combineUrl, router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
@@ -15,13 +13,14 @@ import { ActionStepType, AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Field } from 'lib/forms/Field'
-import { LemonButton } from 'lib/components/LemonButton'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { IconPlayCircle } from 'lib/components/icons'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { IconInfo, IconPlayCircle, IconPlus } from 'lib/lemon-ui/icons'
 import { tagsModel } from '~/models/tagsModel'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -172,14 +171,14 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 {id && (
                     <div className="input-set">
                         <div>
-                            <span className="text-muted mb-2">
-                                {actionCountLoading && <LoadingOutlined />}
+                            <span className="flex items-center gap-2 text-muted mb-2">
                                 {actionCount !== null && actionCount > -1 && (
-                                    <>
+                                    <span>
                                         This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
                                         months
-                                    </>
+                                    </span>
                                 )}
+                                {actionCountLoading && <Spinner />}
                             </span>
                         </div>
                     </div>
@@ -188,9 +187,9 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 <div>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
+                        Your action will be triggered whenever <b>any of your match groups</b> are received.
                         <Link to="https://posthog.com/docs/features/actions" target="_blank">
-                            <InfoCircleOutlined />
+                            <IconInfo className="ml-1 text-muted text-xl" />
                         </Link>
                     </div>
                     <Field name="steps">
@@ -254,7 +253,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                             onChange([...(action.steps || []), { isNew: uuid() }])
                                         }}
                                     >
-                                        <PlusOutlined style={{ fontSize: 28, color: '#666666' }} />
+                                        <IconPlus style={{ fontSize: 28, color: '#666666' }} />
                                     </div>
                                 </Col>
                             </Row>

@@ -1,7 +1,7 @@
 import { AnyPropertyFilter, EventType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
@@ -12,6 +12,9 @@ import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
 import ReactJson from 'react-json-view'
+import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export function renderColumn(
     key: string,
@@ -21,7 +24,11 @@ export function renderColumn(
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
-    if (key === 'event' && isEventsQuery(query.source)) {
+    if (value === loadingColumn) {
+        return <Spinner />
+    } else if (value === errorColumn) {
+        return <LemonTag color="red">Error</LemonTag>
+    } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
 

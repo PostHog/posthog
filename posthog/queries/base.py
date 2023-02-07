@@ -29,7 +29,7 @@ def determine_compared_filter(filter: F) -> F:
         filter.interval,
     )
 
-    return filter.with_data({"date_from": date_from.isoformat(), "date_to": date_to.isoformat()})
+    return filter.shallow_clone({"date_from": date_from.isoformat(), "date_to": date_to.isoformat()})
 
 
 def convert_to_comparison(trend_entities: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:

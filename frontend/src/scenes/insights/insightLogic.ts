@@ -18,7 +18,7 @@ import {
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import {
     filterTrendsClientSideParams,
     isFilterWithHiddenLegendKeys,
@@ -57,7 +57,7 @@ import { parseProperties } from 'lib/components/PropertyFilters/utils'
 import { insightsModel } from '~/models/insightsModel'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
-import { legacyInsightQuery } from '~/queries/query'
+import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -138,8 +138,8 @@ export const insightLogic = kea<insightLogicType>([
             scene: Scene | null
             exception?: Record<string, any>
         }) => payload,
-        setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
-        setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
+        markInsightTimedOut: (timedOutQueryId: string | null) => ({ timedOutQueryId }),
+        marktInsightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
@@ -500,18 +500,18 @@ export const insightLogic = kea<insightLogicType>([
                 }),
             },
         ],
-        showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
+        timedOutQueryId: [null as string | null, { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
         maybeShowTimeoutMessage: [
             false,
             {
                 // Only show timeout message if timer is still running
-                setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage,
+                markInsightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
                 endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
         ],
-        showErrorMessage: [false, { setShowErrorMessage: (_, { showErrorMessage }) => showErrorMessage }],
+        erroredQueryId: [null as string | null, { marktInsightErrored: (_, { erroredQueryId }) => erroredQueryId }],
         maybeShowErrorMessage: [
             false,
             {
@@ -696,31 +696,38 @@ export const insightLogic = kea<insightLogicType>([
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
 
-                if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-                    return {
-                        path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
-                            filterTrendsClientSideParams(params)
-                        )}`,
-                        filename,
-                    }
-                } else if (isRetentionFilter(filters)) {
-                    return { filename, path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}` }
-                } else if (isFunnelsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/funnel`,
-                        body: params,
-                    }
-                } else if (isPathsFilter(filters)) {
-                    return {
-                        filename,
-                        method: 'POST',
-                        path: `api/projects/${currentTeamId}/insights/path`,
-                        body: params,
-                    }
+                if (!!insight.query) {
+                    return { ...queryExportContext(insight.query), filename }
                 } else {
-                    return null
+                    if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
+                        return {
+                            path: `api/projects/${currentTeamId}/insights/trend/?${toParams(
+                                filterTrendsClientSideParams(params)
+                            )}`,
+                            filename,
+                        }
+                    } else if (isRetentionFilter(filters)) {
+                        return {
+                            filename,
+                            path: `api/projects/${currentTeamId}/insights/retention/?${toParams(params)}`,
+                        }
+                    } else if (isFunnelsFilter(filters)) {
+                        return {
+                            filename,
+                            method: 'POST',
+                            path: `api/projects/${currentTeamId}/insights/funnel`,
+                            body: params,
+                        }
+                    } else if (isPathsFilter(filters)) {
+                        return {
+                            filename,
+                            method: 'POST',
+                            path: `api/projects/${currentTeamId}/insights/path`,
+                            body: params,
+                        }
+                    } else {
+                        return null
+                    }
                 }
             },
         ],
@@ -750,12 +757,9 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         isUsingDataExploration: [
-            (s) => [s.featureFlags, s.filters],
-            (featureFlags: FeatureFlagsSet, filters: Partial<FilterType>): boolean => {
-                const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
-                const isLifecycle = isLifecycleFilter(filters)
-                const isStickness = isStickinessFilter(filters)
-                return !!featureDataExploration && (isLifecycle || isStickness)
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
     }),
@@ -855,15 +859,15 @@ export const insightLogic = kea<insightLogicType>([
                 )
             }
         },
-        startQuery: () => {
-            actions.setShowTimeoutMessage(false)
-            actions.setShowErrorMessage(false)
+        startQuery: ({ queryId }) => {
+            actions.markInsightTimedOut(null)
+            actions.marktInsightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
                 window.setTimeout(() => {
                     if (values && view == values.activeView) {
-                        actions.setShowTimeoutMessage(true)
+                        actions.markInsightTimedOut(queryId)
                         const tags = {
                             insight: values.activeView,
                             scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
@@ -904,8 +908,8 @@ export const insightLogic = kea<insightLogicType>([
                 clearTimeout(values.timeout)
             }
             if (view === values.activeView && values.currentTeamId) {
-                actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
-                actions.setShowErrorMessage(values.maybeShowErrorMessage)
+                actions.markInsightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
+                actions.marktInsightErrored(values.maybeShowErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
 
@@ -940,8 +944,8 @@ export const insightLogic = kea<insightLogicType>([
         },
         setActiveView: ({ type }) => {
             actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
-            actions.setShowTimeoutMessage(false)
-            actions.setShowErrorMessage(false)
+            actions.markInsightTimedOut(null)
+            actions.marktInsightErrored(null)
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }

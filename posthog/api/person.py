@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -49,6 +49,7 @@ from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -95,6 +96,13 @@ def get_person_name(person: Person) -> str:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+class PersonsThrottle(PassThroughClickHouseSustainedRateThrottle):
+    # Throttle class that's scoped just to the person endpoint.
+    # This makes the rate limit apply to all endpoints under /api/person/
+    # and independent of other endpoints.
+    scope = "persons"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -148,12 +156,16 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 
 class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+    """
+    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    """
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
@@ -187,13 +199,15 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
-            filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+            filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = sync_execute(query, params)
+        raw_result = insight_sync_execute(
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+        )
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
@@ -411,6 +425,13 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         self._set_properties(request.data["properties"], request.user)
         return Response(status=204)
 
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+        )
+
     def _set_properties(self, properties, user):
         instance = self.get_object()
         capture_internal(
@@ -623,11 +644,30 @@ T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
 
 def prepare_actor_query_filter(filter: T) -> T:
     if not filter.limit:
-        filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
     search = getattr(filter, "search", None)
     if not search:
         return filter
+
+    group_properties_filter_group = []
+    if hasattr(filter, "aggregation_group_type_index"):
+        group_properties_filter_group += [
+            {
+                "key": "name",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+            {
+                "key": "slug",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
+                "operator": "icontains",
+            },
+        ]
 
     new_group = {
         "type": "OR",
@@ -635,7 +675,8 @@ def prepare_actor_query_filter(filter: T) -> T:
             {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
             {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-        ],
+        ]
+        + group_properties_filter_group,
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
@@ -643,7 +684,7 @@ def prepare_actor_query_filter(filter: T) -> T:
         else new_group
     )
 
-    return filter.with_data({"properties": prop_group, "search": None})
+    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):
