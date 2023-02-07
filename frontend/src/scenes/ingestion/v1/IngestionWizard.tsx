@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import './IngestionWizard.scss'
 
 import { VerificationPanel } from 'scenes/ingestion/v1/panels/VerificationPanel'
@@ -23,14 +23,21 @@ import { PanelHeader } from './panels/PanelComponents'
 
 export function IngestionWizardV1(): JSX.Element {
     const { platform, framework, verify, addBilling } = useValues(ingestionLogic)
-    const { reportIngestionLandingSeen, reportIngestionWaitThreeMinutes } = useActions(eventUsageLogic)
+    const { reportIngestionLandingSeen, reportIngestionWait } = useActions(eventUsageLogic)
+
+    const [minutesPassed, setMinutesPassed] = useState(0)
 
     useEffect(() => {
         if (!platform) {
             reportIngestionLandingSeen()
-            setTimeout(() => reportIngestionWaitThreeMinutes(), 3 * 60 * 1000)
+            const interval = setInterval(() => {
+                reportIngestionWait(minutesPassed + 1)
+                setMinutesPassed(minutesPassed + 1)
+            }, 60 * 1000)
+
+            return () => clearInterval(interval)
         }
-    }, [platform])
+    }, [platform, minutesPassed])
 
     if (addBilling) {
         return (
