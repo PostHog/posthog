@@ -92,6 +92,7 @@ class SignupSerializer(serializers.Serializer):
                 create_team=self.create_team,
                 **validated_data,
                 is_staff=is_instance_first_user,
+                is_email_verified=False,
             )
         except IntegrityError:
             raise exceptions.ValidationError(
@@ -201,6 +202,7 @@ class InviteSignupSerializer(serializers.Serializer):
                         invite.target_email,
                         validated_data.pop("password"),
                         validated_data.pop("first_name"),
+                        is_email_verified=False,
                         **validated_data,
                     )
                 except IntegrityError:
@@ -354,7 +356,7 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
     invite.validate(user=None, email=email)
 
     try:
-        user = strategy.create_user(email=email, first_name=full_name, password=None)
+        user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
     except Exception as e:
         capture_exception(e)
         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
