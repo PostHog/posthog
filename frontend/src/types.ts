@@ -139,6 +139,7 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+    is_email_verified?: boolean | null
 }
 
 export interface NotificationSettings {
