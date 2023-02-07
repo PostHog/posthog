@@ -8,13 +8,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { TrendsQuery, FunnelsQuery, LifecycleQuery, StickinessQuery } from '~/queries/schema'
-import {
-    isLifecycleQuery,
-    isStickinessQuery,
-    isTrendsQuery,
-    isInsightQueryWithDisplay,
-    isUnimplementedQuery,
-} from '~/queries/utils'
+import { isLifecycleQuery, isStickinessQuery, isTrendsQuery, isInsightQueryWithDisplay } from '~/queries/utils'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
@@ -44,10 +38,6 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         ...(isTrendsQuery(querySource) ? [TaxonomicFilterGroupType.Sessions] : []),
         TaxonomicFilterGroupType.HogQLExpression,
     ]
-
-    if (isUnimplementedQuery(querySource)) {
-        return null
-    }
 
     const display = getDisplay(querySource)
     const filters = queryNodeToFilter(querySource)

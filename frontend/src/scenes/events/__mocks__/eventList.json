@@ -4183,11 +4183,11 @@
                 "tag_name": "li",
                 "attr_class": ["ant-tabs-dropdown-menu-item", "ant-tabs-dropdown-menu-item-active"],
                 "href": null,
-                "attr_id": "rc-tabs-0-more-popup-LIFECYCLE",
+                "attr_id": "rc-tabs-0-more-popover-LIFECYCLE",
                 "nth_child": 2,
                 "nth_of_type": 2,
                 "attributes": {
-                    "attr__id": "rc-tabs-0-more-popup-LIFECYCLE",
+                    "attr__id": "rc-tabs-0-more-popover-LIFECYCLE",
                     "attr__role": "option",
                     "attr__class": "ant-tabs-dropdown-menu-item ant-tabs-dropdown-menu-item-active",
                     "attr__aria-controls": "rc-tabs-0-panel-LIFECYCLE",
@@ -4206,11 +4206,11 @@
                     "ant-tabs-dropdown-menu-vertical"
                 ],
                 "href": null,
-                "attr_id": "rc-tabs-0-more-popup",
+                "attr_id": "rc-tabs-0-more-popover",
                 "nth_child": 1,
                 "nth_of_type": 1,
                 "attributes": {
-                    "attr__id": "rc-tabs-0-more-popup",
+                    "attr__id": "rc-tabs-0-more-popover",
                     "attr__role": "listbox",
                     "attr__class": "ant-tabs-dropdown-menu  ant-tabs-dropdown-menu-root ant-tabs-dropdown-menu-vertical",
                     "attr__tabindex": "0",
@@ -4410,9 +4410,9 @@
                     "attr__style": "",
                     "attr__tabindex": "-1",
                     "attr__aria-hidden": "true",
-                    "attr__aria-controls": "rc-tabs-0-more-popup",
+                    "attr__aria-controls": "rc-tabs-0-more-popover",
                     "attr__aria-expanded": "true",
-                    "attr__aria-haspopup": "listbox"
+                    "attr__aria-haspopover": "listbox"
                 },
                 "order": 2
             },

@@ -33,6 +33,7 @@
         "schema:build": "pnpm run schema:build:json && pnpm run schema:build:python",
         "schema:build:json": "ts-json-schema-generator -f tsconfig.json --path 'frontend/src/*.ts' --type 'QuerySchema' --no-type-check > frontend/src/queries/schema.json && prettier --write frontend/src/queries/schema.json",
         "schema:build:python": "datamodel-codegen --collapse-root-models --disable-timestamp --use-subclass-enum --input frontend/src/queries/schema.json --input-file-type jsonschema --output posthog/schema.py && black posthog/schema.py",
+        "grammar:build": "cd posthog/hogql/grammar && antlr -Dlanguage=Python3 HogQLLexer.g4 && antlr -visitor -no-listener -Dlanguage=Python3 HogQLParser.g4",
         "packages:build": "pnpm packages:build:apps-common && pnpm packages:build:lemon-ui",
         "packages:build:apps-common": "cd frontend/@posthog/apps-common && pnpm i && pnpm build",
         "packages:build:lemon-ui": "cd frontend/@posthog/lemon-ui && pnpm i && pnpm build",
@@ -103,7 +104,7 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.42.3",
+        "posthog-js": "1.43.0",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.3.1",
         "prop-types": "^15.7.2",
@@ -262,7 +263,7 @@
             "eslint -c plugin-server/.eslintrc.js --fix",
             "prettier --write"
         ],
-        "*.{py,pyi}": [
+        "!(posthog/hogql/grammar/*)*.{py,pyi}": [
             "black",
             "flake8",
             "isort"

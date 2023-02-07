@@ -261,6 +261,7 @@ def run_events_query(
         with_column_types=True,
         query_type="events_list",
         workload=Workload.OFFLINE,
+        filter=filter,
     )
 
     # Convert star field from tuple to dict in each result

@@ -9,7 +9,7 @@ export default {
     title: 'Filters',
     decorators: [taxonomicFilterMocksDecorator],
     parameters: {
-        chromatic: { disableSnapshot: true }, // FIXME: This is currently excluded due to flaky loading of data in it
+        testOptions: { skip: true }, // FIXME: This is currently excluded due to flaky loading of data in it
     },
 }
 
