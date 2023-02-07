@@ -387,12 +387,10 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
-        status.info(
-            'ℹ️',
-            `Running export historical events with config ${pluginConfig.id} for payload: ${JSON.stringify(
-                payload
-            )}`
-        )
+        status.info('ℹ️', 'Running export historical events', {
+            pluginConfigId: pluginConfig.id,
+            payload,
+        })
 
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
