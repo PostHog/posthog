@@ -14,7 +14,7 @@ def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) ->
     parse_tree = get_parser(expr).expr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
-        node = replace_placeholders(node, placeholders)
+        return replace_placeholders(node, placeholders)
     return node
 
 

@@ -15,7 +15,8 @@ backquote_escape_chars_map = {
 }
 
 
-def print_clickhouse_identifier(identifier: str) -> str:
+# Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
+def print_hogql_identifier(identifier: str) -> str:
     if re.match(r"^[A-Za-z_$][A-Za-z0-9_$]*$", identifier):
         return identifier
 

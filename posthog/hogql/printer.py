@@ -11,24 +11,7 @@ from posthog.hogql.constants import (
 )
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.print_string import print_clickhouse_identifier
-
-
-def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
-    """Add a mandatory "and(team_id, ...)" filter around the expression."""
-    if not context.select_team_id:
-        raise ValueError("context.select_team_id not found")
-
-    from posthog.hogql.parser import parse_expr
-
-    team_clause = parse_expr("team_id = {team_id}", {"team_id": ast.Constant(value=context.select_team_id)})
-    if isinstance(where, ast.And):
-        where = ast.And(exprs=[team_clause] + where.exprs)
-    elif where:
-        where = ast.And(exprs=[team_clause, where])
-    else:
-        where = team_clause
-    return where
+from posthog.hogql.print_string import print_hogql_identifier
 
 
 def print_ast(
@@ -100,7 +83,7 @@ def print_ast(
         elif isinstance(node.value, bool) and node.value is False:
             response = "false"
         elif isinstance(node.value, int) or isinstance(node.value, float):
-            # :WATCH_OUT: isinstance(node.value, int) is True if node.value is True/False as well!!!
+            # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
             response = str(node.value)
         elif isinstance(node.value, str) or isinstance(node.value, list):
             context.values[key] = node.value
@@ -113,7 +96,8 @@ def print_ast(
             )
     elif isinstance(node, ast.Field):
         if dialect == "hogql":
-            response = ".".join([print_clickhouse_identifier(identifier) for identifier in node.chain])
+            # When printing HogQL, we print the properties out as a chain instead of converting them to Clickhouse SQL
+            response = ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
         elif node.chain == ["*"]:
             query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
             response = print_ast(parse_expr(query), stack, context, dialect)

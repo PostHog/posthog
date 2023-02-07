@@ -22,7 +22,8 @@ def replace_placeholders_list(
 
 
 def replace_placeholders(node: ast.Expr, placeholders: Dict[str, ast.Expr]) -> ast.Expr:
-    # TODO: Convert to a true visitor pattern. It's easy to forget to add nodes here otherwise.
+    # NOTE: Add new node types and fields here as they are added to the AST.
+    # TODO: Convert to a true visitor pattern, possibly via Pydantic introspection
     if isinstance(node, ast.Placeholder):
         if node.field in placeholders:
             return placeholders[node.field]
