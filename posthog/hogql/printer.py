@@ -54,6 +54,8 @@ def print_ast(
 
         from_table = None
         if node.select_from:
+            if node.select_from.alias is not None:
+                raise ValueError("Table aliases not yet supported")
             if isinstance(node.select_from.table, ast.Field):
                 if node.select_from.table.chain != ["events"]:
                     raise ValueError('Only selecting from the "events" table is supported')

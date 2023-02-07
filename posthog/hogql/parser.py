@@ -555,7 +555,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
-        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=(ctx.alias() or ctx.identifier()).getText())
+        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=self.visit(ctx.alias() or ctx.identifier()))
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         raise NotImplementedError(f"Unsupported node: TableExprFunction")
@@ -580,7 +580,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitFloatingLiteral(self, ctx: HogQLParser.FloatingLiteralContext):
         raise NotImplementedError(f"Unsupported node: visitFloatingLiteral")
-        # return ast.Constant(value=float(ctx.getText()))
 
     def visitNumberLiteral(self, ctx: HogQLParser.NumberLiteralContext):
         text = ctx.getText()

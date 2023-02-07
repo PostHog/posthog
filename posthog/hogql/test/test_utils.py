@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.utils import property_to_expr, sanitize_clickhouse_identifier
+from posthog.hogql.utils import property_to_expr
 from posthog.models import Property
 from posthog.schema import HogQLPropertyFilter
 from posthog.test.base import BaseTest
@@ -72,9 +72,3 @@ class TestUtils(BaseTest):
                 right=ast.Constant(value="b"),
             ),
         )
-
-    def test_sanitize_clickhouse_identifier(self):
-        self.assertEqual(sanitize_clickhouse_identifier("a"), "a")
-        self.assertEqual(sanitize_clickhouse_identifier("a a a"), "`a a a`")
-        self.assertEqual(sanitize_clickhouse_identifier("a#$%#"), "`a#$%#`")
-        self.assertEqual(sanitize_clickhouse_identifier("a"), "a")

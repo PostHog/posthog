@@ -26,6 +26,15 @@ class TestHogQLContext(TestCase):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
+    def _assert_statement_error(
+        self, statement, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
+    ):
+        with self.assertRaises(ValueError) as context:
+            self._statement(statement, None, dialect)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
     def test_literals(self):
         self.assertEqual(self._expr("1 + 2"), "plus(1, 2)")
         self.assertEqual(self._expr("-1 + 2"), "plus(-1, 2)")
@@ -350,3 +359,14 @@ class TestHogQLContext(TestCase):
             self._statement("select 1 + 2, 3 + 4 from events"),
             "SELECT plus(1, 2), plus(3, 4) FROM events WHERE equals(team_id, 42) LIMIT 65535",
         )
+
+    def test_select_alias(self):
+        # currently not supported!
+        self._assert_statement_error("select 1 as b", "Unknown AST node Alias")
+        self._assert_statement_error("select 1 from events as e", "Table aliases not yet supported")
+
+    def test_select_from(self):
+        self.assertEqual(
+            self._statement("select 1 from events"), "SELECT 1 FROM events WHERE equals(team_id, 42) LIMIT 65535"
+        )
+        self._assert_statement_error("select 1 from other", 'Only selecting from the "events" table is supported')
