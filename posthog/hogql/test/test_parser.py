@@ -1,19 +1,6 @@
-from antlr4 import CommonTokenStream, InputStream
-from antlr4.tree.Tree import ParseTree
-
 from posthog.hogql import ast
-from posthog.hogql.grammar.HogQLLexer import HogQLLexer
-from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
-
-
-def string_to_parse_tree_expr(query: str) -> ParseTree:
-    input_stream = InputStream(query)
-    lexer = HogQLLexer(input_stream)
-    stream = CommonTokenStream(lexer)
-    parser = HogQLParser(stream)
-    return parser.columnExpr()
 
 
 class TestParser(BaseTest):
@@ -348,4 +335,22 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("1 -- '🍄'"),
             ast.Constant(value=1),
+        )
+
+    def test_placeholders(self):
+        self.assertEqual(
+            parse_expr("{foo}"),
+            ast.Placeholder(field="foo"),
+        )
+        self.assertEqual(
+            parse_expr("{foo}", {"foo": ast.Constant(value="bar")}),
+            ast.Constant(value="bar"),
+        )
+        self.assertEqual(
+            parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=123),
+            ),
         )
