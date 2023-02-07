@@ -2,6 +2,10 @@
 from contextlib import contextmanager
 
 import structlog
+from prometheus_client import CollectorRegistry, push_to_gateway
+from sentry_sdk import capture_exception
+
+from posthog.settings import PROM_PUSHGATEWAY_ADDRESS
 
 logger = structlog.get_logger(__name__)
 
@@ -29,10 +33,6 @@ def pushed_metrics_registry(job_name: str):
     NOTE: only use to expose gauges, for use cases where one value per
     region makes sense (e.g. instance metrics computed by celery jobs).
     """
-    from prometheus_client import CollectorRegistry, push_to_gateway
-    from sentry_sdk import capture_exception
-
-    from posthog.settings import PROM_PUSHGATEWAY_ADDRESS
 
     registry = CollectorRegistry()
     yield registry
