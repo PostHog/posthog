@@ -46,7 +46,7 @@ path_by_team_pattern = re.compile(r"/api/projects/(\d+)/")
 path_by_org_pattern = re.compile(r"/api/organizations/(.+)/")
 
 
-class PassThroughTeamRateThrottle(SimpleRateThrottle):
+class TeamRateThrottle(SimpleRateThrottle):
     @staticmethod
     def safely_get_team_id_from_view(view):
         """
@@ -67,9 +67,9 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
 
         # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.
         # Instead of throttling, this logs that the request would have been throttled.
-        request_would_be_allowed = super().allow_request(request, view)
-        if not request_would_be_allowed:
-            try:
+        try:
+            request_would_be_allowed = super().allow_request(request, view)
+            if not request_would_be_allowed:
                 team_id = self.safely_get_team_id_from_view(view)
                 path = getattr(request, "path", None)
                 if path:
@@ -91,9 +91,11 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
                         tags={"team_id": team_id, "scope": scope, "rate": rate, "path": path},
                     )
                     RATE_LIMIT_EXCEEDED_COUNTER.labels(team_id=team_id, scope=scope, path=path).inc()
-            except Exception as e:
-                capture_exception(e)
-        return True
+
+            return request_would_be_allowed
+        except Exception as e:
+            capture_exception(e)
+            return True
 
     def get_cache_key(self, request, view):
         """
@@ -121,21 +123,21 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         return team_id is not None and str(team_id) in allow_list
 
 
-class PassThroughBurstRateThrottle(PassThroughTeamRateThrottle):
+class BurstRateThrottle(TeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests
     scope = "burst"
     rate = "480/minute"
 
 
-class PassThroughSustainedRateThrottle(PassThroughTeamRateThrottle):
+class SustainedRateThrottle(TeamRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block slower but sustained bursts of requests
     scope = "sustained"
     rate = "4800/hour"
 
 
-class PassThroughClickHouseBurstRateThrottle(PassThroughTeamRateThrottle):
+class ClickHouseBurstRateThrottle(TeamRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically
     # on endpoints that generally hit ClickHouse
     # Intended to block quick bursts of requests
@@ -143,7 +145,7 @@ class PassThroughClickHouseBurstRateThrottle(PassThroughTeamRateThrottle):
     rate = "240/minute"
 
 
-class PassThroughClickHouseSustainedRateThrottle(PassThroughTeamRateThrottle):
+class ClickHouseSustainedRateThrottle(TeamRateThrottle):
     # Throttle class that's a bit more aggressive and is used specifically
     # on endpoints that generally hit ClickHouse
     # Intended to block slower but sustained bursts of requests

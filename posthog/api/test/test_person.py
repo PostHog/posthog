@@ -581,7 +581,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
     @patch("posthog.api.person.PersonsThrottle.rate", new="6/minute")
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_for_persons_are_independent(self, rate_limit_enabled_mock, incr_mock):
