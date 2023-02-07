@@ -3,19 +3,67 @@ info:
     version: '1.0.0'
     title: PostHog Capture API
     description: |
-        As explained in our API overview page, PostHog provides two different APIs.
+        > Update: These endpoints can now be accessed with either your Team API
+        key or your personal API key.
 
-        This page refers to our public endpoints, which use the same API key as the
-        PostHog snippet. The endpoints documented here are used solely with POST
-        requests, and will not return any sensitive data from your PostHog instance.
+        As explained in our API overview page, PostHog provides two different
+        APIs.
+
+        This page refers to our public endpoints, which use the same API key as
+        the PostHog snippet. The endpoints documented here are used solely with
+        POST requests, and will not return any sensitive data from your PostHog
+        instance.
+
+        > Note: For this API, you should use your 'Project API Key' from the
+        'Project' page in PostHog. This is the same key used in your frontend
+        snippet.
+
+        Note that this specification is an attempt to capture some of the
+        details on the [POST-only public endpoints
+        documentation](https://posthog.com/docs/api/post-only-endpoints) but in
+        a format that we can easily use to validate the correctness of our API
+        implementation. It is not a complete specification of the API, and
+        should not be used as such. It will hopefully become such a document,
+        but is currently a work in progress.
+
+        ### TODOs
+
+        1. add autocapture properties schema
+        1. add performance event properties schema
+        1. add session recording event properties schema
+        1. add any specifications we want to include for other endpoints and GET
+           requests e.g. `GET /e/` and `POST /engage/` endpoints.
 
 paths:
-    /e/:
-        get:
-            summary: Capture an event
+    /capture/:
+        post:
+            summary: Sending an event
             description: |
+                > Note: Timestamp is optional. If not set, it'll automatically be set to the current time.
+
                 Capture an event. Events are the core of PostHog, and are what you use
-                to track user behavior, and then analyze and visualize in PostHog.
+                to track user behavior, and then analyze and visualize in
+                PostHog.
+
+            parameters:
+                - in: query
+                  name: ip
+                  schema:
+                      type: string
+                      format: ipv4
+                      description: |
+                          The IP address of the user. This is used to geolocate the user.
+                - in: query
+                  name: compression
+                  description: |
+                      The compression method used to compress the request body.
+                  schema:
+                      type: string
+                      enum:
+                          - gzip-js
+                          - gzip
+                          - lz64
+
             responses:
                 '200':
                     description: |
@@ -27,6 +75,7 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EventsCaptureResponse'
+
                 '401':
                     description: |
                         If you send an invalid API key, we will return a 401 response.
@@ -43,28 +92,66 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EventsCaptureClientErrorResponse'
-            parameters:
-                - in: query
-                  name: data
-                  schema:
-                      type: array
-                      items:
-                          $ref: '#/components/schemas/Event'
-
             requestBody:
                 content:
-                    '*/*':
-                        example: Body not used for GET requests.
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/EventCaptureRequest'
+                        example:
+                            {
+                                'api_key': '<ph_project_api_key>',
+                                'event': '[event name]',
+                                'properties':
+                                    { 'distinct_id': "[your users' distinct id]", 'key1': 'value1', 'key2': 'value2' },
+                                'timestamp': '[optional timestamp in ISO 8601 format]',
+                            }
+                    multipart/form-data:
+                        schema:
+                            $ref: '#/components/schemas/EventCaptureRequest'
+                    text/plain:
+                        examples:
+                            gzip_event:
+                                summary: |
+                                    Gzipped request body as per the
+                                    application/json schema.
 
                 description: |
                     Provides a method to capture events. Events are the core of PostHog,
                     and are what you use to track user behavior, and then analyze and
                     visualize in PostHog.
+
+    /batch/:
         post:
-            summary: Capture an event
+            summary: Sending multiple events
             description: |
-                Capture an event. Events are the core of PostHog, and are what you use
-                to track user behavior, and then analyze and visualize in PostHog.
+                You can send multiple events in one go with the Batch API.
+
+                There is no limit on the number of events you can send in a
+                batch, but the entire request body must be less than 20MB by
+                default (see API overview).
+
+                > Note: Timestamp is optional. If not set, it'll automatically
+                be set to the current time.
+
+            parameters:
+                - in: query
+                  name: ip
+                  schema:
+                      type: string
+                      format: ipv4
+                      description: |
+                          The IP address of the user. This is used to geolocate the user.
+                - in: query
+                  name: compression
+                  description: |
+                      The compression method used to compress the request body.
+                  schema:
+                      type: string
+                      enum:
+                          - gzip-js
+                          - gzip
+                          - lz64
+
             responses:
                 '200':
                     description: |
@@ -76,6 +163,7 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/EventsCaptureResponse'
+
                 '401':
                     description: |
                         If you send an invalid API key, we will return a 401 response.
@@ -97,6 +185,23 @@ paths:
                     application/json:
                         schema:
                             $ref: '#/components/schemas/EventsCaptureRequest'
+                        example:
+                            {
+                                'api_key': '<ph_project_api_key>',
+                                'batch':
+                                    [
+                                        {
+                                            'event': '[event name]',
+                                            'properties':
+                                                {
+                                                    'distinct_id': "[your users' distinct id]",
+                                                    'key1': 'value1',
+                                                    'key2': 'value2',
+                                                },
+                                            'timestamp': '[optional timestamp in ISO 8601 format]',
+                                        },
+                                    ],
+                            }
                     multipart/form-data:
                         schema:
                             $ref: '#/components/schemas/EventsCaptureRequest'
@@ -111,51 +216,12 @@ paths:
                     Provides a method to capture events. Events are the core of PostHog,
                     and are what you use to track user behavior, and then analyze and
                     visualize in PostHog.
-        options:
-            summary: CORS preflight
-            description: |
-                This endpoint is used for CORS preflight requests. It is not intended
-                to be used directly.
-            responses:
-                '200':
-                    description: |
-                        CORS preflight request successful.
-                    content:
-                        application/json:
-                            schema:
-                                $ref: '#/components/schemas/EventsCaptureResponse'
-            requestBody:
-                content:
-                    '*/*':
-                        example: |
-                            This endpoint is used for CORS preflight requests. It is not
-                            intended to be used directly.
-
-    /track/:
-        $ref: '#/paths/~1e~1'
-
-    /track:
-        $ref: '#/paths/~1e~1'
-
-    /engage/:
-        $ref: '#/paths/~1e~1'
-
-    /batch/:
-        $ref: '#/paths/~1e~1'
-
-    /batch:
-        $ref: '#/paths/~1e~1'
 
 components:
     schemas:
         Event:
-            anyOf:
-                - $ref: '#/components/schemas/AutoCaptureEvent'
-                - $ref: '#/components/schemas/RecordingEvent'
-                - $ref: '#/components/schemas/GeneralEvent'
-
-        GeneralEvent:
             type: object
+            additionalProperties: false
             properties:
                 event:
                     type: string
@@ -163,63 +229,33 @@ components:
                     type: number
                 distinct_id:
                     type: string
+                $distinct_id:
+                    type: string
+                $token:
+                    type: string
+                project_id:
+                    type: integer
+                api_key:
+                    type: string
+                timestamp:
+                    type: string
+                    format: date-time
+                uuid:
+                    type: string
+                    format: uuid
+                type:
+                    type: string
                 properties:
                     type: object
-                    additionalProperties:
-                        type: string
+                    additionalProperties: true
 
-        AutoCaptureEvent:
-            type: object
-            properties:
-                event:
-                    type: string
-                    enum: ['$autocapture']
-                distinct_id:
-                    type: string
-                properties:
-                    type: object
-                    properties:
-                        $lib:
-                            type: string
-                        $lib_version:
-                            type: string
-                        distinct_id:
-                            type: string
-                        token:
-                            type: string
-                        $elements:
-                            type: array
-                            items:
-                                type: object
-                                properties:
-                                    tag_name:
-                                        type: string
-                                    href:
-                                        type: string
-                                    text:
-                                        type: string
-                                    attr_class:
-                                        type: string
-                                    attr_id:
-                                        type: string
-                                    nth_child:
-                                        type: number
-                                    nth_of_type:
-                                        type: number
-                                    attributes:
-                                        type: object
-                                        additionalProperties:
-                                            type: string
-                                    order:
-                                        type: number
-                    additionalProperties:
-                        type: string
+        EventCaptureRequest:
+            $ref: '#/components/schemas/Event'
 
         EventsCaptureRequest:
             anyOf:
                 - type: object
                   required:
-                      - 'api_key'
                       - 'batch'
                   properties:
                       api_key:
@@ -233,7 +269,6 @@ components:
                               $ref: '#/components/schemas/Event'
                 - type: object
                   required:
-                      - 'api_key'
                       - 'data'
                   properties:
                       api_key:
@@ -248,8 +283,10 @@ components:
                                     $ref: '#/components/schemas/Event'
                               - type: string
                                 description: |
-                                    A JSON stringified array of events.
-                - $ref: '#/components/schemas/Event'
+                                    A JSON stringified array of events. Optionally base64 encoded.
+                - type: array
+                  items:
+                      $ref: '#/components/schemas/Event'
 
         EventsCaptureResponse:
             type: object
@@ -295,23 +332,3 @@ components:
                 detail:
                     type: string
                     example: 'Invalid API key'
-
-        RecordingEvent:
-            type: object
-            properties:
-                distinct_id:
-                    type: string
-                session_id:
-                    type: string
-                timestamp:
-                    type: string
-                snapshot_data:
-                    type: object
-                    additionalProperties:
-                        type: string
-                event:
-                    type: string
-                properties:
-                    type: object
-                    additionalProperties:
-                        type: string

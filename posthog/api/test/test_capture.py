@@ -10,17 +10,16 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
 from io import BytesIO
-from typing import Any, Dict, List, Union, cast
+from typing import Any, Dict, List, Optional, Union, cast
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
-from urllib.parse import quote
+from urllib.parse import quote, parse_qs
 
 import lzstring
 import yaml
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
-from django.http import HttpResponse
 from django.http.multipartparser import MultiPartParser
 from django.test.client import Client, FakePayload
 from django.utils import timezone
@@ -61,12 +60,17 @@ parser = ResolvingParser(url=str(pathlib.Path(__file__).parent / "../../../opena
 openapi_spec = cast(Dict[str, Any], parser.specification)
 
 
-def validate_response(response: HttpResponse):
+def validate_response(response: Any, path_override: Optional[str] = None):
+    # Validates are response against the OpenAPI spec. If `path_override` is
+    # provided, the path in the response will be overridden with the provided
+    # value. This is useful for validating responses from e.g. the /batch
+    # endpoint, which is not defined in the OpenAPI spec.
     paths = openapi_spec["paths"]
-    path_spec = paths.get(response.request["PATH_INFO"])
+    path = path_override or response.request["PATH_INFO"]
+    path_spec = paths.get(path)
 
     assert path_spec, f"""
-        Response {response.request["PATH_INFO"]} not defined in OpenAPI spec:
+        Response {path} not defined in OpenAPI spec:
         {yaml.dump(paths, indent=2)}
     """
 
@@ -94,52 +98,85 @@ def validate_response(response: HttpResponse):
 
     validate(response.json(), response_spec)
 
-    # Get the payload that was used to make the request, and reset the read
-    # state so that we can read it again.
-    request_fake_payload: FakePayload = response.request.get("wsgi.input", FakePayload(b""))
-    request_body_content_type = response.request.get("CONTENT_TYPE", "*/*").split(";")[0]
-    request_body_content_encoding = response.request.get("HTTP_CONTENT_ENCODING", None)
+    # If we get a response that is not 400, get the payload that was used to
+    # make the request, and reset the read state so that we can read it again.
+    if response.status_code < 400 or response.status_code >= 500:
+        request_fake_payload: FakePayload = response.request.get("wsgi.input", FakePayload(b""))
+        request_body_content_type = response.request.get("CONTENT_TYPE", "*/*").split(";")[0]
+        request_body_content_encoding = response.request.get("HTTP_CONTENT_ENCODING", None)
 
-    request_body_value = cast(bytes, request_fake_payload._FakePayload__content.getvalue())  # type: ignore
-    if request_body_content_encoding == "gzip":
-        request_body = gzip.decompress(request_body_value)
-    elif request_body_content_encoding == "lz64":
-        request_body_string = lzstring.LZString().decompressFromBase64(request_body_value.decode())
-        assert request_body_string
-        request_body = request_body_string
-    else:
-        request_body = request_body_value
+        request_body_value = cast(bytes, request_fake_payload._FakePayload__content.getvalue())  # type: ignore
+        if request_body_content_encoding == "gzip":
+            request_body = gzip.decompress(request_body_value)
+        elif request_body_content_encoding == "lz64":
+            request_body_string = lzstring.LZString().decompressFromBase64(request_body_value.decode())
+            assert request_body_string
+            request_body = request_body_string
+        else:
+            request_body = request_body_value
 
-    request_body_spec = response_method_spec["requestBody"]["content"].get(request_body_content_type)
+        if response.request["REQUEST_METHOD"] in ["POST", "PUT", "PATCH", "DELETE"]:
+            # If not a GET or OPTIONS request, validate the request body.
+            request_body_spec = response_method_spec["requestBody"]["content"].get(request_body_content_type)
 
-    assert request_body_spec, f"""
-        Request body for {request_body_content_type} not defined in OpenAPI spec:
-        {yaml.dump(response_method_spec["requestBody"]["content"], indent=2)}
-    """
+            assert request_body_spec, f"""
+                Request body for {request_body_content_type} not defined in OpenAPI spec:
+                {yaml.dump(response_method_spec["requestBody"]["content"], indent=2)}
+            """
 
-    if request_body_content_type == "multipart/form-data":
-        request_body_schema = request_body_spec["schema"]
-        request_body_parser = MultiPartParser(response.request, BytesIO(request_body), [])
-        query_dict, _ = request_body_parser.parse()
+            if request_body_content_type == "multipart/form-data":
+                request_body_schema = request_body_spec["schema"]
+                request_body_parser = MultiPartParser(response.request, BytesIO(request_body), [])
+                query_dict, _ = request_body_parser.parse()
 
-        validate(query_dict, request_body_schema)
-    elif request_body_content_type == "application/json":
-        request_body_schema = request_body_spec["schema"]
+                validate(query_dict, request_body_schema)
+            elif request_body_content_type == "application/json":
+                request_body_schema = request_body_spec["schema"]
 
-        validate(json.loads(request_body), request_body_schema)
-    elif request_body_content_type == "*/*":
-        # No validation for */*
-        pass
-    elif request_body_content_type == "text/plain":
-        # No validation for text/plain
-        pass
-    else:
-        raise Exception(f"Unknown content type: {request_body_content_type}")
+                validate(json.loads(request_body), request_body_schema)
+            elif request_body_content_type == "*/*":
+                # No validation for */*
+                pass
+            elif request_body_content_type == "text/plain":
+                # No validation for text/plain
+                pass
+            else:
+                raise Exception(f"Unknown content type: {request_body_content_type}")
+
+        # If this is anything other than an OPTIONS we also want to validate
+        # that the parameters used were correct as per the spec. There might be
+        # a place for checking OPTIONS as well, but to handle the CORS preflight
+        # I'm excluding it for now.
+        if response.request["REQUEST_METHOD"].lower() != "options":
+            query_parameter_specs = {
+                parameter["name"]: parameter
+                for parameter in response_method_spec.get("parameters", [])
+                if parameter["in"] == "query"
+            }
+
+            sent_query_parameters = parse_qs(response.request["QUERY_STRING"])
+            for name, values in sent_query_parameters.items():
+                spec = query_parameter_specs[name]
+                schema = spec["schema"]
+                for value in values:
+                    try:
+                        parsed_value = json.loads(value)
+                    except json.JSONDecodeError:
+                        parsed_value = value
+
+                    validate(parsed_value, schema)
+
+            # Verify that all required params were sent
+            required_parameters = {key for key, spec in query_parameter_specs.items() if spec.get("required")}
+            for required_parameter in required_parameters:
+                assert (
+                    required_parameter in sent_query_parameters.keys()
+                ), f"Required parameter {required_parameter} was not sent in query string"
 
 
 class TestCapture(BaseTest):
     """
-    Tests all data capture endpoints (e.g. `/capture` `/track`).
+    Tests all data capture endpoints (e.g. `/capture` `/batch/`).
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
 
@@ -230,8 +267,6 @@ class TestCapture(BaseTest):
             },
             self._to_arguments(kafka_produce),
         )
-
-        validate_response(response)
 
     @patch("axes.middleware.AxesMiddleware")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -516,7 +551,7 @@ class TestCapture(BaseTest):
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_multiple_events(self, kafka_produce):
         response = self.client.post(
-            "/track/",
+            "/batch/",
             data={
                 "data": json.dumps(
                     [
@@ -539,7 +574,7 @@ class TestCapture(BaseTest):
 
         # Make sure the endpoint works with and without the trailing slash
         response = self.client.post(
-            "/track",
+            "/batch/",
             data={
                 "data": "eyJldmVudCI6ICIkd2ViX2V2ZW50IiwicHJvcGVydGllcyI6IHsiJG9zIjogIk1hYyBPUyBYIiwiJGJyb3dzZXIiOiAiQ2hyb21lIiwiJHJlZmVycmVyIjogImh0dHBzOi8vYXBwLmhpYmVybHkuY29tL2xvZ2luP25leHQ9LyIsIiRyZWZlcnJpbmdfZG9tYWluIjogImFwcC5oaWJlcmx5LmNvbSIsIiRjdXJyZW50X3VybCI6ICJodHRwczovL2FwcC5oaWJlcmx5LmNvbS8iLCIkYnJvd3Nlcl92ZXJzaW9uIjogNzksIiRzY3JlZW5faGVpZ2h0IjogMjE2MCwiJHNjcmVlbl93aWR0aCI6IDM4NDAsInBoX2xpYiI6ICJ3ZWIiLCIkbGliX3ZlcnNpb24iOiAiMi4zMy4xIiwiJGluc2VydF9pZCI6ICJnNGFoZXFtejVrY3AwZ2QyIiwidGltZSI6IDE1ODA0MTAzNjguMjY1LCJkaXN0aW5jdF9pZCI6IDYzLCIkZGV2aWNlX2lkIjogIjE2ZmQ1MmRkMDQ1NTMyLTA1YmNhOTRkOWI3OWFiLTM5NjM3YzBlLTFhZWFhMC0xNmZkNTJkZDA0NjQxZCIsIiRpbml0aWFsX3JlZmVycmVyIjogIiRkaXJlY3QiLCIkaW5pdGlhbF9yZWZlcnJpbmdfZG9tYWluIjogIiRkaXJlY3QiLCIkdXNlcl9pZCI6IDYzLCIkZXZlbnRfdHlwZSI6ICJjbGljayIsIiRjZV92ZXJzaW9uIjogMSwiJGhvc3QiOiAiYXBwLmhpYmVybHkuY29tIiwiJHBhdGhuYW1lIjogIi8iLCIkZWxlbWVudHMiOiBbCiAgICB7InRhZ19uYW1lIjogImJ1dHRvbiIsIiRlbF90ZXh0IjogIu2gve2yuyBXcml0aW5nIGNvZGUiLCJjbGFzc2VzIjogWwogICAgImJ0biIsCiAgICAiYnRuLXNlY29uZGFyeSIKXSwiYXR0cl9fY2xhc3MiOiAiYnRuIGJ0bi1zZWNvbmRhcnkiLCJhdHRyX19zdHlsZSI6ICJjdXJzb3I6IHBvaW50ZXI7IG1hcmdpbi1yaWdodDogOHB4OyBtYXJnaW4tYm90dG9tOiAxcmVtOyIsIm50aF9jaGlsZCI6IDIsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiZmVlZGJhY2stc3RlcCIsCiAgICAiZmVlZGJhY2stc3RlcC1zZWxlY3RlZCIKXSwiYXR0cl9fY2xhc3MiOiAiZmVlZGJhY2stc3RlcCBmZWVkYmFjay1zdGVwLXNlbGVjdGVkIiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJnaXZlLWZlZWRiYWNrIgpdLCJhdHRyX19jbGFzcyI6ICJnaXZlLWZlZWRiYWNrIiwiYXR0cl9fc3R5bGUiOiAid2lkdGg6IDkwJTsgbWFyZ2luOiAwcHggYXV0bzsgZm9udC1zaXplOiAxNXB4OyBwb3NpdGlvbjogcmVsYXRpdmU7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9fc3R5bGUiOiAib3ZlcmZsb3c6IGhpZGRlbjsiLCJudGhfY2hpbGQiOiAxLCJudGhfb2ZfdHlwZSI6IDF9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgIm1vZGFsLWJvZHkiCl0sImF0dHJfX2NsYXNzIjogIm1vZGFsLWJvZHkiLCJhdHRyX19zdHlsZSI6ICJmb250LXNpemU6IDE1cHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1jb250ZW50IgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1jb250ZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbC1kaWFsb2ciLAogICAgIm1vZGFsLWxnIgpdLCJhdHRyX19jbGFzcyI6ICJtb2RhbC1kaWFsb2cgbW9kYWwtbGciLCJhdHRyX19yb2xlIjogImRvY3VtZW50IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJtb2RhbCIsCiAgICAiZmFkZSIsCiAgICAic2hvdyIKXSwiYXR0cl9fY2xhc3MiOiAibW9kYWwgZmFkZSBzaG93IiwiYXR0cl9fc3R5bGUiOiAiZGlzcGxheTogYmxvY2s7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJrLXBvcnRsZXRfX2JvZHkiLAogICAgIiIKXSwiYXR0cl9fY2xhc3MiOiAiay1wb3J0bGV0X19ib2R5ICIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDBweDsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJjbGFzc2VzIjogWwogICAgImstcG9ydGxldCIsCiAgICAiay1wb3J0bGV0LS1oZWlnaHQtZmx1aWQiCl0sImF0dHJfX2NsYXNzIjogImstcG9ydGxldCBrLXBvcnRsZXQtLWhlaWdodC1mbHVpZCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImNsYXNzZXMiOiBbCiAgICAiY29sLWxnLTYiCl0sImF0dHJfX2NsYXNzIjogImNvbC1sZy02IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJyb3ciCl0sImF0dHJfX2NsYXNzIjogInJvdyIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImRpdiIsImF0dHJfX3N0eWxlIjogInBhZGRpbmc6IDQwcHggMzBweCAwcHg7IGJhY2tncm91bmQtY29sb3I6IHJnYigyMzksIDIzOSwgMjQ1KTsgbWFyZ2luLXRvcDogLTQwcHg7IG1pbi1oZWlnaHQ6IGNhbGMoMTAwdmggLSA0MHB4KTsiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDJ9LAogICAgeyJ0YWdfbmFtZSI6ICJkaXYiLCJhdHRyX19zdHlsZSI6ICJtYXJnaW4tdG9wOiAwcHg7IiwibnRoX2NoaWxkIjogMiwibnRoX29mX3R5cGUiOiAyfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiY2xhc3NlcyI6IFsKICAgICJBcHAiCl0sImF0dHJfX2NsYXNzIjogIkFwcCIsImF0dHJfX3N0eWxlIjogImNvbG9yOiByZ2IoNTIsIDYxLCA2Mik7IiwibnRoX2NoaWxkIjogMSwibnRoX29mX3R5cGUiOiAxfSwKICAgIHsidGFnX25hbWUiOiAiZGl2IiwiYXR0cl9faWQiOiAicm9vdCIsIm50aF9jaGlsZCI6IDEsIm50aF9vZl90eXBlIjogMX0sCiAgICB7InRhZ19uYW1lIjogImJvZHkiLCJudGhfY2hpbGQiOiAyLCJudGhfb2ZfdHlwZSI6IDF9Cl0sInRva2VuIjogInhwOXFUMlZMWTc2SkpnIn19"
             },
@@ -555,7 +590,7 @@ class TestCapture(BaseTest):
         self.team.save()
 
         response = self.client.post(
-            "/track?compression=gzip-js",
+            "/batch/?compression=gzip-js",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
             content_type="text/plain",
         )
@@ -585,7 +620,7 @@ class TestCapture(BaseTest):
         gzip_decompress.side_effect = zlib.error("Error -3 while decompressing data: invalid distance too far back")
 
         response = self.client.post(
-            "/track?compression=gzip-js",
+            "/batch/?compression=gzip-js",
             # NOTE: this is actually valid, but we are mocking the gzip lib to raise
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
             content_type="text/plain",
@@ -611,7 +646,7 @@ class TestCapture(BaseTest):
         self.team.save()
 
         response = self.client.post(
-            "/track?compression=gzip-js",
+            "/batch/?compression=gzip-js",
             data=b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03\xadRKn\xdb0\x10\xbdJ@xi\xd9CY\xd6o[\xf7\xb3\xe8gS4\x8b\xa2\x10(r$\x11\xa6I\x81\xa2\xe4\x18A.\xd1\x0b\xf4 \xbdT\x8f\xd0a\x93&mQt\xd5\x15\xc9\xf7\xde\xbc\x19\xf0\xcd-\xc3\x05m`5;]\x92\xfb\xeb\x9a\x8d\xde\x8d\xe8\x83\xc6\x89\xd5\xb7l\xe5\xe8`\xaf\xb5\x9do\x88[\xb5\xde\x9d'\xf4\x04=\x1b\xbc;a\xc4\xe4\xec=\x956\xb37\x84\x0f!\x8c\xf5vk\x9c\x14fpS\xa8K\x00\xbeUNNQ\x1b\x11\x12\xfd\xceFb\x14a\xb0\x82\x0ck\xf6(~h\xd6,\xe8'\xed,\xab\xcb\x82\xd0IzD\xdb\x0c\xa8\xfb\x81\xbc8\x94\xf0\x84\x9e\xb5\n\x03\x81U\x1aA\xa3[\xf2;c\x1b\xdd\xe8\xf1\xe4\xc4\xf8\xa6\xd8\xec\x92\x16\x83\xd8T\x91\xd5\x96:\x85F+\xe2\xaa\xb44Gq\xe1\xb2\x0cp\x03\xbb\x1f\xf3\x05\x1dg\xe39\x14Y\x9a\xf3|\xb7\xe1\xb0[3\xa5\xa7\xa0\xad|\xa8\xe3E\x9e\xa5P\x89\xa2\xecv\xb2H k1\xcf\xabR\x08\x95\xa7\xfb\x84C\n\xbc\x856\xe1\x9d\xc8\x00\x92Gu\x05y\x0e\xb1\x87\xc2EK\xfc?^\xda\xea\xa0\x85i<vH\xf1\xc4\xc4VJ{\x941\xe2?Xm\xfbF\xb9\x93\xd0\xf1c~Q\xfd\xbd\xf6\xdf5B\x06\xbd`\xd3\xa1\x08\xb3\xa7\xd3\x88\x9e\x16\xe8#\x1b)\xec\xc1\xf5\x89\xf7\x14G2\x1aq!\xdf5\xebfc\x92Q\xf4\xf8\x13\xfat\xbf\x80d\xfa\xed\xcb\xe7\xafW\xd7\x9e\x06\xb5\xfd\x95t*\xeeZpG\x8c\r\xbd}n\xcfo\x97\xd3\xabqx?\xef\xfd\x8b\x97Y\x7f}8LY\x15\x00>\x1c\xf7\x10\x0e\xef\xf0\xa0P\xbdi3vw\xf7\x1d\xccN\xdf\x13\xe7\x02\x00\x00",
             content_type="",
         )
@@ -621,8 +656,6 @@ class TestCapture(BaseTest):
         data = json.loads(kafka_produce.call_args[1]["data"]["data"])
         self.assertEqual(data["event"], "my-event")
         self.assertEqual(data["properties"]["prop"], "💻 Writing code")
-
-        validate_response(response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_invalid_gzip(self, kafka_produce):
@@ -643,8 +676,6 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
-        validate_response(response)
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_invalid_lz64(self, kafka_produce):
         self.team.api_token = "rnEnwNvmHphTu5rFG4gWDDs49t00Vk50tDOeDdedMb4"
@@ -661,8 +692,6 @@ class TestCapture(BaseTest):
         )
         self.assertEqual(kafka_produce.call_count, 0)
 
-        validate_response(response)
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_incorrect_padding(self, kafka_produce):
         response = self.client.get(
@@ -673,8 +702,6 @@ class TestCapture(BaseTest):
         self.assertEqual(response.json()["status"], 1)
         data = json.loads(kafka_produce.call_args[1]["data"]["data"])
         self.assertEqual(data["event"], "whatevefr")
-
-        validate_response(response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_empty_request_returns_an_error(self, kafka_produce):
@@ -691,8 +718,6 @@ class TestCapture(BaseTest):
         response = self.client.post("/e/", {}, content_type="application/json", HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(kafka_produce.call_count, 0)
-
-        validate_response(response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch(self, kafka_produce):
@@ -843,7 +868,7 @@ class TestCapture(BaseTest):
 
         response = self.client.generic(
             "POST",
-            "/batch",
+            "/batch/",
             data=lzstring.LZString().compressToBase64(json.dumps(data)).encode(),
             content_type="application/json",
             HTTP_CONTENT_ENCODING="lz64",
@@ -871,7 +896,7 @@ class TestCapture(BaseTest):
         self.team.api_token = "KZZZeIpycLH-tKobLBET2NOg7wgJF2KqDL5yWU_7tZw"
         self.team.save()
         response = self.client.post(
-            "/batch",
+            "/batch/",
             data="NoKABBYN4EQKYDc4DsAuMBcYaD4NwyLswA0MADgE4D2JcZqAlnAM6bQwAkFzWMAsgIYBjMAHkAymAAaRdgCNKAd0Y0WMAMIALSgFs40tgICuZMilQB9IwBsV61KhIYA9I4CMAJgDsAOgAMvry4YABw+oY4AJnBaFHrqnOjc7t5+foEhoXokfKjqyHw6KhFRMcRschSKNGZIZIx0FMgsQQBspYwCJihm6nB0AOa2LC4+AKw+bR1wXfJ04TlDzSGllnQyKvJwa8ur1TR1DSou/j56dMhKtGaz6wBeAJ4GQagALPJ8buo3I8iLevQFWBczVGIxGAGYPABONxeMGQlzEcJ0Rj0ZACczXbg3OCQgBCyFxAlxAE1iQBBADSAC0ANYAVT4NIAKmDRC4eAA5AwAMUYABkAJIAcQMPCouOeZCCAFotAA1cLNeR6SIIOgCOBXcKHDwjSFBNyQnzA95BZ7SnxuAQjFwuABmYKCAg8bh8MqBYLgzRcIzc0pcfDgfD4Pn9uv1huNPhkwxGegMFy1KmxeIJRNJlNpDOZrPZXN5gpFYpIEqlsoVStOyDo9D4ljMJjtNBMZBsdgcziSxwCwVCPkclgofTOAH5kHAAB6oAC8jirNbodYbcCbxjOfTM4QoWj4Z0Onm7aT70hI8TiG5q+0aiQCzV80nUfEYZkYlkENLMGxkcQoNJYdrrJRSkEegkDMJtsiMTU7TfPouDAUBIGwED6nOaUDAnaVXWGdwYBAABdYhUF/FAVGpKkqTgAUSDuAQ+QACWlVAKQoGQ+VxABRJk3A5YQ+g8eQ+gAKW5NwKQARwAET5EY7gAdTpMwPFQKllQAX2ICg7TtJQEjAMFQmeNSCKAA==",
             content_type="application/json",
             HTTP_CONTENT_ENCODING="lz64",
@@ -980,8 +1005,6 @@ class TestCapture(BaseTest):
             },
         )
 
-        validate_response(response)
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_python_library(self, kafka_produce):
         response = self.client.post(
@@ -993,8 +1016,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["team_id"], self.team.pk)
-
-        validate_response(response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_base64_decode_variations(self, kafka_produce):
@@ -1010,8 +1031,6 @@ class TestCapture(BaseTest):
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
 
-        validate_response(response)
-
         # POST with " " in the base64 instead of the "+"
         response = self.client.post(
             "/track/",
@@ -1020,8 +1039,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["team_id"], self.team.pk)
         self.assertEqual(arguments["distinct_id"], "eeeeeeegϥeeeee")
-
-        validate_response(response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_js_library_underscore_sent_at(self, kafka_produce):
@@ -1052,8 +1069,6 @@ class TestCapture(BaseTest):
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
 
-        validate_response(response)
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_long_distinct_id(self, kafka_produce):
         now = timezone.now()
@@ -1073,8 +1088,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(len(arguments["distinct_id"]), 200)
-
-        validate_response(response)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_sent_at_field(self, kafka_produce):
@@ -1099,8 +1112,6 @@ class TestCapture(BaseTest):
         timediff = sent_at.timestamp() - tomorrow_sent_at.timestamp()
         self.assertLess(abs(timediff), 1)
         self.assertEqual(arguments["data"]["timestamp"], tomorrow.isoformat())
-
-        validate_response(response)
 
     def test_incorrect_json(self):
         response = self.client.post(
@@ -1142,8 +1153,6 @@ class TestCapture(BaseTest):
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "invalid_distinct_id"}})
 
-        validate_response(response)
-
     @patch("statshog.defaults.django.statsd.incr")
     def test_distinct_id_set_but_null(self, statsd_incr):
         response = self.client.post(
@@ -1167,8 +1176,6 @@ class TestCapture(BaseTest):
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "invalid_distinct_id"}})
 
-        validate_response(response)
-
     @patch("statshog.defaults.django.statsd.incr")
     def test_event_name_missing(self, statsd_incr):
         response = self.client.post(
@@ -1188,8 +1195,6 @@ class TestCapture(BaseTest):
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event")
         self.assertEqual(statsd_incr_first_call.kwargs, {"tags": {"error": "missing_event_name"}})
 
-        validate_response(response)
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_custom_uuid(self, kafka_produce) -> None:
         uuid = "01823e89-f75d-0000-0d4d-3d43e54f6de5"
@@ -1203,8 +1208,6 @@ class TestCapture(BaseTest):
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["uuid"], uuid)
         self.assertEqual(arguments["data"]["uuid"], uuid)
-
-        validate_response(response)
 
     @patch("statshog.defaults.django.statsd.incr")
     def test_custom_uuid_invalid(self, statsd_incr) -> None:
@@ -1228,8 +1231,6 @@ class TestCapture(BaseTest):
         statsd_incr_first_call = statsd_incr.call_args_list[0]
         self.assertEqual(statsd_incr_first_call.args[0], "invalid_event_uuid")
 
-        validate_response(response)
-
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_add_feature_flags_if_missing(self, kafka_produce) -> None:
         self.assertListEqual(self.team.event_properties_numerical, [])
@@ -1243,8 +1244,6 @@ class TestCapture(BaseTest):
         )
         arguments = self._to_arguments(kafka_produce)
         self.assertEqual(arguments["data"]["properties"]["$active_feature_flags"], ["test-ff"])
-
-        validate_response(response)
 
     def test_handle_lacking_event_name_field(self):
         response = self.client.post(
@@ -1260,8 +1259,6 @@ class TestCapture(BaseTest):
             ),
         )
 
-        validate_response(response)
-
     def test_handle_invalid_snapshot(self):
         response = self.client.post(
             "/e/",
@@ -1275,8 +1272,6 @@ class TestCapture(BaseTest):
                 'Invalid payload: $snapshot events must contain property "$snapshot_data"!', code="invalid_payload"
             ),
         )
-
-        validate_response(response)
 
     def test_batch_request_with_invalid_auth(self):
         data = [
@@ -1303,8 +1298,6 @@ class TestCapture(BaseTest):
             },
         )
 
-        validate_response(response)
-
     def test_sentry_tracing_headers(self):
         response = self.client.generic(
             "OPTIONS",
@@ -1317,8 +1310,6 @@ class TestCapture(BaseTest):
         self.assertEqual(
             response.headers["Access-Control-Allow-Headers"], "X-Requested-With,Content-Type,traceparent,request-id"
         )
-
-        validate_response(response)
 
         response = self.client.generic(
             "OPTIONS",
@@ -1373,8 +1364,6 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, None)
-
-        validate_response(response)
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1550,5 +1539,3 @@ class TestCapture(BaseTest):
             },
             event_data,
         )
-
-        validate_response(response)
