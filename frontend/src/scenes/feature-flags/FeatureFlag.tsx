@@ -7,7 +7,7 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { FeatureFlagInstructions } from './FeatureFlagInstructions'
+import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import {
@@ -742,19 +742,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             {featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] && !multivariateEnabled && (
                 <div className="mb-6">
                     <h3 className="l4">Payload</h3>
-                    {!readOnly && (
-                        <div className="text-muted mb-4">
-                            Specify a json payload to be returned when the served value is{' '}
-                            <strong>
-                                <code>true</code>
-                            </strong>
-                            . Examples: <code>"A string"</code>
-                            {', '}
-                            <code>2500</code>
-                            {', '}
-                            <code>{'{"key": "value"}'}</code>
-                        </div>
-                    )}
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -762,11 +749,28 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             <span>No payload associated with this flag</span>
                         )
                     ) : (
-                        <Group name={['filters', 'payloads']}>
-                            <Field name="true">
-                                <JSONEditorInput readOnly={readOnly} />
-                            </Field>
-                        </Group>
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <div className="text-muted mb-4">
+                                    Specify a payload to be returned when the served value is{' '}
+                                    <strong>
+                                        <code>true</code>
+                                    </strong>
+                                </div>
+                                <Group name={['filters', 'payloads']}>
+                                    <Field name="true">
+                                        <JSONEditorInput
+                                            readOnly={readOnly}
+                                            placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                        />
+                                    </Field>
+                                </Group>
+                            </Col>
+
+                            <Col span={12}>
+                                <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                            </Col>
+                        </Row>
                     )}
                 </div>
             )}
@@ -784,7 +788,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 <Col span={8}>
                                     <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
                                         <b>Payload</b>
-                                        <span className="text-muted">Specify return JSON payload when key matches</span>
+                                        <span className="text-muted">
+                                            Specify return payload when the variant key matches
+                                        </span>
                                     </div>
                                 </Col>
                                 <Col span={4}>
@@ -826,7 +832,13 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                         <Col span={8}>
                                             <Field name={['payloads', index]}>
                                                 {({ value, onChange }) => {
-                                                    return <JSONEditorInput onChange={onChange} value={value} />
+                                                    return (
+                                                        <JSONEditorInput
+                                                            onChange={onChange}
+                                                            value={value}
+                                                            placeholder={'{"key": "value"}'}
+                                                        />
+                                                    )
                                                 }}
                                             </Field>
                                         </Col>
