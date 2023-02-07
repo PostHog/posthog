@@ -65,6 +65,7 @@ social-auth-app-django==5.0.0
 social-auth-core==4.3.0
 statshog==1.0.6
 sqlparse==0.4.2
+token-bucket==0.3.0
 toronado==0.1.0
 webdriver_manager==3.8.4
 whitenoise==5.2.0
