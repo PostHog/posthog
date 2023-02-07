@@ -48,20 +48,6 @@ def run_events_query_v3(
         where_exprs.extend(property_to_expr(property) for property in query.fixedProperties)
     if query.event:
         where_exprs.append(parse_expr("event = {event}", {"event": ast.Constant(value=query.event)}))
-    if query.before:
-        # prevent accidentally future events from being visible by default
-        before = query.before or (now() + timedelta(seconds=5)).isoformat()
-        try:
-            timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
-        except ValueError:
-            timestamp = relative_date_parse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
-        where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
-    if query.after:
-        try:
-            timestamp = isoparse(query.after).strftime("%Y-%m-%d %H:%M:%S.%f")
-        except ValueError:
-            timestamp = relative_date_parse(query.after).strftime("%Y-%m-%d %H:%M:%S.%f")
-        where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
     if query.actionId:
         try:
             action = Action.objects.get(pk=query.actionId, team_id=team.pk)
@@ -75,6 +61,22 @@ def run_events_query_v3(
         distinct_ids = person.distinct_ids if person is not None else []
         ids_list = list(map(str, distinct_ids))
         where_exprs.append(parse_expr("distinct_id in {list}", {"list": ast.Constant(value=ids_list)}))
+
+    # prevent accidentally future events from being visible by default
+    before = query.before or (now() + timedelta(seconds=5)).isoformat()
+    try:
+        timestamp = isoparse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        timestamp = relative_date_parse(before).strftime("%Y-%m-%d %H:%M:%S.%f")
+    where_exprs.append(parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
+
+    # limit to the last 24h by default
+    after = query.after or "-24h"
+    try:
+        timestamp = isoparse(after).strftime("%Y-%m-%d %H:%M:%S.%f")
+    except ValueError:
+        timestamp = relative_date_parse(after).strftime("%Y-%m-%d %H:%M:%S.%f")
+    where_exprs.append(parse_expr("timestamp > {timestamp}", {"timestamp": ast.Constant(value=timestamp)}))
 
     # where & having
     where_list = [expr for expr in where_exprs if not has_aggregation(expr)]
