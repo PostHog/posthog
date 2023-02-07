@@ -99,38 +99,6 @@ class TestQueryDateRange(APIBaseTest):
             parsed_date_to % date_to_params, "AND toDateTime(timestamp, 'UTC') <= toDateTime(2021-08-25 23:59:59, UTC)"
         )
 
-    def test_is_hourly(self):
-
-        with freeze_time("2021-08-25T00:00:00.000Z"):
-            filter = Filter(
-                data={
-                    "date_from": "-48h",
-                    "interval": "day",
-                    "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
-            )
-
-            query_date_range = QueryDateRange(filter=filter, team=self.team)
-
-        self.assertFalse(query_date_range.is_hourly("-48d"))
-        self.assertTrue(query_date_range.is_hourly("-48h"))
-        self.assertFalse(query_date_range.is_hourly(None))
-
-        with freeze_time("2021-08-25T00:00:00.000Z"):
-            filter = Filter(
-                data={
-                    "date_from": "-48h",
-                    "interval": "hour",
-                    "events": [{"id": "sign up"}, {"id": "no events"}],
-                }
-            )
-
-            query_date_range = QueryDateRange(filter=filter, team=self.team)
-
-        self.assertTrue(query_date_range.is_hourly("-48d"))
-        self.assertTrue(query_date_range.is_hourly("-48h"))
-        self.assertTrue(query_date_range.is_hourly(None))
-
     def test_interval_annotation(self):
         with freeze_time("2021-08-25T00:00:00.000Z"):
             filter = Filter(

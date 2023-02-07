@@ -42,7 +42,7 @@ class QueryDateRange(Generic[F]):
             date_to = self._localize_to_team(self._filter._date_to)
 
         if not self._filter.use_explicit_dates:
-            if self.is_hourly(delta_mapping):
+            if self._is_hourly(delta_mapping):
                 date_to = date_to.replace(minute=59, second=59, microsecond=999999)
             else:
                 date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
@@ -73,7 +73,7 @@ class QueryDateRange(Generic[F]):
             )
 
         if not self._filter.use_explicit_dates:
-            if self.is_hourly(delta_mapping):
+            if self._is_hourly(delta_mapping):
                 date_from = date_from.replace(minute=0, second=0, microsecond=0)
             else:
                 date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -177,7 +177,7 @@ class QueryDateRange(Generic[F]):
 
         return round_interval
 
-    def is_hourly(self, delta_mapping: Optional[Dict[str, int]]):
+    def _is_hourly(self, delta_mapping: Optional[Dict[str, int]]):
         if not isinstance(self._filter, IntervalMixin):
             return False
         return self._filter.interval == "hour" or (delta_mapping and "hours" in delta_mapping)
