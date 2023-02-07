@@ -27,7 +27,6 @@ class TestPrinter(TestCase):
         self.assertEqual(self._expr("1.0 * 2.66"), "multiply(1.0, 2.66)")
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
-        self.assertEqual(self._expr('"string"'), "%(hogql_val_0)s")
 
     def test_equals_null(self):
         self.assertEqual(self._expr("1 == null"), "isNull(1)")
@@ -42,11 +41,6 @@ class TestPrinter(TestCase):
             self._expr("properties['bla']"),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
-        self.assertEqual(
-            self._expr('properties["bla"]'),
-            "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
-
         context = HogQLContext()
         self.assertEqual(
             self._expr("properties.$bla", context),
@@ -134,6 +128,10 @@ class TestPrinter(TestCase):
             "properties.`$browser with a space`",
         )
         self.assertEqual(
+            self._expr('properties."$browser with a space"', HogQLContext(), "hogql"),
+            "properties.`$browser with a space`",
+        )
+        self.assertEqual(
             self._expr("properties['$browser with a space']", HogQLContext(), "hogql"),
             "properties.`$browser with a space`",
         )
@@ -146,9 +144,6 @@ class TestPrinter(TestCase):
             "properties.`$browser \\\\with a \\n\\` tick`",
         )
         self._assert_expr_error("properties.0", "Unsupported node: ColumnExprTupleAccess", "hogql")
-        self._assert_expr_error(
-            'properties."no strings"', "mismatched input '\"no strings\"' expecting DECIMAL_LITERAL", "hogql"
-        )
         self._assert_expr_error(
             "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
         )
