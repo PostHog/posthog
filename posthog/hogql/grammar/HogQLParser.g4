@@ -167,7 +167,7 @@ columnLambdaExpr:
 // HogQL allows unlimited ("*") nestedIdentifier-s "properties.b.a.a.w.a.s".
 // We parse and convert "databaseIdentifier.tableIdentifier.columnIdentifier.nestedIdentifier.*"
 // to just one ast.Field(chain=['a','b','columnIdentifier','on','and','on']).
-columnIdentifier: (tableIdentifier DOT)? nestedIdentifier;
+columnIdentifier: PLACEHOLDER | ((tableIdentifier DOT)? nestedIdentifier);
 nestedIdentifier: identifier (DOT identifier)*;
 tableExpr
     : tableIdentifier                    # TableExprIdentifier
@@ -221,7 +221,6 @@ keywordForAlias
     : DATE | FIRST | ID | KEY
     ;
 alias: IDENTIFIER | keywordForAlias;  // |interval| can't be an alias, otherwise 'INTERVAL 1 SOMETHING' becomes ambiguous.
-templateString: LBRACE IDENTIFIER RBRACE;
-identifier: templateString | IDENTIFIER | interval | keyword;
+identifier: IDENTIFIER | interval | keyword;
 identifierOrNull: identifier | NULL_SQL;  // NULL_SQL can be only 'Null' here.
 enumValue: STRING_LITERAL EQ_SINGLE numberLiteral;

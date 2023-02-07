@@ -568,6 +568,14 @@ class TestParser(BaseTest):
             ast.Constant(value="bar"),
         )
         self.assertEqual(
+            parse_expr("timestamp < {timestamp}", {"timestamp": ast.Constant(value=123)}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Lt,
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=123),
+            ),
+        )
+        self.assertEqual(
             parse_select("select 1 where 1 == {hogql_val_1}"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],

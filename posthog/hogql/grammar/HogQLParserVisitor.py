@@ -524,11 +524,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#templateString.
-    def visitTemplateString(self, ctx:HogQLParser.TemplateStringContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#identifier.
     def visitIdentifier(self, ctx:HogQLParser.IdentifierContext):
         return self.visitChildren(ctx)

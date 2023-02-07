@@ -313,7 +313,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [self.visit(c) for c in ctx.columnsExpr()]
 
     def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
-        return ast.Field(field="*")
+        return ast.Field(field=["*"])
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
@@ -525,10 +525,15 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnLambdaExpr")
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
+        if ctx.PLACEHOLDER():
+            return ast.Placeholder(field=parse_string_literal(ctx.PLACEHOLDER()))
+
         table = self.visit(ctx.tableIdentifier()) if ctx.tableIdentifier() else []
         nested = self.visit(ctx.nestedIdentifier()) if ctx.nestedIdentifier() else []
 
         if len(table) == 0 and len(nested) > 0:
+            if isinstance(nested[0], ast.Expr):
+                return nested[0]
             text = ctx.getText().lower()
             if text == "true":
                 return ast.Constant(value=True)
@@ -606,12 +611,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             text = parse_string_literal(ctx)
         return text
 
-    def visitTemplateString(self, ctx: HogQLParser.TemplateStringContext):
-        return ast.Placeholder(field=parse_string_literal(ctx))
-
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
-        if ctx.templateString():
-            return self.visit(ctx.templateString())
         text = ctx.getText()
         if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
             text = parse_string_literal(ctx)
