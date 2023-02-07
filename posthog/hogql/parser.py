@@ -469,13 +469,17 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitAlias(self, ctx: HogQLParser.AliasContext):
         text = ctx.getText()
-        if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
+        if len(text) >= 2 and (
+            (text.startswith("`") and text.endswith("`")) or (text.startswith('"') and text.endswith('"'))
+        ):
             text = parse_string(text)
         return text
 
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
         text = ctx.getText()
-        if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
+        if len(text) >= 2 and (
+            (text.startswith("`") and text.endswith("`")) or (text.startswith('"') and text.endswith('"'))
+        ):
             text = parse_string(text)
         return text
 

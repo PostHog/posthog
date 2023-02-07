@@ -43,7 +43,5 @@ Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse
 
 Changes with ClickHouse's grammar:
 - removed all statements except for "select"
-- strings can also be entered with double quotes, not just single quotes
-- identifiers are entered with only backticks, not with double quotes (those are used for strings) 
 - raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
  

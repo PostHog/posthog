@@ -212,12 +212,10 @@ ESCAPE_CHAR
     | BACKSLASH BACKSLASH
     | BACKSLASH QUOTE_SINGLE;
 
-// ClickHouse supports identifier with double quotes and back quotes (select from "table"; select from `table`)
-// HogQL only uses backquotes. Double quotes and single quotes are used in strings.
-// This is to make query editing in the UI nicer by supporting intuitive syntax like: event == "$pageview"
 IDENTIFIER
     : (LETTER | UNDERSCORE | DOLLAR) (LETTER | UNDERSCORE | DEC_DIGIT | DOLLAR)*
     | BACKQUOTE ( ~([\\`]) | ESCAPE_CHAR | (BACKQUOTE BACKQUOTE) )* BACKQUOTE
+    | QUOTE_DOUBLE ( ~([\\"]) | ESCAPE_CHAR | (QUOTE_DOUBLE QUOTE_DOUBLE) )* QUOTE_DOUBLE
     ;
 FLOATING_LITERAL
     : HEXADECIMAL_LITERAL DOT HEX_DIGIT* (P | E) (PLUS | DASH)? DEC_DIGIT+
@@ -231,10 +229,7 @@ DECIMAL_LITERAL: DEC_DIGIT+;
 HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+;
 
 // It's important that quote-symbol is a single character.
-STRING_LITERAL
-    : QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE
-    | QUOTE_DOUBLE ( ~([\\"]) | ESCAPE_CHAR | (QUOTE_DOUBLE QUOTE_DOUBLE) )* QUOTE_DOUBLE
-    ;
+STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
 
 // Alphabet and allowed symbols
 
