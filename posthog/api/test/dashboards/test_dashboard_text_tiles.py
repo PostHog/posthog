@@ -16,7 +16,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @staticmethod
-    def _serialised_user(user: Optional[User]) -> Optional[Dict[str, Union[int, str]]]:
+    def _serialised_user(user: Optional[User]) -> Optional[Dict[str, Optional[Union[int, str]]]]:
         if user is None:
             return None
 
