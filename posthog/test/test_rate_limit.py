@@ -236,13 +236,19 @@ class TestUserAPI(APIBaseTest):
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_does_not_rate_limit_non_personal_api_key_endpoints(self, rate_limit_enabled_mock, incr_mock):
-        for _ in range(5):
-            response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
+        for _ in range(6):
+            response = self.client.get(
+                f"/api/organizations/{self.organization.pk}/plugins",
+                HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # got rate limited with personal API key
+        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        incr_mock.reset_mock()
 
+        # but not without personal API key
         response = self.client.get(f"/api/organizations/{self.organization.pk}/plugins")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
