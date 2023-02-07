@@ -62,6 +62,7 @@ class TestSignupAPI(APIBaseTest):
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
                 "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -925,7 +926,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "",
                 "email": "test+159@posthog.com",
                 "redirect_url": "/",
-                "is_email_verified": False,
+                "is_email_verified": None,
             },
         )
 
@@ -994,7 +995,7 @@ class TestInviteSignupAPI(APIBaseTest):
                 "first_name": "",
                 "email": "test+189@posthog.com",
                 "redirect_url": "/",
-                "is_email_verified": False,
+                "is_email_verified": None,
             },  # note the unchanged attributes
         )
 

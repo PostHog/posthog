@@ -38,7 +38,7 @@ class TestUser(BaseTest):
                     "social_providers": [],
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
-                    "is_email_verified": False,
+                    "is_email_verified": None,
                 },
             )
 
@@ -73,6 +73,6 @@ class TestUser(BaseTest):
                     "social_providers": [],
                     "instance_url": "http://localhost:8000",
                     "instance_tag": "none",
-                    "is_email_verified": False,
+                    "is_email_verified": None,
                 },
             )

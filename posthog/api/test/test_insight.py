@@ -76,6 +76,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "distinct_id": self.user.distinct_id,
             "first_name": self.user.first_name,
             "email": self.user.email,
+            "is_email_verified": None,
         }
         alt_user_basic_serialized = {
             "id": alt_user.id,
@@ -83,6 +84,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             "distinct_id": alt_user.distinct_id,
             "first_name": alt_user.first_name,
             "email": alt_user.email,
+            "is_email_verified": None,
         }
 
         # Newly created insight should have created_at being the current time, and same last_modified_at

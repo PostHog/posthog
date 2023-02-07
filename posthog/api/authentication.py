@@ -92,12 +92,14 @@ class LoginSerializer(serializers.Serializer):
 
         require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
         # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_cloud() and require_verification_feature and user.is_email_verified is False:
+        if is_cloud() and require_verification_feature and user.is_email_verified is not True:
             send_email_verification(user.id)
-            raise serializers.ValidationError(
-                "Your account awaiting verification. Please check your email for a verification link.",
-                code="not_verified",
-            )
+            if user.is_email_verified is False:
+                # If it's None, we want to let them log in still since they are an existing user
+                raise serializers.ValidationError(
+                    "Your account awaiting verification. Please check your email for a verification link.",
+                    code="not_verified",
+                )
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_logged_in(user, social_provider="")

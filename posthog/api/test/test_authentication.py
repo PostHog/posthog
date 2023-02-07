@@ -56,6 +56,8 @@ class TestLoginAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_user_logs_in_with_email_and_password(self, mock_capture, mock_identify):
+        self.user.is_email_verified = True
+        self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
@@ -78,8 +80,10 @@ class TestLoginAPI(APIBaseTest):
     def test_email_unverified_user_cant_log_in_if_email_verification_true(
         self, mock_feature_enabled, mock_send_email_verification
     ):
+        self.user.is_email_verified = False
+        self.user.save()
         with self.is_cloud(True):
-            self.assertFalse(self.user.is_email_verified)
+            self.assertEqual(self.user.is_email_verified, False)
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
             self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
@@ -89,6 +93,26 @@ class TestLoginAPI(APIBaseTest):
 
             mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.uuid))
 
+            # Assert the email was sent.
+            mock_send_email_verification.assert_called_once_with(self.user.id)
+
+    @patch("posthog.api.authentication.send_email_verification")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_email_unverified_null_user_can_log_in_if_email_verification_true(
+        self, mock_feature_enabled, mock_send_email_verification
+    ):
+        """When email verification was added, existing users were set to is_email_verified=null.
+        If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
+        self.assertEqual(self.user.is_email_verified, None)
+        with self.is_cloud(True):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Test that we are logged in
+            response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Assert we called the feature flag
+            mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.uuid))
             # Assert the email was sent.
             mock_send_email_verification.assert_called_once_with(self.user.id)
 
