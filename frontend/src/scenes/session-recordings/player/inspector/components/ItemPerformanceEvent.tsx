@@ -96,20 +96,11 @@ export function ItemPerformanceEvent({
     const startTime = item.start_time || item.fetch_start || 0
     const duration = item.duration || 0
 
-    const eventName = useMemo(() => {
-        // If the $current_url domain is the same as event's domain then we just display the path
-        let val = item.name || '(missing)'
+    const callerOrigin = isURL(item.current_url) ? new URL(item.current_url).origin : undefined
+    const eventName = item.name || '(empty string)'
 
-        if (item.name && isURL(item.name) && isURL(item.current_url)) {
-            const eventUrl = new URL(item.name)
-            const currentUrl = new URL(item.current_url)
-
-            if (eventUrl.hostname === currentUrl.hostname) {
-                val = eventUrl.pathname
-            }
-        }
-        return val
-    }, [item.name, item.current_url])
+    const shortEventName =
+        callerOrigin && eventName.startsWith(callerOrigin) ? eventName.replace(callerOrigin, '') : eventName
 
     const contextLengthMs = finalTimestamp?.diff(dayjs(item.time_origin), 'ms') || 1000
 
@@ -164,7 +155,7 @@ export function ItemPerformanceEvent({
                         <>
                             <div className="flex gap-2 items-start p-2 text-xs">
                                 <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                                    Navigated to {eventName}
+                                    Navigated to {shortEventName}
                                 </span>
                             </div>
                             <LemonDivider className="my-0" />
@@ -199,7 +190,9 @@ export function ItemPerformanceEvent({
                         </>
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
-                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{eventName}</span>
+                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
+                                {shortEventName}
+                            </span>
                             {/* We only show the status if it exists and is an error status */}
                             {otherProps.response_status && otherProps.response_status >= 400 ? (
                                 <span
