@@ -21,7 +21,7 @@ export function FunnelExclusionsFilterDataExploration(): JSX.Element {
         <FunnelExclusionsFilterComponent
             exclusionFilters={exclusionFilters}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
-            areFiltersValid={(querySource as FunnelsQuery).series.length > 1}
+            areFiltersValid={((querySource as FunnelsQuery).series || []).length > 1}
             setFilters={(filters) => {
                 const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((e) => ({
                     ...e,

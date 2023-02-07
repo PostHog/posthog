@@ -1,6 +1,6 @@
 from datetime import timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Optional, Sequence, TypedDict
+from typing import Dict, List, Mapping, Sequence, TypedDict
 
 import dateutil.parser
 from django.db.models import Q
@@ -17,6 +17,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_current_day
 
+
 RATE_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 
 
@@ -31,7 +32,7 @@ OVERAGE_BUFFER = {
 }
 
 
-def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, float]) -> None:
+def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
     pipe = get_client().pipeline()
     pipe.delete(f"{RATE_LIMITER_CACHE_KEY}{resource.value}")
     if tokens:
@@ -40,7 +41,7 @@ def replace_limited_teams(resource: QuotaResource, tokens: Mapping[str, float]) 
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
-def list_limited_teams(resource: QuotaResource) -> List[str]:
+def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
     results = redis_client.zrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
@@ -52,7 +53,7 @@ class UsageCounters(TypedDict):
     recordings: int
 
 
-def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, float]]:
+def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, int]]:
     period = get_current_day()
     period_start, period_end = period
 
@@ -88,7 +89,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-    rate_limited_orgs: Dict[str, Dict[str, float]] = {"events": {}, "recordings": {}}
+    rate_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
 
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
@@ -112,13 +113,13 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
                     continue
 
                 is_rate_limited = usage + unreported_usage > limit + OVERAGE_BUFFER[QuotaResource(field)]
-                billing_period_end = dateutil.parser.isoparse(org.usage["period"][1]).timestamp()
+                billing_period_end = round(dateutil.parser.isoparse(org.usage["period"][1]).timestamp())
 
                 if is_rate_limited and billing_period_end:
                     # TODO: Set this rate limit to the end of the billing period
                     rate_limited_orgs[field][org_id] = billing_period_end
 
-    rate_limited_teams: Dict[str, Dict[str, float]] = {"events": {}, "recordings": {}}
+    rate_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
 
     # Convert the org ids to team tokens
     for team in teams:
@@ -129,6 +130,6 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
 
     if not dry_run:
         for field in rate_limited_teams:
-            replace_limited_teams(QuotaResource(field), rate_limited_teams[field])
+            replace_limited_team_tokens(QuotaResource(field), rate_limited_teams[field])
 
     return rate_limited_orgs

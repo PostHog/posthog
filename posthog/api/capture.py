@@ -18,6 +18,7 @@ from rest_framework import status
 from sentry_sdk import configure_scope
 from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
+from token_bucket import Limiter, MemoryStorage
 
 from posthog.api.utils import (
     EventIngestionContext,
@@ -37,6 +38,16 @@ from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
 
+LIMITER = Limiter(
+    rate=settings.PARTITION_KEY_BUCKET_REPLENTISH_RATE,
+    capacity=settings.PARTITION_KEY_BUCKET_CAPACITY,
+    storage=MemoryStorage(),
+)
+LOG_RATE_LIMITER = Limiter(
+    rate=1 / 60,
+    capacity=1,
+    storage=MemoryStorage(),
+)
 
 # These event names are reserved for internal use and refer to non-analytics
 # events that are ingested via a separate path than analytics events. They have
@@ -46,8 +57,8 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
-    "Events dropped by capture due to quota-limiting, per resource, team and token.",
-    labelnames=["resource", "token", "team"],
+    "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
+    labelnames=["resource_type", "team_id", "token"],
 )
 
 
@@ -215,22 +226,22 @@ def drop_events_over_quota(
     if not settings.EE_AVAILABLE:
         return events
 
-    from ee.billing.quota_limiting import QuotaResource, list_limited_teams
+    from ee.billing.quota_limiting import QuotaResource, list_limited_team_tokens
 
     results = []
-    limited_tokens_events = list_limited_teams(QuotaResource.EVENTS)
-    limited_tokens_recordings = list_limited_teams(QuotaResource.RECORDINGS)
+    limited_tokens_events = list_limited_team_tokens(QuotaResource.EVENTS)
+    limited_tokens_recordings = list_limited_team_tokens(QuotaResource.RECORDINGS)
     team_id = ingestion_context.team_id if ingestion_context else None
 
     for event in events:
         if event.get("event") in SESSION_RECORDING_EVENT_NAMES:
             if token in limited_tokens_recordings:
-                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="recordings", token=token, team=team_id).inc()
+                EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="recordings", team_id=team_id, token=token).inc()
                 if settings.QUOTA_LIMITING_ENABLED:
                     continue
 
         elif token in limited_tokens_events:
-            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource="events", token=token, team=team_id).inc()
+            EVENTS_DROPPED_OVER_QUOTA_COUNTER.labels(resource_type="events", team_id=team_id, token=token).inc()
             if settings.QUOTA_LIMITING_ENABLED:
                 continue
 
@@ -464,11 +475,59 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     kafka_partition_key = None
 
     if event["event"] in ("$snapshot", "$performance_event"):
-        kafka_partition_key = None
-    else:
-        candidate_partition_key = f"{team_id}:{distinct_id}"
+        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
-        if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
-            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+    candidate_partition_key = f"{team_id}:{distinct_id}"
+
+    if is_randomly_partitioned(candidate_partition_key) is False:
+        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+
+
+def is_randomly_partitioned(candidate_partition_key: str) -> bool:
+    """Check whether event with given partition key is to be randomly partitioned.
+
+    Checking whether an event should be randomly partitioned is a two step process:
+
+    1. Using a token-bucket algorithm, check if the event's candidate key has exceeded
+       the given PARTITION_KEY_BUCKET_CAPACITY. If it has, events with that key could
+       be experiencing a temporary burst in traffic and should be randomly partitioned.
+       Otherwise, go to 2.
+
+    2. Check if the candidate partition key is set in the
+       EVENT_PARTITION_KEYS_TO_OVERRIDE instance setting. If it is, then the event
+       should be randomly partitioned. Otherwise, no random partition should occur and
+       the candidate partition key can be used.
+
+    Token-bucket algorithm (step 1) is ignored if the
+    PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED setting is set to False.
+
+    Args:
+        candidate_partition_key: The partition key that would be used if we decide
+            on no random partitioniong. This is in the format `team_id:distinct_id`.
+
+    Returns:
+        Whether the given partition key should be used.
+    """
+    if settings.PARTITION_KEY_AUTOMATIC_OVERRIDE_ENABLED:
+
+        has_capacity = LIMITER.consume(candidate_partition_key)
+
+        if has_capacity is False:
+
+            if not LOG_RATE_LIMITER.consume(candidate_partition_key):
+                # Return early if we have logged this key already.
+                return True
+
+            statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
+            logger.warning(
+                "Partition key %s overridden as bucket capacity of %s tokens exceeded",
+                candidate_partition_key,
+                LIMITER._capacity,
+            )
+            return True
+
+    keys_to_override = settings.EVENT_PARTITION_KEYS_TO_OVERRIDE
+
+    return candidate_partition_key in keys_to_override

@@ -62,7 +62,7 @@ class TestQuotaLimiting(BaseTest):
 
         result = update_all_org_billing_quotas()
         org_id = str(self.organization.id)
-        assert result["events"] == {org_id: 1612137599.0}
+        assert result["events"] == {org_id: 1612137599}
         assert result["recordings"] == {}
 
         assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == [

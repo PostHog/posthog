@@ -12,7 +12,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: true },
+        testOptions: { skip: true },
     },
     argTypes: {
         query: { defaultValue: {} },

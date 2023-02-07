@@ -20,9 +20,13 @@ def cache_for(cache_time: timedelta, background_refresh=False):
             key = (args, frozenset(sorted(kwargs.items())))
 
             def refresh():
-                value = fn(*args, **kwargs)
-                memoized_fn._cache[key] = (now(), value)
-                memoized_fn._refreshing[key] = None
+                try:
+                    value = fn(*args, **kwargs)
+                    memoized_fn._cache[key] = (now(), value)
+                    memoized_fn._refreshing[key] = None
+                except Exception:
+                    memoized_fn._refreshing[key] = None
+                    raise
 
             if key not in memoized_fn._cache:
                 refresh()

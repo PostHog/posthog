@@ -52,7 +52,7 @@ describe('capabilities', () => {
                 export function randomFunction (event, meta) { return event}
                 export function onEvent (event, meta) { return event }
                 export function onSnapshot (event, meta) { return event }
-
+                export function getSettings (meta) { return { handlesLargeBatches: true } }
                 export function runEveryHour(meta) {console.log('1')}
 
                 export const jobs = {
@@ -62,7 +62,7 @@ describe('capabilities', () => {
             expect(capabilities).toEqual({
                 jobs: ['x'],
                 scheduled_tasks: ['runEveryHour'],
-                methods: ['onEvent', 'onSnapshot', 'processEvent'],
+                methods: ['onEvent', 'onSnapshot', 'processEvent', 'getSettings'],
             })
         })
     })

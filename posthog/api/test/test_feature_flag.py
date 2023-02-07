@@ -1890,6 +1890,37 @@ class TestFeatureFlag(APIBaseTest):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
+    @patch("posthog.api.feature_flag.PassThroughFeatureFlagThrottle.rate", new="7/minute")
+    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.rate_limit.statsd.incr")
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):
+        for _ in range(5):
+            response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # Call to flags gets rate limited
+        response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
+        incr_mock.assert_any_call(
+            "rate_limit_exceeded",
+            tags={
+                "team_id": self.team.pk,
+                "scope": "burst",
+                "rate": "5/minute",
+                "path": f"/api/projects/TEAM_ID/feature_flags",
+            },
+        )
+
+        incr_mock.reset_mock()
+
+        # but not call to local evaluation
+        for _ in range(7):
+            response = self.client.get(f"/api/feature_flag/local_evaluation")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 0)
+
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries

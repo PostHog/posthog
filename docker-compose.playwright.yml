@@ -5,7 +5,9 @@ services:
             dockerfile: Dockerfile.playwright
         network_mode: host
         volumes:
-            - './frontend/__snapshots__:/work/frontend/__snapshots__'
+            # Mount the whole frontend/ directory to avoid to a new Docker image being generated each time
+            # frontend code changes. Also, this allows frontend/__snapshots__/ to be updated.
+            - './frontend:/work/frontend'
             - './playwright:/work/playwright'
             - './playwright-report:/work/playwright-report'
             - './test-results:/work/test-results'

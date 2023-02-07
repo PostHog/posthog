@@ -19,7 +19,7 @@ type RollingDateRangeFilterProps = {
     dateFrom?: string | null | dayjs.Dayjs
     onChange?: (fromDate: string) => void
     makeLabel?: (key: React.ReactNode) => React.ReactNode
-    popup?: {
+    popover?: {
         ref?: React.MutableRefObject<HTMLDivElement | null>
     }
 }
@@ -27,7 +27,7 @@ type RollingDateRangeFilterProps = {
 export function RollingDateRangeFilter({
     onChange,
     makeLabel,
-    popup,
+    popover,
     dateFrom,
     selected,
 }: RollingDateRangeFilterProps): JSX.Element {
@@ -88,9 +88,9 @@ export function RollingDateRangeFilter({
                     }}
                     dropdownMatchSelectWidth={false}
                     options={dateOptions}
-                    popup={{
-                        ...popup,
-                        className: 'RollingDateRangeFilter__popup',
+                    popover={{
+                        ...popover,
+                        className: 'RollingDateRangeFilter__popover',
                     }}
                     size="small"
                 />
