@@ -8,6 +8,7 @@ from rest_framework.throttling import SimpleRateThrottle
 from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
 
@@ -63,6 +64,10 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
     def allow_request(self, request, view):
 
         if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+
+        # Only rate limit authenticated requests made with a personal API key
+        if request.user.is_authenticated and PersonalAPIKeyAuthentication.find_key_with_source(request) is None:
             return True
 
         # As we're figuring out what our throttle limits should be, we don't actually want to throttle anything.

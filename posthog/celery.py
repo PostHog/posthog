@@ -13,8 +13,10 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
+from prometheus_client import Gauge
 
 from posthog.cloud_utils import is_cloud
+from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
@@ -302,14 +304,24 @@ def clickhouse_lag():
 
     from posthog.client import sync_execute
 
-    for table in CLICKHOUSE_TABLES:
-        try:
-            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-            query = QUERY.format(table=table)
-            lag = sync_execute(query)[0][2]
-            statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
-        except:
-            pass
+    with pushed_metrics_registry("celery_clickhouse_lag") as registry:
+        lag_gauge = Gauge(
+            "posthog_celery_clickhouse_lag_seconds",
+            "Age of the latest ingested record per ClickHouse table.",
+            labelnames=["table_name"],
+            registry=registry,
+        )
+        for table in CLICKHOUSE_TABLES:
+            try:
+                QUERY = (
+                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+                )
+                query = QUERY.format(table=table)
+                lag = sync_execute(query)[0][2]
+                statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+                lag_gauge.labels(table_name=table).set(lag)
+            except:
+                pass
 
 
 HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
@@ -344,9 +356,17 @@ def ingestion_lag():
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
-        for event, lag in results:
-            metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
-            statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+        with pushed_metrics_registry("celery_ingestion_lag") as registry:
+            lag_gauge = Gauge(
+                "posthog_celery_observed_ingestion_lag_seconds",
+                "End-to-end ingestion lag observed through several scenarios. Can be overestimated by up to 60 seconds.",
+                labelnames=["scenario"],
+                registry=registry,
+            )
+            for event, lag in results:
+                metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
+                statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+                lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
 
