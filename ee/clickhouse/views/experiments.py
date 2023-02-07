@@ -266,7 +266,7 @@ class ClickhouseExperimentsViewSet(StructuredViewSetMixin, viewsets.ModelViewSet
     @action(methods=["GET"], detail=False)
     def requires_flag_implementation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
 
-        filter = Filter(request=request, team=self.team).with_data({"date_from": "-7d", "date_to": ""})
+        filter = Filter(request=request, team=self.team).shallow_clone({"date_from": "-7d", "date_to": ""})
 
         warning = requires_flag_warning(filter, self.team)
 

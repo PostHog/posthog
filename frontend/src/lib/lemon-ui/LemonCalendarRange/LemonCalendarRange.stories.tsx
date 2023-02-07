@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/lemon-ui/LemonCalendarRange/LemonCalendarRange'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { dayjs } from 'lib/dayjs'
 import { formatDateRange } from 'lib/utils'
@@ -21,7 +21,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCa
     return (
         // eslint-disable-next-line react/forbid-dom-props
         <div style={{ paddingBottom: 500 }}>
-            <Popup
+            <Popover
                 actionable
                 overlay={
                     <LemonCalendarRange
@@ -40,7 +40,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCa
                 <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
                     {value ? formatDateRange(...value) : ''}
                 </LemonButton>
-            </Popup>
+            </Popover>
         </div>
     )
 }

@@ -18,5 +18,3 @@ RUN pnpm install
 COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
 
 COPY .storybook/ .storybook/
-
-COPY frontend/ frontend/

@@ -24,7 +24,7 @@ class SimplifyFilterMixin:
             return self
 
         # :TRICKY: Make a copy to avoid caching issues
-        result: Any = self.with_data({"is_simplified": True})  # type: ignore
+        result: Any = self.shallow_clone({"is_simplified": True})  # type: ignore
 
         if getattr(result, "filter_test_accounts", False):
             new_group = {"type": "AND", "values": team.test_account_filters}
@@ -33,7 +33,7 @@ class SimplifyFilterMixin:
                 if result.property_groups.to_dict()
                 else new_group
             )
-            result = result.with_data({"properties": prop_group, "filter_test_accounts": False})
+            result = result.shallow_clone({"properties": prop_group, "filter_test_accounts": False})
 
         updated_entities = {}
         if hasattr(result, "entities_to_dict"):
@@ -53,7 +53,7 @@ class SimplifyFilterMixin:
             new_group = {"type": "AND", "values": new_group_props}
             prop_group = {"type": "AND", "values": [new_group, prop_group]} if prop_group else new_group
 
-        return result.with_data({**updated_entities, "properties": prop_group})
+        return result.shallow_clone({**updated_entities, "properties": prop_group})
 
     def _simplify_entity(
         self, team: "Team", entity_type: Literal["events", "actions", "exclusions"], entity_params: Dict, **kwargs

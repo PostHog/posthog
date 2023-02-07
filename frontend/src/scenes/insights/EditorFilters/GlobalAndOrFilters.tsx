@@ -19,6 +19,7 @@ export function GlobalAndOrFilters({ filters }: EditorFilterProps): JSX.Element 
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
         ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
 
     return (

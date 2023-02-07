@@ -1,9 +1,8 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { SessionRecordingPlayerTab } from '~/types'
 
 import type { playerSettingsLogicType } from './playerSettingsLogicType'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SharedListMiniFilter = {
     tab: SessionRecordingPlayerTab
@@ -164,9 +163,6 @@ const MiniFilters: SharedListMiniFilter[] = [
 // There is no key for this logic, so it does not reset when recordings change
 export const playerSettingsLogic = kea<playerSettingsLogicType>([
     path(['scenes', 'session-recordings', 'player', 'playerSettingsLogic']),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
     actions({
         setSkipInactivitySetting: (skipInactivitySetting: boolean) => ({ skipInactivitySetting }),
         setSpeed: (speed: number) => ({ speed }),
@@ -179,7 +175,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
         setSyncScroll: (enabled: boolean) => ({ enabled }),
     }),
-    reducers(({ values }) => ({
+    reducers(({}) => ({
         speed: [
             1,
             { persist: true },
@@ -223,9 +219,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
         // Inspector
         tab: [
-            (values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
-                ? SessionRecordingPlayerTab.ALL
-                : SessionRecordingPlayerTab.EVENTS) as SessionRecordingPlayerTab,
+            SessionRecordingPlayerTab.ALL as SessionRecordingPlayerTab,
             { persist: true },
             {
                 setTab: (_, { tab }) => tab,
@@ -316,4 +310,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
             },
         ],
     }),
+    listeners(({ values }) => ({
+        setTab: ({ tab }) => {
+            eventUsageLogic.actions.reportRecordingInspectorTabViewed(tab)
+        },
+        setMiniFilter: ({ key, enabled }) => {
+            if (enabled) {
+                eventUsageLogic.actions.reportRecordingInspectorMiniFilterViewed(values.tab, key)
+            }
+        },
+    })),
 ])

@@ -1054,9 +1054,7 @@
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
             events.event as event_name,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-            arrayMap(x -> replaceRegexpAll(JSONExtractRaw(properties, x), '^"|"$', ''), prop_keys) as prop_values,
-            arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+            arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
      WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
@@ -1145,9 +1143,7 @@
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
             events.event as event_name,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-            arrayMap(x -> replaceRegexpAll(JSONExtractRaw(properties, x), '^"|"$', ''), prop_keys) as prop_values,
-            arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+            arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
      WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
@@ -2282,8 +2278,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
@@ -2755,8 +2750,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
@@ -3228,8 +3222,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
@@ -3701,8 +3694,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,

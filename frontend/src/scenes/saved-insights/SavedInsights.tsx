@@ -1,4 +1,4 @@
-import { Radio, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -11,8 +11,18 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
+    IconAction,
+    IconBarChart,
+    IconCoffee,
+    IconEvent,
+    IconGridView,
+    IconListView,
+    IconPerson,
+    IconQuestionAnswer,
+    IconSelectEvents,
     IconStarFilled,
     IconStarOutline,
+    IconTableChart,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
@@ -40,7 +50,8 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
-import { AppstoreFilled, UnorderedListOutlined } from '@ant-design/icons'
+import { NodeKind } from '~/queries/schema'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 
 const { TabPane } = Tabs
 
@@ -94,6 +105,111 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
     },
 }
 
+export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
+    [NodeKind.TrendsQuery]: {
+        name: 'Trends',
+        description: 'Visualize and break down how actions or events vary over time',
+        icon: InsightsTrendsIcon,
+        inMenu: true,
+    },
+    [NodeKind.FunnelsQuery]: {
+        name: 'Funnel',
+        description: 'Discover how many users complete or drop out of a sequence of actions',
+        icon: InsightsFunnelsIcon,
+        inMenu: true,
+    },
+    [NodeKind.RetentionQuery]: {
+        name: 'Retention',
+        description: 'See how many users return on subsequent days after an intial action',
+        icon: InsightsRetentionIcon,
+        inMenu: true,
+    },
+    [NodeKind.PathsQuery]: {
+        name: 'Paths',
+        description: 'Trace the journeys users take within your product and where they drop off',
+        icon: InsightsPathsIcon,
+        inMenu: true,
+    },
+    [NodeKind.StickinessQuery]: {
+        name: 'Stickiness',
+        description: 'See what keeps users coming back by viewing the interval between repeated actions',
+        icon: InsightsStickinessIcon,
+        inMenu: true,
+    },
+    [NodeKind.LifecycleQuery]: {
+        name: 'Lifecycle',
+        description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
+        icon: InsightsLifecycleIcon,
+        inMenu: true,
+    },
+    [NodeKind.EventsNode]: {
+        name: 'Events',
+        description: 'List and explore events',
+        icon: IconSelectEvents,
+        inMenu: true,
+    },
+    [NodeKind.ActionsNode]: {
+        name: 'Actions',
+        description: 'List and explore actions',
+        icon: IconAction,
+        inMenu: true,
+    },
+    [NodeKind.NewEntityNode]: {
+        name: 'New Entity',
+        description: 'Something to do with new series 🤷',
+        icon: IconQuestionAnswer,
+        inMenu: true,
+    },
+    [NodeKind.EventsQuery]: {
+        name: 'Events Query',
+        description: 'Hmmm, not every kind should be displayable I guess',
+        icon: IconEvent,
+        inMenu: true,
+    },
+    [NodeKind.PersonsNode]: {
+        name: 'Persons',
+        description: 'List and explore your persons',
+        icon: IconPerson,
+        inMenu: true,
+    },
+    [NodeKind.DataTableNode]: {
+        name: 'Data table',
+        description: 'Slice and dice your data in a table',
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.InsightVizNode]: {
+        name: 'Insight visualization',
+        description: 'View your insights',
+        icon: IconBarChart,
+        inMenu: true,
+    },
+    [NodeKind.LegacyQuery]: {
+        name: 'A legacy query',
+        description: 'Watch out for these, they might be dangerous',
+        icon: IconQuestionAnswer,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataSessionsQuery]: {
+        name: 'Internal PostHog perforamance data',
+        description: 'View performance data about a session in PostHog itself',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataQuery]: {
+        name: 'Internal PostHog perforamance data',
+        description: 'View listings of performance data in PostHog itself',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.RecentPerformancePageViewNode]: {
+        name: 'PostHog perforamance data',
+        description: 'PageViews where we recorded performance data about your site',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+}
+
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [
     { value: 'All types', label: 'All types' },
     ...Object.entries(INSIGHT_TYPES_METADATA).map(([value, meta]) => ({
@@ -122,7 +238,7 @@ export function NewInsightButton({ dataAttr }: NewInsightButtonProps): JSX.Eleme
             type="primary"
             to={urls.insightNew()}
             sideAction={{
-                popup: {
+                dropdown: {
                     placement: 'bottom-end',
                     className: 'new-insight-overlay',
                     actionable: true,
@@ -373,20 +489,23 @@ export function SavedInsights(): JSX.Element {
                                 : null}
                         </span>
                         <div>
-                            <Radio.Group
-                                onChange={(e) => setSavedInsightsFilters({ layoutView: e.target.value })}
+                            <LemonSegmentedButton
+                                onChange={(newValue) => setSavedInsightsFilters({ layoutView: newValue })}
                                 value={layoutView}
-                                buttonStyle="solid"
-                            >
-                                <Radio.Button value={LayoutView.List}>
-                                    <UnorderedListOutlined className="mr-2" />
-                                    List
-                                </Radio.Button>
-                                <Radio.Button value={LayoutView.Card}>
-                                    <AppstoreFilled className="mr-2" />
-                                    Cards
-                                </Radio.Button>
-                            </Radio.Group>
+                                options={[
+                                    {
+                                        value: LayoutView.List,
+                                        label: 'List',
+                                        icon: <IconListView />,
+                                    },
+                                    {
+                                        value: LayoutView.Card,
+                                        label: 'Cards',
+                                        icon: <IconGridView />,
+                                    },
+                                ]}
+                                size="small"
+                            />
                         </div>
                     </div>
                     {!insightsLoading && insights.count < 1 ? (

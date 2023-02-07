@@ -109,7 +109,7 @@ def query_events_list(
         if action.steps.count() == 0:
             return []
 
-        action_query, params = format_action_filter(team_id=team.pk, action=action)
+        action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
@@ -119,14 +119,27 @@ def query_events_list(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                 conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
             ),
-            {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params, **prop_filter_params},
+            {
+                "team_id": team.pk,
+                "limit": limit,
+                "offset": offset,
+                **condition_params,
+                **prop_filter_params,
+                **hogql_context.values,
+            },
             query_type="events_list",
             workload=Workload.OFFLINE,
         )
     else:
         return insight_query_with_columns(
             SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-            {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params},
+            {
+                "team_id": team.pk,
+                "limit": limit,
+                "offset": offset,
+                **condition_params,
+                **hogql_context.values,
+            },
             query_type="events_list",
             workload=Workload.OFFLINE,
         )
@@ -147,12 +160,20 @@ def run_events_query(
     person_id = query.personId
     order_by = query.orderBy
     select = query.select
-    where = query.where
+    where = query.where.copy() if query.where else []  # Shallow-copy since we'll be modifying it
     event = query.event
 
+    classic_properties = []
+    classic_properties.extend(query.fixedProperties or [])
+    classic_properties.extend(query.properties or [])
+
+    # Split HogQL properties from the rest, as "where" supports filtering by "having" aggregations like "count() > 2"
     properties = []
-    properties.extend(query.fixedProperties or [])
-    properties.extend(query.properties or [])
+    for prop in classic_properties:
+        if prop.type == "hogql":
+            where.append(str(prop.key))
+        else:
+            properties.append(prop.dict())
 
     limit_sql = "LIMIT %(limit)s"
     if offset > 0:
@@ -167,7 +188,7 @@ def run_events_query(
             "event": event,
         }
     )
-    filter = Filter(team=team, data={"properties": [p.dict() for p in properties]}, hogql_context=hogql_context)
+    filter = Filter(team=team, data={"properties": properties}, hogql_context=hogql_context)
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
     )
@@ -180,7 +201,7 @@ def run_events_query(
         if action.steps.count() == 0:
             raise Exception("Action does not have any match groups")
 
-        action_query, params = format_action_filter(team_id=team.pk, action=action)
+        action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
@@ -248,6 +269,7 @@ def run_events_query(
         with_column_types=True,
         query_type="events_list",
         workload=Workload.OFFLINE,
+        filter=filter,
     )
 
     # Convert star field from tuple to dict in each result

@@ -109,7 +109,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
         )
 
-        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
         self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
         filter = RetentionFilter(
@@ -142,7 +142,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         )
 
-        actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+        actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
 
         self.assertEqual(actor_result[0]["person"]["id"], "org:5")
         self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])
@@ -227,7 +227,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
                 [[2, 2, 1, 2, 2, 0, 1], [2, 1, 2, 2, 0, 1], [1, 1, 1, 0, 0], [2, 2, 0, 1], [2, 0, 1], [0, 0], [1]],
             )
 
-            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
 
             self.assertCountEqual([actor["person"]["id"] for actor in actor_result], ["org:5", "org:6"])
 
@@ -266,7 +266,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
         )
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            actor_result, _ = Retention().actors_in_period(filter.with_data({"selected_interval": 0}), self.team)
+            actor_result, _ = Retention().actors_in_period(filter.shallow_clone({"selected_interval": 0}), self.team)
 
             self.assertTrue(actor_result[0]["person"]["id"] == "org:5")
             self.assertEqual(actor_result[0]["appearances"], [1, 1, 1, 1, 1, 0, 0])

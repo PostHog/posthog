@@ -19,7 +19,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -180,7 +180,7 @@ function AnnotationsPopover({
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <Popup
+        <Popover
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"

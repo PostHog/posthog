@@ -2,6 +2,7 @@ import dataclasses
 from typing import List
 
 from posthog.client import sync_execute
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.action import Action
 from posthog.models.action.util import filter_event, format_action_filter
 from posthog.models.action_step import ActionStep
@@ -16,7 +17,10 @@ class MockEvent:
 
 
 def _get_events_for_action(action: Action) -> List[MockEvent]:
-    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
+    hogql_context = HogQLContext()
+    formatted_query, params = format_action_filter(
+        team_id=action.team_id, action=action, prepend="", hogql_context=hogql_context
+    )
     query = f"""
         SELECT
             events.uuid,
@@ -26,7 +30,7 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
         AND events.team_id = %(team_id)s
         ORDER BY events.timestamp DESC
     """
-    events = sync_execute(query, {"team_id": action.team_id, **params})
+    events = sync_execute(query, {"team_id": action.team_id, **params, **hogql_context.values})
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 
@@ -195,6 +199,20 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
             event="insight viewed",
             action=action1,
             properties=[{"key": "filters_count", "type": "event", "value": "1", "operator": "gt"}],
+        )
+
+        events = _get_events_for_action(action1)
+        self.assertEqual(len(events), 1)
+
+    def test_filter_with_hogql(self):
+        _create_event(event="insight viewed", team=self.team, distinct_id="first", properties={"filters_count": 20})
+        _create_event(event="insight viewed", team=self.team, distinct_id="second", properties={"filters_count": 1})
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[{"key": "toInt(properties.filters_count) > 10", "type": "hogql"}],
         )
 
         events = _get_events_for_action(action1)
