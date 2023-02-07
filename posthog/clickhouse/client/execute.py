@@ -60,6 +60,7 @@ def extra_settings(query_id) -> Dict[str, Any]:
             "join-algorithm",
             str(query_id),
             only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
         or "default"
     )
