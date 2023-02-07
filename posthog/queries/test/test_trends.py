@@ -4486,14 +4486,15 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_active_users_events()
 
         data = {
-            "date_from": "2020-01-09T06:00:00Z",
-            "date_to": "2020-01-09T17:00:00Z",
+            "date_from": "-11h",
             "interval": "hour",
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
         filter = Filter(data=data)
-        result = Trends().run(filter, self.team)
+        with freeze_time("2020-01-09T17:04:00Z"):
+            result = Trends().run(filter, self.team)
+
         self.assertEqual(
             result[0]["days"],
             [
@@ -4512,7 +4513,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        self.assertEqual(result[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0, 3.0, 0.0])
+        self.assertEqual(result[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0])
 
     def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
         # only a person-on-event test
