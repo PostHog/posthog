@@ -1267,7 +1267,7 @@
      ORDER BY day_start)
   '
 ---
-# name: TestTrends.test_timezones_hourly
+# name: TestTrends.test_timezones_daily
   '
   
   SELECT groupArray(day_start) as date,
@@ -1277,12 +1277,38 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'US/Pacific') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 10:02:01', 'US/Pacific')))
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -1293,8 +1319,744 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'US/Pacific') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), 'US/Pacific')
-          AND toTimeZone(toDateTime(timestamp), 'US/Pacific') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC'))
+        UNION ALL WITH toDateTime('2020-01-05 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-05 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily.4
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-29 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_timezones_daily.5
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'UTC') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['Mac'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_timezones_daily.6
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily.7
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC')), toDateTime('2020-01-03 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix'))
+        UNION ALL WITH toDateTime('2020-01-05 23:59:59', 'America/Phoenix') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'America/Phoenix') AS date_from,
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'America/Phoenix')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                                     timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'America/Phoenix') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'America/Phoenix'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'America/Phoenix')
+                AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.4
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime('2019-12-29 00:00:00', 'America/Phoenix')
+       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.5
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'America/Phoenix') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['Mac'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+             AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.6
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-03 23:59:59', 'America/Phoenix') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), toDateTime('2020-01-03 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-03 23:59:59', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_minus_utc.7
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'America/Phoenix') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), toDateTime('2020-01-03 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime('2020-01-03 00:00:00', 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-03 23:59:59', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.1
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo'))
+        UNION ALL WITH toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo') AS date_from,
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'Asia/Tokyo')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                      timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'Asia/Tokyo') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'Asia/Tokyo'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = 'sign up'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')
+                AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.3
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.4
+  '
+  
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')
+       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.5
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo') - number * 86400) as day_start
+              FROM numbers(8)
+              UNION ALL SELECT toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['Mac'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') as breakdown_value
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
+              WHERE team_id = 2
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+           WHERE e.team_id = 2
+             AND event = 'sign up'
+             AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+             AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.6
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_daily_plus_utc.7
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_hourly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'UTC') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:02:01', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 10:02:01', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1320,8 +2082,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'US/Pacific') >= toDateTime('2020-01-05 07:00:00', 'US/Pacific')
-       AND toTimeZone(toDateTime(timestamp), 'US/Pacific') <= toDateTime('2020-01-05 08:00:00', 'US/Pacific') )
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-05 07:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 08:00:00', 'UTC') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -1339,17 +2101,271 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'US/Pacific') - toIntervalHour(number)) AS day_start
-        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 10:02:01', 'US/Pacific')))
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'UTC') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), toDateTime('2020-01-05 10:02:01', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'US/Pacific') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), 'US/Pacific')
-          AND toTimeZone(toDateTime(timestamp), 'US/Pacific') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 10:02:01', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_hourly_minus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'America/Phoenix') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:02:01', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 10:02:01', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_hourly_minus_utc.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value
+  FROM
+    (SELECT e.timestamp as timestamp,
+            pdi.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime('2020-01-05 07:00:00', 'America/Phoenix')
+       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 08:00:00', 'America/Phoenix') )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestTrends.test_timezones_hourly_minus_utc.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'America/Phoenix') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), toDateTime('2020-01-05 10:02:01', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 10:02:01', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_hourly_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_hourly_plus_utc.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT person_id AS actor_id,
+         count() AS actor_value
+  FROM
+    (SELECT e.timestamp as timestamp,
+            pdi.person_id as person_id,
+            e.distinct_id as distinct_id,
+            e.team_id as team_id
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
+        WHERE team_id = 2
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-05 07:00:00', 'Asia/Tokyo')
+       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 08:00:00', 'Asia/Tokyo') )
+  GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
+  LIMIT 100
+  OFFSET 0
+  '
+---
+# name: TestTrends.test_timezones_hourly_plus_utc.2
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfHour(toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo') - toIntervalHour(number)) AS day_start
+        FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfHour(toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_weekly
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC')), toDateTime('2020-01-26 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'), 0), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-26 23:59:59', 'UTC')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_weekly_minus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59', 'America/Phoenix') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix')), toDateTime('2020-01-26 23:59:59', 'America/Phoenix')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'America/Phoenix')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix'), 0), 'America/Phoenix')
+          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-26 23:59:59', 'America/Phoenix')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_timezones_weekly_plus_utc
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo')), toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'Asia/Tokyo')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo'), 0), 'Asia/Tokyo')
+          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
