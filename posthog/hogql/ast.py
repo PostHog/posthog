@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, List, Literal, cast
 
 from pydantic import BaseModel, Extra
 
@@ -10,14 +10,20 @@ class AST(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    def children(self) -> List[AST]:
+        raise NotImplementedError("AST.children() not implemented")
+
 
 class Expr(AST):
     pass
 
 
-class Column(AST):
+class Alias(Expr):
+    alias: str
     expr: Expr
-    alias: Optional[str] = None
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.expr])
 
 
 class BinaryOperationType(str, Enum):
@@ -33,18 +39,28 @@ class BinaryOperation(Expr):
     right: Expr
     op: BinaryOperationType
 
-
-class BooleanOperationType(str, Enum):
-    And = "and"
-    Or = "or"
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.left, self.right])
 
 
-class BooleanOperation(Expr):
+class And(Expr):
     class Config:
         extra = Extra.forbid
 
-    op: BooleanOperationType
-    values: List[Expr]
+    exprs: List[Expr]
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], self.exprs)
+
+
+class Or(Expr):
+    class Config:
+        extra = Extra.forbid
+
+    exprs: List[Expr]
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], self.exprs)
 
 
 class CompareOperationType(str, Enum):
@@ -58,6 +74,8 @@ class CompareOperationType(str, Enum):
     ILike = "ilike"
     NotLike = "not like"
     NotILike = "not ilike"
+    In = "in"
+    NotIn = "not in"
 
 
 class CompareOperation(Expr):
@@ -65,23 +83,49 @@ class CompareOperation(Expr):
     right: Expr
     op: CompareOperationType
 
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.left, self.right])
 
-class NotOperation(Expr):
+
+class Not(Expr):
     expr: Expr
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.expr])
+
+
+class OrderExpr(Expr):
+    expr: Expr
+    order: Literal["ASC", "DESC"] = "ASC"
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.expr])
 
 
 class Constant(Expr):
     value: Any
 
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
 
-class FieldAccess(Expr):
+
+class Field(Expr):
+    chain: List[str]
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
+
+
+class Placeholder(Expr):
     field: str
 
-
-class FieldAccessChain(Expr):
-    chain: List[str]
+    def children(self) -> List[AST]:
+        return cast(List[AST], [])
 
 
 class Call(Expr):
     name: str
     args: List[Expr]
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], self.args)

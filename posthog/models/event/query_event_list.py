@@ -8,7 +8,9 @@ from pydantic import BaseModel
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql.hogql import SELECT_STAR_FROM_EVENTS_FIELDS, HogQLContext, translate_hogql
+from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.hogql import translate_hogql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.element import chain_to_elements

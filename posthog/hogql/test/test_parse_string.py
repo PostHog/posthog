@@ -7,16 +7,20 @@ class TestParseString(BaseTest):
         self.assertEqual(parse_string("`asd`"), "asd")
         self.assertEqual(parse_string("'asd'"), "asd")
         self.assertEqual(parse_string('"asd"'), "asd")
+        self.assertEqual(parse_string("{asd}"), "asd")
 
     def test_escaped_quotes(self):
         self.assertEqual(parse_string("`a``sd`"), "a`sd")
         self.assertEqual(parse_string("'a''sd'"), "a'sd")
         self.assertEqual(parse_string('"a""sd"'), 'a"sd')
+        self.assertEqual(parse_string("{a{{sd}"), "a{sd")
+        self.assertEqual(parse_string("{a}sd}"), "a}sd")
 
     def test_escaped_quotes_slash(self):
         self.assertEqual(parse_string("`a\\`sd`"), "a`sd")
         self.assertEqual(parse_string("'a\\'sd'"), "a'sd")
         self.assertEqual(parse_string('"a\\"sd"'), 'a"sd')
+        self.assertEqual(parse_string("{a\\{sd}"), "a{sd")
 
     def test_slash_escape(self):
         self.assertEqual(parse_string("`a\nsd`"), "a\nsd")

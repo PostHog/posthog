@@ -1,6 +1,19 @@
+from antlr4 import CommonTokenStream, InputStream
+from antlr4.tree.Tree import ParseTree
+
 from posthog.hogql import ast
+from posthog.hogql.grammar.HogQLLexer import HogQLLexer
+from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parser import parse_expr
 from posthog.test.base import BaseTest
+
+
+def string_to_parse_tree_expr(query: str) -> ParseTree:
+    input_stream = InputStream(query)
+    lexer = HogQLLexer(input_stream)
+    stream = CommonTokenStream(lexer)
+    parser = HogQLParser(stream)
+    return parser.columnExpr()
 
 
 class TestParser(BaseTest):
@@ -190,57 +203,49 @@ class TestParser(BaseTest):
             ),
         )
 
-    def test_boolean_operations(self):
+    def test_and_or(self):
         self.assertEqual(
             parse_expr("true or false"),
-            ast.BooleanOperation(
-                values=[ast.Constant(value=True), ast.Constant(value=False)], op=ast.BooleanOperationType.Or
-            ),
+            ast.Or(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
         )
         self.assertEqual(
             parse_expr("true and false"),
-            ast.BooleanOperation(
-                values=[ast.Constant(value=True), ast.Constant(value=False)], op=ast.BooleanOperationType.And
-            ),
+            ast.And(exprs=[ast.Constant(value=True), ast.Constant(value=False)]),
         )
         self.assertEqual(
             parse_expr("true and not false"),
-            ast.BooleanOperation(
-                values=[ast.Constant(value=True), ast.NotOperation(expr=ast.Constant(value=False))],
-                op=ast.BooleanOperationType.And,
+            ast.And(
+                exprs=[ast.Constant(value=True), ast.Not(expr=ast.Constant(value=False))],
             ),
         )
         self.assertEqual(
             parse_expr("true or false or not true or 2"),
-            ast.BooleanOperation(
-                values=[
+            ast.Or(
+                exprs=[
                     ast.Constant(value=True),
                     ast.Constant(value=False),
-                    ast.NotOperation(expr=ast.Constant(value=True)),
+                    ast.Not(expr=ast.Constant(value=True)),
                     ast.Constant(value=2),
                 ],
-                op=ast.BooleanOperationType.Or,
             ),
         )
         self.assertEqual(
             parse_expr("true or false and not true or 2"),
-            ast.BooleanOperation(
-                values=[
+            ast.Or(
+                exprs=[
                     ast.Constant(value=True),
-                    ast.BooleanOperation(
-                        values=[ast.Constant(value=False), ast.NotOperation(expr=ast.Constant(value=True))],
-                        op=ast.BooleanOperationType.And,
+                    ast.And(
+                        exprs=[ast.Constant(value=False), ast.Not(expr=ast.Constant(value=True))],
                     ),
                     ast.Constant(value=2),
                 ],
-                op=ast.BooleanOperationType.Or,
             ),
         )
 
     def test_unary_operations(self):
         self.assertEqual(
             parse_expr("not true"),
-            ast.NotOperation(expr=ast.Constant(value=True)),
+            ast.Not(expr=ast.Constant(value=True)),
         )
 
     def test_parens(self):
@@ -268,12 +273,12 @@ class TestParser(BaseTest):
     def test_field_access(self):
         self.assertEqual(
             parse_expr("event"),
-            ast.FieldAccess(field="event"),
+            ast.Field(chain=["event"]),
         )
         self.assertEqual(
             parse_expr("event like '$%'"),
             ast.CompareOperation(
-                left=ast.FieldAccess(field="event"), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
+                left=ast.Field(chain=["event"]), right=ast.Constant(value="$%"), op=ast.CompareOperationType.Like
             ),
         )
 
@@ -281,26 +286,26 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_expr("properties.something == 1"),
             ast.CompareOperation(
-                left=ast.FieldAccessChain(chain=["properties", "something"]),
+                left=ast.Field(chain=["properties", "something"]),
                 right=ast.Constant(value=1),
                 op=ast.CompareOperationType.Eq,
             ),
         )
         self.assertEqual(
             parse_expr("properties.something"),
-            ast.FieldAccessChain(chain=["properties", "something"]),
+            ast.Field(chain=["properties", "something"]),
         )
         self.assertEqual(
             parse_expr("properties.$something"),
-            ast.FieldAccessChain(chain=["properties", "$something"]),
+            ast.Field(chain=["properties", "$something"]),
         )
         self.assertEqual(
             parse_expr("person.properties.something"),
-            ast.FieldAccessChain(chain=["person", "properties", "something"]),
+            ast.Field(chain=["person", "properties", "something"]),
         )
         self.assertEqual(
             parse_expr("this.can.go.on.for.miles"),
-            ast.FieldAccessChain(chain=["this", "can", "go", "on", "for", "miles"]),
+            ast.Field(chain=["this", "can", "go", "on", "for", "miles"]),
         )
 
     def test_calls(self):
@@ -313,16 +318,34 @@ class TestParser(BaseTest):
             ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
 
-    def test_column_alias(self):
+    def test_alias(self):
         self.assertEqual(
             parse_expr("1 as asd"),
-            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+            ast.Alias(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
             parse_expr("1 as `asd`"),
-            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+            ast.Alias(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
             parse_expr("1 as `🍄`"),
-            ast.Column(alias="🍄", expr=ast.Constant(value=1)),
+            ast.Alias(alias="🍄", expr=ast.Constant(value=1)),
+        )
+        self.assertEqual(
+            parse_expr("(1 as b) as `🍄`"),
+            ast.Alias(alias="🍄", expr=ast.Alias(alias="b", expr=ast.Constant(value=1))),
+        )
+
+    def test_expr_with_ignored_sql_comment(self):
+        self.assertEqual(
+            parse_expr("1 -- asd"),
+            ast.Constant(value=1),
+        )
+        self.assertEqual(
+            parse_expr("1 -- 'asd'"),
+            ast.Constant(value=1),
+        )
+        self.assertEqual(
+            parse_expr("1 -- '🍄'"),
+            ast.Constant(value=1),
         )
