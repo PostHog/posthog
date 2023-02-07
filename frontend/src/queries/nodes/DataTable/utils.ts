@@ -4,7 +4,7 @@ import { isEventsQuery } from '~/queries/utils'
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
-    'person',
+    'distinct_id',
     'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
     'timestamp',
