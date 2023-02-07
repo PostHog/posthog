@@ -12,7 +12,6 @@ from django.middleware.csrf import CsrfViewMiddleware
 from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware
-from django_statsd.middleware import StatsdMiddlewareTimer
 from statshog.defaults.django import statsd
 
 from posthog.api.capture import get_event
@@ -21,6 +20,7 @@ from posthog.clickhouse.client.execute import clickhouse_query_counter
 from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 from posthog.settings.statsd import STATSD_HOST
+from posthog.user_permissions import UserPermissions
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -163,7 +163,10 @@ class AutoProjectMiddleware:
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 actual_item_team: Team = actual_item.team
-                if actual_item_team.get_effective_membership_level(user.id) is not None:
+                user_permissions = UserPermissions(user)
+                # :KLUDGE: This is more inefficient than needed, doing several expensive lookups
+                #   However this should be a rare operation!
+                if user_permissions.team(actual_item_team).effective_membership_level is not None:
                     user.current_team = actual_item_team
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()
@@ -217,7 +220,7 @@ class CHQueries:
 
 
 class QueryTimeCountingMiddleware:
-    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties"]
+    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties", "person"]
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -309,6 +312,10 @@ class CaptureMiddleware:
         self.CAPTURE_MIDDLEWARE = middlewares
 
         if STATSD_HOST is not None:
+            # import here to avoid log-spew about failure to connect to statsd,
+            # as this connection is created on import
+            from django_statsd.middleware import StatsdMiddlewareTimer
+
             self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
 
     def __call__(self, request: HttpRequest):

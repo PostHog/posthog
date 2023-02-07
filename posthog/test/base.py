@@ -42,7 +42,6 @@ from posthog.models.session_recording_event.sql import (
     DROP_SESSION_RECORDING_EVENTS_TABLE_SQL,
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
-from posthog.settings import CLICKHOUSE_REPLICATION
 from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
@@ -616,10 +615,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
     def tearDown(self):
         super().tearDown()
@@ -635,10 +633,9 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         run_clickhouse_statement_in_parallel(
             [EVENTS_TABLE_SQL(), PERSONS_TABLE_SQL(), SESSION_RECORDING_EVENTS_TABLE_SQL()]
         )
-        if CLICKHOUSE_REPLICATION:
-            run_clickhouse_statement_in_parallel(
-                [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
-            )
+        run_clickhouse_statement_in_parallel(
+            [DISTRIBUTED_EVENTS_TABLE_SQL(), DISTRIBUTED_SESSION_RECORDING_EVENTS_TABLE_SQL()]
+        )
 
 
 def snapshot_clickhouse_queries(fn):
@@ -695,3 +692,24 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
                 self.assertQueryMatchesSnapshot(query)
 
     return wrapped
+
+
+def also_test_with_different_timezone(fn):
+    """
+    Runs the test twice, including in a timezone other than UTC to catch timezone handling bugs.
+    """
+
+    def fn_with_different_timezone(self, *args, **kwargs):
+        if not self.team:
+            return
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        fn(self, *args, **kwargs)
+
+    # To add the test, we inspect the frame this function was called in and add the test there
+    frame_locals: Any = inspect.currentframe().f_back.f_locals  # type: ignore
+    frame_locals[f"{fn.__name__}_different_timezone"] = fn_with_different_timezone
+
+    return fn

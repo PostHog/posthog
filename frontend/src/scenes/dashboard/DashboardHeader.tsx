@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { FullScreen } from 'lib/components/FullScreen'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { PageHeader } from 'lib/components/PageHeader'
 import { humanFriendlyDetailedTime, slugify } from 'lib/utils'
@@ -14,16 +14,16 @@ import { dashboardLogic } from './dashboardLogic'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS, privilegeLevelToName } from 'lib/constants'
-import { ProfileBubbles } from 'lib/components/ProfilePicture/ProfileBubbles'
+import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture/ProfileBubbles'
 import { dashboardCollaboratorsLogic } from './dashboardCollaboratorsLogic'
-import { IconLock } from 'lib/components/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { ExportButton, ExportButtonItem } from 'lib/components/ExportButton/ExportButton'
 import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscriptions/SubscriptionsModal'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
-import { isLemonSelectSection } from 'lib/components/LemonSelect'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -283,7 +283,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     data-attr="dashboard-add-graph-header"
                                     disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
-                                        popup: {
+                                        dropdown: {
                                             placement: 'bottom-end',
                                             overlay: (
                                                 <>

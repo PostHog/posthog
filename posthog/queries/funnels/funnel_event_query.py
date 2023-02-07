@@ -3,8 +3,6 @@ from typing import Any, Dict, Set, Tuple, Union
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
 from posthog.models.group.util import get_aggregation_target_field
-from posthog.models.property.util import get_property_string_expr
-from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
 
@@ -12,7 +10,12 @@ from posthog.queries.event_query import EventQuery
 class FunnelEventQuery(EventQuery):
     _filter: Filter
 
-    def get_query(self, entities=None, entity_name="events", skip_entity_filter=False) -> Tuple[str, Dict[str, Any]]:
+    def get_query(
+        self,
+        entities=None,
+        entity_name="events",
+        skip_entity_filter=False,
+    ) -> Tuple[str, Dict[str, Any]]:
 
         aggregation_target = (
             get_aggregation_target_field(
@@ -29,29 +32,11 @@ class FunnelEventQuery(EventQuery):
         )
 
         _fields = [
-            f"{self.EVENT_TABLE_ALIAS}.event as event",
-            f"{self.EVENT_TABLE_ALIAS}.team_id as team_id",
-            f"{self.EVENT_TABLE_ALIAS}.distinct_id as distinct_id",
             f"{self.EVENT_TABLE_ALIAS}.timestamp as timestamp",
-            (
-                f"{self.EVENT_TABLE_ALIAS}.elements_chain as elements_chain"
-                if self._column_optimizer.should_query_elements_chain_column
-                else ""
-            ),
             f"{aggregation_target} as aggregation_target",
         ]
 
         _fields += [f"{self.EVENT_TABLE_ALIAS}.{field} AS {field}" for field in self._extra_fields]
-        _fields += [
-            get_property_string_expr("events", field, f"'{field}'", "properties", table_alias=self.EVENT_TABLE_ALIAS)[0]
-            + f' as "{field}"'
-            for field in self._extra_event_properties
-        ]
-
-        _fields.extend(
-            f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
-            for column_name in self._column_optimizer.event_columns_to_query
-        )
 
         if self._using_person_on_events:
             _fields += [f"{self.EVENT_TABLE_ALIAS}.person_id as person_id"]
@@ -67,19 +52,8 @@ class FunnelEventQuery(EventQuery):
             if self._should_join_persons:
                 _fields.extend(
                     f"{self.PERSON_TABLE_ALIAS}.{column_name} as {column_name}"
-                    for column_name in self._person_query.fields
+                    for column_name in sorted(self._person_query.fields)
                 )
-
-        if self._using_person_on_events and groups_on_events_querying_enabled():
-            _fields.extend(
-                f'{self.EVENT_TABLE_ALIAS}."{column_name}" as "{column_name}"'
-                for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query)
-            )
-        else:
-            _fields.extend(
-                f"groups_{group_index}.group_properties_{group_index} as group_properties_{group_index}"
-                for group_index in self._column_optimizer.group_types_to_query
-            )
 
         _fields = list(filter(None, _fields))
 
@@ -112,17 +86,25 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
+        # KLUDGE: Ideally we wouldn't mix string variables with f-string interpolation
+        # but due to ordering requirements in functions building this query we do
+        # things like this for now but should do a larger refactor to get rid of it
         query = f"""
-            SELECT {', '.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
+            SELECT {', '.join(_fields)}
+            {{extra_select_fields}}
+            FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}
+            {{extra_join}}
             WHERE team_id = %(team_id)s
             {entity_query}
             {date_query}
             {prop_query}
             {null_person_filter}
+            {{step_filter}}
         """
+
         return query, self.params
 
     def _determine_should_join_distinct_ids(self) -> None:

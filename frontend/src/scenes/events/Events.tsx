@@ -22,7 +22,7 @@ export function Events(): JSX.Element {
         <>
             <PageHeader
                 title={featureDataExploration ? 'Event Explorer' : 'Live events'}
-                caption="Event history limited to the last twelve months."
+                caption={featureDataExploration ? undefined : 'Event history limited to the last twelve months.'}
             />
             <div className="pt-4 border-t" />
             {featureDataExploration ? <EventsScene /> : <EventsTable pageKey={'EventsTable'} />}

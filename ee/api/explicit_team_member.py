@@ -12,9 +12,10 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.user_permissions import UserPermissionsSerializerMixin
 
 
-class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
+class ExplicitTeamMemberSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     user = UserBasicSerializer(source="parent_membership.user", read_only=True)
     parent_level = serializers.IntegerField(source="parent_membership.level", read_only=True)
 
@@ -60,7 +61,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
-            requesting_level = self.context["team"].get_effective_membership_level(requesting_user.id)
+            requesting_level = self.user_permissions.team(team).effective_membership_level
         except OrganizationMembership.DoesNotExist:
             # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")

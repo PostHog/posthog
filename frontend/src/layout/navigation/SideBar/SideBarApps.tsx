@@ -1,8 +1,8 @@
-import { IconExtension } from 'lib/components/icons'
+import { IconExtension } from 'lib/lemon-ui/icons'
 import { urls } from 'scenes/urls'
 import { Scene } from 'scenes/sceneTypes'
 import { canInstallPlugins } from 'scenes/plugins/access'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PluginSource } from 'scenes/plugins/source/PluginSource'
 import { useActions, useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
@@ -34,7 +34,7 @@ export function SideBarApps(): JSX.Element {
                             ? {
                                   identifier: 'app-menu',
                                   onClick: () => setOpenAppMenu(openAppMenu === id ? null : id),
-                                  popup: {
+                                  dropdown: {
                                       visible: openAppMenu === id,
                                       onClickOutside: () => setOpenAppMenu(null),
                                       onClickInside: () => {

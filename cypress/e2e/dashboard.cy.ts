@@ -21,19 +21,17 @@ describe('Dashboard', () => {
     })
 
     it('Adding new insight to dashboard works', () => {
-        cy.get('[data-attr=menu-item-insight]').click() // Create a new insight
-        cy.get('[data-attr="insight-save-button"]').click() // Save the insight
-        cy.url().should('not.include', '/new') // wait for insight to complete and update URL
-        cy.get('[data-attr="edit-prop-name"]').click({ force: true }) // Rename insight, out of view, must force
-        cy.get('[data-attr="insight-name"] input').type('Test Insight Zeus')
-        cy.get('[data-attr="insight-name"] [title="Save"]').click()
-        cy.get('[data-attr="save-to-dashboard-button"]').click() // Open the Save to dashboard modal
-        cy.get('[data-attr="dashboard-list-item"] button').contains('Add to dashboard').first().click({ force: true }) // Add the insight to a dashboard
-        cy.wait('@patchInsight').then(() => {
-            cy.get('[data-attr="dashboard-list-item"] button').first().contains('Added')
-            cy.get('[data-attr="dashboard-list-item"] a').first().click({ force: true }) // Go to the dashboard
-            cy.get('[data-attr="insight-name"]').should('contain', 'Test Insight Zeus') // Check if the insight is there
-        })
+        const dashboardName = randomString('to add an insight to')
+        const insightName = randomString('insight to add to dashboard')
+
+        // create and visit a dashboard to get it into turbomode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+
+        insight.create(insightName)
+
+        insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
+
+        cy.get('.CardMeta h4').should('have.text', insightName)
     })
 
     it('Cannot see tags or description (non-FOSS feature)', () => {
@@ -131,11 +129,37 @@ describe('Dashboard', () => {
     })
 
     it('Move dashboard item', () => {
-        cy.get('[data-attr=dashboard-name]').contains('Web Analytics').click()
-        cy.get('.InsightCard [data-attr=more-button]').first().click()
+        cy.intercept('PATCH', /api\/projects\/\d+\/dashboards\/\d+\/move_tile.*/).as('moveTile')
+
+        const sourceDashboard = randomString('source-dashboard')
+        const targetDashboard = randomString('target-dashboard')
+        const insightToMove = randomString('insight-to-move')
+        dashboards.createAndGoToEmptyDashboard(sourceDashboard)
+        const insightToLeave = randomString('insight-to-leave')
+        dashboard.addInsightToEmptyDashboard(insightToLeave)
+        dashboard.addInsightToEmptyDashboard(insightToMove)
+
+        // create the target dashboard and get it cached by turbo-mode
+        cy.clickNavMenu('dashboards')
+        dashboards.createAndGoToEmptyDashboard(targetDashboard)
+
+        cy.clickNavMenu('dashboards')
+        dashboards.visitDashboard(sourceDashboard)
+
+        cy.contains('.InsightCard ', insightToMove).within(() => {
+            cy.get('[data-attr=more-button]').first().click({ force: true })
+        })
+
         cy.get('button').contains('Move to').click()
-        cy.get('button').contains('App Analytics').click()
-        cy.get('[data-attr=success-toast]').contains('Insight moved').should('exist')
+        cy.get('button').contains(targetDashboard).click()
+
+        cy.wait('@moveTile').then(() => {
+            cy.get('.CardMeta h4').should('have.text', insightToLeave)
+
+            cy.clickNavMenu('dashboards')
+            dashboards.visitDashboard(targetDashboard)
+            cy.get('.CardMeta h4').should('have.text', insightToMove)
+        })
     })
 
     it('Opens dashboard item in insights', () => {
@@ -293,7 +317,7 @@ describe('Dashboard', () => {
                     cy.get('.row-name a').click()
                 })
 
-                insight.addInsightToDashboard(dashboardName)
+                insight.addInsightToDashboard(dashboardName, { visitAfterAdding: true })
 
                 cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
                 cy.get('button').contains('Delete dashboard').click()

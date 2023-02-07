@@ -8,7 +8,11 @@ import { SignupContainer } from './SignupContainer'
 
 export default {
     title: 'Scenes-Other/Signup',
-    parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
+    parameters: {
+        layout: 'fullscreen',
+        options: { showPanel: false },
+        viewMode: 'story',
+    },
     decorators: [
         mswDecorator({
             get: { '/api/users/@me': () => [500, null] },

@@ -11,7 +11,6 @@ import {
     InsightType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
-    PropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
@@ -26,7 +25,7 @@ import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
@@ -253,7 +252,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             if (group.properties) {
                                 return {
                                     ...group,
-                                    properties: convertPropertyGroupToProperties(group.properties) as PropertyFilter[],
+                                    properties: convertPropertyGroupToProperties(
+                                        group.properties
+                                    ) as AnyPropertyFilter[],
                                 }
                             }
                             return group

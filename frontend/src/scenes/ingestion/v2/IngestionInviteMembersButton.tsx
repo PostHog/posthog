@@ -1,6 +1,6 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import { useActions } from 'kea'
-import { IconArrowRight } from 'lib/components/icons'
+import { IconArrowRight } from 'lib/lemon-ui/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 

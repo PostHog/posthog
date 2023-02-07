@@ -1,6 +1,6 @@
 import { ComponentMeta } from '@storybook/react'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { PropertyFilter, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyOperator } from '~/types'
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { useMountedLogic } from 'kea'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
@@ -8,7 +8,6 @@ import { personPropertiesModel } from '~/models/personPropertiesModel'
 export default {
     title: 'Filters/PropertyFilters',
     component: PropertyFilters,
-    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyFilters>
 
 const propertyFilters = [
@@ -30,7 +29,7 @@ const propertyFilters = [
         type: 'event',
         value: ['MacOS', 'Windows'],
     },
-] as PropertyFilter[]
+] as AnyPropertyFilter[]
 
 export function ComparingPropertyFilters(): JSX.Element {
     useMountedLogic(personPropertiesModel)

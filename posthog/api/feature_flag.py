@@ -23,11 +23,17 @@ from posthog.models.feature_flag import (
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
-    set_feature_flags_for_team_in_cache,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.rate_limit import PassThroughBurstRateThrottle
+
+
+class PassThroughFeatureFlagThrottle(PassThroughBurstRateThrottle):
+    # Throttle class that's scoped just to the local evaluation endpoint.
+    # This makes the rate limit independent of other endpoints.
+    scope = "feature_flag_evaluations"
 
 
 class CanEditFeatureFlag(BasePermission):
@@ -201,8 +207,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
-        set_feature_flags_for_team_in_cache(self.context["team_id"])
-
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -215,8 +219,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         instance.update_cohorts()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
-
-        set_feature_flags_for_team_in_cache(self.context["team_id"])
 
         return instance
 
@@ -306,7 +308,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         return Response(flags)
 
-    @action(methods=["GET"], detail=False)
+    @action(methods=["GET"], detail=False, throttle_classes=[PassThroughFeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)

@@ -11,7 +11,7 @@ import {
     FilterLogicalOperator,
 } from '~/types'
 import { personsLogic } from 'scenes/persons/personsLogic'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { actionToUrl } from 'kea-router'

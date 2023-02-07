@@ -10,7 +10,8 @@ import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyN
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
-import { IconInfo } from 'lib/components/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { TZLabel } from 'lib/components/TZLabel'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -240,7 +241,7 @@ export function ExperimentPreview({
                             <Col span={12}>
                                 <div className="card-secondary mt-4">Start date</div>
                                 {experiment?.start_date ? (
-                                    <span>{dayjs(experiment?.start_date).format('D MMM YYYY')}</span>
+                                    <TZLabel time={experiment?.start_date} />
                                 ) : (
                                     <span className="description">Not started yet</span>
                                 )}
@@ -260,7 +261,7 @@ export function ExperimentPreview({
                         {experiment?.end_date && (
                             <Col span={12}>
                                 <div className="card-secondary mt-4">Completed date</div>
-                                <span>{dayjs(experiment?.end_date).format('D MMM YYYY')}</span>
+                                <TZLabel time={experiment?.end_date} />
                             </Col>
                         )}
                     </Row>

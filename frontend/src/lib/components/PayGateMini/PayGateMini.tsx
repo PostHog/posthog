@@ -2,8 +2,8 @@ import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from '../icons'
-import { LemonButton } from '../LemonButton'
+import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './PayGateMini.scss'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -100,8 +100,8 @@ export function PayGateMini({
         }
     }
 
-    if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
-        return null // Don't show anything if paid features are explicitly disabled
+    if ((gateVariant && preflight?.instance_preferences?.disable_paid_fs) || !planRequired) {
+        return null // Don't show anything if paid features are explicitly disabled or if the feature doesn't have a minimum plan
     }
 
     return gateVariant ? (

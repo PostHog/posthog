@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { UserBasicType } from '~/types'
-import { ProfilePicture } from '../ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { TZLabel } from '../TZLabel'
 import './UserActivityIndicator.scss'
 

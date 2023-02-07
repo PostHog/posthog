@@ -8,9 +8,10 @@ import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
-import { FilterType, PropertyOperator } from '~/types'
+import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
 import { loaders } from 'kea-loaders'
+import { dateFilterToText } from 'lib/utils'
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
@@ -93,11 +94,17 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         const params: Partial<FilterType> = {
                             properties: [
                                 wildcardHref === href
-                                    ? { key: '$current_url', value: href, operator: PropertyOperator.Exact }
+                                    ? {
+                                          key: '$current_url',
+                                          value: href,
+                                          operator: PropertyOperator.Exact,
+                                          type: PropertyFilterType.Event,
+                                      }
                                     : {
                                           key: '$current_url',
                                           value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
                                           operator: PropertyOperator.Regex,
+                                          type: PropertyFilterType.Event,
                                       },
                             ],
                             ...values.heatmapFilter,
@@ -140,6 +147,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
     })),
 
     selectors(({ cache }) => ({
+        dateRange: [
+            (s) => [s.heatmapFilter],
+            (heatmapFilter: Partial<FilterType>) => {
+                return dateFilterToText(heatmapFilter.date_from, heatmapFilter.date_to, 'Last 7 days')
+            },
+        ],
         elements: [
             (selectors) => [
                 selectors.elementStats,

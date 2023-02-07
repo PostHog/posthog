@@ -17,6 +17,7 @@ frontend/.cache/
 .mypy_cache
 frontend/dist/
 frontend/types/
+frontend/__snapshots__/__diff_output__/
 *Type.ts
 frontend/pnpm-error.log
 frontend/tmp
@@ -32,6 +33,7 @@ cypress/screenshots/
 cypress/downloads/
 cypress/**/*.diff.png
 docker-compose.prod.yml
+# pyenv local config
 .python-version
 *.isorted
 build-storybook.log
@@ -43,8 +45,8 @@ object_storage/
 __emails__
 share/GeoLite2-City.mmdb
 a11y/
-# pyenv local config
-.python-version
 /test-results/
 /playwright-report/
 playwright/e2e-vrt/**/*-darwin.png
+# antlr4 generated temp files when "npm run grammar:build" crashes
+gen

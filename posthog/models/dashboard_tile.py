@@ -107,7 +107,7 @@ class DashboardTile(models.Model):
                 "insight__last_modified_by",
                 "insight__team",
             )
-            .exclude(dashboard__deleted=True)
+            .exclude(dashboard__deleted=True, deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )

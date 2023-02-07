@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import './SessionRecordingsPlaylist.scss'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { SceneExport } from 'scenes/sceneTypes'
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { PageHeader } from 'lib/components/PageHeader'
 import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic'
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
-import { More } from 'lib/components/LemonButton/More'
+import { More } from 'lib/lemon-ui/LemonButton/More'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 
 export const scene: SceneExport = {

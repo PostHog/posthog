@@ -1,4 +1,3 @@
-import Simmer, { Simmer as SimmerType } from '@posthog/simmerjs'
 import { cssEscape } from 'lib/utils/cssEscape'
 import { ActionStepType, ActionStepUrlMatching } from '~/types'
 import { ActionStepForm, BoxColor } from '~/toolbar/types'
@@ -6,8 +5,8 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { combineUrl, encodeParams } from 'kea-router'
 import { CLICK_TARGET_SELECTOR, CLICK_TARGETS, escapeRegex, TAGS_TO_IGNORE } from 'lib/actionUtils'
-
-let simmer: SimmerType
+import { finder } from '@medv/finder'
+import wildcardMatch from 'wildcard-match'
 
 export function getSafeText(el: HTMLElement): string {
     if (!el.childNodes || !el.childNodes.length) {
@@ -31,12 +30,23 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     if (!element) {
         return
     }
-    if (!simmer) {
-        simmer = new Simmer(window, { depth: 8, dataAttributes })
+
+    for (const { name, value } of Array.from(element.attributes)) {
+        if (!dataAttributes.includes(name)) {
+            continue
+        }
+
+        const selector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        if (querySelectorAllDeep(selector).length == 1) {
+            return selector
+        }
     }
 
-    // Turn tags into lower cases
-    return simmer(element)?.replace(/(^[A-Z\-]+| [A-Z\-]+)/g, (d: string) => d.toLowerCase())
+    return finder(element, {
+        attr: (name) => dataAttributes.some((dataAttribute) => wildcardMatch(dataAttribute)(name)),
+        tagName: (name) => !TAGS_TO_IGNORE.includes(name),
+        seedMinLength: 5, // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
+    })
 }
 
 export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
@@ -63,7 +73,7 @@ export function getShadowRoot(): ShadowRoot | null {
     return getToolbarElement()?.shadowRoot || null
 }
 
-export function getShadowRootPopupContainer(): HTMLElement {
+export function getShadowRootPopoverContainer(): HTMLElement {
     return getShadowRoot() as unknown as HTMLElement
 }
 

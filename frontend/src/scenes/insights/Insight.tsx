@@ -14,18 +14,16 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
 import { PageHeader } from 'lib/components/PageHeader'
-import { IconLock } from 'lib/components/icons'
+import { IconLock } from 'lib/lemon-ui/icons'
 import { summarizeInsightFilters, summarizeInsightQuery } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
-import { LemonButton } from 'lib/components/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { EditorFilters } from './EditorFilters/EditorFilters'
-import { More } from 'lib/components/LemonButton/More'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { deleteWithUndo } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -84,7 +82,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -104,9 +101,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             abortAnyRunningQuery()
         }
     }, [])
-
-    // feature flag insight-editor-panels
-    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -326,12 +320,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 <Query query={query} setQuery={setQuery} />
             ) : (
                 <>
-                    {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
+                    {insightMode === ItemMode.Edit && <InsightsNav />}
                     <div
                         className={clsx('insight-wrapper', {
-                            'insight-wrapper--editorpanels': usingEditorPanels,
-                            'insight-wrapper--singlecolumn':
-                                !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                            'insight-wrapper--singlecolumn': filters.insight === InsightType.FUNNELS,
                         })}
                     >
                         <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />

@@ -22,7 +22,7 @@ import clsx from 'clsx'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { AnyPropertyFilter, FilterLogicalOperator, PropertyFilterType } from '~/types'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonButtonWithPopup } from '@posthog/lemon-ui'
+import { LemonButtonWithDropdown } from '@posthog/lemon-ui'
 
 let uniqueMemoizedIndex = 0
 
@@ -45,6 +45,7 @@ export function TaxonomicPropertyFilter({
         TaxonomicFilterGroupType.EventFeatureFlags,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
     const taxonomicOnChange: (group: TaxonomicFilterGroup, value: TaxonomicFilterValue, item: any) => void = (
         taxonomicGroup,
@@ -73,7 +74,7 @@ export function TaxonomicPropertyFilter({
     const { openDropdown, closeDropdown, selectItem } = useActions(logic)
     const showInitialSearchInline =
         !disablePopover &&
-        ((!filter?.type && !filter?.key) ||
+        ((!filter?.type && (!filter || !(filter as any)?.key)) ||
             filter?.type === PropertyFilterType.Cohort ||
             filter?.type === PropertyFilterType.HogQL)
     const showOperatorValueSelect =
@@ -158,8 +159,8 @@ export function TaxonomicPropertyFilter({
                         </div>
                     )}
                     <div className="TaxonomicPropertyFilter__row__items">
-                        <LemonButtonWithPopup
-                            popup={{
+                        <LemonButtonWithDropdown
+                            dropdown={{
                                 overlay: dropdownOpen ? taxonomicFilter : null,
                                 visible: dropdownOpen,
                                 placement: 'bottom',
@@ -178,7 +179,7 @@ export function TaxonomicPropertyFilter({
                             ) : (
                                 <>{addButton || <div>Add filter</div>}</>
                             )}
-                        </LemonButtonWithPopup>
+                        </LemonButtonWithDropdown>
                         {showOperatorValueSelect ? (
                             <OperatorValueSelect
                                 propertyDefinitions={propertyDefinitions}

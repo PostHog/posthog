@@ -96,6 +96,7 @@ class StickinessEventsQuery(EventQuery):
                 if self._using_person_on_events
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias=f"{self.aggregation_target()}",
+                hogql_context=self._filter.hogql_context,
             )
         else:
             return "event = %(event)s", {"event": self._entity.id}

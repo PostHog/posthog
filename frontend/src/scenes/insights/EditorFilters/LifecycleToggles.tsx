@@ -2,7 +2,7 @@ import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
 import { Checkbox } from 'antd'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import './LifecycleToggles.scss'
 

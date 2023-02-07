@@ -649,7 +649,7 @@
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -724,7 +724,33 @@
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_non_deterministic_timezones
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2022-11-30 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific')), toDateTime('2022-11-30 23:59:59', 'US/Pacific')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0)
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2022-11-30 23:59:59', 'US/Pacific')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering
@@ -769,7 +795,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -814,7 +840,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -841,7 +867,7 @@
           AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -886,7 +912,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -913,7 +939,7 @@
           AND (has(['1'], "mat_name"))
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -958,7 +984,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezone_weekly
@@ -971,12 +997,12 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
+               toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific')), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
+                         toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'), 0) as date
+                         toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
@@ -984,7 +1010,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-25 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones
@@ -1010,7 +1036,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.1
@@ -1043,7 +1069,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.2
@@ -1062,14 +1088,15 @@
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
         UNION ALL WITH toDateTime('2020-01-05 23:59:59', 'US/Pacific') AS date_to,
                        toDateTime('2019-12-29 00:00:00', 'US/Pacific') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                          timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                      timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'US/Pacific')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'US/Pacific') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -1083,14 +1110,12 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.3
@@ -1116,7 +1141,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.4
@@ -1213,7 +1238,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones.7
@@ -1239,7 +1264,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones_hourly
@@ -1272,7 +1297,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_timezones_hourly.1
@@ -1327,7 +1352,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
@@ -1354,7 +1379,7 @@
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
@@ -1675,7 +1700,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -1720,7 +1745,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
@@ -1831,28 +1856,27 @@
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2019-12-31 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-24 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT e.distinct_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 29 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 29 DAY), 86400)) AS event_buckets
               FROM events e
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
               GROUP BY e.distinct_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
@@ -1871,28 +1895,27 @@
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2019-12-31 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-24 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT e.distinct_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-17 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
               GROUP BY e.distinct_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
@@ -2121,7 +2144,7 @@
            GROUP BY "$group_0", date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -2190,7 +2213,7 @@
            GROUP BY pdi.person_id, date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_groups_per_day_cumulative
@@ -2221,7 +2244,7 @@
            GROUP BY actor_id)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_per_day_cumulative
@@ -2247,7 +2270,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
@@ -2394,13 +2417,13 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), toDateTime('2020-01-04 23:59:59', 'UTC')))
+               toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
+                         toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
-          (SELECT toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as date,
+          (SELECT toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date,
                   any(sessions.session_duration) as session_duration
            FROM events e
            INNER JOIN
@@ -2419,7 +2442,7 @@
            GROUP BY sessions.$session_id, date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -2457,7 +2480,7 @@
            GROUP BY sessions.$session_id, date)
         GROUP BY date)
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
@@ -2524,7 +2547,7 @@
               FROM
                 (SELECT sessions.$session_id,
                                  session_duration,
-                                 toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as day_start,
+                                 toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                                  replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
                  FROM events AS e
                  INNER JOIN
@@ -2700,14 +2723,15 @@
                          toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-08 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -2721,14 +2745,58 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_weekly_active_users_daily_different_timezone
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-19 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-08 00:00:00', 'US/Pacific')), toDateTime('2020-01-19 23:59:59', 'US/Pacific')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-08 00:00:00', 'US/Pacific'))
+        UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'US/Pacific') AS date_to,
+                       toDateTime('2020-01-08 00:00:00', 'US/Pacific') AS date_from,
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                      timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'US/Pacific')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_filtering
@@ -2747,14 +2815,15 @@
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-12 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -2780,14 +2849,12 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_filtering_materialized
@@ -2806,14 +2873,15 @@
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-12 23:59:59', 'UTC') AS date_to,
                        toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -2839,14 +2907,12 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -2865,14 +2931,15 @@
                          toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-09 17:00:00', 'UTC') AS date_to,
                        toDateTime('2020-01-09 06:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')))), toUInt32(date_to), 3600)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                            timestamp AS day_start
+                       arrayMap(n -> toStartOfHour(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 3600)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                  timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfHour(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 7 DAY), 3600)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 7 DAY), 3600)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -2886,14 +2953,12 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_monthly
@@ -2912,14 +2977,15 @@
                          toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')))), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                     timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -2933,14 +2999,58 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_weekly_active_users_monthly_different_timezone
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'US/Pacific') - toIntervalMonth(number)) AS day_start
+        FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'US/Pacific')), toDateTime('2020-02-29 23:59:59', 'US/Pacific')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'US/Pacific'))
+        UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'US/Pacific') AS date_to,
+                       toDateTime('2019-12-01 00:00:00', 'US/Pacific') AS date_from,
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                          timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'US/Pacific')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'US/Pacific')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
   '
 ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -2953,20 +3063,21 @@
             day_start
      FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
-        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))
+               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC')), toDateTime('2020-01-18 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
+                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'))
         UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'UTC') AS date_to,
                        toDateTime('2019-12-29 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0))), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                 timestamp AS day_start
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                   timestamp AS day_start
         FROM
           (SELECT count(DISTINCT actor_id) AS counts,
-                  arrayJoin(event_buckets) as timestamp
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
            FROM
              (SELECT pdi.person_id as actor_id,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400)) AS event_buckets
+                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -2980,13 +3091,57 @@
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
-                       timestamp)
+                       tz_adjusted_timestamp)
            GROUP BY timestamp
            HAVING has(buckets, timestamp)
-           AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
-           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
            ORDER BY timestamp))
      GROUP BY day_start
-     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     ORDER BY day_start)
+  '
+---
+# name: TestTrends.test_weekly_active_users_weekly_different_timezone
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'US/Pacific') - toIntervalWeek(number)) AS day_start
+        FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), toDateTime('2020-01-18 23:59:59', 'US/Pacific')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
+        UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'US/Pacific') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'US/Pacific') AS date_from,
+                       arrayMap(n -> toStartOfDay(toDateTime(n, 'US/Pacific')), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                                                        timestamp AS day_start
+        FROM
+          (SELECT count(DISTINCT actor_id) AS counts,
+                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+           FROM
+             (SELECT pdi.person_id as actor_id,
+                     toTimeZone(timestamp, 'US/Pacific') as tz_adjusted_timestamp,
+                     arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'US/Pacific')
+              GROUP BY pdi.person_id,
+                       tz_adjusted_timestamp)
+           GROUP BY timestamp
+           HAVING has(buckets, timestamp)
+           ORDER BY timestamp))
+     GROUP BY day_start
+     ORDER BY day_start)
   '
 ---

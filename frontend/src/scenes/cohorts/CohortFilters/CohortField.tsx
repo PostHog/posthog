@@ -1,11 +1,11 @@
 import './CohortField.scss'
-import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { useMemo } from 'react'
 import { cohortFieldLogic } from 'scenes/cohorts/CohortFilters/cohortFieldLogic'
 import { useActions, useValues } from 'kea'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import { LemonTaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { LemonTaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import {
     CohortPersonPropertiesValuesFieldProps,
     CohortFieldBaseProps,
@@ -14,7 +14,7 @@ import {
     CohortTaxonomicFieldProps,
     CohortTextFieldProps,
 } from 'scenes/cohorts/CohortFilters/types'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import clsx from 'clsx'
 import { PropertyValue } from 'lib/components/PropertyFilters/components/PropertyValue'
 import { PropertyFilterValue, PropertyOperator } from '~/types'
@@ -51,13 +51,13 @@ export function CohortSelectorField({
     const { onChange } = useActions(logic)
 
     return (
-        <LemonButtonWithPopup
+        <LemonButtonWithDropdown
             type="secondary"
             status="stealth"
             sideIcon={undefined}
             data-attr={`cohort-selector-field-${fieldKey}`}
-            popup={{
-                className: 'Popup__CohortField',
+            dropdown={{
+                className: 'Popover__CohortField',
                 placement: 'bottom-start',
                 overlay: (
                     <div className="CohortField__dropdown">
@@ -90,7 +90,7 @@ export function CohortSelectorField({
             <span className="font-medium">
                 {currentOption?.label || <span className="text-muted">{placeholder}</span>}
             </span>
-        </LemonButtonWithPopup>
+        </LemonButtonWithDropdown>
     )
 }
 
@@ -115,7 +115,7 @@ export function CohortTaxonomicField({
     const groupType = criteria[groupTypeFieldKey] as TaxonomicFilterGroupType
 
     return (
-        <LemonTaxonomicPopup
+        <LemonTaxonomicPopover
             className="CohortField"
             type="secondary"
             status="stealth"

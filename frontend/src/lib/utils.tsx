@@ -5,24 +5,29 @@ import {
     ActionType,
     ActorType,
     AnyCohortCriteriaType,
+    AnyFilterLike,
     AnyFilterType,
     AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
+    ChartDisplayType,
     CohortCriteriaGroupFilter,
     CohortType,
     DateMappingOption,
+    EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
+    FunnelVizType,
     GroupActorType,
+    InsightType,
     IntervalType,
-    PropertyFilter,
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
+    TrendsFilterType,
 } from '~/types'
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
@@ -37,10 +42,12 @@ import {
     isPropertyFilterWithOperator,
     isValidPropertyFilter,
 } from './components/PropertyFilters/utils'
-import { IconCopy } from './components/icons'
-import { lemonToast } from './components/lemonToast'
+import { IconCopy } from 'lib/lemon-ui/icons'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { urls } from 'scenes/urls'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -363,7 +370,7 @@ export function formatPropertyLabel(
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
-    if (isHogQLPropertyFilter(item)) {
+    if (isHogQLPropertyFilter(item as AnyFilterLike)) {
         return extractExpressionComment(item.key)
     }
     const { value, key, operator, type } = item
@@ -1166,6 +1173,10 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         // Non-time-series insights should not have an interval
         return undefined
     }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
+        return undefined
+    }
     if (!filters.interval) {
         return 'day'
     }
@@ -1421,7 +1432,14 @@ export function getEventNamesForAction(actionId: string | number, allActions: Ac
 }
 
 export function isPropertyGroup(
-    properties: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter[] | undefined | AnyPropertyFilter
+    properties:
+        | PropertyGroupFilter
+        | PropertyGroupFilterValue
+        | AnyPropertyFilter[]
+        | AnyPropertyFilter
+        | Record<string, any>
+        | null
+        | undefined
 ): properties is PropertyGroupFilter {
     return (
         (properties as PropertyGroupFilter)?.type !== undefined &&
@@ -1433,7 +1451,7 @@ export function flattenPropertyGroup(
     flattenedProperties: AnyPropertyFilter[],
     propertyGroup: PropertyGroupFilter | PropertyGroupFilterValue | AnyPropertyFilter
 ): AnyPropertyFilter[] {
-    const obj: AnyPropertyFilter = {}
+    const obj: AnyPropertyFilter = {} as EmptyPropertyFilter
     Object.keys(propertyGroup).forEach(function (k) {
         obj[k] = propertyGroup[k]
     })
@@ -1461,7 +1479,7 @@ export function convertPropertiesToPropertyGroup(
 /** Flatten a filter group into an array of filters. NB: Logical operators (AND/OR) are lost in the process. */
 export function convertPropertyGroupToProperties(
     properties?: PropertyGroupFilter | AnyPropertyFilter[]
-): PropertyFilter[] | undefined {
+): AnyPropertyFilter[] | undefined {
     if (isPropertyGroup(properties)) {
         return flattenPropertyGroup([], properties).filter(isValidPropertyFilter)
     }
@@ -1572,4 +1590,49 @@ export function downloadFile(file: File): void {
         URL.revokeObjectURL(link.href)
         link?.parentNode?.removeChild(link)
     }, 0)
+}
+
+export function insightUrlForEvent(event: EventType): string | undefined {
+    let insightParams: Partial<TrendsFilterType> | undefined
+    if (event.event === '$pageview') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'events',
+                    order: 0,
+                    properties: [
+                        {
+                            key: '$current_url',
+                            value: event.properties.$current_url,
+                            type: 'event',
+                        },
+                    ],
+                },
+            ],
+        }
+    } else if (event.event !== '$autocapture') {
+        insightParams = {
+            insight: InsightType.TRENDS,
+            interval: 'day',
+            display: ChartDisplayType.ActionsLineGraph,
+            actions: [],
+            events: [
+                {
+                    id: event.event,
+                    name: event.event,
+                    type: 'events',
+                    order: 0,
+                    properties: [],
+                },
+            ],
+        }
+    }
+
+    return insightParams ? urls.insightNew(insightParams) : undefined
 }

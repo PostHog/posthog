@@ -14,7 +14,8 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
 from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import ParseError, PermissionDenied
+from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
@@ -22,6 +23,7 @@ from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
+from posthog import schema
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -76,6 +78,7 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -110,11 +113,31 @@ def log_insight_activity(
         )
 
 
+class QuerySchemaParser(JSONParser):
+    def parse(self, stream, media_type=None, parser_context=None):
+        data = super(QuerySchemaParser, self).parse(stream, media_type, parser_context)
+        try:
+            query = data.get("query", None)
+            if query:
+                schema.Model.parse_obj(query)
+        except Exception as error:
+            raise ParseError(detail=str(error))
+        else:
+            return data
+
+
+class DashboardTileBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardTile
+        fields = ["id", "dashboard_id", "deleted"]
+
+
 class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
 
+    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -125,7 +148,9 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "name",
             "derived_name",
             "filters",
+            "query",
             "dashboards",
+            "dashboard_tiles",
             "description",
             "last_refresh",
             "refreshing",
@@ -145,11 +170,14 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
+        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
         filters = instance.dashboard_filters()
 
-        if not filters.get("date_from"):
+        if not filters.get("date_from") and not instance.query:
             filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
+
         return representation
 
     @lru_cache(maxsize=1)
@@ -157,7 +185,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -171,14 +199,26 @@ class InsightSerializer(InsightBasicSerializer):
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    effective_restriction_level = serializers.SerializerMethodField()
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        help_text="""
+        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
+        A dashboard ID for each of the dashboards that this insight is displayed on.
+        """,
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
     )
+    dashboard_tiles = DashboardTileBasicSerializer(
+        many=True,
+        read_only=True,
+        help_text="""
+    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+    """,
+    )
+    query = serializers.JSONField(required=False, allow_null=True, help_text="Query node JSON string")
 
     class Meta:
         model = Insight
@@ -188,9 +228,11 @@ class InsightSerializer(InsightBasicSerializer):
             "name",
             "derived_name",
             "filters",
+            "query",
             "order",
             "deleted",
             "dashboards",
+            "dashboard_tiles",
             "last_refresh",
             "result",
             "created_at",
@@ -286,6 +328,8 @@ class InsightSerializer(InsightBasicSerializer):
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
+        self.user_permissions.reset_insights_dashboard_cached_results()
+
         return updated_insight
 
     def _log_insight_update(self, before_update, dashboards_before_change, updated_insight):
@@ -344,7 +388,7 @@ class InsightSerializer(InsightBasicSerializer):
             # does this user have permission on dashboards to add... if they are restricted
             # it will mean this dashboard becomes restricted because of the patch
             if (
-                dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                self.user_permissions.dashboard(dashboard).effective_privilege_level
                 == Dashboard.PrivilegeLevel.CAN_VIEW
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
@@ -380,8 +424,15 @@ class InsightSerializer(InsightBasicSerializer):
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
 
+    def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        return self.user_permissions.insight(insight).effective_restriction_level
+
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
-        return insight.get_effective_privilege_level(self.context["request"].user.id)
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+        return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
@@ -394,10 +445,13 @@ class InsightSerializer(InsightBasicSerializer):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
+        else:
+            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
-        if "insight" not in representation["filters"]:
+
+        if "insight" not in representation["filters"] and not representation["query"]:
             representation["filters"]["insight"] = "TRENDS"
 
         representation["filters_hash"] = self.insight_result(instance).cache_key
@@ -457,6 +511,8 @@ class InsightViewSet(
     stickiness_query_class = Stickiness
     paths_query_class = Paths
 
+    parser_classes = (QuerySchemaParser,)
+
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:
 
         if (self.action == "list" or self.action == "retrieve") and str_to_bool(
@@ -479,13 +535,13 @@ class InsightViewSet(
 
         queryset = queryset.prefetch_related(
             Prefetch(
+                # TODO deprecate this field entirely
                 "dashboards",
-                queryset=Dashboard.objects.filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)),
+                queryset=Dashboard.objects.all().select_related("team__organization"),
             ),
-            "dashboards__team__organization",
             Prefetch(
                 "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard"),
+                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
             ),
         )
 
@@ -493,6 +549,8 @@ class InsightViewSet(
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
+            # exclude insights that have a query but no filters (for now)
+            queryset = queryset.exclude(filters={})
 
         order = self.request.GET.get("order", None)
         if order:
@@ -559,7 +617,12 @@ class InsightViewSet(
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
                     for dashboard_id in dashboards_ids:
-                        queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
+                        # filter by dashboards one at a time so the filter is AND not OR
+                        queryset = queryset.filter(
+                            id__in=DashboardTile.objects.filter(dashboard__id=dashboard_id)
+                            .values_list("insight__id", flat=True)
+                            .all()
+                        )
 
         return queryset
 
@@ -805,7 +868,7 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         #  backwards compatibility
         if filter.path_type:
-            filter = filter.with_data({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
+            filter = filter.shallow_clone({PATHS_INCLUDE_EVENT_TYPES: [filter.path_type]})
         resp = self.paths_query_class(filter=filter, team=team, funnel_filter=funnel_filter).run()
 
         return {"result": resp, "timezone": team.timezone}

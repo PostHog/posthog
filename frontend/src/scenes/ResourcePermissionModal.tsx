@@ -1,12 +1,12 @@
 import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useValues } from 'kea'
-import { IconDelete, IconSettings } from 'lib/components/icons'
+import { IconDelete, IconSettings } from 'lib/lemon-ui/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
-} from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
-import { LemonTableColumns } from 'lib/components/LemonTable'
+} from 'lib/lemon-ui/LemonSelectMultiple/LemonSelectMultiple'
+import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import {

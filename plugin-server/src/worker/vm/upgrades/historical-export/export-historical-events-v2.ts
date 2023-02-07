@@ -42,11 +42,13 @@ import {
 import { createPluginActivityLog } from '../../../../utils/db/activity-log'
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
+import { status } from '../../../../utils/status'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
-export const EVENTS_PER_RUN = 500
+export const EVENTS_PER_RUN_SMALL = 500
+export const EVENTS_PER_RUN_BIG = 10000
 
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
 export const EXPORT_COORDINATION_KEY = 'EXPORT_COORDINATION'
@@ -163,16 +165,19 @@ export function addHistoricalEventsExportCapabilityV2(
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
-    // Set the number of events to fetch per chunk, defaulting to 10000
-    // if the plugin is PostHog S3 Export plugin, otherwise we detault to
-    // 500. This is to avoid writting lots of small files to S3.
+    // Set the number of events to fetch per chunk, defaulting to 500 unless
+    // the plugin indicates bigger batches are preferable (notably plugins writing
+    // to blob storage with a fixed cost per batch), in which case we use 10000.
     //
     // It also has the other benefit of using fewer requests to ClickHouse. In
-    // it's current implementation the querying logic for pulling pages of
+    // its current implementation the querying logic for pulling pages of
     // events from ClickHouse will read a much larger amount of data from disk
     // than is required, due to us trying to order the dataset by `timestamp`
     // and this not being included in the `sharded_events` table sort key.
-    const eventsPerRun = pluginConfig.plugin?.name === 'S3 Export Plugin' ? 10000 : EVENTS_PER_RUN
+    let eventsPerRun = EVENTS_PER_RUN_SMALL
+    if (methods.getSettings && methods.getSettings()?.handlesLargeBatches) {
+        eventsPerRun = EVENTS_PER_RUN_BIG
+    }
 
     // If public job hasn't been registered or has changed, update it!
     if (
@@ -382,6 +387,11 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
+        status.info('ℹ️', 'Running export historical events', {
+            pluginConfigId: pluginConfig.id,
+            payload,
+        })
+
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped

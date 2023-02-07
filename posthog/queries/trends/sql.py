@@ -1,7 +1,7 @@
 VOLUME_SQL = """
 SELECT
     {aggregate_operation} as data,
-    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s) {start_of_week_fix}) as date
+    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s)) as date
 {event_query_base}
 GROUP BY date
 """
@@ -15,7 +15,7 @@ VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS data, date FROM (
     SELECT
         count() AS intermediate_count,
-        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS date
     {event_query_base}
     GROUP BY {aggregator}, date
 ) GROUP BY date
@@ -33,7 +33,7 @@ SELECT {aggregate_operation} as data FROM (
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
     SELECT
-        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date,
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as date,
         any(sessions.session_duration) as session_duration
     {event_query_base}
     GROUP BY sessions.$session_id, date
@@ -60,9 +60,9 @@ ACTIVE_USERS_SQL = """
 WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
 toDateTime(%(date_from)s, %(timezone)s) AS date_from,
 arrayMap(
-    n -> toDateTime(n, %(timezone)s),
+    n -> {rounding_func}(toDateTime(n, %(timezone)s)),
     range(
-        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s) {start_of_week_fix}))),
+        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s)), %(timezone)s)),
         toUInt32(date_to),
         %(bucket_increment_seconds)s
     )
@@ -73,25 +73,33 @@ SELECT counts AS total,
 FROM (
     SELECT
         count(DISTINCT actor_id) AS counts,
-        arrayJoin(event_buckets) as timestamp
+        {rounding_func}(arrayJoin(event_buckets)) as timestamp
     FROM (
         SELECT
             {aggregator} as actor_id,
+            toTimeZone(timestamp, %(timezone)s) as tz_adjusted_timestamp,
             arrayMap(
                 n -> toDateTime(n, %(timezone)s),
                 range(
-                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))),
-                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}),
+                    toUInt32(
+                        toDateTime(
+                            {rounding_func}(
+                                if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)
+                            )
+                        )
+                    ),
+                    toUInt32(
+                        if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL {prev_interval}
+                    ),
                     %(grouping_increment_seconds)s
                 )
             ) AS event_buckets
         {event_query_base}
-        GROUP BY {aggregator}, timestamp
+        GROUP BY {aggregator}, tz_adjusted_timestamp
     )
     GROUP BY timestamp
     HAVING
         has(buckets, timestamp)
-        {parsed_date_from} {parsed_date_to}
     ORDER BY timestamp
 )
 """
@@ -113,7 +121,6 @@ SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     GROUP BY day_start
     ORDER BY day_start
 )
-SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """
@@ -221,7 +228,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as day_start,
+    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {person_join}
@@ -239,7 +246,7 @@ FROM (
     SELECT
         COUNT(*) AS intermediate_count,
         {aggregator},
-        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS day_start,
+        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS day_start,
         {breakdown_value} as breakdown_value
     FROM events AS e
     {person_join}
@@ -274,7 +281,7 @@ SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
-        SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as day_start,
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
             {breakdown_value} as breakdown_value
         FROM events AS e
         {person_join}
@@ -291,7 +298,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as day_start,
+    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
     breakdown_value
 FROM (
     SELECT

@@ -4,7 +4,7 @@ import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { DataNode as DataNodeType, DataTableNode, Node } from '~/queries/schema'
 import { useValues } from 'kea'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 interface DataNodeProps {

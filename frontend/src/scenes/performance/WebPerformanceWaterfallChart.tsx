@@ -2,7 +2,7 @@ import { PointInTimeMarker, ResourceTiming, webPerformanceLogic } from 'scenes/p
 import { Typography } from 'antd'
 import { areObjectValuesEmpty, humanFriendlyMilliseconds, humanizeBytes } from 'lib/utils'
 import { ReactNode, useState } from 'react'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { MultiRecordingButton } from 'scenes/session-recordings/multiRecordingButton/multiRecordingButton'
@@ -12,10 +12,10 @@ import { TZLabel } from 'lib/components/TZLabel'
 import './WebPerformance.scss'
 import { getSeriesColor } from 'lib/colors'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconErrorOutline, IconInfo } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -108,11 +108,11 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     )
 }
 
-const MouseTriggeredPopUp = ({ content, children }: { content: JSX.Element; children: ReactNode }): JSX.Element => {
+const MouseTriggeredPopover = ({ content, children }: { content: JSX.Element; children: ReactNode }): JSX.Element => {
     const [mouseIsOver, setMouseIsOver] = useState(false)
 
     return (
-        <Popup overlay={content} visible={mouseIsOver} className="performance-popup">
+        <Popover overlay={content} visible={mouseIsOver} className="performance-popover">
             <div
                 className="h-full cursor-pointer"
                 onMouseEnter={() => setMouseIsOver(true)}
@@ -120,7 +120,7 @@ const MouseTriggeredPopUp = ({ content, children }: { content: JSX.Element; chil
             >
                 {children}
             </div>
-        </Popup>
+        </Popover>
     )
 }
 
@@ -167,13 +167,13 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
 
         const textPosition = { left: `${100 - right + 1}%`, right: `${right}%` }
         return (
-            <MouseTriggeredPopUp content={overlayFor(resourceTiming)}>
+            <MouseTriggeredPopover content={overlayFor(resourceTiming)}>
                 {blocks}
                 {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div className="positioned" style={textPosition}>
                     {humanFriendlyMilliseconds(end)}
                 </div>
-            </MouseTriggeredPopUp>
+            </MouseTriggeredPopover>
         )
     } else {
         return null
