@@ -84,7 +84,7 @@ def print_ast(
                 limit = MAX_SELECT_RETURNED_ROWS
 
         clauses = [
-            f"SELECT {', '.join(columns)}",
+            f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {from_table}" if from_table else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,

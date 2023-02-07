@@ -370,3 +370,67 @@ class TestHogQLContext(TestCase):
             self._statement("select 1 from events"), "SELECT 1 FROM events WHERE equals(team_id, 42) LIMIT 65535"
         )
         self._assert_statement_error("select 1 from other", 'Only selecting from the "events" table is supported')
+
+    def test_select_where(self):
+        self.assertEqual(
+            self._statement("select 1 from events where 1 == 2"),
+            "SELECT 1 FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+
+    def test_select_having(self):
+        self.assertEqual(
+            self._statement("select 1 from events having 1 == 2"),
+            "SELECT 1 FROM events WHERE equals(team_id, 42) HAVING equals(1, 2) LIMIT 65535",
+        )
+
+    def test_select_prewhere(self):
+        self.assertEqual(
+            self._statement("select 1 from events prewhere 1 == 2"),
+            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2) LIMIT 65535",
+        )
+
+    def test_select_order_by(self):
+        self.assertEqual(
+            self._statement("select event from events order by event"),
+            "SELECT event FROM events WHERE equals(team_id, 42) ORDER BY event ASC LIMIT 65535",
+        )
+        self.assertEqual(
+            self._statement("select event from events order by event desc"),
+            "SELECT event FROM events WHERE equals(team_id, 42) ORDER BY event DESC LIMIT 65535",
+        )
+        self.assertEqual(
+            self._statement("select event from events order by event desc, timestamp"),
+            "SELECT event FROM events WHERE equals(team_id, 42) ORDER BY event DESC, timestamp ASC LIMIT 65535",
+        )
+
+    def test_select_limit(self):
+        self.assertEqual(
+            self._statement("select event from events limit 10"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10",
+        )
+        self.assertEqual(
+            self._statement("select event from events limit 10000000"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+    def test_select_offset(self):
+        self.assertEqual(
+            self._statement("select event from events limit 10 offset 10"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 10",
+        )
+        self.assertEqual(
+            self._statement("select event from events limit 10 offset 0"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0",
+        )
+
+    def test_select_group_by(self):
+        self.assertEqual(
+            self._statement("select event from events group by event, timestamp"),
+            "SELECT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp LIMIT 65535",
+        )
+
+    def test_select_distinct(self):
+        self.assertEqual(
+            self._statement("select distinct event from events group by event, timestamp"),
+            "SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp LIMIT 65535",
+        )
