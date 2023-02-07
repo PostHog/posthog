@@ -18,6 +18,14 @@ class Expr(AST):
     pass
 
 
+class Alias(Expr):
+    alias: str
+    expr: Expr
+
+    def children(self) -> List[AST]:
+        return cast(List[AST], [self.expr])
+
+
 class BinaryOperationType(str, Enum):
     Add = "+"
     Sub = "-"
@@ -132,11 +140,10 @@ class JoinExpr(Expr):
     join_expr: Optional["JoinExpr"] = None
 
     def children(self) -> List[AST]:
-        return cast(
-            List[AST],
-            [self.table]
-            + ([self.join_constraint] if self.join_expr else [])
-            + ([self.join_expr] if self.join_expr else []),
+        return (
+            cast(List[AST], [self.table] if self.table else [])
+            + cast(List[AST], [self.join_constraint] if self.join_expr else [])
+            + cast(List[AST], [self.join_expr] if self.join_expr else [])
         )
 
 
@@ -153,15 +160,14 @@ class SelectQuery(Expr):
     distinct: Optional[bool] = None
 
     def children(self) -> List[AST]:
-        return cast(
-            List[AST],
-            self.select
-            + ([self.select_from] if self.select_from else [])
-            + ([self.where] if self.where else [])
-            + ([self.prewhere] if self.prewhere else [])
-            + ([self.having] if self.having else [])
-            + (self.group_by or []),
-            +(self.order_by or []),
+        return (
+            cast(List[AST], self.select)
+            + cast(List[AST], [self.select_from] if self.select_from else [])
+            + cast(List[AST], [self.where] if self.where else [])
+            + cast(List[AST], [self.prewhere] if self.prewhere else [])
+            + cast(List[AST], [self.having] if self.having else [])
+            + cast(List[AST], self.group_by or [])
+            + cast(List[AST], self.order_by or [])
         )
 
 

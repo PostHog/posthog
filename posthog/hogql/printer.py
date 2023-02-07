@@ -54,7 +54,7 @@ def print_ast(
         from_table = None
         if node.select_from:
             if isinstance(node.select_from.table, ast.Field):
-                if node.select_from.table.field != "events":
+                if node.select_from.table.chain != ["events"]:
                     raise ValueError('Only selecting from the "events" table is supported')
                 from_table = "events"
             elif isinstance(node.select_from.table, ast.SelectQuery):
@@ -282,8 +282,6 @@ def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAcc
             return HogQLFieldAccess(chain, "person", chain[0][7:], chain[0])
         elif chain[0].lower() in KEYWORDS:
             return HogQLFieldAccess(chain, None, None, chain[0].lower())
-        elif chain[0] == "person":
-            raise ValueError(f'Can not use the field "person" in an expression')
         else:
             raise ValueError(f"Unknown event field '{chain[0]}'")
 

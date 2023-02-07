@@ -1,12 +1,23 @@
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast, overload
 
 from posthog.hogql import ast
 
 
+@overload
+def replace_placeholders_list(node: None, placeholders: Dict[str, ast.Expr]) -> None:
+    ...
+
+
+@overload
 def replace_placeholders_list(node: List[ast.Expr], placeholders: Dict[str, ast.Expr]) -> List[ast.Expr]:
-    # TODO: type generics?
+    ...
+
+
+def replace_placeholders_list(
+    node: Optional[List[ast.Expr]], placeholders: Dict[str, ast.Expr]
+) -> Optional[List[ast.Expr]]:
     if node is None:
-        return cast(Any, node)
+        return None
     return [replace_placeholders(child, placeholders) for child in node]
 
 

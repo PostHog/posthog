@@ -318,31 +318,35 @@ class TestParser(BaseTest):
             ast.Call(name="avg", args=[ast.Constant(value=1), ast.Constant(value=2), ast.Constant(value=3)]),
         )
 
-    def test_column_alias(self):
+    def test_alias(self):
         self.assertEqual(
             parse_expr("1 as asd"),
-            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+            ast.Alias(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
             parse_expr("1 as `asd`"),
-            ast.Column(alias="asd", expr=ast.Constant(value=1)),
+            ast.Alias(alias="asd", expr=ast.Constant(value=1)),
         )
         self.assertEqual(
             parse_expr("1 as `🍄`"),
-            ast.Column(alias="🍄", expr=ast.Constant(value=1)),
+            ast.Alias(alias="🍄", expr=ast.Constant(value=1)),
+        )
+        self.assertEqual(
+            parse_expr("(1 as b) as `🍄`"),
+            ast.Alias(alias="🍄", expr=ast.Alias(alias="b", expr=ast.Constant(value=1))),
         )
 
-    def test_expr_with_ignored_python_comment(self):
+    def test_expr_with_ignored_sql_comment(self):
         self.assertEqual(
-            parse_expr("1 # asd"),
+            parse_expr("1 -- asd"),
             ast.Constant(value=1),
         )
         self.assertEqual(
-            parse_expr("1 # 'asd'"),
+            parse_expr("1 -- 'asd'"),
             ast.Constant(value=1),
         )
         self.assertEqual(
-            parse_expr("1 # '🍄'"),
+            parse_expr("1 -- '🍄'"),
             ast.Constant(value=1),
         )
 

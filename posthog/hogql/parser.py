@@ -334,7 +334,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             raise NotImplementedError(f"Must specify an alias.")
         expr = self.visit(ctx.columnExpr())
-        return ast.Column(expr=expr, alias=alias)
+        return ast.Alias(expr=expr, alias=alias)
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprExtract")

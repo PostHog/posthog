@@ -15,7 +15,7 @@ class TestHogQLContext(TestCase):
     def _statement(self, query: str, context: Optional[HogQLContext] = None) -> str:
         return translate_hogql(query, context or HogQLContext(select_team_id=42))
 
-    def _assert_error(self, expr, expected_error):
+    def _assert_expr_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
             self._expr(expr)
         if expected_error not in str(context.exception):
@@ -141,31 +141,33 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._expr("toFloat('1.3')", context), "toFloat64OrNull(%(hogql_val_1)s)")
 
     def test_expr_parse_errors(self):
-        self._assert_error("", "Empty query")
-        self._assert_error("avg(bla)", "Unknown event field 'bla'")
-        self._assert_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
-        self._assert_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
-        self._assert_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
-        self._assert_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
-        self._assert_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
-        self._assert_error("mad(bla)", "Unsupported function call 'mad(...)'")
-        self._assert_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
-        self._assert_error("chipotle", "Unknown event field 'chipotle'")
-        self._assert_error("person.chipotle", "Unknown person field 'chipotle'")
-        self._assert_error(
+        self._assert_expr_error("", "Empty query")
+        self._assert_expr_error("avg(bla)", "Unknown event field 'bla'")
+        self._assert_expr_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
+        self._assert_expr_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
+        self._assert_expr_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
+        self._assert_expr_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
+        self._assert_expr_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
+        self._assert_expr_error("mad(bla)", "Unsupported function call 'mad(...)'")
+        self._assert_expr_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
+        self._assert_expr_error("chipotle", "Unknown event field 'chipotle'")
+        self._assert_expr_error("person.chipotle", "Unknown person field 'chipotle'")
+        self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
 
     def test_expr_syntax_errors(self):
-        self._assert_error("(", "line 1, column 1: no viable alternative at input '('")
-        self._assert_error("())", "line 1, column 1: no viable alternative at input '()'")
-        self._assert_error("['properties']['value']", "Unsupported node: ColumnExprArray")
-        self._assert_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
-        self._assert_error("select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>")
-        self._assert_error("this makes little sense", "2 validation errors for Column")
-        self._assert_error("event makes little sense", "2 validation errors for Column")
-        self._assert_error("1;2", "line 1, column 1: mismatched input ';' expecting")
-        self._assert_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
+        self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
+        self._assert_expr_error("())", "line 1, column 1: no viable alternative at input '()'")
+        self._assert_expr_error("['properties']['value']", "Unsupported node: ColumnExprArray")
+        self._assert_expr_error("['properties']['value']['bla']", "Unsupported node: ColumnExprArray")
+        self._assert_expr_error(
+            "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
+        )
+        self._assert_expr_error("this makes little sense", "Unknown AST node Alias")
+        self._assert_expr_error("event makes little sense", "Unknown AST node Alias")
+        self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
+        self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
     def test_returned_properties(self):
         context = HogQLContext()
@@ -262,8 +264,8 @@ class TestHogQLContext(TestCase):
         self.assertEqual(self._expr("event not like 'E'", context), "not(like(event, %(hogql_val_7)s))")
         self.assertEqual(self._expr("event ilike 'E'", context), "ilike(event, %(hogql_val_8)s)")
         self.assertEqual(self._expr("event not ilike 'E'", context), "not(ilike(event, %(hogql_val_9)s))")
-        self.assertEqual(self._expr("event in 'E'", context), "in(event, %(hogql_val_8)s)")
-        self.assertEqual(self._expr("event not in 'E'", context), "not(in(event, %(hogql_val_9)s))")
+        self.assertEqual(self._expr("event in 'E'", context), "in(event, %(hogql_val_10)s)")
+        self.assertEqual(self._expr("event not in 'E'", context), "not(in(event, %(hogql_val_11)s))")
 
     def test_comments(self):
         context = HogQLContext()
@@ -272,7 +274,7 @@ class TestHogQLContext(TestCase):
     def test_special_root_properties(self):
         self.assertEqual(
             self._expr("*"),
-            "tuple(uuid,event,properties,timestamp,team_id,distinct_id,elements_chain,created_at,person_id,person_created_at,person_properties)",
+            "tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties)",
         )
         context = HogQLContext()
         self.assertEqual(
@@ -280,7 +282,6 @@ class TestHogQLContext(TestCase):
             "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_1)s), '^\"|\"$', ''))",
         )
         self.assertEqual(context.values, {"hogql_val_0": "name", "hogql_val_1": "email"})
-        self._assert_error("person + 1", 'Can not use the field "person" in an expression')
 
     def test_values(self):
         context = HogQLContext()
@@ -292,11 +293,14 @@ class TestHogQLContext(TestCase):
         )
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
+    def test_no_alias_yet(self):
+        self._assert_expr_error("1 as team_id", "Unknown AST node Alias")
+
     def test_select(self):
         self.assertEqual(self._statement("select 1"), "SELECT 1 LIMIT 65535")
         self.assertEqual(self._statement("select 1 + 2"), "SELECT plus(1, 2) LIMIT 65535")
         self.assertEqual(self._statement("select 1 + 2, 3"), "SELECT plus(1, 2), 3 LIMIT 65535")
         self.assertEqual(
             self._statement("select 1 + 2, 3 + 4 from events"),
-            "SELECT plus(1, 2), plus(3, 4) FROM events WHERE equals(team_id, 43) LIMIT 65535",
+            "SELECT plus(1, 2), plus(3, 4) FROM events WHERE equals(team_id, 42) LIMIT 65535",
         )
