@@ -32,7 +32,7 @@ def pushed_metrics_registry(job_name: str):
     region makes sense (e.g. instance metrics computed by celery jobs).
     """
 
-    from posthog.settings import PROM_PUSHGATEWAY_ADDRESS
+    from django.conf import settings
 
     registry = CollectorRegistry()
     yield registry
