@@ -45,6 +45,7 @@ import { isTestEnv } from '../../../../utils/env-utils'
 import { status } from '../../../../utils/status'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 
+const SIXTY_MINUTES = 1000 * 60 * 60
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
 export const EVENTS_PER_RUN_SMALL = 500
@@ -605,7 +606,11 @@ export function addHistoricalEventsExportCapabilityV2(
     function shouldResume(status: ExportChunkStatus, now: number): boolean {
         // When a export hasn't updated in 10 minutes plus whatever time is spent on retries, it's likely already timed out or died
         // Note that status updates happen every time the export makes _any_ progress
-        return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
+        // NOTE from the future: we discovered that 10 minutes was not enough time as we have exports running for longer
+        // without failing, and this logic was triggering multiple simultaneous resumes. Simultaneous resumes start to fight to update
+        // the status, and cause duplicate data to be exported. Overall, a nightmare.
+        // As a temporary solution, we are bumping this to 60 minutes, and coming back later to apply a more resilient fix.
+        return now >= status.statusTime + SIXTY_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 
     function nextCursor(payload: ExportHistoricalEventsJobPayload, eventCount: number): OffsetParams {
