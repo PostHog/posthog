@@ -18,7 +18,7 @@
     "packageManager": "pnpm@7.14.2",
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && pnpm copy-scripts:array && pnpm copy-scripts:recorder",
-        "copy-scripts:array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",
+        "copy-scripts:array": "./bin/copy-scripts-array",
         "copy-scripts:recorder": "./bin/copy-scripts-recorder",
         "test": "pnpm test:unit && pnpm test:visual-regression",
         "test:unit": "jest --testPathPattern=frontend/",
@@ -103,7 +103,7 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.43.0",
+        "posthog-js": "^1.43.0",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.3.1",
         "prop-types": "^15.7.2",

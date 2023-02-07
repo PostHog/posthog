@@ -3,8 +3,8 @@
 set -e
 
 # If recorder.js files don't exist in posthog-js/dist generate recorder.js the old way to maintain backwards compatibility.
-# `recorder.js` files are explicitly built in posthog-js starting from v1.44.0
-FILE=node_modules/posthog-js/dist/recorder.js
+# `array.full.js` files are explicitly built in posthog-js starting from v1.44.0
+FILE=node_modules/posthog-js/dist/array.full.js
 if [ -f "$FILE" ]; then
 
   cp node_modules/posthog-js/dist/recorder.js frontend/dist/recorder.js
