@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogicV2 } from '../ingestionLogicV2'
+import { ingestionLogic } from '../ingestionLogic'
 import './Panels.scss'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { thirdPartySources, ThirdPartySourceType } from '../constants'
@@ -15,7 +15,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
-    const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogicV2)
+    const { setInstructionsModal, setThirdPartySource, openThirdPartyPluginModal } = useActions(ingestionLogic)
     const { filteredUninstalledPlugins, installedPlugins } = useValues(pluginsLogic)
     const { installPlugin } = useActions(pluginsLogic)
     const {
@@ -132,8 +132,8 @@ export function ThirdPartyPanel(): JSX.Element {
 }
 
 export function IntegrationInstructionsModal(): JSX.Element {
-    const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogicV2)
-    const { setInstructionsModal } = useActions(ingestionLogicV2)
+    const { instructionsModalOpen, thirdPartyIntegrationSource, thirdPartyPluginSource } = useValues(ingestionLogic)
+    const { setInstructionsModal } = useActions(ingestionLogic)
     const { currentTeam } = useValues(teamLogic)
 
     return (

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogicV2 } from '../ingestionLogicV2'
+import { ingestionLogic } from '../ingestionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -13,8 +13,8 @@ import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { next, completeOnboarding } = useActions(ingestionLogicV2)
-    const { showBillingStep } = useValues(ingestionLogicV2)
+    const { next, completeOnboarding } = useActions(ingestionLogic)
+    const { showBillingStep } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
