@@ -4,7 +4,7 @@ from antlr4.error.ErrorListener import ErrorListener
 from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
-from posthog.hogql.parser_utils import parse_string_literal
+from posthog.hogql.parse_string import parse_string, parse_string_literal
 
 
 def parse_expr(expr: str) -> ast.Expr:
@@ -470,13 +470,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitAlias(self, ctx: HogQLParser.AliasContext):
         text = ctx.getText()
         if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
-            text = parse_string_literal(ctx)
+            text = parse_string(ctx)
         return text
 
     def visitIdentifier(self, ctx: HogQLParser.IdentifierContext):
         text = ctx.getText()
         if len(text) >= 2 and text.startswith("`") and text.endswith("`"):
-            text = parse_string_literal(ctx)
+            text = parse_string(ctx)
         return text
 
     def visitIdentifierOrNull(self, ctx: HogQLParser.IdentifierOrNullContext):
