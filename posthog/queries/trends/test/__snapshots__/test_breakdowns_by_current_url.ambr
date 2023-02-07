@@ -10,8 +10,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'watched movie'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -53,8 +53,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND if(empty(trim(TRAILING '/?#'
                                from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
                                                                                                                            from replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', ''))) in (['https://example.com/home', 'https://example.com'])
@@ -80,8 +80,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'watched movie'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -123,8 +123,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-02 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND if(empty(trim(TRAILING '/?#'
                                from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))), '/', trim(TRAILING '/?#'
                                                                                                                         from replaceRegexpAll(JSONExtractRaw(properties, '$pathname'), '^"|"$', ''))) in (['/home', '/'])

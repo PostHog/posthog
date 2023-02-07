@@ -55,8 +55,8 @@
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['user did things', 'user signed up']
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND ((and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
                         AND (like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%')))
                    AND (step_0 = 1
@@ -128,8 +128,8 @@
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE team_id = 2
                    AND event IN ['user did things', 'user signed up']
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
@@ -148,8 +148,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -189,8 +189,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-             AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
@@ -212,8 +212,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-08 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -253,8 +253,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-             AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
@@ -285,8 +285,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -325,8 +325,8 @@
            HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND ((and(greater(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
                AND (like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%')))
         GROUP BY date)
@@ -353,8 +353,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -393,8 +393,8 @@
            HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND ((and(greater(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd')))
                AND (like("pmat_fish", '%fish%')))
         GROUP BY date)
@@ -435,8 +435,8 @@
            HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND (and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd'))
                AND like(replaceRegexpAll(JSONExtractRaw(person_props, 'fish'), '^"|"$', ''), '%fish%'))
         GROUP BY date)
@@ -477,8 +477,8 @@
            HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')))
-          AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
           AND (and(less(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd'))
                AND like("pmat_fish", '%fish%'))
         GROUP BY date)

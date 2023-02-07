@@ -83,8 +83,8 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -160,8 +160,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -265,8 +265,8 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -339,8 +339,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -442,8 +442,8 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -516,8 +516,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -619,8 +619,8 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -693,8 +693,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -796,8 +796,8 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -870,8 +870,8 @@
                     GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                  JOIN funnel_actors ON funnel_actors.actor_id = pdi.person_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                    AND e.timestamp >= target_timestamp
                  ORDER BY pdi.person_id,
@@ -958,8 +958,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1047,8 +1047,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1136,8 +1136,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1477,8 +1477,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1598,8 +1598,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1719,8 +1719,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1846,8 +1846,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY

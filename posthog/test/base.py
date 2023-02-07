@@ -481,7 +481,19 @@ def flush_persons_and_events():
 
 def _create_event(**kwargs):
     """
-    Create an event in tests. NOTE: all events get batched and only created when sync_execute is called
+    Create an event in tests.
+
+    Timezone support works as follows here:
+    If a `timestamp` kwarg WITHOUT an explicit timezone is provided, it's treated as local to the project.
+    Example: With the default `team.timezone = 'UTC'`, timestamp `2022-11-24T12:00:00` is saved verbatim to the DB,
+    as all our stored data is in UTC . However, with `team.timezone = 'America/Phoenix'`, the event will in fact be
+    stored with timestamp `2022-11-24T19:00:00` - because America/Pheonix is UTC-7, and Phoenix noon occurs at 7 PM UTC.
+    If a `timestamp` WITH an explicit timezone is provided (in the case of ISO strings, this can be the "Z" suffix
+    signifying UTC), we use that timezone instead of the project timezone.
+    If NO `timestamp` is provided, we use the current system time (which can be mocked with `freeze_time()`)
+    and treat that as local to the project.
+
+    NOTE: All events get batched and only created when sync_execute is called.
     """
     if not kwargs.get("event_uuid"):
         kwargs["event_uuid"] = str(uuid.uuid4())
@@ -703,12 +715,12 @@ def also_test_with_different_timezones(fn):
     """
 
     def fn_minus_utc(self, *args, **kwargs):
-        self.team.timezone = "America/Phoenix"  # UTC-7. Arizona does NOT observe DST, which is good for determinism
+        self.team.timezone = "America/Phoenix"  # UTC-7. Arizona does not observe DST, which is good for determinism
         self.team.save()
         fn(self, *args, **kwargs)
 
     def fn_plus_utc(self, *args, **kwargs):
-        self.team.timezone = "Europe/Moscow"  # UTC+3. Russia does NOT observe DST, which is good for determinism
+        self.team.timezone = "Asia/Tokyo"  # UTC+9. Japan does not observe DST, which is good for determinism
         self.team.save()
         fn(self, *args, **kwargs)
 

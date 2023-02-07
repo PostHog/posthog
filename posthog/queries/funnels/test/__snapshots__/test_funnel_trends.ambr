@@ -74,8 +74,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
-                         AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                         AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
+                         AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -165,8 +165,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND toTimeZone(toDateTime(timestamp, 'US/Pacific'), 'UTC') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
-                         AND toTimeZone(toDateTime(timestamp, 'US/Pacific'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific')
+                         AND toTimeZone(toDateTime(timestamp), 'US/Pacific') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
+                         AND toTimeZone(toDateTime(timestamp), 'US/Pacific') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific')
                          AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -256,8 +256,8 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['step one', 'step three', 'step two']
-                         AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                         AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                         AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                         AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                          AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
@@ -340,8 +340,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['step one', 'step three', 'step two']
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-05-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) ))))

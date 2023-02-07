@@ -92,8 +92,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['$pageview', 'insight analyzed']
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -306,8 +306,8 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'insight analyzed', 'insight updated']
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                            AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                            AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                             AND (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) ))))
@@ -462,8 +462,8 @@
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['$pageview', 'insight analyzed']
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -598,8 +598,8 @@
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                       AND (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,
@@ -733,8 +733,8 @@
                        HAVING max(is_deleted) = 0
                        AND (has(['bar'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'foo'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                       AND (1=1) ))
               WHERE step_0 = 1 ))
         GROUP BY aggregation_target,

@@ -188,7 +188,7 @@ class QueryDateRange(Generic[F]):
         Use `from_utc=True` for datetimes from the database - we always store datetimes in UTC.
         """
         if stored_in_utc:
-            return f"toTimeZone(toDateTime({datetime_expr}, %(timezone)s), 'UTC')"
+            return f"toTimeZone(toDateTime({datetime_expr}), %(timezone)s)"
         else:
             return f"toDateTime({datetime_expr}, %(timezone)s)"
 
@@ -197,7 +197,7 @@ class QueryDateRange(Generic[F]):
         """Return expression with normalized datetime truncated to the start of the interval."""
         extra_trunc_func_args = cls.determine_extra_trunc_func_args(trunc_func)
         # toDateTime is important here, as otherwise we'd get a date in many cases, which breaks comparisons
-        return f"toDateTime({trunc_func}({normalized_datetime_expr}{extra_trunc_func_args}))"
+        return f"toDateTime({trunc_func}({normalized_datetime_expr}{extra_trunc_func_args}), %(timezone)s)"
 
     @staticmethod
     def determine_extra_trunc_func_args(trunc_func: str) -> str:

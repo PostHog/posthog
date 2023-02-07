@@ -10,8 +10,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['terminate funnel', 'watched movie']
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 100
@@ -82,8 +82,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['terminate funnel', 'watched movie']
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))
@@ -106,8 +106,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['terminate funnel', 'watched movie']
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 100
@@ -178,8 +178,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['terminate funnel', 'watched movie']
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-                      AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) )))
            WHERE step_0 = 1 ))

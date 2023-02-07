@@ -114,14 +114,12 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
-        # Adjust timezone
+        # Offset timezone-naive datetime by project timezone, to facilitate @also_test_with_different_timezones
         if timestamp.tzinfo is None:
-            timestamp = timestamp.replace(tzinfo=pytz.utc)
-            team_timezone = event["team"].timezone if event.get("team") else None
-            if team_timezone:
-                timestamp = timestamp.astimezone(pytz.timezone(team_timezone))
+            team_timezone = event["team"].timezone if event.get("team") else "UTC"
+            timestamp = pytz.timezone(team_timezone).localize(timestamp)
         # Format for ClickHouse
-        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+        timestamp = timestamp.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
         elements_chain = ""
         if event.get("elements") and len(event["elements"]) > 0:
@@ -158,7 +156,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         )
 
         #  use person properties mapping to populate person properties in given event
-        team_id = event["team"].pk if event.get("team") else event["team_id"]
+        team_id = event["team"].pk
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties

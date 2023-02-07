@@ -112,8 +112,8 @@
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -249,8 +249,8 @@
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -386,8 +386,8 @@
                     GROUP BY distinct_id
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
                    AND (1=1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
