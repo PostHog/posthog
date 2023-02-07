@@ -5,7 +5,7 @@ import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Fragment, useMemo } from 'react'
+import { Fragment } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export interface ItemPerformanceEvent {
