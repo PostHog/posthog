@@ -414,10 +414,12 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        const progress = (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime)
+
         await meta.storage.set(payload.statusKey, {
             ...payload,
             done: false,
-            progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
+            progress: progress,
             statusTime: Date.now(),
         } as ExportChunkStatus)
 
@@ -447,6 +449,13 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        const interval = setInterval(meta.storage.set, 1000 * 60, payload.statusKey, {
+            ...payload,
+            done: false,
+            progress: progress,
+            statusTime: Date.now(),
+        } as ExportChunkStatus)
+
         if (events.length > 0) {
             try {
                 await methods.exportEvents!(events)
@@ -471,11 +480,13 @@ export function addHistoricalEventsExportCapabilityV2(
                     plugin: pluginConfig.plugin?.name ?? '?',
                 })
             } catch (error) {
+                clearInterval(interval)
                 await handleExportError(error, activeExportParameters, payload, events.length)
                 return
             }
         }
 
+        clearInterval(interval)
         const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
 
         await meta.jobs
