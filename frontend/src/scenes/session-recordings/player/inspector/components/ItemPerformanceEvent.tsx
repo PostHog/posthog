@@ -5,7 +5,7 @@ import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { Fragment } from 'react'
+import { Fragment, useMemo } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export interface ItemPerformanceEvent {
@@ -95,7 +95,22 @@ export function ItemPerformanceEvent({
     const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
     const startTime = item.start_time || item.fetch_start || 0
     const duration = item.duration || 0
-    const eventName = item.name && isURL(item.name) ? new URL(item.name).pathname : item.name || '(empty string)'
+
+    const eventName = useMemo(() => {
+        // If the $current_url domain is the same as event's domain then we just display the path
+        let val = item.name || '(missing)'
+
+        if (item.name && isURL(item.name) && isURL(item.current_url)) {
+            const eventUrl = new URL(item.name)
+            const currentUrl = new URL(item.current_url)
+
+            if (eventUrl.hostname === currentUrl.hostname) {
+                val = eventUrl.pathname
+            }
+        }
+        return val
+    }, [item.name, item.current_url])
+
     const contextLengthMs = finalTimestamp?.diff(dayjs(item.time_origin), 'ms') || 1000
 
     const {
