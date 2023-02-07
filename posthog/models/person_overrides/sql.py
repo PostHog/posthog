@@ -11,6 +11,7 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
+from django.conf import settings
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
 
@@ -61,7 +62,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
     -- for details.
     ENGINE = ReplicatedReplacingMergeTree(
-        '/clickhouse/tables/noshard/{CLICKHOUSE_DATABASE}.person_overrides',
+        '/clickhouse/tables/{'{uuid}' if settings.TEST else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
         '{{replica}}-{{shard}}',
         version
     )
