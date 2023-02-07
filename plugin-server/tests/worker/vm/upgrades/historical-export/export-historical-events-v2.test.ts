@@ -631,7 +631,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             const dateStatus = {
                 done: false,
                 progress: 0.5,
-                statusTime: Date.now() - 20 * 60 * 1000,
+                statusTime: Date.now() - 70 * 60 * 1000,
                 retriesPerformedSoFar: 0,
             }
             await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
@@ -923,7 +923,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('shouldResume()', () => {
         const shouldResume = getTestMethod('shouldResume')
 
-        it('resumes task when a bit over 10 minutes have passed', () => {
+        it('resumes task when a bit over 60 minutes have passed', () => {
             const status = {
                 statusTime: 10_000_000_000,
                 retriesPerformedSoFar: 0,
@@ -933,8 +933,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(shouldResume(status, 9_000_000_000)).toEqual(false)
             expect(shouldResume(status, 10_000_060_000)).toEqual(false)
             expect(shouldResume(status, 10_000_590_000)).toEqual(false)
-            expect(shouldResume(status, 10_000_660_000)).toEqual(true)
-            expect(shouldResume(status, 10_001_000_000)).toEqual(true)
+            expect(shouldResume(status, 10_000_660_000)).toEqual(false)
+            expect(shouldResume(status, 10_003_660_000)).toEqual(true)
         })
 
         it('accounts for retries exponential backoff', () => {
