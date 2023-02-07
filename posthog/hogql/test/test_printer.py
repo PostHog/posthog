@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Literal, Optional
 
 from django.test.testcases import TestCase
 
@@ -8,16 +8,20 @@ from posthog.hogql.hogql import translate_hogql
 
 class TestHogQLContext(TestCase):
     # Helper to always translate HogQL with a blank context
-    def _expr(self, query: str, context: Optional[HogQLContext] = None) -> str:
-        return translate_hogql(query, context or HogQLContext())
+    def _expr(
+        self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
+    ) -> str:
+        return translate_hogql(query, context or HogQLContext(), dialect)
 
     # Helper to always translate HogQL with a blank context,
-    def _statement(self, query: str, context: Optional[HogQLContext] = None) -> str:
-        return translate_hogql(query, context or HogQLContext(select_team_id=42))
+    def _statement(
+        self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
+    ) -> str:
+        return translate_hogql(query, context or HogQLContext(select_team_id=42), dialect)
 
-    def _assert_expr_error(self, expr, expected_error):
+    def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
         with self.assertRaises(ValueError) as context:
-            self._expr(expr)
+            self._expr(expr, None, dialect)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
@@ -112,6 +116,47 @@ class TestHogQLContext(TestCase):
         self.assertEqual(
             context.field_access_logs,
             [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "person_created_at")],
+        )
+
+    def test_hogql_properties(self):
+        self.assertEqual(
+            self._expr("event", HogQLContext(), "hogql"),
+            "event",
+        )
+        self.assertEqual(
+            self._expr("person", HogQLContext(), "hogql"),
+            "person",
+        )
+        self.assertEqual(
+            self._expr("person.properties.$browser", HogQLContext(), "hogql"),
+            "person.properties.$browser",
+        )
+        self.assertEqual(
+            self._expr("properties.$browser", HogQLContext(), "hogql"),
+            "properties.$browser",
+        )
+        self.assertEqual(
+            self._expr("properties.`$browser with a space`", HogQLContext(), "hogql"),
+            "properties.`$browser with a space`",
+        )
+        self.assertEqual(
+            self._expr("properties['$browser with a space']", HogQLContext(), "hogql"),
+            "properties.`$browser with a space`",
+        )
+        self.assertEqual(
+            self._expr("properties['$browser with a ` tick']", HogQLContext(), "hogql"),
+            "properties.`$browser with a \\` tick`",
+        )
+        self.assertEqual(
+            self._expr("properties['$browser \\\\with a \\n` tick']", HogQLContext(), "hogql"),
+            "properties.`$browser \\\\with a \\n\\` tick`",
+        )
+        self._assert_expr_error("properties.0", "Unsupported node: ColumnExprTupleAccess", "hogql")
+        self._assert_expr_error(
+            'properties."no strings"', "mismatched input '\"no strings\"' expecting DECIMAL_LITERAL", "hogql"
+        )
+        self._assert_expr_error(
+            "properties.'no strings'", "mismatched input ''no strings'' expecting DECIMAL_LITERAL", "hogql"
         )
 
     def test_materialized_fields_and_properties(self):
@@ -295,6 +340,7 @@ class TestHogQLContext(TestCase):
 
     def test_no_alias_yet(self):
         self._assert_expr_error("1 as team_id", "Unknown AST node Alias")
+        self._assert_expr_error("1 as `-- select team_id`", "Unknown AST node Alias")
 
     def test_select(self):
         self.assertEqual(self._statement("select 1"), "SELECT 1 LIMIT 65535")

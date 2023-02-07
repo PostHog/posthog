@@ -13,6 +13,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.printer_utils import sanitize_clickhouse_identifier
 
 
 def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -172,7 +173,7 @@ def print_ast(
     elif isinstance(node, ast.Field):
         if dialect == "hogql":
             # TODO: check sanitization when printing HogQL fields
-            response = ".".join(node.chain)
+            response = ".".join([sanitize_clickhouse_identifier(identifier) for identifier in node.chain])
         elif node.chain == ["*"]:
             query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
             response = print_ast(parse_expr(query), stack, context, dialect)
