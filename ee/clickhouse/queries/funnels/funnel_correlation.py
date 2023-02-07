@@ -17,7 +17,6 @@ from rest_framework.exceptions import ValidationError
 
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import get_materialized_columns
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models import Team
@@ -114,7 +113,7 @@ class FunnelCorrelation:
         self._base_uri = base_uri
 
         if self._filter.funnel_step is None:
-            self._filter = self._filter.with_data({"funnel_step": 1})
+            self._filter = self._filter.shallow_clone({"funnel_step": 1})
             # Funnel Step by default set to 1, to give us all people who entered the funnel
 
         # Used for generating the funnel persons cte
@@ -292,9 +291,7 @@ class FunnelCorrelation:
             """
         else:
             array_join_query = f"""
-                arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-                arrayMap(x -> {trim_quotes_expr("JSONExtractRaw(properties, x)")}, prop_keys) as prop_values,
-                arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+                arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
             """
 
         query = f"""
@@ -528,16 +525,9 @@ class FunnelCorrelation:
             )
 
         if "$all" in cast(list, self._filter.correlation_property_names):
-            map_expr = trim_quotes_expr(f"JSONExtractRaw({aggregation_properties_alias}, x)")
             return (
                 f"""
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw({aggregation_properties_alias})) as person_prop_keys,
-            arrayJoin(
-                arrayZip(
-                    person_prop_keys,
-                    arrayMap(x -> {map_expr}, person_prop_keys)
-                )
-            ) as prop
+                arrayJoin(JSONExtractKeysAndValues({aggregation_properties_alias}, 'String')) as prop
             """,
                 {},
             )
@@ -701,11 +691,11 @@ class FunnelCorrelation:
 
     def construct_event_correlation_people_url(self, success: bool, event_definition: EventDefinition) -> str:
         # NOTE: we need to convert certain params to strings. I don't think this
-        # class should need to know these details, but with_data is
+        # class should need to know these details, but shallow_clone is
         # expecting the values as they are serialized in the url
         # TODO: remove url serialization details from this class, it likely
         # belongs in the application layer, or perhaps `FunnelCorrelationPeople`
-        params = self._filter.with_data(
+        params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_person_entity": {"id": event_definition["event"], "type": "events"},
@@ -726,7 +716,7 @@ class FunnelCorrelation:
                 "text": first_element["text"],
                 "selector": build_selector(elements),
             }
-            params = self._filter.with_data(
+            params = self._filter.shallow_clone(
                 {
                     "funnel_correlation_person_converted": "true" if success else "false",
                     "funnel_correlation_person_entity": {
@@ -743,7 +733,7 @@ class FunnelCorrelation:
             return f"{self._base_uri}api/person/funnel/correlation/?{urllib.parse.urlencode(params)}"
 
         event_name, property_name, property_value = event_definition["event"].split("::")
-        params = self._filter.with_data(
+        params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_person_entity": {
@@ -763,7 +753,7 @@ class FunnelCorrelation:
         # event.event will be of the format "{property_name}::{property_value}"
         property_name, property_value = event_definition["event"].split("::")
         prop_type = "group" if self._filter.aggregation_group_type_index else "person"
-        params = self._filter.with_data(
+        params = self._filter.shallow_clone(
             {
                 "funnel_correlation_person_converted": "true" if success else "false",
                 "funnel_correlation_property_values": [

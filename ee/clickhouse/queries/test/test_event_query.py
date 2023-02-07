@@ -334,7 +334,9 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
         self._run_query(filter)
 
         self._run_query(
-            filter.with_data({"properties": [{"key": "tag_name", "value": [], "operator": "exact", "type": "element"}]})
+            filter.shallow_clone(
+                {"properties": [{"key": "tag_name", "value": [], "operator": "exact", "type": "element"}]}
+            )
         )
 
     def _create_groups_test_data(self):

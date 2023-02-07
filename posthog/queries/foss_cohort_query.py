@@ -223,7 +223,7 @@ class FOSSCohortQuery(EventQuery):
             return property_group
 
         new_props = _unwrap(filter.property_groups)
-        return filter.with_data({"properties": new_props.to_dict()})
+        return filter.shallow_clone({"properties": new_props.to_dict()})
 
     # Implemented in /ee
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
