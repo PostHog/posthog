@@ -2,7 +2,7 @@
 
 Grammar is located inside `HogQLLexer.g4` and `HogQLParser.g4` files.
 
-To generate source code you need to install locally the `antlr4` binary:
+To generate source code you need to install locally the `antlr` binary:
 
 ```bash
 brew install antlr
@@ -18,9 +18,9 @@ mkdir antlr
 cd antlr
 curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
 export PWD=`pwd`
-echo '#!/bin/bash' > antlr4
-echo "java -jar $PWD/antlr.jar \$*" >> antlr4
-chmod +x antlr4
+echo '#!/bin/bash' > antlr
+echo "java -jar $PWD/antlr.jar \$*" >> antlr
+chmod +x antlr
 export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
 export PATH="$PWD:$PATH"
 ```
@@ -35,8 +35,8 @@ Or mess around with:
 
 ```bash
 cd posthog/hogql/grammar
-antlr4 -Dlanguage=Python3 HogQLLexer.g4
-antlr4 -visitor -Dlanguage=Python3 HogQLParser.g4
+antlr -Dlanguage=Python3 HogQLLexer.g4
+antlr -visitor -Dlanguage=Python3 HogQLParser.g4
 ```
 
 Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse/blob/master/utils/antlr/ClickHouseParser.g4

@@ -152,14 +152,14 @@ jobs:
                   cd antlr
                   curl -o antlr.jar https://www.antlr.org/download/antlr-$ANTLR_VERSION-complete.jar
                   export PWD=`pwd`
-                  echo '#!/bin/bash' > antlr4
-                  echo "java -jar $PWD/antlr.jar \$*" >> antlr4
-                  chmod +x antlr4
+                  echo '#!/bin/bash' > antlr
+                  echo "java -jar $PWD/antlr.jar \$*" >> antlr
+                  chmod +x antlr
                   export CLASSPATH=".:$PWD/antlr.jar:$CLASSPATH"
                   export PATH="$PWD:$PATH"
 
                   cd ../current
-                  antlr4 | grep "Version"
+                  antlr | grep "Version"
                   npm run grammar:build && git diff --exit-code
 
     check-migrations:
