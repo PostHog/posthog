@@ -13,7 +13,7 @@ from posthog.models.organization import OrganizationMembership
 class UserBasicSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ["id", "uuid", "distinct_id", "first_name", "email"]
+        fields = ["id", "uuid", "distinct_id", "first_name", "email", "is_email_verified"]
 
 
 class TeamBasicSerializer(serializers.ModelSerializer):

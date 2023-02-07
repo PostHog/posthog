@@ -155,7 +155,21 @@ export function Members({ user }: MembersProps): JSX.Element {
         {
             title: 'Email',
             key: 'user_email',
-            render: (_, member) => member.user.email,
+            render: (_, member) => {
+                return (
+                    <>
+                        {member.user.email}
+                        {!member.user.is_email_verified && (
+                            <>
+                                {' '}
+                                <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                    pending email verification
+                                </LemonTag>
+                            </>
+                        )}
+                    </>
+                )
+            },
             sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {

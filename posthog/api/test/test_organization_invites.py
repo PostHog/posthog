@@ -85,6 +85,7 @@ class TestOrganizationInvitesAPI(APIBaseTest):
                     "distinct_id": self.user.distinct_id,
                     "email": self.user.email,
                     "first_name": self.user.first_name,
+                    "is_email_verified": self.user.is_email_verified,
                 },
                 "is_expired": False,
                 "emailing_attempt_made": True,
