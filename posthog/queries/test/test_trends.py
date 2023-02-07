@@ -5021,7 +5021,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         )
 
         query_time = pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 10, 1, 1))
-        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600
+        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
         utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
         with freeze_time(query_time):
             response = Trends().run(
