@@ -958,8 +958,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1047,8 +1047,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1136,8 +1136,8 @@
                    AND (event = '$pageview'
                         OR event = '$screen'
                         OR NOT event LIKE '$%')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-02-01 23:59:59', 'UTC')
                    AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_1, 'industry'), '^"|"$', '')))
                  ORDER BY pdi.person_id,
                           e.timestamp)
@@ -1477,8 +1477,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1598,8 +1598,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1719,8 +1719,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
@@ -1846,8 +1846,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND (event = '$pageview')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-02 23:59:59', 'UTC')
                  ORDER BY pdi.person_id,
                           e.timestamp)
               GROUP BY person_id) ARRAY
