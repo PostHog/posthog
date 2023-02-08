@@ -18,8 +18,8 @@ export function Sidebar(): JSX.Element {
     const currentIndex = sidebarSteps.findIndex((x) => x === currentStep)
 
     return (
-        <div className="IngestionSidebar">
-            <div className="IngestionSidebar__content">
+        <div className="bg-white flex flex-col relative items-center w-60">
+            <div className="flex flex-col justify-between h-full p-4 fixed w-60 pb-20">
                 <div className="IngestionSidebar__steps">
                     {sidebarSteps.map((step: string, index: number) => (
                         <LemonButton
