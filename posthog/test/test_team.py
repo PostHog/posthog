@@ -131,6 +131,7 @@ class TestTeam(BaseTest):
                         }
                     },
                     only_evaluate_locally=True,
+                    send_feature_flag_events=False,
                 )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)
