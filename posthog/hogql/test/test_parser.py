@@ -554,7 +554,7 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                limit=1,
+                limit=ast.Constant(value=1),
             ),
         )
         self.assertEqual(
@@ -562,8 +562,28 @@ class TestParser(BaseTest):
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-                limit=1,
-                offset=3,
+                limit=ast.Constant(value=1),
+                offset=ast.Constant(value=3),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events LIMIT 1 OFFSET 3 WITH TIES"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+                limit_with_ties=True,
+                offset=ast.Constant(value=3),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events LIMIT 1 OFFSET 3 BY 1, event"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+                offset=ast.Constant(value=3),
+                limit_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
             ),
         )
 

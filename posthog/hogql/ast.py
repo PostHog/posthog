@@ -115,15 +115,17 @@ class JoinExpr(Expr):
 
 class SelectQuery(Expr):
     select: List[Expr]
+    distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
     where: Optional[Expr] = None
     prewhere: Optional[Expr] = None
     having: Optional[Expr] = None
     group_by: Optional[List[Expr]] = None
     order_by: Optional[List[OrderExpr]] = None
-    limit: Optional[int] = None
-    offset: Optional[int] = None
-    distinct: Optional[bool] = None
+    limit: Optional[Expr] = None
+    limit_by: Optional[List[Expr]] = None
+    limit_with_ties: Optional[bool] = None
+    offset: Optional[Expr] = None
 
 
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)

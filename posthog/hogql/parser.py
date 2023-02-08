@@ -55,31 +55,28 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
-        select = self.visit(ctx.columnExprList()) if ctx.columnExprList() else []
-        select_from = self.visit(ctx.fromClause()) if ctx.fromClause() else None
-        where = self.visit(ctx.whereClause()) if ctx.whereClause() else None
-        prewhere = self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None
-        having = self.visit(ctx.havingClause()) if ctx.havingClause() else None
-        group_by = self.visit(ctx.groupByClause()) if ctx.groupByClause() else None
-        order_by = self.visit(ctx.orderByClause()) if ctx.orderByClause() else None
+        select_query = ast.SelectQuery(
+            select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
+            distinct=True if ctx.DISTINCT() else None,
+            select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
+            where=self.visit(ctx.whereClause()) if ctx.whereClause() else None,
+            prewhere=self.visit(ctx.prewhereClause()) if ctx.prewhereClause() else None,
+            having=self.visit(ctx.havingClause()) if ctx.havingClause() else None,
+            group_by=self.visit(ctx.groupByClause()) if ctx.groupByClause() else None,
+            order_by=self.visit(ctx.orderByClause()) if ctx.orderByClause() else None,
+        )
 
-        limit = None
-        offset = None
-        if ctx.limitClause() and ctx.limitClause().limitExpr():
-            limit_expr = ctx.limitClause().limitExpr()
-            limit_node = self.visit(limit_expr.columnExpr(0))
-            if limit_node is not None:
-                if isinstance(limit_node, ast.Constant) and isinstance(limit_node.value, int):
-                    limit = limit_node.value
-                else:
-                    raise Exception(f"LIMIT must be an integer")
+        any_limit_clause = ctx.limitClause() or ctx.limitByClause()
+        if any_limit_clause and any_limit_clause.limitExpr():
+            limit_expr = any_limit_clause.limitExpr()
+            if limit_expr.columnExpr(0):
+                select_query.limit = self.visit(limit_expr.columnExpr(0))
             if limit_expr.columnExpr(1):
-                offset_node = self.visit(limit_expr.columnExpr(1))
-                if offset_node is not None:
-                    if isinstance(offset_node, ast.Constant) and isinstance(offset_node.value, int):
-                        offset = offset_node.value
-                    else:
-                        raise Exception(f"OFFSET must be an integer")
+                select_query.offset = self.visit(limit_expr.columnExpr(1))
+        if ctx.limitClause() and ctx.limitClause().WITH() and ctx.limitClause().TIES():
+            select_query.limit_with_ties = True
+        if ctx.limitByClause() and ctx.limitByClause().columnExprList():
+            select_query.limit_by = self.visit(ctx.limitByClause().columnExprList())
 
         if ctx.withClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.withClause()")
@@ -89,23 +86,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Unsupported: SelectStmt.arrayJoinClause()")
         if ctx.windowClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.windowClause()")
-        if ctx.limitByClause():
-            raise NotImplementedError(f"Unsupported: SelectStmt.limitByClause()")
         if ctx.settingsClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.settingsClause()")
 
-        return ast.SelectQuery(
-            select=select,
-            distinct=True if ctx.DISTINCT() else None,
-            select_from=select_from,
-            where=where,
-            prewhere=prewhere,
-            having=having,
-            group_by=group_by,
-            order_by=order_by,
-            limit=limit,
-            offset=offset,
-        )
+        return select_query
 
     def visitWithClause(self, ctx: HogQLParser.WithClauseContext):
         raise NotImplementedError(f"Unsupported node: WithClause")
@@ -141,10 +125,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ProjectionOrderByClause")
 
     def visitLimitByClause(self, ctx: HogQLParser.LimitByClauseContext):
-        raise NotImplementedError(f"Unsupported node: LimitByClause")
+        raise Exception(f"Parsed as part of SelectStmt, can't parse directly.")
 
     def visitLimitClause(self, ctx: HogQLParser.LimitClauseContext):
-        raise NotImplementedError(f"Unsupported node: LimitClause")
+        raise Exception(f"Parsed as part of SelectStmt, can't parse directly.")
 
     def visitSettingsClause(self, ctx: HogQLParser.SettingsClauseContext):
         raise NotImplementedError(f"Unsupported node: SettingsClause")
