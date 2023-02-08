@@ -1,4 +1,4 @@
-// This is separate from utils.ts because here we don't include `funnelLogic`, `retentionTableLogic`, etc
+// This is separate from utils.ts because here we don't include `funnelLogic`, `retentionLogic`, etc
 
 import {
     FilterType,

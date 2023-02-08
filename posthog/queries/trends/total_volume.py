@@ -99,6 +99,7 @@ class TrendsTotalVolume:
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
+            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 content_sql = ACTIVE_USERS_SQL.format(
@@ -109,6 +110,7 @@ class TrendsTotalVolume:
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
+                # null_sql = ""
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
                 # :TODO: Consider using bitmap-per-date to speed this up
                 cumulative_sql = CUMULATIVE_SQL.format(
@@ -143,7 +145,6 @@ class TrendsTotalVolume:
                     **content_sql_params,
                 )
 
-            null_sql = NULL_SQL.format(trunc_func=trunc_func, interval_func=interval_func)
             params["interval"] = filter.interval
 
             # If we have a smoothing interval > 1 then add in the sql to

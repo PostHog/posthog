@@ -11,13 +11,14 @@ import {
     StepOrderValue,
     InsightType,
 } from '~/types'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { groupsModel, Noun } from '~/models/groupsModel'
 
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { isFunnelsQuery } from '~/queries/utils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -39,6 +40,39 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
     }),
 
     selectors: {
+        isStepsFunnel: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean | null => {
+                return funnelsFilter === null
+                    ? null
+                    : funnelsFilter === undefined
+                    ? true
+                    : funnelsFilter.funnel_viz_type === FunnelVizType.Steps
+            },
+        ],
+        isTimeToConvertFunnel: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean | null => {
+                return funnelsFilter === null ? null : funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert
+            },
+        ],
+        isTrendsFunnel: [
+            (s) => [s.funnelsFilter],
+            (funnelsFilter): boolean | null => {
+                return funnelsFilter === null ? null : funnelsFilter?.funnel_viz_type === FunnelVizType.Trends
+            },
+        ],
+
+        isEmptyFunnel: [
+            (s) => [s.querySource],
+            (q): boolean | null => {
+                return isFunnelsQuery(q)
+                    ? q.series.filter((n) => n.kind === NodeKind.EventsNode || n.kind === NodeKind.ActionsNode)
+                          .length === 0
+                    : null
+            },
+        ],
+
         aggregationTargetLabel: [
             (s) => [s.querySource, s.aggregationLabel],
             (
@@ -116,7 +150,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             (s) => [s.querySource],
             (querySource: FunnelsQuery): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
                 funnel_from_step: 0,
-                funnel_to_step: querySource.series.length > 1 ? querySource.series.length - 1 : 1,
+                funnel_to_step: (querySource.series || []).length > 1 ? querySource.series.length - 1 : 1,
             }),
         ],
         exclusionFilters: [

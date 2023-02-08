@@ -16,7 +16,7 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<JSX.Element> => {
         for (const restMethod of Object.keys(rest)) {
             mergedMocks[restMethod] = {}
             // Ensure trailing slashes to avoid default handlers accidentally overshadowing story mocks
-            for (const [path, handler] of Object.entries(parameters.msw.mocks?.[restMethod] || {})) {
+            for (const [path, handler] of Object.entries(parameters.msw?.mocks?.[restMethod] || {})) {
                 const cleanedPath = path.replace(/\/?$/, '/')
                 mergedMocks[restMethod][cleanedPath] = handler
             }
