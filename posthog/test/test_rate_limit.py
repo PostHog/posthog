@@ -199,7 +199,7 @@ class TestUserAPI(APIBaseTest):
             response = self.client.get(
                 f"/api/projects/{new_team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {new_personal_api_key}"
             )
-            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
