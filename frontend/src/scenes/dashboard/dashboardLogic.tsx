@@ -552,7 +552,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 interval: number
                 enabled: boolean
             },
-            { persist: true, prefix: '1_' },
+            { persist: true, prefix: '2_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
