@@ -710,8 +710,8 @@ def snapshot_clickhouse_insert_cohortpeople_queries(fn):
 
 def also_test_with_different_timezones(fn):
     """
-    Runs the test twice: once with the project in the default UTC timezone, then again with a negative UTC timezone.
-    This is intended for catching bugs around timezone-awareness.
+    Runs the test thrice: 1. with UTC as the project timezone, 2. with UTC-7, 3. with UTC+9.
+    This is intended for catching bugs around timezone handling.
     """
 
     def fn_minus_utc(self, *args, **kwargs):
