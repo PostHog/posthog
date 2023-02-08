@@ -31,6 +31,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
+from posthog.metrics import LABEL_RESOURCE_TYPE, LABEL_TEAM_ID
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
@@ -58,7 +59,7 @@ SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
-    labelnames=["resource_type", "team_id", "token"],
+    labelnames=[LABEL_RESOURCE_TYPE, LABEL_TEAM_ID, "token"],
 )
 
 
