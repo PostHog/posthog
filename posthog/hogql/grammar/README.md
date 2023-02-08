@@ -44,4 +44,4 @@ Original ClickHouse ANTLR grammar from: https://github.com/ClickHouse/ClickHouse
 Changes with ClickHouse's grammar:
 - removed all statements except for "select"
 - raises an error if you run some ClickHouse SQL query features that are not implemented yet (ever changing list, check the code)
- 
+- supports placeholders like "team_id = {val1}"
