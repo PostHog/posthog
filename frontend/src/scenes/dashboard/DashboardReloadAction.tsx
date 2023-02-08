@@ -43,6 +43,7 @@ export function DashboardReloadAction(): JSX.Element {
                 sideAction={{
                     'data-attr': 'dashboard-items-action-refresh-dropdown',
                     dropdown: {
+                        closeOnClickInside: false,
                         placement: 'bottom-end',
                         overlay: (
                             <>
@@ -55,6 +56,7 @@ export function DashboardReloadAction(): JSX.Element {
                                         id="auto-refresh-check"
                                         key="auto-refresh-check"
                                         onClick={(e) => {
+                                            e.preventDefault()
                                             e.stopPropagation()
                                             setAutoRefresh(!autoRefresh.enabled, autoRefresh.interval)
                                         }}
