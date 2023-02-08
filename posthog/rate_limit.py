@@ -9,19 +9,20 @@ from sentry_sdk.api import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.metrics import LABEL_PATH, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
 
 RATE_LIMIT_EXCEEDED_COUNTER = Counter(
     "rate_limit_exceeded_total",
     "Dropped requests due to rate-limiting, per team_id, scope and path.",
-    labelnames=["team_id", "scope", "path"],
+    labelnames=[LABEL_TEAM_ID, "scope", LABEL_PATH],
 )
 
 RATE_LIMIT_BYPASSED_COUNTER = Counter(
     "rate_limit_bypassed_total",
     "Requests that should be dropped by rate-limiting but allowed by configuration.",
-    labelnames=["team_id", "path"],
+    labelnames=[LABEL_TEAM_ID, LABEL_PATH],
 )
 
 
