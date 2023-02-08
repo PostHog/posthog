@@ -1,4 +1,4 @@
-import { Radio, Space } from 'antd'
+import { Radio, Space, RadioChangeEvent } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -8,7 +8,6 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButtonWithSideAction, LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 import { IconRefresh } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { ChangeEvent } from 'react'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
@@ -75,7 +74,7 @@ export function DashboardReloadAction(): JSX.Element {
                                             Refresh interval
                                         </div>
                                         <Radio.Group
-                                            onChange={(e: ChangeEvent<HTMLInputElement>) => {
+                                            onChange={(e: RadioChangeEvent) => {
                                                 setAutoRefresh(true, parseInt(e.target.value))
                                             }}
                                             value={autoRefresh.interval}
