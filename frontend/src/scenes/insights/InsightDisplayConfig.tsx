@@ -5,16 +5,12 @@ import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
-import { CalendarOutlined, InfoCircleOutlined } from '@ant-design/icons'
+
 import { InsightDateFilter } from './filters/InsightDateFilter'
+import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
+import { PathStepPicker } from './views/Paths/PathStepPicker'
 import { RetentionDatePicker } from './RetentionDatePicker'
-import {
-    FunnelDisplayLayoutPicker,
-    FunnelDisplayLayoutPickerDataExploration,
-} from './views/Funnels/FunnelDisplayLayoutPicker'
-import { PathStepPicker, PathStepPickerDataExploration } from './views/Paths/PathStepPicker'
-import { ReferencePicker as RetentionReferencePicker } from './filters/ReferencePicker'
-import { Tooltip } from 'antd'
+import { RetentionReferencePicker } from './filters/RetentionReferencePicker'
 import { FunnelBinsPicker } from './views/Funnels/FunnelBinsPicker'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useActions, useValues } from 'kea'
@@ -90,7 +86,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
     const isPaths = isPathsFilter(filters)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const { isUsingDataExploration, insightProps } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { setFilters } = useActions(insightLogic)
 
     return (
@@ -98,29 +94,13 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
             <div className="flex items-center space-x-2 flex-wrap my-2">
                 {filters.insight && showDateFilter[filters.insight] && !disableTable && (
                     <ConfigFilter>
-                        <span>Date range</span>
-                        <InsightDateFilter
-                            disabled={isFunnels && isFunnelEmpty(filters)}
-                            makeLabel={(key) => (
-                                <>
-                                    <CalendarOutlined /> {key}
-                                    {key == 'All time' && (
-                                        <Tooltip title={`Only events dated after 2015 will be shown`}>
-                                            <InfoCircleOutlined className="info-indicator" />
-                                        </Tooltip>
-                                    )}
-                                </>
-                            )}
-                        />
+                        <InsightDateFilter disabled={isFunnels && isFunnelEmpty(filters)} />
                     </ConfigFilter>
                 )}
 
                 {showIntervalFilter(filters) && (
                     <ConfigFilter>
-                        <span>
-                            <span className="hide-lte-md">grouped </span>by
-                        </span>
-                        <IntervalFilter view={filters.insight || InsightType.TRENDS} />
+                        <IntervalFilter />
                     </ConfigFilter>
                 )}
 
@@ -143,11 +123,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
 
                 {isPaths && (
                     <ConfigFilter>
-                        {isUsingDataExploration ? (
-                            <PathStepPickerDataExploration insightProps={insightProps} />
-                        ) : (
-                            <PathStepPicker insightProps={insightProps} />
-                        )}
+                        <PathStepPicker insightProps={insightProps} />
                     </ConfigFilter>
                 )}
 
@@ -166,7 +142,6 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                             </ConfigFilter>
                         )}
                         <ConfigFilter>
-                            <span>Chart type</span>
                             <ChartFilter filters={filters} />
                         </ConfigFilter>
                     </>
@@ -175,11 +150,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 {isFunnels && filters.funnel_viz_type === FunnelVizType.Steps && (
                     <>
                         <ConfigFilter>
-                            {isUsingDataExploration ? (
-                                <FunnelDisplayLayoutPickerDataExploration />
-                            ) : (
-                                <FunnelDisplayLayoutPicker />
-                            )}
+                            <FunnelDisplayLayoutPicker />
                         </ConfigFilter>
                     </>
                 )}

@@ -8,20 +8,10 @@ import {
     QueryEditorFilterProps,
     ChartDisplayType,
     AvailableFeature,
-    FunnelVizType,
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { userLogic } from 'scenes/userLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import {
-    isTrendsQuery,
-    isFunnelsQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isRetentionQuery,
-    isLifecycleQuery,
-} from '~/queries/utils'
+import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
@@ -32,7 +22,6 @@ import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
-import { getBreakdown, getDisplay } from './utils'
 import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import {
     PathsTargetEndDataExploration,
@@ -45,6 +34,9 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
+import { RetentionSummaryDataExploration } from 'scenes/insights/EditorFilters/RetentionSummary'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -55,27 +47,16 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const availableFeatures = user?.organization?.available_features || []
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const isTrends = isTrendsQuery(query)
-    const isFunnels = isFunnelsQuery(query)
-    const isRetention = isRetentionQuery(query)
-    const isPaths = isPathsQuery(query)
-    const isStickiness = isStickinessQuery(query)
-    const isLifecycle = isLifecycleQuery(query)
-    const isTrendsLike = isTrends || isLifecycle || isStickiness
-    const display = getDisplay(query)
-    const breakdown = getBreakdown(query)
+    const { isTrends, isFunnels, isRetention, isPaths, isLifecycle, isTrendsLike, display, breakdown } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const { isStepsFunnel } = useValues(funnelDataLogic(insightProps))
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)) ||
-        (isRetention &&
-            featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            display !== ChartDisplayType.ActionsLineGraph) ||
-        (isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps)
+        isStepsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
-    const hasAttribution = isFunnels && query.funnelsFilter?.funnel_viz_type === FunnelVizType.Steps
+    const hasAttribution = isStepsFunnel
 
     const showFilters = true // TODO: implement with insightVizLogic
 
@@ -83,6 +64,11 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         {
             title: 'General',
             editorFilters: filterFalsy([
+                isRetention && {
+                    key: 'retention-summary',
+                    label: 'Retention Summary',
+                    component: RetentionSummaryDataExploration,
+                },
                 ...(isPaths
                     ? filterFalsy([
                           {

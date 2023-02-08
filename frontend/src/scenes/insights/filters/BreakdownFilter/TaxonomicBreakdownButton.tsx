@@ -4,7 +4,7 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { useState } from 'react'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useValues } from 'kea'
@@ -43,7 +43,7 @@ export function TaxonomicBreakdownButton({
           ]
 
     return (
-        <Popup
+        <Popover
             overlay={
                 <TaxonomicFilter
                     groupType={breakdownType}
@@ -73,6 +73,6 @@ export function TaxonomicBreakdownButton({
                     }
                 />
             </LemonButton>
-        </Popup>
+        </Popover>
     )
 }

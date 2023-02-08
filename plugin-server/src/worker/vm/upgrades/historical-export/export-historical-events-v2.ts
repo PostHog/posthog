@@ -42,11 +42,12 @@ import {
 import { createPluginActivityLog } from '../../../../utils/db/activity-log'
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
+import { status } from '../../../../utils/status'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
-export const EVENTS_PER_RUN_SMALL = 5000
+export const EVENTS_PER_RUN_SMALL = 500
 export const EVENTS_PER_RUN_BIG = 10000
 
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
@@ -386,6 +387,11 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
+        status.info('ℹ️', 'Running export historical events', {
+            pluginConfigId: pluginConfig.id,
+            payload,
+        })
+
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped
