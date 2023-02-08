@@ -1,5 +1,5 @@
 import './InstructionsPanel.scss'
-import { CardContainer } from 'scenes/ingestion/v2/CardContainer'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import {
     AndroidInstructions,
     APIInstructions,
@@ -12,7 +12,7 @@ import {
     PythonInstructions,
     RNInstructions,
     RubyInstructions,
-} from 'scenes/ingestion/v2/frameworks'
+} from 'scenes/ingestion/frameworks'
 import { API, MOBILE, BACKEND, WEB } from '../constants'
 import { useValues } from 'kea'
 import { ingestionLogicV2 } from '../ingestionLogicV2'

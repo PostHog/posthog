@@ -33,7 +33,7 @@ import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
+import { PlatformType, Framework } from 'scenes/ingestion/types'
 import { now } from 'lib/dayjs'
 import {
     isFilterWithDisplay,

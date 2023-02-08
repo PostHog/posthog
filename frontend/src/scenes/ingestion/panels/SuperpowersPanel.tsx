@@ -1,18 +1,26 @@
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { CardContainer } from 'scenes/ingestion/CardContainer'
 import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
-import { LemonButton, LemonDivider, LemonSwitch, Link } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { useState } from 'react'
+import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function SuperpowersPanel(): JSX.Element {
-    const { setVerify } = useActions(ingestionLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const [sessionRecordingsChecked, setSessionRecordingsChecked] = useState(true)
 
     return (
-        <div style={{ maxWidth: 800 }}>
+        <CardContainer
+            nextProps={{ readyToVerify: true }}
+            onContinue={() =>
+                updateCurrentTeam({
+                    session_recording_opt_in: sessionRecordingsChecked,
+                    capture_console_log_opt_in: sessionRecordingsChecked,
+                    capture_performance_opt_in: sessionRecordingsChecked,
+                })
+            }
+        >
             <div className="flex justify-between items-center -mt-4">
                 <div>
                     <h1 className="font-extrabold pt-4">Enable your product superpowers</h1>
@@ -67,28 +75,6 @@ export function SuperpowersPanel(): JSX.Element {
                     directly in your code snippet.
                 </p>
             </div>
-
-            <LemonDivider thick dashed className="my-6" />
-            <div>
-                <LemonButton
-                    type="primary"
-                    size="large"
-                    fullWidth
-                    center
-                    className="mb-2"
-                    onClick={() => {
-                        // If they haven't changed the default value, we need to update the team with that value
-                        updateCurrentTeam({
-                            session_recording_opt_in: sessionRecordingsChecked,
-                            capture_console_log_opt_in: sessionRecordingsChecked,
-                            capture_performance_opt_in: sessionRecordingsChecked,
-                        })
-                        setVerify(true)
-                    }}
-                >
-                    Continue
-                </LemonButton>
-            </div>
-        </div>
+        </CardContainer>
     )
 }
