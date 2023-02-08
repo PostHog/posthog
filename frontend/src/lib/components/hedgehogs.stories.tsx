@@ -16,7 +16,7 @@ export default {
     title: 'Lemon UI/Hog illustrations',
     parameters: {
         options: { showPanel: false },
-        chromatic: { disableSnapshot: true },
+        testOptions: { skip: true }, // Not valuable to take snapshots of these hedgehogs
         docs: {
             description: {
                 component: `

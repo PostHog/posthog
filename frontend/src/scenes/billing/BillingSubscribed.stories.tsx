@@ -13,7 +13,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: true },
+        testOptions: { skip: true }, // FIXME: This fails for some reason
     },
     decorators: [
         mswDecorator({

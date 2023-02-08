@@ -38,7 +38,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_actors_for_event(self, filter: Filter, event_name: str, properties=None, success=True):
-        actor_filter = filter.with_data(
+        actor_filter = filter.shallow_clone(
             {
                 "funnel_correlation_person_entity": {"id": event_name, "type": "events", "properties": properties},
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
@@ -49,7 +49,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         return [str(row["id"]) for row in serialized_actors]
 
     def _get_actors_for_property(self, filter: Filter, property_values: list, success=True):
-        actor_filter = filter.with_data(
+        actor_filter = filter.shallow_clone(
             {
                 "funnel_correlation_property_values": [
                     {"key": prop, "value": value, "type": type, "group_type_index": group_type_index}
@@ -137,7 +137,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 0)
 
         # Now exclude positively_related
-        filter = filter.with_data({"funnel_correlation_exclude_event_names": ["positively_related"]})
+        filter = filter.shallow_clone({"funnel_correlation_exclude_event_names": ["positively_related"]})
         correlation = FunnelCorrelation(filter, self.team)
 
         result = correlation._run()[0]
@@ -355,7 +355,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 1)
 
         # Now exclude all groups in positive
-        filter = filter.with_data(
+        filter = filter.shallow_clone(
             {"properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]}
         )
         result = FunnelCorrelation(filter, self.team)._run()[0]
@@ -632,7 +632,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # test with `$all` as property
         # _run property correlation with filter on all properties
-        filter = filter.with_data({"funnel_correlation_names": ["$all"]})
+        filter = filter.shallow_clone({"funnel_correlation_names": ["$all"]})
         correlation = FunnelCorrelation(filter, self.team)
 
         new_result = correlation._run()[0]
@@ -798,7 +798,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
             # test with `$all` as property
             # _run property correlation with filter on all properties
-            filter = filter.with_data({"funnel_correlation_names": ["$all"]})
+            filter = filter.shallow_clone({"funnel_correlation_names": ["$all"]})
             correlation = FunnelCorrelation(filter, self.team)
 
             new_result = correlation._run()[0]
@@ -903,7 +903,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValidationError):
             correlation._run()
 
-        filter = filter.with_data({"funnel_correlation_type": "event_with_properties"})
+        filter = filter.shallow_clone({"funnel_correlation_type": "event_with_properties"})
         # missing "funnel_correlation_event_names": ["rick"],
         with self.assertRaises(ValidationError):
             FunnelCorrelation(filter, self.team)._run()
@@ -1037,7 +1037,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result, expected_result)
 
         # _run property correlation with filter on all properties
-        filter = filter.with_data({"funnel_correlation_names": ["$all"]})
+        filter = filter.shallow_clone({"funnel_correlation_names": ["$all"]})
         correlation = FunnelCorrelation(filter, self.team)
 
         new_result = correlation._run()[0]
@@ -1055,7 +1055,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(new_result, new_expected_result)
 
-        filter = filter.with_data({"funnel_correlation_exclude_names": ["$browser"]})
+        filter = filter.shallow_clone({"funnel_correlation_exclude_names": ["$browser"]})
         # search for $all but exclude $browser
         correlation = FunnelCorrelation(filter, self.team)
 

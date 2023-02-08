@@ -60,9 +60,6 @@ export enum NodeKind {
 
     /** Performance */
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
-
-    /** Used for insights that haven't been converted to the new query format yet */
-    UnimplementedQuery = 'UnimplementedQuery',
 }
 
 export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
@@ -254,6 +251,8 @@ interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    /** Groups aggregation */
+    aggregation_group_type_index?: number
 }
 
 export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
@@ -320,9 +319,6 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
-export interface UnimplementedQuery extends InsightsQueryBase {
-    kind: NodeKind.UnimplementedQuery
-}
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -331,7 +327,6 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-    | UnimplementedQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 export type InsightFilterProperty =
     | 'trendsFilter'
@@ -347,7 +342,13 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
-export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
+
+export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
+    if (!source) {
+        return undefined
+    }
+    return { date_from: source.date_from, date_to: source.date_to }
+}
 
 export interface TimeToSeeDataSessionsQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataSessionsQuery

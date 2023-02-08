@@ -119,7 +119,8 @@ class TestTeam(BaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
                 self.assertTrue(team.person_on_events_querying_enabled)
-                mock_feature_enabled.assert_called_once_with(
+                # called more than once when evaluating hogql
+                mock_feature_enabled.assert_called_with(
                     "person-on-events-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},
@@ -130,6 +131,7 @@ class TestTeam(BaseTest):
                         }
                     },
                     only_evaluate_locally=True,
+                    send_feature_flag_events=False,
                 )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)

@@ -28,7 +28,7 @@ import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -121,7 +121,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             )}
                         </div>
                         <LemonDivider />
-                        <TaxonomicPopup
+                        <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             renderValue={() => <>Edit column</>}
@@ -187,7 +187,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 <LemonDivider />
                             </>
                         ) : null}
-                        <TaxonomicPopup
+                        <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
@@ -212,7 +212,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             groupTypes={groupTypes}
                             buttonProps={{ type: undefined }}
                         />
-                        <TaxonomicPopup
+                        <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
@@ -337,7 +337,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="space-y-4 relative">
+                <div className="relative w-full h-full">
                     {showFirstRow && (
                         <div className="flex gap-4 items-center">
                             {firstRowLeft}

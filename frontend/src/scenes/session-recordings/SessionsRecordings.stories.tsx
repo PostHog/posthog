@@ -16,7 +16,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: true },
+        testOptions: { skip: true }, // FIXME: Start taking snapshots once the stories no longer crash
     },
     decorators: [
         mswDecorator({

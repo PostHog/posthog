@@ -8,7 +8,6 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         viewMode: 'story',
-        chromatic: { disableSnapshot: true },
     },
 } as Meta
 

@@ -2,8 +2,8 @@ import { ComponentMeta, ComponentStory } from '@storybook/react'
 import {
     LemonButton,
     LemonButtonProps,
-    LemonButtonWithPopup,
-    LemonButtonWithPopupProps,
+    LemonButtonWithDropdown,
+    LemonButtonWithDropdownProps,
     LemonButtonWithSideAction,
 } from './LemonButton'
 import { IconCalculate, IconInfo, IconPlus } from 'lib/lemon-ui/icons'
@@ -71,8 +71,8 @@ const TypesAndStatusesTemplate: ComponentStory<typeof LemonButton> = (props) => 
 export const TypesAndStatuses = TypesAndStatusesTemplate.bind({})
 TypesAndStatuses.args = {}
 
-const PopupTemplate: ComponentStory<typeof LemonButtonWithPopup> = (props: LemonButtonWithPopupProps) => {
-    return <LemonButtonWithPopup {...props} />
+const PopoverTemplate: ComponentStory<typeof LemonButtonWithDropdown> = (props: LemonButtonWithDropdownProps) => {
+    return <LemonButtonWithDropdown {...props} />
 }
 
 const MoreTemplate: ComponentStory<typeof More> = (props: MoreProps) => {
@@ -265,9 +265,9 @@ export const AsLinks = (): JSX.Element => {
     )
 }
 
-export const WithPopupToTheRight = PopupTemplate.bind({})
-WithPopupToTheRight.args = {
-    popup: {
+export const WithDropdownToTheRight = PopoverTemplate.bind({})
+WithDropdownToTheRight.args = {
+    dropdown: {
         overlay: (
             <>
                 <LemonButton status="stealth" fullWidth>
@@ -288,9 +288,9 @@ WithPopupToTheRight.args = {
     },
 }
 
-export const WithPopupToTheBottom = PopupTemplate.bind({})
-WithPopupToTheBottom.args = {
-    popup: {
+export const WithDropdownToTheBottom = PopoverTemplate.bind({})
+WithDropdownToTheBottom.args = {
+    dropdown: {
         overlay: (
             <>
                 <LemonButton status="stealth" fullWidth>
@@ -312,9 +312,9 @@ WithPopupToTheBottom.args = {
     },
 }
 
-export const WithVeryLongPopupToTheBottom = PopupTemplate.bind({})
-WithVeryLongPopupToTheBottom.args = {
-    popup: {
+export const WithVeryLongPopoverToTheBottom = PopoverTemplate.bind({})
+WithVeryLongPopoverToTheBottom.args = {
+    dropdown: {
         overlay: (
             <>
                 {range(200).map((n) => (

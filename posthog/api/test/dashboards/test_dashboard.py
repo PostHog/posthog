@@ -2,6 +2,7 @@ import json
 from unittest.mock import MagicMock
 
 from dateutil import parser
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -153,6 +154,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
+    # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():

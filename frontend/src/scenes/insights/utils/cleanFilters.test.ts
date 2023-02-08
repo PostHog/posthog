@@ -339,4 +339,29 @@ describe('cleanFilters', () => {
 
         expect(cleanedFilters).toHaveProperty('funnel_step_reference', FunnelStepReference.previous)
     })
+
+    it('removes the interval from funnels', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                insight: InsightType.FUNNELS,
+                interval: 'hour',
+            },
+            {}
+        )
+
+        expect(cleanedFilters).toHaveProperty('interval', undefined)
+    })
+
+    it('keeps the interval for trends funnels', () => {
+        const cleanedFilters = cleanFilters(
+            {
+                insight: InsightType.FUNNELS,
+                funnel_viz_type: FunnelVizType.Trends,
+                interval: 'hour',
+            },
+            {}
+        )
+
+        expect(cleanedFilters).toHaveProperty('interval', 'hour')
+    })
 })

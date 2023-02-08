@@ -773,7 +773,7 @@
                             "type": "array"
                         },
                         "period": {
-                            "type": "string"
+                            "$ref": "#/definitions/RetentionPeriod"
                         },
                         "properties": {
                             "anyOf": [
@@ -1690,11 +1690,29 @@
         "FunnelStepRangeEntityFilter": {
             "additionalProperties": false,
             "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
                 "funnel_from_step": {
                     "type": "number"
                 },
                 "funnel_to_step": {
                     "type": "number"
+                },
+                "id": {
+                    "type": ["string", "number", "null"]
+                },
+                "index": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": ["string", "null"]
+                },
+                "order": {
+                    "type": "number"
+                },
+                "type": {
+                    "$ref": "#/definitions/EntityType"
                 }
             },
             "type": "object"
@@ -1812,6 +1830,10 @@
         "FunnelsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -1940,9 +1962,6 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleQuery"
-                },
-                {
-                    "$ref": "#/definitions/UnimplementedQuery"
                 }
             ]
         },
@@ -2001,6 +2020,10 @@
         "LifecycleQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2145,6 +2168,10 @@
         "PathsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2422,7 +2449,7 @@
             "additionalProperties": false,
             "properties": {
                 "period": {
-                    "type": "string"
+                    "$ref": "#/definitions/RetentionPeriod"
                 },
                 "retention_reference": {
                     "enum": ["total", "previous"],
@@ -2443,9 +2470,17 @@
             },
             "type": "object"
         },
+        "RetentionPeriod": {
+            "enum": ["Hour", "Day", "Week", "Month"],
+            "type": "string"
+        },
         "RetentionQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2553,6 +2588,10 @@
         "StickinessQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange",
                     "description": "Date range for the query"
@@ -2678,6 +2717,10 @@
         "TrendsQuery": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "description": "Groups aggregation",
+                    "type": "number"
+                },
                 "breakdown": {
                     "$ref": "#/definitions/BreakdownFilter",
                     "description": "Breakdown of the events and actions"
@@ -2732,40 +2775,6 @@
                 }
             },
             "required": ["kind", "series"],
-            "type": "object"
-        },
-        "UnimplementedQuery": {
-            "additionalProperties": false,
-            "properties": {
-                "dateRange": {
-                    "$ref": "#/definitions/DateRange",
-                    "description": "Date range for the query"
-                },
-                "filterTestAccounts": {
-                    "description": "Exclude internal and test users by applying the respective filters",
-                    "type": "boolean"
-                },
-                "kind": {
-                    "const": "UnimplementedQuery",
-                    "description": "Used for insights that haven't been converted to the new query format yet",
-                    "type": "string"
-                },
-                "properties": {
-                    "anyOf": [
-                        {
-                            "items": {
-                                "$ref": "#/definitions/AnyPropertyFilter"
-                            },
-                            "type": "array"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyGroupFilter"
-                        }
-                    ],
-                    "description": "Property filters for all series"
-                }
-            },
-            "required": ["kind"],
             "type": "object"
         }
     }
