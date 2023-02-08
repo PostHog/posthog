@@ -54,7 +54,10 @@ def default_settings() -> Dict:
         return {"optimize_move_to_prewhere": 0}
 
 
-def extra_settings(query_id) -> Dict[str, Any]:
+def extra_settings(query_id: Optional[str], tags: Dict[str, Any]) -> Dict[str, Any]:
+    if tags.get("kind") != "celery":
+        return {}
+
     join_algorithm = (
         posthoganalytics.get_feature_flag(
             "join-algorithm",
@@ -106,7 +109,7 @@ def sync_execute(
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id, tags)}
         tags["query_settings"] = core_settings
         settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
