@@ -22,7 +22,7 @@ import {
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import {
     getPlayerPositionFromEpochTime,
     getPlayerTimeFromPlayerPosition,
@@ -35,6 +35,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
     const segments: RecordingSegment[] =
@@ -441,6 +442,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 loadPerformanceEvents: async ({}, breakpoint) => {
                     cache.performanceEventsStartTime = performance.now()
                     if (
+                        !values.recordingTimeWindow ||
                         !values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] ||
                         !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
                     ) {
@@ -448,11 +450,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     }
 
                     await breakpoint(1)
+
                     // Use `nextUrl` if there is a `next` url to fetch
                     const response = await api.performanceEvents.list({
                         session_id: props.sessionRecordingId,
-                        date_from: values.eventsApiParams?.after,
-                        date_to: values.eventsApiParams?.before,
+                        date_from: values.recordingTimeWindow.start.subtract(BUFFER_MS, 'ms').format(),
+                        date_to: values.recordingTimeWindow.end.add(BUFFER_MS, 'ms').format(),
                     })
 
                     breakpoint()
@@ -478,21 +481,34 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }),
         ],
 
-        eventsApiParams: [
-            (selectors) => [selectors.sessionPlayerData, (_, props) => props.sessionRecordingId],
-            (sessionPlayerData, sessionRecordingId) => {
+        recordingTimeWindow: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData): { start: Dayjs; end: Dayjs } | undefined => {
                 const recordingStartTime = sessionPlayerData.metadata.segments.slice(0, 1).pop()?.startTimeEpochMs
                 const recordingEndTime = sessionPlayerData.metadata.segments.slice(-1).pop()?.endTimeEpochMs
-                if (!sessionPlayerData.person?.id || !recordingStartTime || !recordingEndTime) {
+
+                if (!recordingStartTime || !recordingEndTime) {
+                    return undefined
+                }
+
+                return {
+                    start: dayjs.utc(recordingStartTime),
+                    end: dayjs.utc(recordingEndTime),
+                }
+            },
+        ],
+
+        eventsApiParams: [
+            (s) => [s.sessionPlayerData, s.recordingTimeWindow, (_, props) => props.sessionRecordingId],
+            (sessionPlayerData, recordingTimeWindow, sessionRecordingId) => {
+                if (!sessionPlayerData.person?.id || !recordingTimeWindow) {
                     return null
                 }
 
-                const buffer_ms = 60000 // +- before and after start and end of a recording to query for.
-
                 return {
                     person_id: sessionPlayerData.person.id,
-                    after: dayjs.utc(recordingStartTime).subtract(buffer_ms, 'ms').format(),
-                    before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
+                    after: recordingTimeWindow.start.subtract(BUFFER_MS, 'ms').format(),
+                    before: recordingTimeWindow.end.add(BUFFER_MS, 'ms').format(),
                     orderBy: ['timestamp'],
                     properties: {
                         type: 'OR',
