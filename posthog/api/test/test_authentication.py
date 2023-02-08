@@ -453,7 +453,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
             label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
         )
 
-        with freeze_time("2021-08-25T22:00:14.252"):
+        with freeze_time("2021-08-25T22:10:14.252"):
             response = self.client.get(
                 f"/api/projects/{self.team.pk}/feature_flags/",
                 HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
@@ -463,15 +463,53 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 
             model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
 
-            self.assertEqual(str(model_key.last_used_at), "2021-08-25 22:00:14.252000+00:00")
+            self.assertEqual(str(model_key.last_used_at), "2021-08-25 22:10:14.252000+00:00")
 
-    def test_personal_api_key_updates_last_used_at_within_the_year(self):
+    def test_personal_api_key_updates_last_used_at_outside_the_year(self):
         self.client.logout()
 
         personal_api_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
         )
+
+        with freeze_time("2022-08-25T22:00:14.252"):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
+
+            self.assertEqual(str(model_key.last_used_at), "2022-08-25 22:00:14.252000+00:00")
+
+    def test_personal_api_key_updates_last_used_at_outside_the_day(self):
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+        )
+
+        with freeze_time("2021-08-26T22:00:14.252"):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
+
+            self.assertEqual(str(model_key.last_used_at), "2021-08-26 22:00:14.252000+00:00")
+
+    def test_personal_api_key_updates_last_used_when_none(self):
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(personal_api_key))
 
         with freeze_time("2022-08-25T22:00:14.252"):
             response = self.client.get(
