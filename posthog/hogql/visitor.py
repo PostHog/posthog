@@ -81,7 +81,9 @@ class EverythingVisitor(Visitor):
             having=self.visit(node.having),
             group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
             order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
-            limit=node.limit,
-            offset=node.offset,
+            limit_by=[self.visit(expr) for expr in node.limit_by] if node.limit_by else None,
+            limit=self.visit(node.limit),
+            limit_with_ties=node.limit_with_ties,
+            offset=self.visit(node.offset),
             distinct=node.distinct,
         )

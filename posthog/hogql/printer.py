@@ -71,9 +71,12 @@ def print_ast(
         limit = node.limit
         if context.limit_top_select:
             if limit is not None:
-                limit = max(0, min(node.limit, MAX_SELECT_RETURNED_ROWS))
-            if len(stack) == 1 and limit is None:
-                limit = MAX_SELECT_RETURNED_ROWS
+                if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
+                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                else:
+                    limit = ast.Call(name="min2", args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit])
+            elif len(stack) == 1:
+                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
@@ -83,9 +86,16 @@ def print_ast(
             "HAVING " + having if having else None,
             "PREWHERE " + prewhere if prewhere else None,
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
-            f"LIMIT {limit}" if limit is not None else None,
-            f"OFFSET {node.offset}" if node.offset is not None else None,
         ]
+        if limit is not None:
+            clauses.append(f"LIMIT {print_ast(limit, stack, context, dialect)}"),
+            if node.offset is not None:
+                clauses.append(f"OFFSET {print_ast(node.offset, stack, context, dialect)}")
+            if node.limit_by is not None:
+                clauses.append(f"BY {', '.join([print_ast(expr, stack, context, dialect) for expr in node.limit_by])}")
+            if node.limit_with_ties:
+                clauses.append("WITH TIES")
+
         response = " ".join([clause for clause in clauses if clause])
         if len(stack) > 1:
             response = f"({response})"

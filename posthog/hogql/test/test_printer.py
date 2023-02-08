@@ -405,6 +405,15 @@ class TestPrinter(TestCase):
             self._select("select event from events limit 10000000"),
             "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535",
         )
+        self.assertEqual(
+            self._select("select event from events limit (select 1000000000)"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT min2(65535, (SELECT 1000000000))",
+        )
+
+        self.assertEqual(
+            self._select("select event from events limit (select 1000000000) with ties"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT min2(65535, (SELECT 1000000000)) WITH TIES",
+        )
 
     def test_select_offset(self):
         self.assertEqual(
@@ -414,6 +423,16 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("select event from events limit 10 offset 0"),
             "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0",
+        )
+        self.assertEqual(
+            self._select("select event from events limit 10 offset 0 with ties"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0 WITH TIES",
+        )
+
+    def test_select_limit_by(self):
+        self.assertEqual(
+            self._select("select event from events limit 10 offset 0 by 1,event"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0 BY 1, event",
         )
 
     def test_select_group_by(self):

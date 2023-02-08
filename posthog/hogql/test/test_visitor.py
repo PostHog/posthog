@@ -85,8 +85,10 @@ class TestVisitor(BaseTest):
                     having=ast.Constant(value=True),
                     group_by=[ast.Constant(value=True)],
                     order_by=[ast.OrderExpr(expr=ast.Constant(value=True), order="DESC")],
-                    limit=1,
-                    offset=0,
+                    limit=ast.Constant(value=1),
+                    limit_by=[ast.Constant(value=True)],
+                    limit_with_ties=True,
+                    offset=ast.Or(exprs=[ast.Constant(value=1)]),
                     distinct=True,
                 ),
             ]
