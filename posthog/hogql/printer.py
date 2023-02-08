@@ -7,11 +7,29 @@ from posthog.hogql.constants import (
     EVENT_PERSON_FIELDS,
     HOGQL_AGGREGATIONS,
     KEYWORDS,
+    MAX_SELECT_RETURNED_ROWS,
     SELECT_STAR_FROM_EVENTS_FIELDS,
 )
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.print_string import print_hogql_identifier
+
+
+def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
+    """Add a mandatory "and(team_id, ...)" filter around the expression."""
+    if not context.select_team_id:
+        raise ValueError("context.select_team_id not found")
+
+    from posthog.hogql.parser import parse_expr
+
+    team_clause = parse_expr("team_id = {team_id}", {"team_id": ast.Constant(value=context.select_team_id)})
+    if isinstance(where, ast.And):
+        where = ast.And(exprs=[team_clause] + where.exprs)
+    elif where:
+        where = ast.And(exprs=[team_clause, where])
+    else:
+        where = team_clause
+    return where
 
 
 def print_ast(
@@ -20,7 +38,60 @@ def print_ast(
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
 
-    if isinstance(node, ast.BinaryOperation):
+    if isinstance(node, ast.SelectQuery):
+        if dialect == "clickhouse" and not context.select_team_id:
+            raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
+
+        columns = [print_ast(column, stack, context, dialect) for column in node.select] if node.select else ["1"]
+
+        from_table = None
+        if node.select_from:
+            if node.select_from.alias is not None:
+                raise ValueError("Table aliases not yet supported")
+            if isinstance(node.select_from.table, ast.Field):
+                if node.select_from.table.chain != ["events"]:
+                    raise ValueError('Only selecting from the "events" table is supported')
+                from_table = "events"
+            elif isinstance(node.select_from.table, ast.SelectQuery):
+                from_table = f"({print_ast(node.select_from.table, stack, context, dialect)})"
+            else:
+                raise ValueError("Only selecting from a table or a subquery is supported")
+
+        where = node.where
+        # Guard with team_id if selecting from the events table and printing ClickHouse SQL
+        # We do this in the printer, and not in a separate step, to be really sure this gets added.
+        if dialect == "clickhouse" and from_table == "events":
+            where = guard_where_team_id(where, context)
+        where = print_ast(where, stack, context, dialect) if where else None
+
+        having = print_ast(node.having, stack, context, dialect) if node.having else None
+        prewhere = print_ast(node.prewhere, stack, context, dialect) if node.prewhere else None
+        group_by = [print_ast(column, stack, context, dialect) for column in node.group_by] if node.group_by else None
+        order_by = [print_ast(column, stack, context, dialect) for column in node.order_by] if node.order_by else None
+
+        limit = node.limit
+        if context.limit_top_select:
+            if limit is not None:
+                limit = max(0, min(node.limit, MAX_SELECT_RETURNED_ROWS))
+            if len(stack) == 1 and limit is None:
+                limit = MAX_SELECT_RETURNED_ROWS
+
+        clauses = [
+            f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
+            f"FROM {from_table}" if from_table else None,
+            "WHERE " + where if where else None,
+            f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
+            "HAVING " + having if having else None,
+            "PREWHERE " + prewhere if prewhere else None,
+            f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
+            f"LIMIT {limit}" if limit is not None else None,
+            f"OFFSET {node.offset}" if node.offset is not None else None,
+        ]
+        response = " ".join([clause for clause in clauses if clause])
+        if len(stack) > 1:
+            response = f"({response})"
+
+    elif isinstance(node, ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
             response = f"plus({print_ast(node.left, stack, context, dialect)}, {print_ast(node.right, stack, context, dialect)})"
         elif node.op == ast.BinaryOperationType.Sub:

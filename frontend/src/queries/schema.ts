@@ -134,6 +134,13 @@ export interface NewEntityNode extends EntityNode {
     event?: string | null
 }
 
+export interface EventsQueryResponse {
+    columns: any[]
+    types: string[]
+    results: any[][]
+    hasMore?: boolean
+}
+
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -170,12 +177,7 @@ export interface EventsQuery extends DataNode {
     /** Columns to order by */
     orderBy?: string[]
 
-    response?: {
-        columns: string[]
-        types: string[]
-        results: any[][]
-        hasMore?: boolean
-    }
+    response?: EventsQueryResponse
 }
 
 export interface PersonsNode extends DataNode {
