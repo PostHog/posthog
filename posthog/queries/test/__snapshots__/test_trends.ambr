@@ -15,8 +15,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -64,8 +64,8 @@
               GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
              AND notEmpty(e.person_id)
@@ -99,8 +99,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
@@ -127,8 +127,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
        AND notEmpty(e.person_id)
      GROUP BY value
@@ -178,8 +178,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
              AND notEmpty(e.person_id)
@@ -203,8 +203,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
        AND ((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', ''))
              OR has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', '')))
             AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
@@ -250,8 +250,8 @@
              AND ((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', ''))
                    OR has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', '')))
                   AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') in (['second url'])
            GROUP BY day_start,
                     breakdown_value))
@@ -273,8 +273,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
        AND ((has(['Firefox'], replaceRegexpAll(JSONExtractRaw(e.properties, '$browser'), '^"|"$', ''))
              AND has(['Windows'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', '')))
             AND (has(['Mac'], replaceRegexpAll(JSONExtractRaw(e.properties, '$os'), '^"|"$', ''))))
@@ -309,8 +309,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -333,9 +333,9 @@
   WHERE e.team_id = 2
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC')
-    AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC') - INTERVAL 6 DAY
-    AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -357,8 +357,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-11 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -381,9 +381,9 @@
   WHERE e.team_id = 2
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC')
-    AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 23:59:59', 'UTC') - INTERVAL 6 DAY
-    AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-11 23:59:59', 'UTC')
   GROUP BY breakdown_value
   ORDER BY breakdown_value
   '
@@ -425,8 +425,8 @@
                      GROUP BY id
                      HAVING max(is_deleted) = 0
                      AND ((has(['p1', 'p2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))))))
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -472,7 +472,7 @@
                  FROM events e
                  WHERE team_id = 2
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
                  GROUP BY timestamp) d
               CROSS JOIN
                 (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
@@ -495,7 +495,7 @@
                     HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
                    AND ((event = '$pageview'
                          AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
                               AND pdi.person_id IN
@@ -519,8 +519,8 @@
                        breakdown_value
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ))
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -546,8 +546,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -596,8 +596,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['uh', 'oh'])
            GROUP BY day_start,
                     breakdown_value))
@@ -642,8 +642,8 @@
            GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
                AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
           AND notEmpty(e.person_id)
@@ -679,8 +679,8 @@
         GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
             AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))))
        AND notEmpty(e.person_id) )
@@ -717,8 +717,8 @@
            GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
           AND notEmpty(e.person_id)
@@ -746,8 +746,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'US/Pacific') >= toDateTime(toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0), 'US/Pacific')
-          AND toTimeZone(toDateTime(timestamp), 'US/Pacific') <= toDateTime('2022-11-30 23:59:59', 'US/Pacific')
+          AND toTimeZone(timestamp, 'US/Pacific') >= toDateTime(toStartOfWeek(toDateTime('2022-10-31 00:00:00', 'US/Pacific'), 0), 'US/Pacific')
+          AND toTimeZone(timestamp, 'US/Pacific') <= toDateTime('2022-11-30 23:59:59', 'US/Pacific')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -791,8 +791,8 @@
            AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -836,8 +836,8 @@
            AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -862,8 +862,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'watched movie'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
         GROUP BY date)
      GROUP BY day_start
@@ -908,8 +908,8 @@
            AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -934,8 +934,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'watched movie'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND (has(['1'], "mat_name"))
         GROUP BY date)
      GROUP BY day_start
@@ -980,8 +980,8 @@
            AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'watched movie'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1286,8 +1286,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1319,8 +1319,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1362,7 +1362,7 @@
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -1391,8 +1391,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1408,8 +1408,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-29 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-29 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1456,8 +1456,8 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
@@ -1488,8 +1488,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1514,8 +1514,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1540,8 +1540,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1573,8 +1573,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1616,7 +1616,7 @@
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'America/Phoenix')
-                AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+                AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -1645,8 +1645,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1662,8 +1662,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime('2019-12-29 00:00:00', 'America/Phoenix')
-       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+       AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime('2019-12-29 00:00:00', 'America/Phoenix')
+       AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1710,8 +1710,8 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-             AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
+             AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+             AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 23:59:59', 'America/Phoenix')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
@@ -1742,8 +1742,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-03 23:59:59', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-03 23:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1768,8 +1768,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime('2020-01-03 00:00:00', 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-03 23:59:59', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime('2020-01-03 00:00:00', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-03 23:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1794,8 +1794,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1827,8 +1827,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1870,7 +1870,7 @@
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')
-                AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+                AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -1899,8 +1899,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -1916,8 +1916,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')
-       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+       AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')
+       AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1964,8 +1964,8 @@
               HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-             AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
+             AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+             AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 23:59:59', 'Asia/Tokyo')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$os'), '^"|"$', '') in (['Mac'])
            GROUP BY day_start,
                     breakdown_value))
@@ -1996,8 +1996,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')), 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2022,8 +2022,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2020-01-03 00:00:00', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-03 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2055,8 +2055,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 10:02:01', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2082,8 +2082,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-05 07:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 08:00:00', 'UTC') )
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-05 07:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 08:00:00', 'UTC') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -2110,8 +2110,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-05 10:02:01', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2143,8 +2143,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 10:02:01', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 10:02:01', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2170,8 +2170,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime('2020-01-05 07:00:00', 'America/Phoenix')
-       AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 08:00:00', 'America/Phoenix') )
+       AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime('2020-01-05 07:00:00', 'America/Phoenix')
+       AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 08:00:00', 'America/Phoenix') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -2198,8 +2198,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-05 10:02:01', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'America/Phoenix')), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-05 10:02:01', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2231,8 +2231,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2258,8 +2258,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-05 07:00:00', 'Asia/Tokyo')
-       AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 08:00:00', 'Asia/Tokyo') )
+       AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2020-01-05 07:00:00', 'Asia/Tokyo')
+       AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 08:00:00', 'Asia/Tokyo') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -2286,8 +2286,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime('2020-01-05 00:00:00', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-05 10:02:01', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2312,8 +2312,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-26 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'UTC'), 0), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-26 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2338,8 +2338,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix'), 0), 'America/Phoenix')
-          AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-26 23:59:59', 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'America/Phoenix'), 0), 'America/Phoenix')
+          AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-26 23:59:59', 'America/Phoenix')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2364,8 +2364,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo'), 0), 'Asia/Tokyo')
-          AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') >= toDateTime(toStartOfWeek(toDateTime('2020-01-12 00:00:00', 'Asia/Tokyo'), 0), 'Asia/Tokyo')
+          AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-26 23:59:59', 'Asia/Tokyo')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2390,8 +2390,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
@@ -2411,8 +2411,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
@@ -2434,8 +2434,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
@@ -2457,8 +2457,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
        AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
@@ -2499,8 +2499,8 @@
               OR has(['safari'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
        AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
              OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
      GROUP BY value
@@ -2566,8 +2566,8 @@
              AND event = 'sign up'
              AND ((NOT (replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') ILIKE '%@posthog.com%')
                    OR has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com', 'test@gmail.com', 'test5@posthog.com', 'test4@posthog.com', 'test3@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
@@ -2613,8 +2613,8 @@
              AND (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%@posthog.com%'))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
        AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -2680,8 +2680,8 @@
            WHERE e.team_id = 2
              AND event = 'sign up'
              AND ((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(person_props, 'email'), '^"|"$', '') in (['test2@posthog.com'])
            GROUP BY day_start,
                     breakdown_value))
@@ -2712,8 +2712,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2757,8 +2757,8 @@
            AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -2788,8 +2788,8 @@
         HAVING max(is_deleted) = 0) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2843,8 +2843,8 @@
               HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', ''])
            GROUP BY day_start,
                     breakdown_value))
@@ -2885,7 +2885,7 @@
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
               GROUP BY e.distinct_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -2924,7 +2924,7 @@
               WHERE team_id = 2
                 AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-17 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
               GROUP BY e.distinct_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -2944,8 +2944,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-24 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2985,8 +2985,8 @@
            FROM events e
            WHERE e.team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$some_prop'), '^"|"$', '') in ([''])
            GROUP BY day_start,
                     breakdown_value))
@@ -3012,13 +3012,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3044,13 +3044,13 @@
            FROM events
            WHERE $session_id != ''
              AND team_id = 2
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
      GROUP BY sessions.$session_id,
                        breakdown_value)
@@ -3072,13 +3072,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3104,13 +3104,13 @@
            FROM events
            WHERE $session_id != ''
              AND team_id = 2
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1', '']) )
      GROUP BY sessions.$session_id,
                        breakdown_value)
@@ -3127,8 +3127,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'viewed video'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
        AND "$group_0" != ''
      GROUP BY "$group_0") events
   '
@@ -3154,8 +3154,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'viewed video'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
              AND "$group_0" != ''
            GROUP BY "$group_0", date)
         GROUP BY date)
@@ -3185,8 +3185,8 @@
         HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = 'viewed video'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
      GROUP BY pdi.person_id) events
   '
 ---
@@ -3224,8 +3224,8 @@
               HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
            WHERE team_id = 2
              AND event = 'viewed video'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
            GROUP BY pdi.person_id, date)
         GROUP BY date)
      GROUP BY day_start
@@ -3254,8 +3254,8 @@
            FROM events e
            WHERE team_id = 2
              AND event = 'viewed video'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
              AND "$group_0" != ''
            GROUP BY actor_id)
         GROUP BY date)
@@ -3282,8 +3282,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -3317,13 +3317,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3363,13 +3363,13 @@
            FROM events
            WHERE $session_id != ''
              AND team_id = 2
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
            GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
         WHERE e.team_id = 2
           AND event = 'sign up'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
           AND replaceRegexpAll(JSONExtractRaw(person_props, '$some_prop'), '^"|"$', '') in (['some_val', 'another_val']) )
      GROUP BY sessions.$session_id,
                        breakdown_value)
@@ -3390,13 +3390,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY sessions.$session_id)
   '
 ---
@@ -3413,13 +3413,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY sessions.$session_id)
   '
 ---
@@ -3448,13 +3448,13 @@
               FROM events
               WHERE $session_id != ''
                 AND team_id = 2
-                AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
            WHERE team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
            GROUP BY sessions.$session_id, date)
         GROUP BY date)
      GROUP BY day_start
@@ -3486,13 +3486,13 @@
               FROM events
               WHERE $session_id != ''
                 AND team_id = 2
-                AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
               GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
            WHERE team_id = 2
              AND event = 'sign up'
-             AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+             AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
            GROUP BY sessions.$session_id, date)
         GROUP BY date)
      GROUP BY day_start
@@ -3513,13 +3513,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3572,13 +3572,13 @@
                     FROM events
                     WHERE $session_id != ''
                       AND team_id = 2
-                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
               GROUP BY sessions.$session_id,
                                 day_start,
@@ -3607,13 +3607,13 @@
         FROM events
         WHERE $session_id != ''
           AND team_id = 2
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
         GROUP BY $session_id) AS sessions ON sessions.$session_id = e.$session_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3666,13 +3666,13 @@
                     FROM events
                     WHERE $session_id != ''
                       AND team_id = 2
-                      AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-                      AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
                     GROUP BY $session_id) sessions ON sessions.$session_id = e.$session_id
                  WHERE e.team_id = 2
                    AND event = 'sign up'
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                   AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') in (['value2', 'value1']) )
               GROUP BY sessions.$session_id,
                                 day_start,
@@ -3702,7 +3702,7 @@
   WHERE team_id = 2
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC')
-    AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   '
 ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
@@ -3720,7 +3720,7 @@
   WHERE team_id = 2
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-    AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
+    AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   '
 ---
 # name: TestTrends.test_weekly_active_users_daily
@@ -3759,7 +3759,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -3851,7 +3851,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'America/Phoenix')
-                AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix')
+                AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-19 23:59:59', 'America/Phoenix')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -3897,7 +3897,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'Asia/Tokyo')
-                AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')
+                AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-19 23:59:59', 'Asia/Tokyo')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -3955,7 +3955,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4013,7 +4013,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-25 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4059,7 +4059,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4105,7 +4105,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4197,7 +4197,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'America/Phoenix')
-                AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix')
+                AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-02-29 23:59:59', 'America/Phoenix')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4243,7 +4243,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'Asia/Tokyo')
-                AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo')
+                AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-02-29 23:59:59', 'Asia/Tokyo')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4289,7 +4289,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-                AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
+                AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4381,7 +4381,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'America/Phoenix')
-                AND toTimeZone(toDateTime(timestamp), 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix')
+                AND toTimeZone(timestamp, 'America/Phoenix') <= toDateTime('2020-01-18 23:59:59', 'America/Phoenix')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
@@ -4427,7 +4427,7 @@
               WHERE team_id = 2
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'Asia/Tokyo')
-                AND toTimeZone(toDateTime(timestamp), 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo')
+                AND toTimeZone(timestamp, 'Asia/Tokyo') <= toDateTime('2020-01-18 23:59:59', 'Asia/Tokyo')
               GROUP BY pdi.person_id,
                        tz_adjusted_timestamp)
            GROUP BY timestamp
