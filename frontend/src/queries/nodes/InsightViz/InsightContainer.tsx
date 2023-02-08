@@ -36,17 +36,12 @@ import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 // import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 // import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
-import {
-    isFilterWithDisplay,
-    isFunnelsFilter,
-    isPathsFilter,
-    // isTrendsFilter
-} from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelsQuery } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -74,8 +69,8 @@ export function InsightContainer({
         insightProps,
         // canEditInsight,
         insightLoading,
-        activeView,
-        loadedView,
+        // activeView,
+        // loadedView,
         filters,
         timedOutQueryId,
         erroredQueryId,
@@ -88,12 +83,15 @@ export function InsightContainer({
     //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
+    const { activeView, isFunnels, isPaths, supportsDisplay } = useValues(insightDataLogic(insightProps))
     const { querySource } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
     const isValidFunnel = true
+
+    const loadedView = activeView
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -214,7 +212,7 @@ export function InsightContainer({
                 <div>
                     <div
                         className={clsx('flex items-center justify-between insights-graph-header', {
-                            funnels: isFunnelsFilter(filters),
+                            funnels: isFunnels,
                         })}
                     >
                         {/*Don't add more than two columns in this row.*/}
@@ -224,14 +222,14 @@ export function InsightContainer({
                             </div>
                         )}
                         <div>
-                            {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
-                            {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
+                            {isFunnels && <FunnelCanvasLabel />}
+                            {isPaths && <PathCanvasLabel />}
                             <InsightLegendButton />
                         </div>
                     </div>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : isFilterWithDisplay(filters) && filters.show_legend ? (
+                    ) : supportsDisplay && filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">
