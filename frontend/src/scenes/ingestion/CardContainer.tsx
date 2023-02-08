@@ -1,6 +1,6 @@
 import { PanelFooter } from './panels/PanelComponents'
 import './panels/Panels.scss'
-import { IngestionState } from 'scenes/ingestion/ingestionLogicV2'
+import { IngestionState } from 'scenes/ingestion/ingestionLogic'
 
 export function CardContainer({
     children,

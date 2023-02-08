@@ -4,7 +4,7 @@ import './IngestionWizard.scss'
 import { VerificationPanel } from 'scenes/ingestion/panels/VerificationPanel'
 import { InstructionsPanel } from 'scenes/ingestion/panels/InstructionsPanel'
 import { useValues, useActions } from 'kea'
-import { ingestionLogicV2, INGESTION_VIEWS } from 'scenes/ingestion/ingestionLogicV2'
+import { ingestionLogic, INGESTION_VIEWS } from 'scenes/ingestion/ingestionLogic'
 import { FrameworkPanel } from 'scenes/ingestion/panels/FrameworkPanel'
 import { PlatformPanel } from 'scenes/ingestion/panels/PlatformPanel'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -25,7 +25,7 @@ import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 import { SuperpowersPanel } from 'scenes/ingestion/panels/SuperpowersPanel'
 
 export function IngestionWizardV2(): JSX.Element {
-    const { currentView, platform } = useValues(ingestionLogicV2)
+    const { currentView, platform } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
     useEffect(() => {
@@ -54,7 +54,7 @@ export function IngestionWizardV2(): JSX.Element {
 function IngestionContainer({ children }: { children: React.ReactNode }): JSX.Element {
     const { isInviteModalShown } = useValues(inviteLogic)
     const { hideInviteModal } = useActions(inviteLogic)
-    const { isSmallScreen } = useValues(ingestionLogicV2)
+    const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
         <div className="flex h-full flex-col">

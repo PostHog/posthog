@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { ingestionLogicV2 } from 'scenes/ingestion/ingestionLogicV2'
+import { ingestionLogic } from 'scenes/ingestion/ingestionLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -9,7 +9,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DemoProjectButton } from './PanelComponents'
 
 export function InviteTeamPanel(): JSX.Element {
-    const { next } = useActions(ingestionLogicV2)
+    const { next } = useActions(ingestionLogic)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
 
