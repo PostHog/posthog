@@ -20,8 +20,6 @@ def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
     if not context.select_team_id:
         raise ValueError("context.select_team_id not found")
 
-    from posthog.hogql.parser import parse_expr
-
     team_clause = parse_expr("team_id = {team_id}", {"team_id": ast.Constant(value=context.select_team_id)})
     if isinstance(where, ast.And):
         where = ast.And(exprs=[team_clause] + where.exprs)
@@ -58,9 +56,10 @@ def print_ast(
                 raise ValueError("Only selecting from a table or a subquery is supported")
 
         where = node.where
-        # Guard with team_id if selecting from the events table and printing ClickHouse SQL
+        # Guard with team_id if selecting from a table and printing ClickHouse SQL
         # We do this in the printer, and not in a separate step, to be really sure this gets added.
-        if dialect == "clickhouse" and from_table == "events":
+        # This will be improved when we add proper table and column alias support. For now, let's just be safe.
+        if dialect == "clickhouse" and from_table is not None:
             where = guard_where_team_id(where, context)
         where = print_ast(where, stack, context, dialect) if where else None
 
