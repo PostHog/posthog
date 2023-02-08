@@ -6,6 +6,7 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
+import posthoganalytics
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
@@ -23,6 +24,19 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
 
+# As of CH 22.8 - more algorithms have been added on newer versions
+CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
+    "default",
+    "hash",
+    "parallel_hash",
+    "direct",
+    "full_sorting_merge",
+    "partial_merge",
+    "auto",
+]
+
+is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
+
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
@@ -38,6 +52,24 @@ def default_settings() -> Dict:
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
+
+
+def extra_settings(query_id) -> Dict[str, Any]:
+    join_algorithm = (
+        posthoganalytics.get_feature_flag(
+            "join-algorithm",
+            str(query_id),
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+        or "default"
+    )
+
+    # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
+    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
+        join_algorithm = "default"
+
+    return {"join_algorithm": join_algorithm}
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -72,14 +104,18 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
+
+        query_id = validated_client_query_id()
+        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        tags["query_settings"] = core_settings
+        settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validated_client_query_id(),
+                query_id=query_id,
             )
         except Exception as err:
             err = wrap_query_error(err)

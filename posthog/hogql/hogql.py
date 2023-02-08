@@ -1,8 +1,9 @@
 # mypy: allow-untyped-defs
-import ast
-import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 
 # fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
@@ -142,176 +143,147 @@ class HogQLContext:
     using_person_on_events: bool = True
 
 
-def translate_hogql(hql: str, context: HogQLContext) -> str:
+def translate_hogql(query: str, context: HogQLContext) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
-    if hql == "*":
+    if query == "":
+        raise ValueError("Empty query")
+    if query == "*":
         return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
 
     # The expression "person" can't be used in a query, just top level
-    if hql == "person":
-        hql = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+    if query == "person":
+        query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
 
     try:
-        # Until we swap out the AST parser, we're limited to Python's dialect.
-        # This means "properties.$bla" fails. The following is a hack to get around that for now.
-        hql = re.sub(r"properties\.(\$[$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
-        node = ast.parse(hql)
+        node = parse_expr(query)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
+    except NotImplementedError as err:
+        raise ValueError(f"NotImplementedError: {err}")
     return translate_ast(node, [], context)
 
 
 def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
-    if isinstance(node, ast.Module):
-        if len(node.body) == 1 and isinstance(node.body[0], ast.Expr):
-            response = translate_ast(node.body[0], stack, context)
-        else:
-            raise ValueError(f"Module body must contain only one 'Expr'")
-    elif isinstance(node, ast.Expr):
-        ast.dump(node)
-        response = translate_ast(node.value, stack, context)
-    elif isinstance(node, ast.BinOp):
-        if isinstance(node.op, ast.Add):
+    if isinstance(node, ast.BinaryOperation):
+        if node.op == ast.BinaryOperationType.Add:
             response = f"plus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
-        elif isinstance(node.op, ast.Sub):
+        elif node.op == ast.BinaryOperationType.Sub:
             response = f"minus({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
-        elif isinstance(node.op, ast.Mult):
+        elif node.op == ast.BinaryOperationType.Mult:
             response = (
                 f"multiply({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
-        elif isinstance(node.op, ast.Div):
+        elif node.op == ast.BinaryOperationType.Div:
             response = (
                 f"divide({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
-        elif isinstance(node.op, ast.Mod):
+        elif node.op == ast.BinaryOperationType.Mod:
             response = (
                 f"modulo({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
         else:
-            response = f"({translate_ast(node.left, stack, context)} {translate_ast(node.op, stack, context)} {translate_ast(node.right, stack, context)})"
-    elif isinstance(node, ast.BoolOp):
-        if isinstance(node.op, ast.And):
+            raise ValueError(f"Unknown BinaryOperationType {node.op}")
+    elif isinstance(node, ast.BooleanOperation):
+        if node.op == ast.BooleanOperationType.And:
             response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
-        elif isinstance(node.op, ast.Or):
+        elif node.op == ast.BooleanOperationType.Or:
             response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
         else:
-            raise ValueError(f"Unknown BoolOp: {type(node.op)}")
-    elif isinstance(node, ast.UnaryOp):
-        if isinstance(node.op, ast.Not):
-            response = f"not({translate_ast(node.operand, stack, context)})"
-        elif isinstance(node.op, ast.USub):
-            response = f"-{translate_ast(node.operand, stack, context)}"
+            raise ValueError(f"Unknown BooleanOperationType: {type(node.op)}")
+    elif isinstance(node, ast.NotOperation):
+        response = f"not({translate_ast(node.expr, stack, context)})"
+    elif isinstance(node, ast.CompareOperation):
+        left = translate_ast(node.left, stack, context)
+        right = translate_ast(node.right, stack, context)
+        if node.op == ast.CompareOperationType.Eq:
+            if isinstance(node.right, ast.Constant) and node.right.value is None:
+                response = f"isNull({left})"
+            else:
+                response = f"equals({left}, {right})"
+        elif node.op == ast.CompareOperationType.NotEq:
+            if isinstance(node.right, ast.Constant) and node.right.value is None:
+                response = f"isNotNull({left})"
+            else:
+                response = f"notEquals({left}, {right})"
+        elif node.op == ast.CompareOperationType.Gt:
+            response = f"greater({left}, {right})"
+        elif node.op == ast.CompareOperationType.GtE:
+            response = f"greaterOrEquals({left}, {right})"
+        elif node.op == ast.CompareOperationType.Lt:
+            response = f"less({left}, {right})"
+        elif node.op == ast.CompareOperationType.LtE:
+            response = f"lessOrEquals({left}, {right})"
+        elif node.op == ast.CompareOperationType.Like:
+            response = f"like({left}, {right})"
+        elif node.op == ast.CompareOperationType.ILike:
+            response = f"ilike({left}, {right})"
+        elif node.op == ast.CompareOperationType.NotLike:
+            response = f"not(like({left}, {right}))"
+        elif node.op == ast.CompareOperationType.NotILike:
+            response = f"not(ilike({left}, {right}))"
         else:
-            raise ValueError(f"Unknown UnaryOp: {type(node.op)}")
-    elif isinstance(node, ast.Compare):
-        if isinstance(node.ops[0], ast.Eq):
-            response = f"equals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
-        elif isinstance(node.ops[0], ast.NotEq):
-            response = f"notEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
-        elif isinstance(node.ops[0], ast.Gt):
-            response = f"greater({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
-        elif isinstance(node.ops[0], ast.GtE):
-            response = f"greaterOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
-        elif isinstance(node.ops[0], ast.Lt):
-            response = f"less({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
-        elif isinstance(node.ops[0], ast.LtE):
-            response = f"lessOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
-        else:
-            raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
+            raise ValueError(f"Unknown CompareOperationType: {type(node.op)}")
     elif isinstance(node, ast.Constant):
         key = f"hogql_val_{len(context.values)}"
-        if isinstance(node.value, int) or isinstance(node.value, float):
+        if isinstance(node.value, bool) and node.value is True:
+            response = "true"
+        elif isinstance(node.value, bool) and node.value is False:
+            response = "false"
+        elif isinstance(node.value, int) or isinstance(node.value, float):
+            # :WATCH_OUT: isinstance(node.value, int) is True if node.value is True/False as well!!!
             response = str(node.value)
         elif isinstance(node.value, str):
             context.values[key] = node.value
             response = f"%({key})s"
+        elif node.value is None:
+            response = "null"
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
-    elif isinstance(node, ast.Attribute) or isinstance(node, ast.Subscript):
-        attribute_chain: List[str] = []
-        while True:
-            if isinstance(node, ast.Attribute):
-                attribute_chain.insert(0, node.attr)
-                node = node.value
-            elif isinstance(node, ast.Subscript):
-                node_slice: ast.AST = node.slice
-                if isinstance(node_slice, ast.Constant):
-                    if not isinstance(node_slice.value, str):
-                        raise ValueError(
-                            f"Only string property access is currently supported, found '{node_slice.value}'"
-                        )
-                    attribute_chain.insert(0, node_slice.value)
-                    node = node.value
-                # ast.Index is a deprecated node class that shows up in tests with Python 3.8
-                # Must do some manual casting, or mypy will give different unresolvable errors between 3.8 and 3.9
-                elif isinstance(node_slice, ast.Index) and isinstance(cast(Any, node_slice).value, ast.Constant):
-                    const = cast(ast.Constant, cast(Any, node_slice).value)
-                    if not isinstance(const.value, str):
-                        raise ValueError(f"Only string property access is currently supported, found '{const.value}'")
-                    attribute_chain.insert(0, const.value)
-                    node = node.value
-                else:
-                    raise ValueError(f"Unsupported Subscript slice type: {type(node.slice).__name__}")
-            elif isinstance(node, ast.Name):  # type: ignore
-                attribute_chain.insert(0, node.id)
-                break
-            elif isinstance(node, ast.Constant):
-                attribute_chain.insert(0, node.value)
-                break
-            else:
-                raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
-        field_access = parse_field_access(attribute_chain, context)
+    elif isinstance(node, ast.FieldAccess):
+        field_access = parse_field_access([node.field], context)
         context.field_access_logs.append(field_access)
         response = field_access.sql
-
+    elif isinstance(node, ast.FieldAccessChain):
+        field_access = parse_field_access(node.chain, context)
+        context.field_access_logs.append(field_access)
+        response = field_access.sql
     elif isinstance(node, ast.Call):
-        if not isinstance(node.func, ast.Name):
-            raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'count()'")
-        call_name = node.func.id
-        if call_name in HOGQL_AGGREGATIONS:
+        if node.name in HOGQL_AGGREGATIONS:
             context.found_aggregation = True
-            required_arg_count = HOGQL_AGGREGATIONS[call_name]
+            required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
             if required_arg_count != len(node.args):
                 raise ValueError(
-                    f"Aggregation '{call_name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                    f"Aggregation '{node.name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
                 )
 
             # check that we're not running inside another aggregate
             for stack_node in stack:
-                if (
-                    stack_node != node
-                    and isinstance(stack_node, ast.Call)
-                    and isinstance(stack_node.func, ast.Name)
-                    and stack_node.func.id in HOGQL_AGGREGATIONS
-                ):
+                if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
                     raise ValueError(
-                        f"Aggregation '{call_name}' cannot be nested inside another aggregation '{stack_node.func.id}'."
+                        f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
             translated_args = ", ".join([translate_ast(arg, stack, context) for arg in node.args])
-            if call_name == "count":
+            if node.name == "count":
                 response = "count(*)"
-            elif call_name == "countDistinct":
+            elif node.name == "countDistinct":
                 response = f"count(distinct {translated_args})"
-            elif call_name == "countDistinctIf":
+            elif node.name == "countDistinctIf":
                 response = f"countIf(distinct {translated_args})"
             else:
-                response = f"{call_name}({translated_args})"
+                response = f"{node.name}({translated_args})"
 
-        elif node.func.id in CLICKHOUSE_FUNCTIONS:
-            response = f"{CLICKHOUSE_FUNCTIONS[node.func.id]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
+        elif node.name in CLICKHOUSE_FUNCTIONS:
+            response = f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
-            raise ValueError(f"Unsupported function call '{call_name}(...)'")
-    elif isinstance(node, ast.Name) and isinstance(node.id, str):
-        field_access = parse_field_access([node.id], context)
-        context.field_access_logs.append(field_access)
-        response = field_access.sql
+            raise ValueError(f"Unsupported function call '{node.name}(...)'")
+    elif isinstance(node, ast.Column):
+        response = translate_ast(node.expr, stack, context)
     else:
-        ast.dump(node)
-        raise ValueError(f"Unknown AST type {type(node).__name__}")
+        raise ValueError(f"Unknown AST node {type(node).__name__}")
 
     stack.pop()
     return response

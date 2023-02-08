@@ -27,12 +27,12 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
-    isInsightQueryWithBreakdown,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
 
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
@@ -193,10 +193,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
     })),
 
     selectors({
+        isTrends: [(s) => [s.querySource], (q) => isTrendsQuery(q)],
+        isFunnels: [(s) => [s.querySource], (q) => isFunnelsQuery(q)],
+        isRetention: [(s) => [s.querySource], (q) => isRetentionQuery(q)],
+        isPaths: [(s) => [s.querySource], (q) => isPathsQuery(q)],
+        isStickiness: [(s) => [s.querySource], (q) => isStickinessQuery(q)],
+        isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
+        isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
+        supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
 
         dateRange: [(s) => [s.querySource], (q) => q.dateRange],
-        breakdown: [(s) => [s.querySource], (q) => (isInsightQueryWithBreakdown(q) ? q.breakdown : null)],
+        breakdown: [(s) => [s.querySource], (q) => getBreakdown(q)],
+        display: [(s) => [s.querySource], (q) => getDisplay(q)],
 
         insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

@@ -28,6 +28,7 @@ export default {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
+        mockDate: '2023-02-01',
     },
 } as Meta
 
