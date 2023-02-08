@@ -30,3 +30,39 @@ class TestVisitor(BaseTest):
         visitor.visit(parse_expr("1 + 3 / 'asd2'"))
         self.assertEqual(visitor.operations, ["+", "/"])
         self.assertEqual(visitor.constants, ["asd", 1, 3, "asd2"])
+
+    def test_everything_visitor(self):
+        node = ast.Or(
+            exprs=[
+                ast.And(
+                    exprs=[
+                        ast.CompareOperation(
+                            op=ast.CompareOperationType.Eq,
+                            left=ast.Field(chain=["a"]),
+                            right=ast.Constant(value=1),
+                        ),
+                        ast.BinaryOperation(
+                            op=ast.BinaryOperationType.Add,
+                            left=ast.Field(chain=["b"]),
+                            right=ast.Constant(value=2),
+                        ),
+                    ]
+                ),
+                ast.Not(
+                    expr=ast.Call(
+                        name="c",
+                        args=[
+                            ast.Alias(
+                                alias="d",
+                                expr=ast.Placeholder(field="e"),
+                            ),
+                            ast.OrderExpr(
+                                expr=ast.Field(chain=["c"]),
+                                order="DESC",
+                            ),
+                        ],
+                    )
+                ),
+            ]
+        )
+        self.assertEqual(node, EverythingVisitor().visit(node))
