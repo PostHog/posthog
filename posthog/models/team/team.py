@@ -205,6 +205,7 @@ class Team(UUIDClassicModel):
                     "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
                 },
                 only_evaluate_locally=True,
+                send_feature_flag_events=False,
             )
 
         # If the async migration is not complete, don't enable actor on events querying.
