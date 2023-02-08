@@ -23,11 +23,11 @@ class TestQueryDateRange(APIBaseTest):
 
         self.assertEqual(
             parsed_date_from % date_from_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) >= toDateTime(2021-08-23 00:00:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) >= toDateTime(2021-08-23 00:00:00, UTC)",
         )
         self.assertEqual(
             parsed_date_to % date_to_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) <= toDateTime(2021-08-25 23:59:59, UTC)",
+            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 23:59:59, UTC)",
         )
 
     def test_parsed_date_hour(self):
@@ -47,11 +47,11 @@ class TestQueryDateRange(APIBaseTest):
 
         self.assertEqual(
             parsed_date_from % date_from_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) >= toDateTime(2021-08-23 00:00:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) >= toDateTime(2021-08-23 00:00:00, UTC)",
         )
         self.assertEqual(
             parsed_date_to % date_to_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) <= toDateTime(2021-08-25 00:01:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 00:01:00, UTC)",
         )  # ensure last hour is included
 
     def test_parsed_date_middle_of_hour(self):
@@ -72,11 +72,11 @@ class TestQueryDateRange(APIBaseTest):
 
         self.assertEqual(
             parsed_date_from % date_from_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) >= toDateTime(2021-08-23 05:00:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) >= toDateTime(2021-08-23 05:00:00, UTC)",
         )
         self.assertEqual(
             parsed_date_to % date_to_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) <= toDateTime(2021-08-26 07:00:00, UTC)",
+            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-26 07:00:00, UTC)",
         )  # ensure last hour is included
 
     def test_parsed_date_week_rounded(self):
@@ -96,11 +96,11 @@ class TestQueryDateRange(APIBaseTest):
 
         self.assertEqual(
             parsed_date_from % date_from_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) >= toDateTime(toStartOfWeek(toDateTime(2021-08-18 00:00:00, UTC), 0), UTC)",
+            "AND toTimeZone(timestamp, UTC) >= toDateTime(toStartOfWeek(toDateTime(2021-08-18 00:00:00, UTC), 0), UTC)",
         )
         self.assertEqual(
             parsed_date_to % date_to_params,
-            "AND toTimeZone(toDateTime(timestamp), UTC) <= toDateTime(2021-08-25 23:59:59, UTC)",
+            "AND toTimeZone(timestamp, UTC) <= toDateTime(2021-08-25 23:59:59, UTC)",
         )
 
     def test_is_hourly(self):
