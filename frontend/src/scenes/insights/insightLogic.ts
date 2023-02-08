@@ -60,6 +60,7 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
+import { insightQueryEditorLogic } from './insightQueryEditorLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -96,7 +97,7 @@ export const insightLogic = kea<insightLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
 
-    connect({
+    connect(({ props }) => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -108,10 +109,12 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
+            insightQueryEditorLogic(props),
+            ['query as editedQuery'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], insightQueryEditorLogic(props), ['setQuery']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
-    }),
+    })),
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
@@ -204,8 +207,8 @@ export const insightLogic = kea<insightLogicType>([
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
-
-                    if ('filters' in insight && emptyFilters(insight.filters)) {
+                    debugger
+                    if (!values.editedQuery && 'filters' in insight && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
                             extra: {
@@ -215,6 +218,11 @@ export const insightLogic = kea<insightLogicType>([
                             },
                         })
                         throw error
+                    }
+
+                    if (!!values.editedQuery.trim().length) {
+                        insight.filters = {}
+                        insight.query = JSON.parse(values.editedQuery)
                     }
 
                     const response = await api.update(
@@ -805,7 +813,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values, cache }) => ({
+    listeners(({ actions, selectors, values, cache, props }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -1015,6 +1023,15 @@ export const insightLogic = kea<insightLogicType>([
                     tags,
                 }
 
+                const iqel = insightQueryEditorLogic.findMounted(props)
+                debugger
+                const editedQuery = iqel?.values.query
+                if (!!editedQuery?.trim().length) {
+                    debugger
+                    insightRequest.filters = {}
+                    insightRequest.query = JSON.parse(editedQuery)
+                }
+
                 savedInsight = insightNumericId
                     ? await api.update(
                           `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
@@ -1082,6 +1099,9 @@ export const insightLogic = kea<insightLogicType>([
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
             if (!insight.result && !insight.query && values.filters) {
                 actions.loadResults()
+            }
+            if (!!insight.query) {
+                actions.setQuery(JSON.stringify(insight.query))
             }
         },
         toggleInsightLegend: () => {

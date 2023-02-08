@@ -6,7 +6,7 @@ import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode 
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -31,6 +31,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { QueryEditorView } from 'scenes/query/QueryScene'
+import { insightQueryEditorLogic } from './insightQueryEditorLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -65,12 +66,14 @@ export function InsightContainer({
         erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
-        insight,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
+    const { setQuery } = useActions(insightQueryEditorLogic(insightProps))
+    const { query } = useValues(insightQueryEditorLogic(insightProps))
+
     if (activeView === InsightType.QUERY) {
-        return <QueryEditorView query={JSON.stringify(insight.query)} setQuery={console.log} />
+        return <QueryEditorView query={query} setQuery={setQuery} />
     }
 
     // Empty states that completely replace the graph
