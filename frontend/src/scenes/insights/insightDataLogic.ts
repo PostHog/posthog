@@ -146,12 +146,16 @@ const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
     }
 }
 
-const getDefaultQuery = (insightProps: InsightLogicProps): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: insightProps.cachedInsight?.filters
-        ? filtersToQueryNode(insightProps.cachedInsight.filters)
-        : { kind: NodeKind.TrendsQuery, series: [] },
-})
+const getDefaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
+    if (insightProps.cachedInsight?.filters) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: filtersToQueryNode(insightProps.cachedInsight.filters),
+        }
+    }
+
+    return getCleanedQuery(NodeKind.TrendsQuery)
+}
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -182,10 +186,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
             getDefaultQuery(props) as Node,
             {
                 setQuery: (_, { query }) => query,
+                setActiveView: (_, { activeView }): InsightVizNode => {
+                    if (activeView === InsightType.TRENDS) {
+                        return getCleanedQuery(NodeKind.TrendsQuery)
+                    } else if (activeView === InsightType.FUNNELS) {
+                        return getCleanedQuery(NodeKind.FunnelsQuery)
+                    } else if (activeView === InsightType.RETENTION) {
+                        return getCleanedQuery(NodeKind.RetentionQuery)
+                    } else if (activeView === InsightType.PATHS) {
+                        return getCleanedQuery(NodeKind.PathsQuery)
+                    } else if (activeView === InsightType.STICKINESS) {
+                        return getCleanedQuery(NodeKind.StickinessQuery)
+                    } else if (activeView === InsightType.LIFECYCLE) {
+                        return getCleanedQuery(NodeKind.LifecycleQuery)
+                    } else {
+                        throw new Error('unsupported insight type')
+                    }
+                },
             },
         ],
         activeView: [
-            InsightType.TRENDS,
+            InsightType.TRENDS as InsightType,
             {
                 setActiveView: (_, { activeView }) => activeView,
             },
@@ -259,21 +280,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                             : ['new', 'resurrecting', 'returning', 'dormant']
                     )
                 }
-            }
-        },
-        setActiveView: ({ activeView }) => {
-            if (activeView === InsightType.TRENDS) {
-                actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
-            } else if (activeView === InsightType.FUNNELS) {
-                actions.setQuery(getCleanedQuery(NodeKind.FunnelsQuery))
-            } else if (activeView === InsightType.RETENTION) {
-                actions.setQuery(getCleanedQuery(NodeKind.RetentionQuery))
-            } else if (activeView === InsightType.PATHS) {
-                actions.setQuery(getCleanedQuery(NodeKind.PathsQuery))
-            } else if (activeView === InsightType.STICKINESS) {
-                actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
-            } else if (activeView === InsightType.LIFECYCLE) {
-                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
             }
         },
         setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
