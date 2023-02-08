@@ -9,6 +9,7 @@ import {
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
+    RecordingReportLoadTimes,
     RecordingSegment,
     RecordingStartAndEndTime,
     SessionPlayerData,
@@ -74,6 +75,31 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
+    }
+}
+
+const generateRecordingReportDurations = (
+    cache: Record<string, any>,
+    values: Record<string, any>
+): RecordingReportLoadTimes => {
+    return {
+        metadata: {
+            size: values.sessionPlayerMetaData.metadata.segments.length,
+            duration: Math.round(performance.now() - cache.metaStartTime),
+        },
+        snapshots: {
+            size: Object.keys(values.sessionPlayerSnapshotData?.snapshotsByWindowId ?? {}).length,
+            duration: Math.round(performance.now() - cache.snapshotsStartTime),
+        },
+        events: {
+            size: values.sessionEventsData?.events?.length ?? 0,
+            duration: Math.round(performance.now() - cache.eventsStartTime),
+        },
+        performanceEvents: {
+            size: values.performanceEvents?.length ?? 0,
+            duration: Math.round(performance.now() - cache.performanceEventsStartTime),
+        },
+        firstPaint: cache.firstPaintDurationRow,
     }
 }
 
@@ -143,7 +169,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
-        reportUsage: (type: SessionRecordingUsageType) => ({ type }),
+        reportViewed: true,
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
@@ -201,7 +227,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
-                actions.reportUsage(SessionRecordingUsageType.VIEWED)
+                actions.reportViewed()
             }
         },
         loadEventsSuccess: () => {
@@ -224,35 +250,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     ? values.performanceEventsLoading
                     : false)
             if (!partsOfRecordingAreStillLoading) {
-                actions.reportUsage(SessionRecordingUsageType.LOADED)
-            }
-        },
-        reportUsage: async ({ type }, breakpoint) => {
-            const durations = {
-                metadata: {
-                    size: values.sessionPlayerMetaData.metadata.segments.length,
-                    duration: Math.round(performance.now() - cache.metaStartTime),
-                },
-                snapshots: {
-                    size: Object.keys(values.sessionPlayerSnapshotData?.snapshotsByWindowId ?? {}).length,
-                    duration: Math.round(performance.now() - cache.snapshotsStartTime),
-                },
-                events: {
-                    size: values.sessionEventsData?.events?.length ?? 0,
-                    duration: Math.round(performance.now() - cache.eventsStartTime),
-                },
-                performanceEvents: {
-                    size: values.performanceEvents?.length ?? 0,
-                    duration: Math.round(performance.now() - cache.performanceEventsStartTime),
-                },
-                firstPaint: cache.firstPaintDurationRow,
-            }
-            await breakpoint()
-
-            if (type === SessionRecordingUsageType.LOADED) {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
-                    durations,
+                    generateRecordingReportDurations(cache, values),
                     SessionRecordingUsageType.LOADED,
                     0
                 )
@@ -262,22 +262,26 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.eventsStartTime = null
                 cache.performanceEventsStartTime = null
                 cache.firstPaintDurationRow = null
-            } else {
-                // Triggered on first paint
-                eventUsageLogic.actions.reportRecording(
-                    values.sessionPlayerData,
-                    durations,
-                    SessionRecordingUsageType.VIEWED,
-                    0
-                )
-                await breakpoint(IS_TEST_MODE ? 1 : 10000)
-                eventUsageLogic.actions.reportRecording(
-                    values.sessionPlayerData,
-                    durations,
-                    SessionRecordingUsageType.ANALYZED,
-                    10
-                )
             }
+        },
+        reportViewed: async (_, breakpoint) => {
+            const durations = generateRecordingReportDurations(cache, values)
+
+            await breakpoint()
+            // Triggered on first paint
+            eventUsageLogic.actions.reportRecording(
+                values.sessionPlayerData,
+                durations,
+                SessionRecordingUsageType.VIEWED,
+                0
+            )
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            eventUsageLogic.actions.reportRecording(
+                values.sessionPlayerData,
+                durations,
+                SessionRecordingUsageType.ANALYZED,
+                10
+            )
         },
     })),
     loaders(({ values, props, cache, actions }) => ({
