@@ -21,8 +21,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { EditorFilters } from './EditorFilters/EditorFilters'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -84,7 +82,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -104,9 +101,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             abortAnyRunningQuery()
         }
     }, [])
-
-    // feature flag insight-editor-panels
-    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -326,12 +320,10 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 <Query query={query} setQuery={setQuery} />
             ) : (
                 <>
-                    {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
+                    {insightMode === ItemMode.Edit && <InsightsNav />}
                     <div
                         className={clsx('insight-wrapper', {
-                            'insight-wrapper--editorpanels': usingEditorPanels,
-                            'insight-wrapper--singlecolumn':
-                                !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                            'insight-wrapper--singlecolumn': filters.insight === InsightType.FUNNELS,
                         })}
                     >
                         <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />

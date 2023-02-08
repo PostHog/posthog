@@ -1,18 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useInterval } from 'lib/hooks/useInterval'
-import { CardContainer } from 'scenes/ingestion/v1/CardContainer'
-import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
+import { CardContainer } from '../CardContainer'
+import { ingestionLogic } from '../ingestionLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
+import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { setAddBilling, completeOnboarding } = useActions(ingestionLogic)
+    const { next, completeOnboarding } = useActions(ingestionLogic)
     const { showBillingStep } = useValues(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
@@ -35,20 +36,21 @@ export function VerificationPanel(): JSX.Element {
                                 received and continue.
                             </p>
                             <EventBufferNotice className="mb-4" />
+                            <IngestionInviteMembersButton />
                             <LemonButton
                                 fullWidth
                                 center
-                                type="secondary"
+                                type="tertiary"
                                 onClick={() => {
                                     if (showBillingStep) {
-                                        setAddBilling(true)
+                                        next({ showBilling: true })
                                     } else {
                                         completeOnboarding()
                                     }
                                     reportIngestionContinueWithoutVerifying()
                                 }}
                             >
-                                Continue without verifying
+                                or continue without verifying
                             </LemonButton>
                         </div>
                     </>
@@ -65,7 +67,7 @@ export function VerificationPanel(): JSX.Element {
                                 type="primary"
                                 onClick={() => {
                                     if (showBillingStep) {
-                                        setAddBilling(true)
+                                        next({ showBilling: true })
                                     } else {
                                         completeOnboarding()
                                     }

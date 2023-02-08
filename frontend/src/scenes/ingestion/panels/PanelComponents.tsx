@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { ingestionLogicV2, INGESTION_STEPS } from '../ingestionLogicV2'
+import { ingestionLogic, INGESTION_STEPS } from '../ingestionLogic'
 import './Panels.scss'
 import { IconArrowLeft, IconChevronRight } from 'lib/lemon-ui/icons'
 import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
@@ -15,7 +15,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 
 export function PanelFooter(): JSX.Element {
-    const { next } = useActions(ingestionLogicV2)
+    const { next } = useActions(ingestionLogic)
 
     return (
         <div className="panel-footer">
@@ -38,8 +38,8 @@ export function PanelFooter(): JSX.Element {
 }
 
 export function PanelHeader(): JSX.Element | null {
-    const { isSmallScreen, previousStep, currentStep, hasInvitedMembers } = useValues(ingestionLogicV2)
-    const { onBack } = useActions(ingestionLogicV2)
+    const { isSmallScreen, previousStep, currentStep, hasInvitedMembers } = useValues(ingestionLogic)
+    const { onBack } = useActions(ingestionLogic)
 
     // no back buttons on the Getting Started step
     // but only if it's not the MembersInvited panel
@@ -64,7 +64,7 @@ export function PanelHeader(): JSX.Element | null {
 }
 
 export function DemoProjectButton({ text, subtext }: { text: string; subtext?: string }): JSX.Element {
-    const { next } = useActions(ingestionLogicV2)
+    const { next } = useActions(ingestionLogic)
     const { createTeam } = useActions(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { updateCurrentTeam } = useActions(userLogic)

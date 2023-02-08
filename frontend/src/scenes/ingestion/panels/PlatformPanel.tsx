@@ -1,18 +1,20 @@
 import { useActions } from 'kea'
-import { ingestionLogic } from 'scenes/ingestion/v1/ingestionLogic'
-import { THIRD_PARTY, BOOKMARKLET, platforms } from 'scenes/ingestion/v1/constants'
+import { ingestionLogic } from '../ingestionLogic'
+import { THIRD_PARTY, platforms } from '../constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import './Panels.scss'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 
 export function PlatformPanel(): JSX.Element {
-    const { setPlatform } = useActions(ingestionLogic)
+    const { next } = useActions(ingestionLogic)
 
     return (
         <div>
-            <h1 className="ingestion-title">Welcome to PostHog</h1>
-            <p>
-                First things first, where do you want to send events from? You can always instrument more sources later.
+            <h1 className="ingestion-title">Where do you want to send events from?</h1>
+            <p className="prompt-text">
+                With PostHog, you can collect events from nearly anywhere. Select one to start, and you can always add
+                more sources later.
             </p>
             <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
@@ -24,24 +26,22 @@ export function PlatformPanel(): JSX.Element {
                         size="large"
                         type="primary"
                         className="mb-2"
-                        onClick={() => setPlatform(platform)}
+                        onClick={() => next({ platform })}
                     >
                         {platform}
                     </LemonButton>
                 ))}
                 <LemonButton
-                    onClick={() => setPlatform(THIRD_PARTY)}
+                    onClick={() => next({ platform: THIRD_PARTY })}
                     fullWidth
                     center
                     size="large"
                     className="mb-2"
                     type="primary"
                 >
-                    {THIRD_PARTY}
+                    Import events from a third party
                 </LemonButton>
-                <LemonButton type="secondary" size="large" fullWidth center onClick={() => setPlatform(BOOKMARKLET)}>
-                    {BOOKMARKLET}
-                </LemonButton>
+                <IngestionInviteMembersButton />
             </div>
         </div>
     )

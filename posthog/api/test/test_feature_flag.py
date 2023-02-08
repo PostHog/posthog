@@ -152,6 +152,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": True,
+                "payload_count": 0,
             },
         )
 
@@ -182,6 +183,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -230,6 +232,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -271,6 +274,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -449,6 +453,7 @@ class TestFeatureFlag(APIBaseTest):
                 "filter_count": 1,
                 "created_at": datetime.datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
                 "aggregating_by_groups": False,
+                "payload_count": 0,
             },
         )
 
@@ -1890,8 +1895,8 @@ class TestFeatureFlag(APIBaseTest):
         assert flags is not None
         self.assertEqual(len(flags), 0)
 
-    @patch("posthog.api.feature_flag.PassThroughFeatureFlagThrottle.rate", new="7/minute")
-    @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
+    @patch("posthog.api.feature_flag.FeatureFlagThrottle.rate", new="7/minute")
+    @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     def test_rate_limits_for_local_evaluation_are_independent(self, rate_limit_enabled_mock, incr_mock):
@@ -1908,7 +1913,7 @@ class TestFeatureFlag(APIBaseTest):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/feature_flags", HTTP_AUTHORIZATION=f"Bearer {personal_api_key}"
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertEqual(len([1 for name, args, kwargs in incr_mock.mock_calls if args[0] == "rate_limit_exceeded"]), 1)
         incr_mock.assert_any_call(
             "rate_limit_exceeded",

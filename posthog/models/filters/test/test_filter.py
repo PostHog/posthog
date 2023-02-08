@@ -1,14 +1,20 @@
 import datetime
 import json
-from typing import Callable, Optional, cast
+from typing import Any, Callable, Dict, List, Optional, cast
 
 from django.db.models import Q
 
 from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Cohort, Filter, Person, Team
 from posthog.models.property import Property
-from posthog.queries.base import properties_to_Q
-from posthog.test.base import BaseTest, _create_person, flush_persons_and_events
+from posthog.queries.base import properties_to_Q, property_group_to_Q
+from posthog.test.base import (
+    BaseTest,
+    QueryMatchingTest,
+    _create_person,
+    flush_persons_and_events,
+    snapshot_postgres_queries,
+)
 
 
 class TestFilter(BaseTest):
@@ -361,9 +367,8 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 def _filter_persons(filter: Filter, team: Team):
     flush_persons_and_events()
-    # TODO: confirm what to do here?
     # Postgres only supports ANDing all properties :shrug:
-    persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat, team_id=team.pk, is_direct_query=True))
+    persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
@@ -382,20 +387,16 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
         with self.assertNumQueries(3):
             matched_person = (
                 Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-                .filter(properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True))
+                .filter(properties_to_Q(filter.property_groups.flat))
                 .exists()
             )
         self.assertTrue(matched_person)
 
     def test_group_property_filters_direct(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
-        query_filter = properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True)
+        query_filter = properties_to_Q(filter.property_groups.flat)
 
         self.assertEqual(query_filter, Q(group_properties__some_prop=5))
-
-    def test_group_property_filters_used(self):
-        filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
-        self.assertRaises(ValueError, lambda: properties_to_Q(filter.property_groups.flat, team_id=self.team.pk))
 
     def _filter_with_date_range(
         self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
@@ -408,3 +409,244 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             data["date_to"] = date_to
 
         return Filter(data=data)
+
+
+def filter_persons_with_property_group(
+    filter: Filter, team: Team, property_overrides: Dict[str, Any] = {}
+) -> List[str]:
+    flush_persons_and_events()
+    persons = Person.objects.filter(property_group_to_Q(filter.property_groups, property_overrides))
+    persons = persons.filter(team_id=team.pk)
+    return sorted([person.distinct_ids[0] for person in persons])
+
+
+class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
+    def test_simple_property_group_to_q(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com"})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "person", "key": "url", "value": "https://whatever.com"},
+                        {"type": "person", "key": "url", "value": 1},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(["person1", "person2"], results)
+
+    def test_multiple_properties_property_group_to_q(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "person", "key": "url", "value": "https://whatever.com"},
+                        {"type": "person", "key": "bla", "value": 1},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(["person1"], results)
+
+    def test_nested_property_group_to_q(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {"type": "person", "key": "bla", "value": 1},
+                            ],
+                        },
+                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(["person1", "person3"], results)
+
+    def test_property_group_to_q_with_property_overrides(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {"type": "person", "key": "bla", "value": 1},
+                            ],
+                        },
+                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team, {"bla": 2})
+        # all discarded because bla is neither 1 nor 3
+        self.assertEqual(len(results), 0)
+
+    @snapshot_postgres_queries
+    def test_property_group_to_q_with_cohorts(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "person", "key": "bla", "value": 1},
+                        {"type": "person", "key": "bla", "value": 2},
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {"type": "person", "key": "bla", "value": 1},
+                                {"type": "cohort", "key": "id", "value": cohort1.pk},
+                            ],
+                        },
+                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(["person1", "person3"], results)
+
+    @snapshot_postgres_queries
+    def test_property_group_to_q_with_cohorts_no_match(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "person", "key": "bla", "value": 1},
+                        {"type": "person", "key": "bla", "value": 2},
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {"type": "person", "key": "bla", "value": 1},
+                                {"type": "cohort", "key": "id", "value": cohort1.pk},
+                            ],
+                        },
+                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team)
+        self.assertEqual(len(results), 1)
+        self.assertEqual(["person3"], results)
+
+    def test_property_group_to_q_with_behavioural_cohort(self):
+        _create_person(
+            team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
+        )
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1, "bla": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"url": {"bla": "bla"}, "bla": 3})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"])
+
+        cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"type": "person", "key": "url", "value": "https://whatever.com"},
+                                {"type": "person", "key": "bla", "value": 1},
+                                {"type": "cohort", "key": "id", "value": cohort2.pk},
+                            ],
+                        },
+                        {"type": "AND", "values": [{"type": "person", "key": "bla", "value": 3}]},
+                    ],
+                }
+            }
+        )
+
+        with self.assertRaises(ValueError):
+            filter_persons_with_property_group(filter, self.team)

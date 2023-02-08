@@ -76,7 +76,7 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
@@ -552,7 +552,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 interval: number
                 enabled: boolean
             },
-            { persist: true, prefix: '1_' },
+            { persist: true, prefix: '2_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
