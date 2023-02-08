@@ -93,7 +93,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -144,7 +144,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -166,7 +166,7 @@ def query_with_columns(
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
     """
     Given a string query with placeholders we do one of two things:
 
