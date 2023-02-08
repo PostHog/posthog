@@ -246,7 +246,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
                 firstPaint: cache.firstPaintDurationRow,
             }
-            await breakpoint()
 
             if (type === SessionRecordingUsageType.LOADED) {
                 eventUsageLogic.actions.reportRecording(
@@ -262,6 +261,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.performanceEventsStartTime = null
                 cache.firstPaintDurationRow = null
             } else {
+                await breakpoint(1)
                 // Triggered on first paint
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
