@@ -27,7 +27,6 @@ import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
@@ -56,7 +55,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     const isTrends = isTrendsFilter(filters)
     const isLifecycle = isLifecycleFilter(filters)
@@ -82,13 +80,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         {
             title: 'General',
             editorFilters: filterFalsy([
-                usingEditorPanels
-                    ? {
-                          key: 'insight',
-                          label: 'Type',
-                          component: InsightTypeSelector,
-                      }
-                    : undefined,
                 isRetention && {
                     key: 'retention-summary',
                     label: 'Retention Summary',
@@ -170,7 +161,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     : null,
                 {
                     key: 'properties',
-                    label: !usingEditorPanels ? 'Filters' : undefined,
+                    label: 'Filters',
                     position: 'right',
                     component: GlobalAndOrFilters,
                 },
@@ -258,49 +249,42 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
         },
     ].filter((x) => x.editorFilters.length > 0)
 
-    let legacyEditorFilterGroups: InsightEditorFilterGroup[] = []
+    const leftFilters = editorFilters.reduce(
+        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
+        [] as InsightEditorFilter[]
+    )
+    const rightFilters = editorFilters.reduce(
+        (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
+        [] as InsightEditorFilter[]
+    )
 
-    if (!usingEditorPanels) {
-        const leftFilters = editorFilters.reduce(
-            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position !== 'right')),
-            [] as InsightEditorFilter[]
-        )
-        const rightFilters = editorFilters.reduce(
-            (acc, x) => acc.concat(x.editorFilters.filter((y) => y.position === 'right')),
-            [] as InsightEditorFilter[]
-        )
-
-        legacyEditorFilterGroups = [
-            {
-                title: 'Left',
-                editorFilters: leftFilters,
-            },
-            {
-                title: 'right',
-                editorFilters: rightFilters,
-            },
-        ]
-    }
+    const legacyEditorFilterGroups: InsightEditorFilterGroup[] = [
+        {
+            title: 'Left',
+            editorFilters: leftFilters,
+        },
+        {
+            title: 'right',
+            editorFilters: rightFilters,
+        },
+    ]
 
     return (
         <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
                 className={clsx('EditorFiltersWrapper', {
-                    'EditorFiltersWrapper--editorpanels': usingEditorPanels,
-                    'EditorFiltersWrapper--singlecolumn': usingEditorPanels || isFunnels,
+                    'EditorFiltersWrapper--singlecolumn': isFunnels,
                 })}
             >
                 <div className="EditorFilters">
-                    {(usingEditorPanels || isFunnels ? editorFilters : legacyEditorFilterGroups).map(
-                        (editorFilterGroup) => (
-                            <EditorFilterGroup
-                                key={editorFilterGroup.title}
-                                editorFilterGroup={editorFilterGroup}
-                                insight={insight}
-                                insightProps={insightProps}
-                            />
-                        )
-                    )}
+                    {(isFunnels ? editorFilters : legacyEditorFilterGroups).map((editorFilterGroup) => (
+                        <EditorFilterGroup
+                            key={editorFilterGroup.title}
+                            editorFilterGroup={editorFilterGroup}
+                            insight={insight}
+                            insightProps={insightProps}
+                        />
+                    ))}
                 </div>
             </div>
         </CSSTransition>
