@@ -103,6 +103,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         icon: InsightsLifecycleIcon,
         inMenu: true,
     },
+    [InsightType.QUERY]: {
+        name: 'Query',
+        description: 'Use our powerful query language to create custom insights',
+        icon: InsightsLifecycleIcon,
+        inMenu: true,
+    },
 }
 
 export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {

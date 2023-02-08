@@ -10,6 +10,35 @@ import { useActions, useValues } from 'kea'
 import { stringifiedExamples } from '~/queries/examples'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
+export function QueryEditorView({ query, setQuery }: { query: string; setQuery: (s: string) => void }): JSX.Element {
+    return (
+        <div className="space-y-2">
+            <div>
+                For example:{' '}
+                {Object.entries(stringifiedExamples).map(([key, q], index) => (
+                    <React.Fragment key={`query-${key}`}>
+                        {index !== 0 ? ' • ' : ''}
+                        <Link
+                            onClick={(e) => {
+                                e.preventDefault()
+                                setQuery(q)
+                            }}
+                            className={clsx({ 'font-bold': q === query })}
+                        >
+                            {key}
+                        </Link>
+                    </React.Fragment>
+                ))}
+            </div>
+            <QueryEditor query={query} setQuery={setQuery} />
+            <div className="my-4">
+                <LemonDivider />
+            </div>
+            <Query query={query} setQuery={(query) => setQuery(JSON.stringify(query, null, 2))} />
+        </div>
+    )
+}
+
 export function QueryScene(): JSX.Element {
     const { query } = useValues(querySceneLogic)
     const { setQuery } = useActions(querySceneLogic)
@@ -17,30 +46,7 @@ export function QueryScene(): JSX.Element {
     return (
         <div className="QueryScene">
             <PageHeader title="Query" />
-            <div className="space-y-2">
-                <div>
-                    For example:{' '}
-                    {Object.entries(stringifiedExamples).map(([key, q], index) => (
-                        <React.Fragment key={`query-${key}`}>
-                            {index !== 0 ? ' • ' : ''}
-                            <Link
-                                onClick={(e) => {
-                                    e.preventDefault()
-                                    setQuery(q)
-                                }}
-                                className={clsx({ 'font-bold': q === query })}
-                            >
-                                {key}
-                            </Link>
-                        </React.Fragment>
-                    ))}
-                </div>
-                <QueryEditor query={query} setQuery={setQuery} />
-                <div className="my-4">
-                    <LemonDivider />
-                </div>
-                <Query query={query} setQuery={(query) => setQuery(JSON.stringify(query, null, 2))} />
-            </div>
+            <QueryEditorView query={query} setQuery={setQuery} />
         </div>
     )
 }

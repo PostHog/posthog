@@ -63,6 +63,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         isFilterBasedInsight,
         isQueryBasedInsight,
         isInsightVizQuery,
+        activeView,
     } = useValues(logic)
     const {
         saveInsight,
@@ -116,7 +117,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         }
     }, [])
     // if this is a non-viz query-based insight e.g. an events table then don't show the insight editing chrome
-    const showFilterEditing = isFilterBasedInsight
+    const showFilterEditing = activeView !== InsightType.QUERY && isFilterBasedInsight
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.

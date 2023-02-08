@@ -79,14 +79,17 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
 export const createEmptyInsight = (
     insightId: InsightShortId | `new-${string}` | 'new',
     filterTestAccounts: boolean
-): Partial<InsightModel> => ({
-    short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
-    name: '',
-    description: '',
-    tags: [],
-    filters: filterTestAccounts ? { filter_test_accounts: true } : {},
-    result: null,
-})
+): Partial<InsightModel> => {
+    console.log('creating empty insight')
+    return {
+        short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
+        name: '',
+        description: '',
+        tags: [],
+        filters: filterTestAccounts ? { filter_test_accounts: true } : {},
+        result: null,
+    }
+}
 
 export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
@@ -484,13 +487,30 @@ export const insightLogic = kea<insightLogicType>([
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (state, { filters }) => cleanFilters(filters, state),
-                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
-                    overrideFilter ? cleanFilters(filters || {}) : state,
-                loadInsightSuccess: (state, { insight }) =>
-                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
-                loadResultsSuccess: (state, { insight }) =>
-                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
+                setFilters: (state, { filters }) => {
+                    console.log('set filters filters reducer')
+                    return cleanFilters(filters, state)
+                },
+                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) => {
+                    console.log('set insight filters reducer')
+                    return overrideFilter ? cleanFilters(filters || {}) : state
+                },
+                loadInsightSuccess: (state, { insight }) => {
+                    console.log('load insight success filters reducer')
+                    return Object.keys(state).length === 0 && insight.filters ? insight.filters : state
+                },
+                loadResultsSuccess: (state, { insight }) => {
+                    console.log('load results success filters reducer')
+                    return Object.keys(state).length === 0 && insight.filters ? insight.filters : state
+                },
+                setActiveView: (state, { type }) => {
+                    console.log('set active view filters reducer', type)
+                    if (type === InsightType.QUERY) {
+                        console.log('setting empty filters')
+                        return {}
+                    }
+                    return state
+                },
             },
         ],
         /** The insight's state as it is in the database. */
@@ -611,10 +631,20 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level == undefined ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
-        activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
+        activeView: [
+            (s) => [s.filters],
+            (filters) => {
+                return filters.insight || InsightType.QUERY
+            },
+        ],
         loadedView: [
             (s) => [s.insight, s.activeView],
-            ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
+            ({ filters }, activeView) => {
+                if (activeView === InsightType.QUERY) {
+                    return InsightType.QUERY
+                }
+                return filters?.insight || activeView || InsightType.TRENDS
+            },
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
@@ -955,7 +985,10 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         setActiveView: ({ type }) => {
-            actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
+            // custom queries don't want filters set
+            if (type !== InsightType.QUERY) {
+                actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
+            }
             actions.markInsightTimedOut(null)
             actions.marktInsightErrored(null)
             if (values.timeout) {

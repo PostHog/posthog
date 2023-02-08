@@ -30,6 +30,7 @@ import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { QueryEditorView } from 'scenes/query/QueryScene'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -64,8 +65,13 @@ export function InsightContainer({
         erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
+        insight,
     } = useValues(insightLogic)
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+
+    if (activeView === InsightType.QUERY) {
+        return <QueryEditorView query={JSON.stringify(insight.query)} setQuery={console.log} />
+    }
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {

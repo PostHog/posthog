@@ -58,6 +58,11 @@ export function InsightsNav(): JSX.Element {
                 type: InsightType.LIFECYCLE,
                 dataAttr: 'insight-lifecycle-tab',
             },
+            {
+                label: 'Query',
+                type: InsightType.QUERY,
+                dataAttr: 'insight-query-tab',
+            },
         ],
         [funnelTab]
     )
