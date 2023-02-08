@@ -1,4 +1,4 @@
-import { API, MOBILE, mobileFrameworks, BACKEND, WEB, webFrameworks, THIRD_PARTY } from 'scenes/ingestion/v2/constants'
+import { API, MOBILE, mobileFrameworks, BACKEND, WEB, webFrameworks, THIRD_PARTY } from 'scenes/ingestion/constants'
 
 export type Framework = keyof typeof webFrameworks | keyof typeof mobileFrameworks | typeof API | null
 
