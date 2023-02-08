@@ -89,7 +89,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_last_used_at.day,
             key_last_used_at.hour,
         ):
-            key_last_used_at = now
+            personal_api_key_object.last_used_at = now
             personal_api_key_object.save()
         assert personal_api_key_object.user is not None
 

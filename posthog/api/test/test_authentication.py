@@ -12,6 +12,8 @@ from social_django.models import UserSocialAuth
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
 
 
@@ -440,3 +442,83 @@ class TestPasswordResetAPI(APIBaseTest):
                 "/api/reset/e2e_test_user/", {"token": "e2e_test_token", "password": "a12345678"}
             )
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+
+class TestPersonalAPIKeyAuthentication(APIBaseTest):
+    def test_personal_api_key_updates_last_used_at_hourly(self):
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+        )
+
+        with freeze_time("2021-08-25T22:00:14.252"):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
+
+            self.assertEqual(str(model_key.last_used_at), "2021-08-25 22:00:14.252000+00:00")
+
+    def test_personal_api_key_updates_last_used_at_within_the_year(self):
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+        )
+
+        with freeze_time("2022-08-25T22:00:14.252"):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
+
+            self.assertEqual(str(model_key.last_used_at), "2022-08-25 22:00:14.252000+00:00")
+
+    def test_personal_api_key_does_not_update_last_used_at_within_the_hour(self):
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+        )
+
+        with freeze_time("2021-08-25T21:14:14.252"):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
+            self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
+
+    def test_personal_api_key_does_not_update_last_used_at_when_in_the_past(self):
+        self.client.logout()
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="X", user=self.user, last_used_at="2021-08-25T21:09:14", secure_value=hash_key_value(personal_api_key)
+        )
+
+        with freeze_time("2021-08-24T21:14:14.252"):
+            response = self.client.get(
+                f"/api/projects/{self.team.pk}/feature_flags/",
+                HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            model_key = PersonalAPIKey.objects.get(secure_value=hash_key_value(personal_api_key))
+            self.assertEqual(str(model_key.last_used_at), "2021-08-25 21:09:14+00:00")
