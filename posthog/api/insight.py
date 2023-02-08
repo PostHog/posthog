@@ -75,7 +75,7 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.user_permissions import UserPermissionsSerializerMixin
@@ -499,8 +499,8 @@ class InsightViewSet(
         TeamMemberAccessPermission,
     ]
     throttle_classes = [
-        PassThroughClickHouseBurstRateThrottle,
-        PassThroughClickHouseSustainedRateThrottle,
+        ClickHouseBurstRateThrottle,
+        ClickHouseSustainedRateThrottle,
     ]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]

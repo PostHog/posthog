@@ -54,12 +54,16 @@ def default_settings() -> Dict:
         return {"optimize_move_to_prewhere": 0}
 
 
-def extra_settings(query_id) -> Dict[str, Any]:
+def extra_settings(query_id: Optional[str], tags: Dict[str, Any]) -> Dict[str, Any]:
+    if tags.get("kind") != "celery":
+        return {}
+
     join_algorithm = (
         posthoganalytics.get_feature_flag(
             "join-algorithm",
             str(query_id),
             only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
         or "default"
     )
@@ -89,7 +93,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -105,7 +109,7 @@ def sync_execute(
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id, tags)}
         tags["query_settings"] = core_settings
         settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
@@ -140,7 +144,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -162,7 +166,7 @@ def query_with_columns(
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
     """
     Given a string query with placeholders we do one of two things:
 
