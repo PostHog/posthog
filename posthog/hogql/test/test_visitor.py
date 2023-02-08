@@ -12,13 +12,15 @@ class ConstantVisitor(EverythingVisitor):
 
     def visit_constant(self, node):
         self.constants.append(node.value)
+        return super().visit_constant(node)
 
     def visit_field(self, node):
         self.fields.append(node.chain)
+        return super().visit_field(node)
 
-    def visit_binary_operation(self, binary_operation: ast.BinaryOperation):
-        self.operations.append(binary_operation.op)
-        super().visit_binary_operation(binary_operation)
+    def visit_binary_operation(self, node: ast.BinaryOperation):
+        self.operations.append(node.op)
+        return super().visit_binary_operation(node)
 
 
 class TestVisitor(BaseTest):
