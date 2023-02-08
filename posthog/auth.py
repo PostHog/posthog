@@ -84,7 +84,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         key_last_used_at = personal_api_key_object.last_used_at
         # Only updating last_used_at if the hour's changed
         # This is to avooid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-        if key_last_used_at is None or now - key_last_used_at > timedelta(hours=1):
+        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
             personal_api_key_object.last_used_at = now
             personal_api_key_object.save(update_fields=["last_used_at"])
         assert personal_api_key_object.user is not None
