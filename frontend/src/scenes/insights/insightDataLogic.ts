@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, FunnelVizType, InsightLogicProps, InsightType, PathType, RetentionPeriod } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightType, PathType, RetentionPeriod } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -30,7 +30,6 @@ import {
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
 
@@ -136,13 +135,6 @@ const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
         }
     } else {
         throw new Error('should not reach here')
-    }
-}
-
-const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: filtersToQueryNode(filters),
     }
 }
 
@@ -280,23 +272,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                             : ['new', 'resurrecting', 'returning', 'dormant']
                     )
                 }
-            }
-        },
-        setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
-            if (overrideFilter) {
-                actions.setQuery(getQueryFromFilters(cleanFilters(filters || {})))
-            }
-        },
-        loadInsightSuccess: ({ insight }) => {
-            if (insight.filters) {
-                const query = getQueryFromFilters(insight.filters)
-                actions.setQuery(query)
-            }
-        },
-        loadResultsSuccess: ({ insight }) => {
-            if (insight.filters) {
-                const query = getQueryFromFilters(insight.filters)
-                actions.setQuery(query)
             }
         },
     })),
