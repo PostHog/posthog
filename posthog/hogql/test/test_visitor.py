@@ -65,6 +65,30 @@ class TestVisitor(BaseTest):
                         ],
                     )
                 ),
+                ast.Alias(expr=ast.SelectQuery(select=[ast.Field(chain=["timestamp"])]), alias="f"),
+                ast.SelectQuery(
+                    select=[ast.Field(chain=["a"])],
+                    select_from=ast.JoinExpr(
+                        table=ast.Field(chain=["b"]),
+                        table_final=True,
+                        alias="c",
+                        join_type="INNER",
+                        join_constraint=ast.CompareOperation(
+                            op=ast.CompareOperationType.Eq,
+                            left=ast.Field(chain=["d"]),
+                            right=ast.Field(chain=["e"]),
+                        ),
+                        join_expr=ast.JoinExpr(table=ast.Field(chain=["f"])),
+                    ),
+                    where=ast.Constant(value=True),
+                    prewhere=ast.Constant(value=True),
+                    having=ast.Constant(value=True),
+                    group_by=[ast.Constant(value=True)],
+                    order_by=[ast.OrderExpr(expr=ast.Constant(value=True), order="DESC")],
+                    limit=1,
+                    offset=0,
+                    distinct=True,
+                ),
             ]
         )
         self.assertEqual(node, EverythingVisitor().visit(node))

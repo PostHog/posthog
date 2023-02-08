@@ -3,6 +3,8 @@ from posthog.hogql import ast
 
 class Visitor(object):
     def visit(self, node: ast.AST):
+        if node is None:
+            return node
         return node.accept(self)
 
 
@@ -58,4 +60,28 @@ class EverythingVisitor(Visitor):
         return ast.Call(
             name=call.name,
             args=[self.visit(arg) for arg in call.args],
+        )
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        return ast.JoinExpr(
+            table=self.visit(node.table),
+            join_expr=self.visit(node.join_expr),
+            table_final=node.table_final,
+            alias=node.alias,
+            join_type=node.join_type,
+            join_constraint=self.visit(node.join_constraint),
+        )
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        return ast.SelectQuery(
+            select=[self.visit(expr) for expr in node.select] if node.select else None,
+            select_from=self.visit(node.select_from),
+            where=self.visit(node.where),
+            prewhere=self.visit(node.prewhere),
+            having=self.visit(node.having),
+            group_by=[self.visit(expr) for expr in node.group_by] if node.group_by else None,
+            order_by=[self.visit(expr) for expr in node.order_by] if node.order_by else None,
+            limit=node.limit,
+            offset=node.offset,
+            distinct=node.distinct,
         )
