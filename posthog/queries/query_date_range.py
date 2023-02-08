@@ -150,11 +150,11 @@ class QueryDateRange(Generic[F]):
 
     @cached_property
     def date_to_clause(self):
-        return self._get_timezone_aware_date_condition("<=")
+        return self._get_timezone_aware_date_condition("date_to")
 
     @cached_property
     def date_from_clause(self):
-        return self._get_timezone_aware_date_condition(">=")
+        return self._get_timezone_aware_date_condition("date_from")
 
     @cached_property
     def date_to(self) -> Tuple[str, Dict]:
@@ -174,23 +174,32 @@ class QueryDateRange(Generic[F]):
 
         return date_from_query, date_from_param
 
-    def _get_timezone_aware_date_condition(self, operator: Literal[">=", "<="]) -> str:
-        relevant_param = "date_from" if operator.startswith(">") else "date_to"
-        event_timestamp_expr = self._normalize_datetime(f"{self._table}timestamp", stored_in_utc=True)
-        date_expr = self._normalize_datetime(f"%({relevant_param})s")
+    def _get_timezone_aware_date_condition(self, date_param: Literal["date_from", "date_to"]) -> str:
+        operator = ">=" if date_param == "date_from" else "<="
+        event_timestamp_expr = self._normalize_datetime(column=f"{self._table}timestamp")
+        date_expr = self._normalize_datetime(param=date_param)
         if operator == ">=" and self.should_round:  # Round date_from to start of interval if `should_round` is true
             date_expr = self._truncate_normalized_datetime(date_expr, self.interval_annotation)
         return f"AND {event_timestamp_expr} {operator} {date_expr}"
 
     @staticmethod
-    def _normalize_datetime(datetime_expr: str, *, stored_in_utc: bool = False) -> str:
+    def _normalize_datetime(*, column: Optional[str] = None, param: Optional[str] = None) -> str:
         """Return expression with datetime normalized to project timezone.
-        Use `from_utc=True` for datetimes from the database - we always store datetimes in UTC.
+
+        If normalizing a column (such as `events.timestamp`) provide the column expression as `column`
+        (e.g. `"events.timestamp"`). Stored data is already of type `DateTime('UTC')` already, so we just
+        need to convert that to the project TZ.
+        If normalizing a parameter (such as `%(date_from)s`) provide the parameter name as `param` (e.g. `"date_from"`).
+        Such parameters are strings, so they need to be parsed. They're assumed to already be in the project TZ.
         """
-        if stored_in_utc:
-            return f"toTimeZone(toDateTime({datetime_expr}), %(timezone)s)"
+        if column and param:
+            raise ValueError("Must provide either column or param, not both")
+        if column:
+            return f"toTimeZone({column}, %(timezone)s)"
+        elif param:
+            return f"toDateTime(%({param})s, %(timezone)s)"
         else:
-            return f"toDateTime({datetime_expr}, %(timezone)s)"
+            raise ValueError("Must provide either column or param")
 
     @classmethod
     def _truncate_normalized_datetime(cls, normalized_datetime_expr: str, trunc_func: str) -> str:
