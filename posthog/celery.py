@@ -143,10 +143,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
         sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
-    clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
-    if clear_clickhouse_crontab:
+    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+        )
+
+    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
+        sender.add_periodic_task(
+            clear_clickhouse_deleted_person_crontab,
+            clear_clickhouse_deleted_person.s(),
+            name="clickhouse clear deleted person data",
         )
 
     if settings.EE_AVAILABLE:
@@ -470,6 +476,13 @@ def clickhouse_clear_removed_data():
     cohort_runner = AsyncCohortDeletion()
     cohort_runner.mark_deletions_done()
     cohort_runner.run()
+
+
+@app.task(ignore_result=True)
+def clear_clickhouse_deleted_person():
+    from posthog.models.async_deletion.delete_person import remove_deleted_person_data
+
+    remove_deleted_person_data()
 
 
 @app.task(ignore_result=True)
