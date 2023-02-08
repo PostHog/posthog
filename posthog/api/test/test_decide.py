@@ -8,7 +8,6 @@ from rest_framework import status
 
 from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
@@ -1235,72 +1234,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"distinct_id": "example_id", "api_key": key_value, "project_id": self.team.id}
         ).json()
         self.assertEqual(response["featureFlags"], ["test", "default-flag"])
-
-    def test_flag_with_regular_cohorts(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
-            name="cohort1",
-        )
-        # no calculation for cohort
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
-            name="This is a cohort-based flag",
-            key="cohort-flag",
-            created_by=self.user,
-        )
-
-        with self.assertNumQueries(3):
-            response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
-
-        with self.assertNumQueries(3):
-            # get cohort, get team, get person filter
-            response = self._post_decide(api_version=3, distinct_id="another_id")
-            self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
-
-    def test_flag_with_behavioural_cohorts(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {"event_id": "$pageview", "days": 7},
-                {"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]},
-            ],
-            name="cohort1",
-        )
-        # no calculation for cohort
-
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]},
-            name="This is a cohort-based flag",
-            key="cohort-flag",
-            created_by=self.user,
-        )
-
-        with self.assertNumQueries(2):
-            response = self._post_decide(api_version=3, distinct_id="example_id_1")
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
-
-        with self.assertNumQueries(2):
-            response = self._post_decide(api_version=3, distinct_id="another_id")
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
     def test_personal_api_key_without_project_id(self):
         key_value = generate_random_token_personal()

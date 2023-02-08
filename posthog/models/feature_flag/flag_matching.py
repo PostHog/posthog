@@ -267,6 +267,8 @@ class FeatureFlagMatcher:
                         )
                     expr = properties_to_Q(
                         Filter(data=condition).property_groups.flat,
+                        team_id=team_id,
+                        is_direct_query=True,
                         override_property_values=target_properties,
                     )
 

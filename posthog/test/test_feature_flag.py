@@ -1468,26 +1468,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 
-    def test_user_in_cohort_without_calculation(self):
-        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
-        cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
-            name="cohort1",
-        )
-        feature_flag: FeatureFlag = self.create_feature_flag(
-            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
-        )
-
-        self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
-            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
-        )
-        self.assertEqual(
-            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
-            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
-        )
-
     def test_legacy_rollout_percentage(self):
         feature_flag = self.create_feature_flag(rollout_percentage=50)
         self.assertEqual(
