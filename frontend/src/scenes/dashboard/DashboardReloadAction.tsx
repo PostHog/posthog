@@ -1,6 +1,6 @@
 import React from 'react'
 import { useState } from 'react'
-import { Checkbox, Dropdown, Menu, Radio, Space } from 'antd'
+import { Dropdown, Menu, Radio, Space } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
@@ -8,6 +8,7 @@ import { humanFriendlyDuration } from 'lib/utils'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { dayjs } from 'lib/dayjs'
+import { LemonDivider, LemonSwitch } from '@posthog/lemon-ui'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
@@ -21,7 +22,7 @@ export const LastRefreshText = (): JSX.Element => {
 
 // in seconds
 const intervalOptions = [
-    ...Array.from([60, 120, 300, 900], (v) => ({
+    ...Array.from([1800, 2400, 3000, 3600], (v) => ({
         label: humanFriendlyDuration(v),
         value: v,
     })),
@@ -47,24 +48,15 @@ export function DashboardReloadAction(): JSX.Element {
                             }}
                         >
                             <Tooltip title={`Refresh dashboard automatically`} placement="bottomLeft">
-                                <Checkbox
-                                    onChange={(e) => {
-                                        e.stopPropagation()
-                                        e.preventDefault()
-                                    }}
+                                <LemonSwitch
+                                    onChange={(checked) => setAutoRefresh(checked, autoRefresh.interval)}
+                                    label={'Auto refresh'}
                                     checked={autoRefresh.enabled}
+                                    fullWidth={true}
                                 />
-                                <label
-                                    style={{
-                                        marginLeft: 10,
-                                        cursor: 'pointer',
-                                    }}
-                                >
-                                    Auto refresh
-                                </label>
                             </Tooltip>
                         </div>
-                        <Menu.Divider />
+                        <LemonDivider className="my-0" />
                         <Menu.ItemGroup title="Refresh interval">
                             <Radio.Group
                                 onChange={(e) => {
@@ -75,7 +67,12 @@ export function DashboardReloadAction(): JSX.Element {
                             >
                                 <Space direction="vertical" style={{ width: '100%' }}>
                                     {intervalOptions.map(({ label, value }) => (
-                                        <Radio key={value} value={value} style={{ width: '100%' }}>
+                                        <Radio
+                                            key={value}
+                                            value={value}
+                                            style={{ width: '100%' }}
+                                            disabled={!autoRefresh.enabled}
+                                        >
                                             {label}
                                         </Radio>
                                     ))}
