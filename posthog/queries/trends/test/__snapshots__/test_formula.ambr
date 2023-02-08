@@ -153,7 +153,7 @@
               CROSS JOIN
                 (SELECT breakdown_value
                  FROM
-                   (SELECT [36, 0] as breakdown_value) ARRAY
+                   (SELECT [37, 0] as breakdown_value) ARRAY
                  JOIN breakdown_value) as sec
               ORDER BY breakdown_value,
                        day_start
@@ -163,7 +163,7 @@
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
-                        36 as value
+                        37 as value
                  FROM
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
@@ -222,7 +222,7 @@
               CROSS JOIN
                 (SELECT breakdown_value
                  FROM
-                   (SELECT [36, 0] as breakdown_value) ARRAY
+                   (SELECT [37, 0] as breakdown_value) ARRAY
                  JOIN breakdown_value) as sec
               ORDER BY breakdown_value,
                        day_start
@@ -232,7 +232,7 @@
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
-                        36 as value
+                        37 as value
                  FROM
                    (SELECT distinct_id,
                            argMax(person_id, version) as person_id
