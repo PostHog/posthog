@@ -449,6 +449,8 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        // We bump the statusTime every minute to let the coordinator know we are still
+        // alive and we don't need to be resumed.
         const interval = setInterval(meta.storage.set, 1000 * 60, payload.statusKey, {
             ...payload,
             done: false,
@@ -481,12 +483,14 @@ export function addHistoricalEventsExportCapabilityV2(
                 })
             } catch (error) {
                 clearInterval(interval)
+
                 await handleExportError(error, activeExportParameters, payload, events.length)
                 return
             }
         }
 
         clearInterval(interval)
+
         const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
 
         await meta.jobs
