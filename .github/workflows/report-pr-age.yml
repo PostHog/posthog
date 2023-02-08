@@ -27,4 +27,4 @@ jobs:
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-pr-stats'
-                  properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}} }'
+                  properties: '{"prAgeInSeconds": ${{ env.pr_age }}, "isRevert": ${{env.is_revert}}, "prTitle": "${{ github.event.pull_request.title}}", "prNumber": "${{ github.event.pull_request.title}}"  }'
