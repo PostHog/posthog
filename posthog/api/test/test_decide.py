@@ -92,47 +92,47 @@ class TestDecide(BaseTest, QueryMatchingTest):
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], True)
+        self.assertEqual(response["sessionRecording"], False)
 
         # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": False})
-
-        response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
-        )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
-
-    def test_user_console_log_opt_in(self):
-        # :TRICKY: Test for regression around caching
-        response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], True)
-
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"capture_console_log_opt_in": False})
+        self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
             {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+
+    def test_user_console_log_opt_in(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"], False)
+
+        # don't access models directly as that doesn't update the cache.
+        self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
+        )
 
     def test_user_performance_opt_in(self):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], True)
+        self.assertEqual(response["capturePerformance"], False)
 
         # don't access models directly as that doesn't update the cache.
-        self._update_team({"capture_performance_opt_in": False})
+        self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
-        self.assertEqual(response["capturePerformance"], False)
+        self.assertEqual(response["capturePerformance"], True)
 
     def test_user_session_recording_opt_in_wildcard_domain(self):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], True)
+        self.assertEqual(response["sessionRecording"], False)
 
         # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://*.example.com"]})
@@ -140,7 +140,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="https://random.example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
@@ -159,7 +159,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="https://example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
