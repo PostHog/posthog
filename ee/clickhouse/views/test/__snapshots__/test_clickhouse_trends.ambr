@@ -686,8 +686,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -719,8 +719,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -752,8 +752,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -785,8 +785,8 @@
            HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -811,8 +811,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND (NOT has([''], "$group_0"))
           AND "$group_0" != ''
         GROUP BY date)
@@ -831,8 +831,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0")
             AND NOT has([''], "$group_0"))
        AND "$group_0" != '' )
@@ -862,8 +862,8 @@
         FROM events e
         WHERE team_id = 2
           AND event = '$pageview'
-          AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -890,8 +890,8 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND toTimeZone(toDateTime(timestamp), 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toTimeZone(toDateTime(timestamp), 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') )
+       AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
