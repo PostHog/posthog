@@ -38,7 +38,8 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isInsightVizNode } from '~/queries/utils'
+import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
+import { insightQueryEditorLogic } from './insightQueryEditorLogic'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -81,14 +82,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
     const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
 
+    const { query: insightEditorQuery } = useValues(insightQueryEditorLogic(insightProps))
+    const { setQuery: insighEditorSetQuery } = useActions(insightQueryEditorLogic(insightProps))
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
     let setQuery = insighVizSetQuery
     if (!!insight.query && isQueryBasedInsight) {
-        query = insight.query
-        setQuery = () => {
-            // don't support editing non-insight viz queries _yet_
-        }
+        query = insightEditorQuery
+        setQuery = insighEditorSetQuery
     }
 
     // other logics
@@ -270,8 +271,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
-                            canEditInsight &&
-                            (isFilterBasedInsight || isInsightVizNode(query)) && (
+                            canEditInsight && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
@@ -338,7 +338,18 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             />
 
             {isUsingDataExploration ? (
-                <Query query={query} setQuery={setQuery} />
+                <>
+                    {insightMode === ItemMode.Edit && (
+                        <>
+                            <InsightsNav />
+                            <QueryEditor
+                                query={JSON.stringify(query, null, 4)}
+                                setQuery={setQuery ? (query) => setQuery(JSON.parse(query)) : undefined}
+                            />
+                        </>
+                    )}
+                    <Query query={query} setQuery={setQuery} />
+                </>
             ) : (
                 <>
                     {insightMode === ItemMode.Edit && <InsightsNav />}

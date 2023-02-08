@@ -97,7 +97,7 @@ export const insightLogic = kea<insightLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
 
-    connect(({ props }) => ({
+    connect((props) => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -207,7 +207,7 @@ export const insightLogic = kea<insightLogicType>([
                     if (!Object.entries(insight).length) {
                         return values.insight
                     }
-                    debugger
+
                     if (!values.editedQuery && 'filters' in insight && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
@@ -220,9 +220,9 @@ export const insightLogic = kea<insightLogicType>([
                         throw error
                     }
 
-                    if (!!values.editedQuery.trim().length) {
+                    if (!!values.editedQuery) {
                         insight.filters = {}
-                        insight.query = JSON.parse(values.editedQuery)
+                        insight.query = values.editedQuery
                     }
 
                     const response = await api.update(
@@ -655,12 +655,13 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight, s.filters],
-            (insight, savedInsight, filters): boolean =>
+            (s) => [s.insight, s.savedInsight, s.filters, s.editedQuery],
+            (insight, savedInsight, filters, editedQuery): boolean =>
                 (insight.name || '') !== (savedInsight.name || '') ||
                 (insight.description || '') !== (savedInsight.description || '') ||
                 !objectsEqual(insight.tags || [], savedInsight.tags || []) ||
-                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})),
+                !objectsEqual(cleanFilters(savedInsight.filters || {}), cleanFilters(filters || {})) ||
+                (!!editedQuery && insight.query !== editedQuery),
         ],
         isInDashboardContext: [
             () => [router.selectors.location],
@@ -1024,12 +1025,10 @@ export const insightLogic = kea<insightLogicType>([
                 }
 
                 const iqel = insightQueryEditorLogic.findMounted(props)
-                debugger
                 const editedQuery = iqel?.values.query
-                if (!!editedQuery?.trim().length) {
-                    debugger
+                if (!!editedQuery) {
                     insightRequest.filters = {}
-                    insightRequest.query = JSON.parse(editedQuery)
+                    insightRequest.query = editedQuery
                 }
 
                 savedInsight = insightNumericId
@@ -1101,7 +1100,7 @@ export const insightLogic = kea<insightLogicType>([
                 actions.loadResults()
             }
             if (!!insight.query) {
-                actions.setQuery(JSON.stringify(insight.query))
+                actions.setQuery(insight.query)
             }
         },
         toggleInsightLegend: () => {
