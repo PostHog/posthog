@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FunnelVizType, InsightLogicProps, InsightType, PathType, RetentionPeriod } from '~/types'
+import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -11,8 +11,6 @@ import {
     Node,
     NodeKind,
 } from '~/queries/schema'
-import { BaseMathType } from '~/types'
-import { ShownAsValue } from 'lib/constants'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
@@ -32,122 +30,22 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
-
-// TODO: should take the existing values.query and set params from previous view similar to
-// cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
-const getCleanedQuery = (kind: InsightNodeKind): InsightVizNode => {
-    if (kind === NodeKind.TrendsQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math: BaseMathType.TotalCount,
-                    },
-                ],
-                trendsFilter: {},
-            },
-        }
-    } else if (kind === NodeKind.FunnelsQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.FunnelsQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                    },
-                ],
-                funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.Steps,
-                },
-            },
-        }
-    } else if (kind === NodeKind.RetentionQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.RetentionQuery,
-                retentionFilter: {
-                    period: RetentionPeriod.Day,
-                    total_intervals: 11,
-                    target_entity: {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                    },
-                    returning_entity: {
-                        id: '$pageview',
-                        name: '$pageview',
-                        type: 'events',
-                    },
-                    retention_type: 'retention_first_time',
-                },
-            },
-        }
-    } else if (kind === NodeKind.PathsQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.PathsQuery,
-                pathsFilter: {
-                    include_event_types: [PathType.PageView],
-                },
-            },
-        }
-    } else if (kind === NodeKind.StickinessQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.StickinessQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math: BaseMathType.TotalCount,
-                    },
-                ],
-                stickinessFilter: {},
-            },
-        }
-    } else if (kind === NodeKind.LifecycleQuery) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.LifecycleQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        name: '$pageview',
-                        event: '$pageview',
-                        math: BaseMathType.TotalCount,
-                    },
-                ],
-                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
-            },
-        }
-    } else {
-        throw new Error('should not reach here')
-    }
-}
+import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
 const getDefaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
-    if (insightProps.cachedInsight?.filters) {
-        return {
-            kind: NodeKind.InsightVizNode,
-            source: filtersToQueryNode(insightProps.cachedInsight.filters),
-        }
-    }
-
-    return getCleanedQuery(NodeKind.TrendsQuery)
+    const filters = insightProps.cachedInsight?.filters
+    return filters ? queryFromFilters(filters) : queryFromKind(NodeKind.TrendsQuery)
 }
+
+const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: filtersToQueryNode(filters),
+})
+
+const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: nodeKindToDefaultQuery[kind],
+})
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -180,17 +78,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 setQuery: (_, { query }) => query,
                 setActiveView: (_, { activeView }): InsightVizNode => {
                     if (activeView === InsightType.TRENDS) {
-                        return getCleanedQuery(NodeKind.TrendsQuery)
+                        return queryFromKind(NodeKind.TrendsQuery)
                     } else if (activeView === InsightType.FUNNELS) {
-                        return getCleanedQuery(NodeKind.FunnelsQuery)
+                        return queryFromKind(NodeKind.FunnelsQuery)
                     } else if (activeView === InsightType.RETENTION) {
-                        return getCleanedQuery(NodeKind.RetentionQuery)
+                        return queryFromKind(NodeKind.RetentionQuery)
                     } else if (activeView === InsightType.PATHS) {
-                        return getCleanedQuery(NodeKind.PathsQuery)
+                        return queryFromKind(NodeKind.PathsQuery)
                     } else if (activeView === InsightType.STICKINESS) {
-                        return getCleanedQuery(NodeKind.StickinessQuery)
+                        return queryFromKind(NodeKind.StickinessQuery)
                     } else if (activeView === InsightType.LIFECYCLE) {
-                        return getCleanedQuery(NodeKind.LifecycleQuery)
+                        return queryFromKind(NodeKind.LifecycleQuery)
                     } else {
                         throw new Error('unsupported insight type')
                     }
