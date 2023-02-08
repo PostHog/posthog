@@ -15,9 +15,9 @@ import { subscriptions } from 'kea-subscriptions'
 import { BillingType, TeamType } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
-import type { ingestionLogicType } from './ingestionLogicType'
 import api from 'lib/api'
 import { loaders } from 'kea-loaders'
+import type { ingestionLogicType } from './ingestionLogicType'
 
 export enum INGESTION_STEPS {
     START = 'Get started',

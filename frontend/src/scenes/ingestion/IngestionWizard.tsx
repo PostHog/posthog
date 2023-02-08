@@ -24,7 +24,7 @@ import { TeamInvitedPanel } from './panels/TeamInvitedPanel'
 import { NoDemoIngestionPanel } from './panels/NoDemoIngestionPanel'
 import { SuperpowersPanel } from 'scenes/ingestion/panels/SuperpowersPanel'
 
-export function IngestionWizardV2(): JSX.Element {
+export function IngestionWizard(): JSX.Element {
     const { currentView, platform } = useValues(ingestionLogic)
     const { reportIngestionLandingSeen } = useActions(eventUsageLogic)
 
