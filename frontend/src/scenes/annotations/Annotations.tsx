@@ -91,11 +91,12 @@ export function Annotations(): JSX.Element {
                 const { created_by, creation_type } = item
                 return (
                     <div className="flex flex-row items-center">
-                        {creation_type === 'GIT' ? (
-                            <ProfilePicture name={'GitHub automation'} email={'max@posthog.com'} size="md" showName />
-                        ) : created_by ? (
-                            <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" showName />
-                        ) : null}
+                        <ProfilePicture
+                            name={creation_type === 'GIT' ? 'GitHub automation' : created_by?.first_name}
+                            email={creation_type === 'GIT' ? 'maxbot@posthog.com' : created_by?.email}
+                            showName
+                            size="md"
+                        />
                     </div>
                 )
             },
