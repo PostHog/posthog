@@ -169,10 +169,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
             jest.useFakeTimers({
                 // These are required otherwise queries and other things were breaking.
-                doNotFake: ['setImmediate', 'clearImmediate', 'nextTick', 'Date'],
+                doNotFake: ['setImmediate', 'clearImmediate', 'clearInterval', 'nextTick', 'Date'],
             })
 
             jest.spyOn(vm.meta.storage, 'set')
+            jest.spyOn(global, 'clearInterval')
 
             const defaultProgress =
                 (defaultPayload.timestampCursor - defaultPayload.startTime) /
@@ -202,6 +203,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.methods.exportEvents).toHaveBeenCalledWith([1, 2, 3])
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -215,9 +217,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
         it('does not call exportEvents or log if no events in time range', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
+            jest.spyOn(global, 'clearInterval')
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.methods.exportEvents).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
         })
@@ -246,11 +250,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('schedules a retry if exportEvents raises a RetryError', async () => {
             createVM()
 
+            jest.spyOn(global, 'clearInterval')
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
             jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
@@ -290,11 +296,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('stops processing date if an unknown error was raised in exportEvents', async () => {
             createVM()
 
+            jest.spyOn(global, 'clearInterval')
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
             jest.mocked(vm.methods.exportEvents).mockRejectedValue(new Error('Unknown error'))
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -986,7 +994,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
     describe('shouldResume()', () => {
         const shouldResume = getTestMethod('shouldResume')
 
-        it('resumes task when a bit over 60 minutes have passed', () => {
+        it('resumes task when a bit over 10 minutes have passed', () => {
             const status = {
                 statusTime: 10_000_000_000,
                 retriesPerformedSoFar: 0,
@@ -996,7 +1004,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(shouldResume(status, 9_000_000_000)).toEqual(false)
             expect(shouldResume(status, 10_000_060_000)).toEqual(false)
             expect(shouldResume(status, 10_000_590_000)).toEqual(false)
-            expect(shouldResume(status, 10_000_660_000)).toEqual(false)
+            expect(shouldResume(status, 10_000_600_000)).toEqual(false)
             expect(shouldResume(status, 10_003_660_000)).toEqual(true)
         })
 
