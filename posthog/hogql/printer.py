@@ -88,7 +88,7 @@ def print_ast(
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
         if limit is not None:
-            clauses.append(f"LIMIT {print_ast(limit, stack, context, dialect)}"),
+            clauses.append(f"LIMIT {print_ast(limit, stack, context, dialect)}")
             if node.offset is not None:
                 clauses.append(f"OFFSET {print_ast(node.offset, stack, context, dialect)}")
             if node.limit_by is not None:
