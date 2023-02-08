@@ -19,11 +19,7 @@ export async function emitToBufferStep(
     status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
 
     // TODO: REMOVE Incident mitigation details in https://posthog.slack.com/archives/C0185UNBSJZ/p1675841292796619
-    if (
-        event.event == '$groupidentify' &&
-        event.team_id == 19279 &&
-        event.distinct_id == '$client_CLT-0cad9ed8-eee6-4ef0-a3b6-0f77761f1439'
-    ) {
+    if (event.event == '$groupidentify' && event.team_id == 19279) {
         runner.hub.statsd?.increment('groupidentify-blackhole-incident-mitigation')
         return null
     }
