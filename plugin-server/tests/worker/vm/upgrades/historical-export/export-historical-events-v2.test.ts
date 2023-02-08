@@ -126,11 +126,15 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
         })
 
+        afterEach(() => {
+            jest.clearAllTimers()
+            jest.useRealTimers()
+        })
+
         it('stores current progress in storage under `statusKey`', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
 
             await exportHistoricalEvents({ ...defaultPayload, timestampCursor: 1635730000000 })
-
             expect(await storage().get('statusKey', null)).toEqual({
                 ...defaultPayload,
                 timestampCursor: 1635730000000,
@@ -161,6 +165,39 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('calls exportEvents and logs with fetched events', async () => {
+            createVM()
+
+            jest.useFakeTimers({
+                // These are required otherwise queries and other things were breaking.
+                doNotFake: ['setImmediate', 'clearImmediate', 'nextTick', 'Date'],
+            })
+
+            jest.spyOn(vm.meta.storage, 'set')
+
+            const defaultProgress =
+                (defaultPayload.timestampCursor - defaultPayload.startTime) /
+                (defaultPayload.endTime - defaultPayload.startTime)
+
+            jest.mocked(vm.methods.exportEvents).mockImplementationOnce(async () => {
+                let advanced = 0
+                while (advanced < 3) {
+                    // The +1 accounts for the first status update that happens once at the beginning of
+                    // exportHistoricalEvents.
+                    expect(vm.meta.storage.set).toHaveBeenCalledTimes(advanced + 1)
+
+                    expect(await storage().get('statusKey', null)).toEqual({
+                        ...defaultPayload,
+                        timestampCursor: defaultPayload.startTime,
+                        done: false,
+                        progress: defaultProgress,
+                        statusTime: Date.now(),
+                    })
+
+                    advanced = advanced + 1
+                    jest.advanceTimersByTime(60 * 1000)
+                }
+                return
+            })
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
 
             await exportHistoricalEvents(defaultPayload)
