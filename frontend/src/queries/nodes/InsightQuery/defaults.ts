@@ -40,19 +40,22 @@ const funnelsQueryDefault: FunnelsQuery = {
 }
 
 const retentionQueryDefault: RetentionQuery = {
-    period: RetentionPeriod.Day,
-    total_intervals: 11,
-    target_entity: {
-        id: '$pageview',
-        name: '$pageview',
-        type: 'events',
+    kind: NodeKind.RetentionQuery,
+    retentionFilter: {
+        period: RetentionPeriod.Day,
+        total_intervals: 11,
+        target_entity: {
+            id: '$pageview',
+            name: '$pageview',
+            type: 'events',
+        },
+        returning_entity: {
+            id: '$pageview',
+            name: '$pageview',
+            type: 'events',
+        },
+        retention_type: 'retention_first_time',
     },
-    returning_entity: {
-        id: '$pageview',
-        name: '$pageview',
-        type: 'events',
-    },
-    retention_type: 'retention_first_time',
 }
 
 const pathsQueryDefault: PathsQuery = {
