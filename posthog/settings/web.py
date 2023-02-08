@@ -205,8 +205,8 @@ REST_FRAMEWORK = {
     # These rate limits are defined in `rate_limit.py`, and they're only
     # applied if env variable `RATE_LIMIT_ENABLED` is set to True
     "DEFAULT_THROTTLE_CLASSES": [
-        "posthog.rate_limit.BurstRateThrottle",
-        "posthog.rate_limit.SustainedRateThrottle",
+        "posthog.rate_limit.PassThroughBurstRateThrottle",
+        "posthog.rate_limit.PassThroughSustainedRateThrottle",
     ],
     "STRICT_JSON": False,
 }

@@ -27,10 +27,10 @@ from posthog.models.feature_flag import (
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.rate_limit import BurstRateThrottle
+from posthog.rate_limit import PassThroughBurstRateThrottle
 
 
-class FeatureFlagThrottle(BurstRateThrottle):
+class PassThroughFeatureFlagThrottle(PassThroughBurstRateThrottle):
     # Throttle class that's scoped just to the local evaluation endpoint.
     # This makes the rate limit independent of other endpoints.
     scope = "feature_flag_evaluations"
@@ -308,7 +308,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
         return Response(flags)
 
-    @action(methods=["GET"], detail=False, throttle_classes=[FeatureFlagThrottle])
+    @action(methods=["GET"], detail=False, throttle_classes=[PassThroughFeatureFlagThrottle])
     def local_evaluation(self, request: request.Request, **kwargs):
 
         feature_flags: QuerySet[FeatureFlag] = FeatureFlag.objects.filter(team=self.team, deleted=False)
