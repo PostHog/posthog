@@ -34,7 +34,7 @@ jobs:
         if: github.repository == 'PostHog/posthog' && github.event.pull_request.merged == true
         steps:
             - name: Report PR to PostHog
-              uses: PostHog/posthog-annotate-merges-github-action@0.1.4
+              uses: PostHog/posthog-annotate-merges-github-action@0.2.0
               with:
                   posthog-token: ${{secrets.POSTHOG_PAUL_PERSONAL_API_KEY}}
                   posthog-project-id: ${{secrets.POSTHOG_PROJECT_ID}}
