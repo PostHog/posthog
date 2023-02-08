@@ -5,7 +5,7 @@ from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE
 
 CREATE_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
     lambda: f"""
-CREATE TABLE posthog.kafka_events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE TABLE IF NOT EXISTS posthog.kafka_events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 (
     `uuid` String,
     `distinct_id` String,
@@ -24,7 +24,7 @@ SETTINGS input_format_values_interpret_expressions=0, kafka_skip_broken_messages
 
 DROP_KAFKA_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
     lambda: f"""
-DROP TABLE posthog.kafka_events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}';
+DROP TABLE IF EXISTS posthog.kafka_events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}';
 """
 )
 
@@ -35,7 +35,7 @@ EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE = lambda: AggregatingM
 
 EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS = (
     lambda: f"""
-CREATE TABLE events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+CREATE TABLE IF NOT EXISTS events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
     `timestamp` DateTime64,
     `_topic` String,
     `_partition` String,
@@ -52,13 +52,13 @@ ORDER BY (team_id, toDate(timestamp), session_id, user_id)
 )
 
 DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE = (
-    lambda: f"DROP TABLE events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+    lambda: f"DROP TABLE IF EXISTS events_plugin_ingestion_partition_statistics ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 )
 
 
 CREATE_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = (
     lambda: f"""
-CREATE MATERIALIZED VIEW events_plugin_ingestion_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE MATERIALIZED VIEW IF NOT EXISTS events_plugin_ingestion_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 TO {CLICKHOUSE_DATABASE}.events_plugin_ingestion_partition_statistics
 AS SELECT
     toStartOfMinute(_timestamp) AS `timestamp`,
@@ -81,5 +81,5 @@ GROUP BY
 )
 
 DROP_EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_MV = (
-    lambda: f"DROP TABLE events_plugin_ingestion_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+    lambda: f"DROP TABLE IF EXISTS events_plugin_ingestion_partition_statistics_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 )
