@@ -1,8 +1,10 @@
 import re
 from enum import Enum
-from typing import Any, List, Literal, cast
+from typing import Any, List, Literal
 
 from pydantic import BaseModel, Extra
+
+# NOTE: when you add new AST fields or nodes, add them to EverythingVisitor as well!
 
 camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
@@ -17,9 +19,6 @@ class AST(BaseModel):
         visit = getattr(visitor, method_name)
         return visit(self)
 
-    def children(self) -> List["AST"]:
-        raise NotImplementedError("AST.children() not implemented")
-
 
 class Expr(AST):
     pass
@@ -28,9 +27,6 @@ class Expr(AST):
 class Alias(Expr):
     alias: str
     expr: Expr
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], [self.expr])
 
 
 class BinaryOperationType(str, Enum):
@@ -46,9 +42,6 @@ class BinaryOperation(Expr):
     right: Expr
     op: BinaryOperationType
 
-    def children(self) -> List[AST]:
-        return cast(List[AST], [self.left, self.right])
-
 
 class And(Expr):
     class Config:
@@ -56,18 +49,12 @@ class And(Expr):
 
     exprs: List[Expr]
 
-    def children(self) -> List[AST]:
-        return cast(List[AST], self.exprs)
-
 
 class Or(Expr):
     class Config:
         extra = Extra.forbid
 
     exprs: List[Expr]
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], self.exprs)
 
 
 class CompareOperationType(str, Enum):
@@ -90,49 +77,28 @@ class CompareOperation(Expr):
     right: Expr
     op: CompareOperationType
 
-    def children(self) -> List[AST]:
-        return cast(List[AST], [self.left, self.right])
-
 
 class Not(Expr):
     expr: Expr
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], [self.expr])
 
 
 class OrderExpr(Expr):
     expr: Expr
     order: Literal["ASC", "DESC"] = "ASC"
 
-    def children(self) -> List[AST]:
-        return cast(List[AST], [self.expr])
-
 
 class Constant(Expr):
     value: Any
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], [])
 
 
 class Field(Expr):
     chain: List[str]
 
-    def children(self) -> List[AST]:
-        return cast(List[AST], [])
-
 
 class Placeholder(Expr):
     field: str
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], [])
 
 
 class Call(Expr):
     name: str
     args: List[Expr]
-
-    def children(self) -> List[AST]:
-        return cast(List[AST], self.args)

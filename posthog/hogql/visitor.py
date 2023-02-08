@@ -7,43 +7,55 @@ class Visitor(object):
 
 
 class EverythingVisitor(Visitor):
-    def visit_expr(self, expr: ast.Expr):
-        self.visit(expr)
+    def visit_expr(self, node: ast.Expr):
+        raise ValueError("Can not visit generic Expr node")
 
-    def visit_alias(self, alias: ast.Alias):
-        self.visit(alias.expr)
+    def visit_alias(self, node: ast.Alias):
+        return ast.Alias(
+            alias=node.alias,
+            expr=self.visit(node.expr),
+        )
 
-    def visit_binary_operation(self, binary_operation: ast.BinaryOperation):
-        self.visit(binary_operation.left)
-        self.visit(binary_operation.right)
+    def visit_binary_operation(self, node: ast.BinaryOperation):
+        return ast.BinaryOperation(
+            left=self.visit(node.left),
+            right=self.visit(node.right),
+            op=node.op,
+        )
 
-    def visit_and(self, and_: ast.And):
-        for expr in and_.exprs:
-            self.visit(expr)
+    def visit_and(self, node: ast.And):
+        return ast.And(exprs=[self.visit(expr) for expr in node.exprs])
 
-    def visit_or(self, or_: ast.Or):
-        for expr in or_.exprs:
-            self.visit(expr)
+    def visit_or(self, node: ast.Or):
+        return ast.Or(exprs=[self.visit(expr) for expr in node.exprs])
 
-    def visit_compare_operation(self, compare_operation: ast.CompareOperation):
-        self.visit(compare_operation.left)
-        self.visit(compare_operation.right)
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        return ast.CompareOperation(
+            left=self.visit(node.left),
+            right=self.visit(node.right),
+            op=node.op,
+        )
 
-    def visit_not(self, not_: ast.Not):
-        self.visit(not_.expr)
+    def visit_not(self, node: ast.Not):
+        return ast.Not(expr=self.visit(node.expr))
 
-    def visit_order_expr(self, order_expr: ast.OrderExpr):
-        self.visit(order_expr.expr)
+    def visit_order_expr(self, node: ast.OrderExpr):
+        return ast.OrderExpr(
+            expr=self.visit(node.expr),
+            order=node.order,
+        )
 
-    def visit_constant(self, constant: ast.Constant):
-        pass
+    def visit_constant(self, node: ast.Constant):
+        return node
 
-    def visit_field(self, field: ast.Field):
-        pass
+    def visit_field(self, node: ast.Field):
+        return node
 
-    def visit_placeholder(self, placeholder: ast.Placeholder):
-        pass
+    def visit_placeholder(self, node: ast.Placeholder):
+        return node
 
     def visit_call(self, call: ast.Call):
-        for expr in call.args:
-            self.visit(expr)
+        return ast.Call(
+            name=call.name,
+            args=[self.visit(arg) for arg in call.args],
+        )

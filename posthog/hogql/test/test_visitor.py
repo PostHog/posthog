@@ -22,7 +22,7 @@ class ConstantVisitor(EverythingVisitor):
 
 
 class TestVisitor(BaseTest):
-    def test_constnat_visitor(self):
+    def test_visitor_pattern(self):
         visitor = ConstantVisitor()
         visitor.visit(ast.Constant(value="asd"))
         self.assertEqual(visitor.constants, ["asd"])
