@@ -9,7 +9,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { AnnotationScope, InsightShortId, AnnotationType } from '~/types'
 import { SceneExport } from 'scenes/sceneTypes'
 import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
+import { createdAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { IconEdit, IconOpenInNew } from 'lib/lemon-ui/icons'
@@ -20,6 +20,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { AnnotationModal } from './AnnotationModal'
 import { shortTimeZone } from 'lib/utils'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 export const scene: SceneExport = {
     component: Annotations,
@@ -83,7 +84,26 @@ export function Annotations(): JSX.Element {
             },
             sorter: (a, b) => annotationScopeToLevel[a.scope] - annotationScopeToLevel[b.scope],
         },
-        createdByColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
+        {
+            title: 'Created by',
+            dataIndex: 'created_by',
+            render: function Render(_: any, item) {
+                const { created_by, creation_type } = item
+                return (
+                    <div className="flex flex-row items-center">
+                        {creation_type === 'GIT' ? (
+                            <ProfilePicture name={'GitHub automation'} email={'max@posthog.com'} size="md" showName />
+                        ) : created_by ? (
+                            <ProfilePicture name={created_by.first_name} email={created_by.email} size="md" showName />
+                        ) : null}
+                    </div>
+                )
+            },
+            sorter: (a, b) =>
+                (a.created_by?.first_name || a.created_by?.email || '').localeCompare(
+                    b.created_by?.first_name || b.created_by?.email || ''
+                ),
+        },
         createdAtColumn() as LemonTableColumn<AnnotationType, keyof AnnotationType | undefined>,
         {
             key: 'actions',
