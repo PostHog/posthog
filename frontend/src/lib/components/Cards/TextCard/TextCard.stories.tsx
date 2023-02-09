@@ -1,6 +1,6 @@
 import { Meta, Story } from '@storybook/react'
 import { DashboardTile, InsightColor } from '~/types'
-import { TextCard } from './TextCard'
+import { TextCard, TextCardProps } from './TextCard'
 
 export default {
     title: 'Components/Cards/Text Card',
@@ -29,54 +29,32 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
     }
 }
 
-export const Template: Story = () => {
+function CardWrapper(props: Partial<TextCardProps>): JSX.Element {
     return (
-        <div className="flex flex-wrap gap-2">
-            <div>
-                <h5>basic text</h5>
-                <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
-                    dashboardId={1}
-                    textTile={makeTextTile('basic text')}
-                />
-            </div>
-            <div>
-                <h5>markdown text</h5>
-                <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
-                    dashboardId={1}
-                    textTile={makeTextTile('# a title \n\n **formatted** _text_')}
-                />
-            </div>
-            <div>
-                <h5>Long text</h5>
-                <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
-                    style={{ height: '250px', width: '300px' }}
-                    dashboardId={1}
-                    textTile={makeTextTile(
-                        '# long text which has a very long title so is too big both X and Y, what shall we do?! Oh what shall we do?\n\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n'
-                    )}
-                />
-            </div>
-            <div>
-                <h5>with resize handles</h5>
-                <TextCard
-                    className={'react-grid-item react-draggable cssTransforms react-resizable'}
-                    dashboardId={1}
-                    showResizeHandles={true}
-                    canResizeWidth={true}
-                    textTile={makeTextTile('showing handles')}
-                />
-            </div>
-            <div className={'w-full'} style={{ height: '200px' }}>
-                <h5>Large Card</h5>
-                <TextCard
-                    className={'h-full w-full react-grid-item react-draggable cssTransforms react-resizable'}
-                    dashboardId={1}
-                    textTile={makeTextTile('basic text')}
-                />
-            </div>
+        <div className={'w-11/12 max-w-100 h-100 relative'}>
+            <TextCard dashboardId={1} textTile={props.textTile || makeTextTile('unknown')} {...props} />
         </div>
+    )
+}
+
+export const BasicText: Story = () => {
+    return <CardWrapper textTile={makeTextTile('basic text')} />
+}
+
+export const WithResizeHandles: Story = () => {
+    return <CardWrapper showResizeHandles={true} canResizeWidth={true} textTile={makeTextTile('showing handles')} />
+}
+
+export const MarkdownText: Story = () => {
+    return <CardWrapper textTile={makeTextTile('# a title \n\n **formatted** _text_')} />
+}
+
+export const VeryLongText: Story = () => {
+    return (
+        <CardWrapper
+            textTile={makeTextTile(
+                '# long text which has a very long title so is too big both X and Y, what shall we do?! Oh what shall we do?\n\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n * has many lines\n'
+            )}
+        />
     )
 }

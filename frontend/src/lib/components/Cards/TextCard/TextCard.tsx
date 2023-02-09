@@ -12,7 +12,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import React, { useState } from 'react'
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 
-interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
+export interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
     textTile: DashboardTile
     children?: JSX.Element
