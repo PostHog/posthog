@@ -332,6 +332,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 doneDates.add(date)
                 runningDates.delete(date)
                 progress += progressPerDay
+                continue
             } else {
                 progress += progressPerDay * (dateStatus?.progress ?? 0)
             }
@@ -387,7 +388,10 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
-        status.info('ℹ️', `Running export historical events with config ${pluginConfig} for payload: ${payload}`)
+        status.info('ℹ️', 'Running export historical events', {
+            pluginConfigId: pluginConfig.id,
+            payload,
+        })
 
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
@@ -409,10 +413,12 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        const progress = (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime)
+
         await meta.storage.set(payload.statusKey, {
             ...payload,
             done: false,
-            progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
+            progress: progress,
             statusTime: Date.now(),
         } as ExportChunkStatus)
 
@@ -442,6 +448,19 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        // We bump the statusTime every minute to let the coordinator know we are still
+        // alive and we don't need to be resumed.
+        const interval = setInterval(
+            async () =>
+                await meta.storage.set(payload.statusKey, {
+                    ...payload,
+                    done: false,
+                    progress: progress,
+                    statusTime: Date.now(),
+                } as ExportChunkStatus),
+            60 * 1000
+        )
+
         if (events.length > 0) {
             try {
                 await methods.exportEvents!(events)
@@ -466,10 +485,14 @@ export function addHistoricalEventsExportCapabilityV2(
                     plugin: pluginConfig.plugin?.name ?? '?',
                 })
             } catch (error) {
+                clearInterval(interval)
+
                 await handleExportError(error, activeExportParameters, payload, events.length)
                 return
             }
         }
+
+        clearInterval(interval)
 
         const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
 
@@ -602,6 +625,10 @@ export function addHistoricalEventsExportCapabilityV2(
     function shouldResume(status: ExportChunkStatus, now: number): boolean {
         // When a export hasn't updated in 10 minutes plus whatever time is spent on retries, it's likely already timed out or died
         // Note that status updates happen every time the export makes _any_ progress
+        // NOTE from the future: we discovered that 10 minutes was not enough time as we have exports running for longer
+        // without failing, and this logic was triggering multiple simultaneous resumes. Simultaneous resumes start to fight to update
+        // the status, and cause duplicate data to be exported. Overall, a nightmare.
+        // To mitigate this, we have historialExportEvents update the status as it waits.
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 

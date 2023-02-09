@@ -8,7 +8,9 @@ from pydantic import BaseModel
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql.hogql import SELECT_STAR_FROM_EVENTS_FIELDS, HogQLContext, translate_hogql
+from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.hogql import translate_hogql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.element import chain_to_elements
@@ -160,12 +162,20 @@ def run_events_query(
     person_id = query.personId
     order_by = query.orderBy
     select = query.select
-    where = query.where
+    where = query.where.copy() if query.where else []  # Shallow-copy since we'll be modifying it
     event = query.event
 
+    classic_properties = []
+    classic_properties.extend(query.fixedProperties or [])
+    classic_properties.extend(query.properties or [])
+
+    # Split HogQL properties from the rest, as "where" supports filtering by "having" aggregations like "count() > 2"
     properties = []
-    properties.extend(query.fixedProperties or [])
-    properties.extend(query.properties or [])
+    for prop in classic_properties:
+        if prop.type == "hogql":
+            where.append(str(prop.key))
+        else:
+            properties.append(prop.dict())
 
     limit_sql = "LIMIT %(limit)s"
     if offset > 0:
@@ -180,7 +190,7 @@ def run_events_query(
             "event": event,
         }
     )
-    filter = Filter(team=team, data={"properties": [p.dict() for p in properties]}, hogql_context=hogql_context)
+    filter = Filter(team=team, data={"properties": properties}, hogql_context=hogql_context)
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
     )
@@ -292,13 +302,13 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
     new_result["properties"] = json.loads(new_result["properties"])
     new_result["person"] = {
-        "id": new_result["person_id"],
-        "created_at": new_result["person_created_at"],
-        "properties": json.loads(new_result["person_properties"]),
+        "id": new_result["person.id"],
+        "created_at": new_result["person.created_at"],
+        "properties": json.loads(new_result["person.properties"]),
     }
-    new_result.pop("person_id")
-    new_result.pop("person_created_at")
-    new_result.pop("person_properties")
+    new_result.pop("person.id")
+    new_result.pop("person.created_at")
+    new_result.pop("person.properties")
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
