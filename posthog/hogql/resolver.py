@@ -25,15 +25,15 @@ class Resolver(TraversingVisitor):
         if len(self.scopes) == 0:
             raise ResolverException("Aliases are allowed only within SELECT queries")
         last_select = self.scopes[-1]
-        if node.alias in last_select.symbols:
+        if node.alias in last_select.aliases:
             raise ResolverException(f"Found multiple expressions with the same alias: {node.alias}")
         if node.alias == "":
             raise ResolverException("Alias cannot be empty")
 
         self.visit(node.expr)
 
-        node.symbol = ast.ColumnAliasSymbol(name=node.alias, symbol=node.expr.symbol)
-        last_select.symbols[node.alias] = node.symbol
+        node.symbol = ast.ColumnAliasSymbol(name=node.alias, symbol=unwrap_column_alias_symbol(node.expr.symbol))
+        last_select.aliases[node.alias] = node.symbol
 
     def visit_field(self, node):
         if node.symbol is not None:
@@ -44,23 +44,23 @@ class Resolver(TraversingVisitor):
         # resolve the first part of the chain
         name = node.chain[0]
         symbol: Optional[ast.Symbol] = None
-        for scope in reversed(self.scopes):
-            if name in scope.tables and len(node.chain) > 1:
-                # CH assumes you're selecting a field, unless it's with a "." in the field, then check for tables
-                symbol = scope.tables[name]
-                break
-            elif name in scope.symbols:
-                symbol = scope.symbols[name]
-                break
-            else:
-                fields_on_tables_in_scope = [table for table in scope.tables.values() if table.has_child(name)]
-                if len(fields_on_tables_in_scope) > 1:
-                    raise ResolverException(
-                        f"Found multiple joined tables with field \"{name}\": {', '.join([symbol.name for symbol in fields_on_tables_in_scope])}. Please specify which table you're selecting from."
-                    )
-                elif len(fields_on_tables_in_scope) == 1:
-                    symbol = fields_on_tables_in_scope[0].get_child(name)
-                    break
+
+        # to keep things simple, we only allow selecting fields from within this (select x) scope
+        scope = self.scopes[-1]
+
+        if len(node.chain) > 1 and name in scope.tables:
+            # CH assumes you're selecting a field, unless it's with a "." in the field, then check for tables
+            symbol = scope.tables[name]
+        elif name in scope.aliases:
+            symbol = scope.aliases[name]
+        else:
+            fields_on_tables_in_scope = [table for table in scope.tables.values() if table.has_child(name)]
+            if len(fields_on_tables_in_scope) > 1:
+                raise ResolverException(
+                    f'Found multiple joined tables with field "{name}". Please where you\'re selecting from.'
+                )
+            elif len(fields_on_tables_in_scope) == 1:
+                symbol = fields_on_tables_in_scope[0].get_child(name)
 
         if not symbol:
             raise ResolverException(f'Cannot resolve symbol: "{name}"')
@@ -88,7 +88,10 @@ class Resolver(TraversingVisitor):
 
             if node.table.chain == ["events"]:
                 node.table.symbol = ast.TableSymbol(table_name="events")
-                node.symbol = ast.TableAliasSymbol(name=node.alias, symbol=node.table.symbol)
+                if node.alias == node.table.symbol.table_name:
+                    node.symbol = node.table.symbol
+                else:
+                    node.symbol = ast.TableAliasSymbol(name=node.alias, symbol=node.table.symbol)
             else:
                 raise ResolverException(f"Cannot resolve table {node.table.chain[0]}")
 
@@ -102,7 +105,7 @@ class Resolver(TraversingVisitor):
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-        last_select.tables[node.alias] = node.table.symbol
+        last_select.tables[node.alias] = node.symbol
 
         self.visit(node.join_expr)
 
@@ -110,7 +113,7 @@ class Resolver(TraversingVisitor):
         if node.symbol is not None:
             return
 
-        node.symbol = ast.SelectQuerySymbol(symbols={}, tables={})
+        node.symbol = ast.SelectQuerySymbol(aliases={}, columns={}, tables={})
         self.scopes.append(node.symbol)
 
         if node.select_from:
@@ -118,6 +121,15 @@ class Resolver(TraversingVisitor):
         if node.select:
             for expr in node.select:
                 self.visit(expr)
+                if isinstance(expr.symbol, ast.ColumnAliasSymbol):
+                    node.symbol.columns[expr.symbol.name] = expr.symbol
+
+                elif isinstance(expr, ast.Alias):
+                    node.symbol.columns[expr.alias] = expr.symbol
+
+                elif isinstance(expr.symbol, ast.FieldSymbol):
+                    node.symbol.columns[expr.symbol.name] = expr.symbol
+
         if node.where:
             self.visit(node.where)
         if node.prewhere:
@@ -128,3 +140,13 @@ class Resolver(TraversingVisitor):
         self.scopes.pop()
 
         return node.symbol
+
+
+def unwrap_column_alias_symbol(symbol: ast.Symbol) -> ast.Symbol:
+    i = 0
+    while isinstance(symbol, ast.ColumnAliasSymbol):
+        symbol = symbol.symbol
+        i += 1
+        if i > 100:
+            raise ResolverException("ColumnAliasSymbol recursion too deep!")
+    return symbol

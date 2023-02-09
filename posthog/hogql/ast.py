@@ -59,28 +59,32 @@ class TableSymbol(Symbol):
         if self.table_name == "events":
             return name in EVENT_FIELDS
         else:
-            raise NotImplementedError(f"Can not resolve table: {self.name}")
+            raise NotImplementedError(f"Can not resolve table: {self.table_name}")
 
     def get_child(self, name: str) -> "Symbol":
         if self.table_name == "events":
             if name in EVENT_FIELDS:
                 return FieldSymbol(name=name, table=self)
         else:
-            raise NotImplementedError(f"Can not resolve table: {self.name}")
+            raise NotImplementedError(f"Can not resolve table: {self.table_name}")
 
 
 class SelectQuerySymbol(Symbol):
-    symbols: Dict[str, Symbol]
+    # all aliases a select query has access to in its scope
+    aliases: Dict[str, Symbol]
+    # all symbols a select query exports
+    columns: Dict[str, Symbol]
+    # all tables we join in this query on which we look for aliases
     tables: Dict[str, Symbol]
 
     def get_child(self, name: str) -> "Symbol":
-        if name in self.symbols:
-            return self.symbols[name]
+        if name in self.columns:
+            return self.columns[name]
         if name in self.tables:
             return self.tables[name]
 
     def has_child(self, name: str) -> bool:
-        return name in self.symbols or name in self.tables
+        return name in self.columns or name in self.tables
 
 
 class FieldSymbol(Symbol):
