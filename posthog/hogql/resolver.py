@@ -54,22 +54,24 @@ class Resolver(TraversingVisitor):
         elif name in scope.aliases:
             symbol = scope.aliases[name]
         else:
-            fields_on_tables_in_scope = [table for table in scope.tables.values() if table.has_child(name)]
-            if len(fields_on_tables_in_scope) > 1:
+            fields_in_scope = [table.get_child(name) for table in scope.tables.values() if table.has_child(name)]
+            if len(fields_in_scope) > 1:
                 raise ResolverException(
                     f'Found multiple joined tables with field "{name}". Please where you\'re selecting from.'
                 )
-            elif len(fields_on_tables_in_scope) == 1:
-                symbol = fields_on_tables_in_scope[0].get_child(name)
+            elif len(fields_in_scope) == 1:
+                symbol = fields_in_scope[0]
 
         if not symbol:
             raise ResolverException(f'Cannot resolve symbol: "{name}"')
 
         # recursively resolve the rest of the chain
-        for name in node.chain[1:]:
-            symbol = symbol.get_child(name)
+        for child_name in node.chain[1:]:
+            symbol = symbol.get_child(child_name)
             if symbol is None:
-                raise ResolverException(f"Cannot resolve symbol {', '.join(node.chain)}. Unable to resolve {name}")
+                raise ResolverException(
+                    f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {child_name} on {name}"
+                )
 
         node.symbol = symbol
 

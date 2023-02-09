@@ -230,6 +230,20 @@ class TestResolver(BaseTest):
             resolve_symbols(expr)
         self.assertEqual(str(e.exception), 'Cannot resolve symbol: "e"')
 
+    def test_resolve_errors(self):
+        queries = [
+            "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
+            "SELECT x, (SELECT 1 AS x)",
+            "SELECT x IN (SELECT 1 AS x)",
+            "SELECT events.x FROM (SELECT event as x FROM events) AS t",
+            "SELECT x.y FROM (SELECT event as y FROM events AS x) AS t",
+            # "SELECT x IN (SELECT 1 AS x) FROM (SELECT 1 AS x)",
+        ]
+        for query in queries:
+            with self.assertRaises(ResolverException) as e:
+                resolve_symbols(parse_select(query))
+            self.assertEqual(str(e.exception), "Cannot resolve symbol")
+
 
 # "with 2 as a select 1 as a" -> "Different expressions with the same alias a:"
 # "with 2 as b, 3 as c select (select 1 as b) as a, b, c" -> "Different expressions with the same alias b:"
@@ -244,10 +258,3 @@ class TestResolver(BaseTest):
 # SELECT 1 AS x, x, x + 1;
 # SELECT x, x + 1, 1 AS x;
 # SELECT x, 1 + (2 + (3 AS x));
-
-# # bad
-# SELECT x, (SELECT 1 AS x); -- does not work, `x` is not visible;
-# SELECT x IN (SELECT 1 AS x); -- does not work either;
-# SELECT x IN (SELECT 1 AS x) FROM (SELECT 1 AS x); -- this will work, but keep in mind that there are two different `x`.
-# SELECT tbl.x FROM (SELECT x FROM tbl) AS t; -- this is wrong, the `tbl` name is not exported
-# SELECT t2.x FROM (SELECT x FROM tbl AS t2) AS t; -- this is also wrong, the `t2` alias is not exported

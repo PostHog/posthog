@@ -80,11 +80,9 @@ class SelectQuerySymbol(Symbol):
     def get_child(self, name: str) -> "Symbol":
         if name in self.columns:
             return self.columns[name]
-        if name in self.tables:
-            return self.tables[name]
 
     def has_child(self, name: str) -> bool:
-        return name in self.columns or name in self.tables
+        return name in self.columns
 
 
 class FieldSymbol(Symbol):
