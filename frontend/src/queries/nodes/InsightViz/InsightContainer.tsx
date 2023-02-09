@@ -43,7 +43,7 @@ import {
     // isTrendsFilter
 } from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
-import { FunnnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
+import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
 import { FunnelsQuery } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -52,7 +52,7 @@ const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.FUNNELS}`]: <FunnnelInsightDataExploration />,
+    [`${InsightType.FUNNELS}`]: <FunnelInsightDataExploration />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <PathsDataExploration />,
 }

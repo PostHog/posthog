@@ -1,5 +1,5 @@
 import { Radio, Space, RadioChangeEvent } from 'antd'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardLogic'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
 import clsx from 'clsx'
@@ -28,7 +28,7 @@ const intervalOptions = [
 ]
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, refreshMetrics } = useValues(dashboardLogic)
+    const { itemsLoading, autoRefresh, refreshMetrics, blockRefresh } = useValues(dashboardLogic)
     const { refreshAllDashboardItemsManual, setAutoRefresh } = useActions(dashboardLogic)
 
     return (
@@ -40,6 +40,11 @@ export function DashboardReloadAction(): JSX.Element {
                 icon={itemsLoading ? <Spinner monocolor={true} /> : <IconRefresh />}
                 size="small"
                 data-attr="dashboard-items-action-refresh"
+                disabledReason={
+                    blockRefresh
+                        ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
+                        : ''
+                }
                 sideAction={{
                     'data-attr': 'dashboard-items-action-refresh-dropdown',
                     dropdown: {
