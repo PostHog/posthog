@@ -15,7 +15,7 @@ interface Tab {
 }
 
 export function InsightsNav(): JSX.Element {
-    const { activeView, filters } = useValues(insightLogic)
+    const { activeView } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
 
     const tabs: Tab[] = [
@@ -66,7 +66,7 @@ export function InsightsNav(): JSX.Element {
                         tab={
                             <Link
                                 className="tab-text"
-                                to={urls.insightNew({ ...filters, insight: type })}
+                                to={urls.insightNew({ insight: type })}
                                 preventClick
                                 data-attr={dataAttr}
                             >
