@@ -1,10 +1,9 @@
-name: 'Storybook'
+name: 'Storybook Chromatic'
 
 on: pull_request
 
 jobs:
     storybook-chromatic:
-        name: 'Build and deploy to Chromatic'
         runs-on: ubuntu-latest
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         steps:
@@ -44,46 +43,3 @@ jobs:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
-
-    visual-regression:
-        name: Visual regression tests
-        needs: storybook-chromatic
-        runs-on: ubuntu-20.04
-        container:
-            image: mcr.microsoft.com/playwright:v1.29.2-focal
-        env:
-            CYPRESS_INSTALL_BINARY: '0'
-            NODE_OPTIONS: --max_old_space_size=4096
-        steps:
-            - uses: actions/checkout@v3
-
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 7.x.x
-
-            - name: Set up Node.js
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 18
-                  cache: pnpm
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
-
-            - name: Compare current Storybook to the baseline
-              env:
-                  STORYBOOK_URL: ${{ needs.jest-setup.outputs.storybookUrl }}
-                  HOME: /root # Solves https://github.com/microsoft/playwright/issues/6500
-              run: pnpm test:visual-regression:ci
-
-            - name: Upload Playwright report and diffs
-              uses: actions/upload-artifact@v3
-              if: failure()
-              with:
-                  name: visual-regression-report
-                  path: |
-                      playwright-report/
-                      test-results/
-                      frontend/__snapshots__/__diff_output__/
-                  retention-days: 7
