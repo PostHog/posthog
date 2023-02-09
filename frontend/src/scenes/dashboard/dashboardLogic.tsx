@@ -61,7 +61,7 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
 export const MIN_ITEM_WIDTH_UNITS = 3
 export const MIN_ITEM_HEIGHT_UNITS = 5
 
-export const DASHBOARD_REFRESH_INTERVAL_MINUTES = 5
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -679,8 +679,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (lastRefreshed) => {
                 return (
                     !!lastRefreshed &&
-                    dayjs()
-                        .subtract(DASHBOARD_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                    now()
+                        .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
                         .isBefore(lastRefreshed)
                 )
             },

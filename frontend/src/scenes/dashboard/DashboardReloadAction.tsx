@@ -1,5 +1,5 @@
 import { Radio, Space, RadioChangeEvent } from 'antd'
-import { dashboardLogic, DASHBOARD_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardLogic'
+import { dashboardLogic, DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/dashboard/dashboardLogic'
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration } from 'lib/utils'
 import clsx from 'clsx'
@@ -42,7 +42,7 @@ export function DashboardReloadAction(): JSX.Element {
                 data-attr="dashboard-items-action-refresh"
                 disabledReason={
                     blockRefresh
-                        ? `Dashboards can only be refreshed every ${DASHBOARD_REFRESH_INTERVAL_MINUTES} minutes.`
+                        ? `Dashboards can only be refreshed every ${DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES} minutes.`
                         : ''
                 }
                 sideAction={{
