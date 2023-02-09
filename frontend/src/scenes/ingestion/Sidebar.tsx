@@ -2,7 +2,7 @@ import { ingestionLogic } from './ingestionLogic'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { LemonButton, LemonButtonWithDropdown } from 'lib/lemon-ui/LemonButton'
 import { IconArticle, IconQuestionAnswer } from 'lib/lemon-ui/icons'
 import { HelpType } from '~/types'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -41,24 +41,21 @@ export function Sidebar(): JSX.Element {
                 <div className="IngestionSidebar__bottom">
                     {currentOrganization?.teams && currentOrganization.teams.length > 1 && (
                         <>
-                            <LemonButtonWithSideAction
+                            <LemonButtonWithDropdown
                                 icon={<Lettermark name={currentOrganization?.name} />}
                                 onClick={() => toggleProjectSwitcher()}
-                                sideAction={{
-                                    'aria-label': 'switch project',
-                                    onClick: () => toggleProjectSwitcher(),
-                                    dropdown: {
-                                        visible: isProjectSwitcherShown,
-                                        onClickOutside: hideProjectSwitcher,
-                                        overlay: <ProjectSwitcherOverlay />,
-                                        actionable: true,
-                                    },
+                                dropdown={{
+                                    visible: isProjectSwitcherShown,
+                                    onClickOutside: hideProjectSwitcher,
+                                    overlay: <ProjectSwitcherOverlay />,
+                                    actionable: true,
+                                    placement: 'top-end',
                                 }}
                                 type="secondary"
                                 fullWidth
                             >
                                 <span className="text-muted">Switch project</span>
-                            </LemonButtonWithSideAction>
+                            </LemonButtonWithDropdown>
                             <LemonDivider thick dashed className="my-6" />
                         </>
                     )}
