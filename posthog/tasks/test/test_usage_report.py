@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Any, Dict, List
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 from uuid import uuid4
 
@@ -434,7 +434,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
         flush_persons_and_events()
 
-    def _usage_report_response(self):
+    def _usage_report_response(self) -> Any:
         # A roughly correct billing response
         return {
             "customer": {
