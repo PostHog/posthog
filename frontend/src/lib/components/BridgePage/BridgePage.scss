@@ -7,6 +7,10 @@
     flex-direction: column;
     flex: 1;
     overflow: scroll;
+    &::-webkit-scrollbar {
+        width: 0 !important;
+    }
+    -ms-overflow-style: none;
 
     .BridgePage__main {
         display: flex;
