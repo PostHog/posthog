@@ -2541,4 +2541,4 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight.last_refresh = datetime.now(tz=pytz.timezone("UTC"))
         should_refresh_now, refresh_frequency = should_refresh_insight(insight)
         self.assertEqual(should_refresh_now, False)
-        self.assertEqual(refresh_frequency, timedelta(minutes=DEFAULT_INSIGHT_REFRESH_FREQUENCY))
+        self.assertEqual(refresh_frequency, DEFAULT_INSIGHT_REFRESH_FREQUENCY)
