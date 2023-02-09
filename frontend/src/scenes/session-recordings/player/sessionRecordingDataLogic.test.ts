@@ -18,7 +18,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { AvailableFeature, SessionRecordingUsageType } from '~/types'
+import { AvailableFeature } from '~/types'
 import { useAvailableFeatures } from '~/mocks/features'
 
 const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
@@ -598,18 +598,21 @@ describe('sessionRecordingDataLogic', () => {
                     'loadPerformanceEvents',
                     'loadPerformanceEventsSuccess',
                 ])
-                .toDispatchActions([logic.actionCreators.reportUsage(SessionRecordingUsageType.LOADED)]) // only dispatch once
-                .toNotHaveDispatchedActions([logic.actionCreators.reportUsage(SessionRecordingUsageType.LOADED)])
+                .toDispatchActions([eventUsageLogic.actionTypes.reportRecording]) // only dispatch once
+                .toNotHaveDispatchedActions([
+                    eventUsageLogic.actionTypes.reportRecording,
+                    eventUsageLogic.actionTypes.reportRecording,
+                ])
         })
         it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadEntireRecording()
             })
-                .toDispatchActions([
-                    'loadEntireRecording',
-                    'loadRecordingSnapshotsSuccess',
-                    eventUsageLogic.actionTypes.reportRecording,
-                    eventUsageLogic.actionTypes.reportRecording,
+                .toDispatchActions(['loadEntireRecording', 'loadRecordingSnapshotsSuccess'])
+                .toDispatchActionsInAnyOrder([
+                    eventUsageLogic.actionTypes.reportRecording, // loaded
+                    eventUsageLogic.actionTypes.reportRecording, // viewed
+                    eventUsageLogic.actionTypes.reportRecording, // analyzed
                 ])
                 .toMatchValues({
                     chunkPaginationIndex: 1,
