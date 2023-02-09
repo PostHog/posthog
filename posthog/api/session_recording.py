@@ -98,6 +98,9 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
             recording_start_time = (
@@ -126,6 +129,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         offset = filter.offset if filter.offset else 0
 
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
@@ -224,6 +231,8 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
+    
+    recordings = [x for x in recordings if not x.deleted]
 
     # If we have specified session_ids we need to sort them by the order they were specified
     if all_session_ids:
