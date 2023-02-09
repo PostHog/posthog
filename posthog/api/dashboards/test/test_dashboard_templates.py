@@ -21,7 +21,7 @@ github_response_json: List[Dict] = [
 expected_template_listing_json: List[Dict] = [
     {
         "name": "Product analytics",
-        "url": "some url",
+        "url": None,
         "description": "The OG PostHog product analytics dashboard template",
         "verified": True,
         "maintainer": "official",
