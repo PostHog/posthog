@@ -10,6 +10,7 @@ export default {
         options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
+            snapshotBrowsers: ['chromium', 'webkit', 'firefox'],
         },
         viewMode: 'story',
         mockDate: '2022-03-11',

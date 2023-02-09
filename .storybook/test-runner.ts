@@ -4,6 +4,8 @@ import { getStoryContext, TestRunnerConfig, TestContext } from '@storybook/test-
 import type { Locator, Page, LocatorScreenshotOptions } from 'playwright-core'
 import type { Mocks } from '~/mocks/utils'
 
+type SupportedBrowserName = 'chromium' | 'firefox' | 'webkit'
+
 // Extend Storybook interface `Parameters` with Chromatic parameters
 declare module '@storybook/react' {
     interface Parameters {
@@ -17,6 +19,11 @@ declare module '@storybook/react' {
              * Warning: Fails if enabled for stories in which navigation is not present.
              */
             excludeNavigationFromSnapshot?: boolean
+            /**
+             * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
+             * Override this to take snapshots in other browsers too.
+             */
+            snapshotBrowsers?: SupportedBrowserName[]
         }
         mockDate?: string | number | Date
         msw?: {
@@ -31,15 +38,27 @@ const RETRY_TIMES = 3
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 const updateSnapshot = expect.getState().snapshotState._updateSnapshot === 'all'
 
-async function expectStoryToMatchFullPageSnapshot(page: Page, context: TestContext): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context)
+async function expectStoryToMatchFullPageSnapshot(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName
+): Promise<void> {
+    await expectLocatorToMatchStorySnapshot(page, context, browser)
 }
 
-async function expectStoryToMatchSceneSnapshot(page: Page, context: TestContext): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context)
+async function expectStoryToMatchSceneSnapshot(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName
+): Promise<void> {
+    await expectLocatorToMatchStorySnapshot(page.locator('.main-app-content'), context, browser)
 }
 
-async function expectStoryToMatchComponentSnapshot(page: Page, context: TestContext): Promise<void> {
+async function expectStoryToMatchComponentSnapshot(
+    page: Page,
+    context: TestContext,
+    browser: SupportedBrowserName
+): Promise<void> {
     await page.evaluate(() => {
         const rootEl = document.getElementById('root')
         if (rootEl) {
@@ -52,18 +71,23 @@ async function expectStoryToMatchComponentSnapshot(page: Page, context: TestCont
         document.body.style.background = 'transparent'
     })
 
-    await expectLocatorToMatchStorySnapshot(page.locator('#root'), context, { omitBackground: true })
+    await expectLocatorToMatchStorySnapshot(page.locator('#root'), context, browser, { omitBackground: true })
 }
 
 async function expectLocatorToMatchStorySnapshot(
     locator: Locator | Page,
     context: TestContext,
+    browser: SupportedBrowserName,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
     const image = await locator.screenshot({ timeout: 3000, ...options })
+    let customSnapshotIdentifier = context.id
+    if (browser !== 'chromium') {
+        customSnapshotIdentifier += `--${browser}`
+    }
     expect(image).toMatchImageSnapshot({
         customSnapshotsDir,
-        customSnapshotIdentifier: context.id,
+        customSnapshotIdentifier,
     })
 }
 
@@ -81,7 +105,16 @@ module.exports = {
         })
 
         if (!storyContext.parameters?.testOptions?.skip) {
-            let expectStoryToMatchSnapshot: (page: Page, context: TestContext) => Promise<void>
+            const currentBrowser = page.context().browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
+            const snapshotBrowsers = storyContext.parameters?.testOptions?.snapshotBrowsers ?? ['chromium']
+            if (!snapshotBrowsers.includes(currentBrowser)) {
+                return
+            }
+            let expectStoryToMatchSnapshot: (
+                page: Page,
+                context: TestContext,
+                browser: SupportedBrowserName
+            ) => Promise<void>
             if (storyContext.parameters?.layout === 'fullscreen') {
                 if (storyContext.parameters.testOptions?.excludeNavigationFromSnapshot) {
                     expectStoryToMatchSnapshot = expectStoryToMatchSceneSnapshot
@@ -98,7 +131,7 @@ module.exports = {
             // The delay is extended when updating snapshots, so that we're 100% sure they represent the final state.
             const delayMultiplier: number = updateSnapshot ? RETRY_TIMES : 1
             await page.waitForTimeout(250 * delayMultiplier)
-            await expectStoryToMatchSnapshot(page, context) // Don't retry when updating
+            await expectStoryToMatchSnapshot(page, context, currentBrowser) // Don't retry when updating
         }
     },
 } as TestRunnerConfig
