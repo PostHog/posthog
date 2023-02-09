@@ -101,7 +101,7 @@ module.exports = {
 
         await page.evaluate(() => {
             // Stop all animations for consistent snapshots
-            document.body.classList.add('dangerously-stop-all-animations')
+            document.body.classList.add('storybook-test-runner')
         })
 
         if (!storyContext.parameters?.testOptions?.skip) {
