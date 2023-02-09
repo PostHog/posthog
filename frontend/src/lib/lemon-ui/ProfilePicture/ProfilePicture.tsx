@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import { useState } from 'react'
+import { CSSProperties, useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
@@ -12,12 +12,11 @@ export interface ProfilePictureProps {
     email?: string
     size?: 'md' | 'xs' | 'sm' | 'xl' | 'xxl'
     showName?: boolean
-    style?: React.CSSProperties
+    style?: CSSProperties
     className?: string
     title?: string
     index?: number
-    isSystem?: boolean
-    isBot?: boolean
+    type?: 'person' | 'bot' | 'system'
 }
 
 export function ProfilePicture({
@@ -29,8 +28,7 @@ export function ProfilePicture({
     className,
     index,
     title,
-    isSystem,
-    isBot,
+    type = 'person',
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
     const [didImageError, setDidImageError] = useState(false)
@@ -54,18 +52,19 @@ export function ProfilePicture({
             />
         )
     } else {
-        pictureComponent = isBot ? (
-            <IconRobot className={pictureClass} style={{ padding: '0.1rem' }} />
-        ) : (
-            <span className={pictureClass} style={style}>
-                <Lettermark
-                    name={combinedNameAndEmail}
-                    index={index}
-                    rounded
-                    color={isSystem ? LettermarkColor.Gray : undefined}
-                />
-            </span>
-        )
+        pictureComponent =
+            type === 'bot' ? (
+                <IconRobot className={clsx(pictureClass, 'p-0.5')} />
+            ) : (
+                <span className={pictureClass} style={style}>
+                    <Lettermark
+                        name={combinedNameAndEmail}
+                        index={index}
+                        rounded
+                        color={type === 'system' ? LettermarkColor.Gray : undefined}
+                    />
+                </span>
+            )
     }
     return !showName ? (
         pictureComponent
