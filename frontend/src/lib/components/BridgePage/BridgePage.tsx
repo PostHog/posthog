@@ -59,7 +59,7 @@ export function BridgePage({
             className={clsx(
                 'BridgePage',
                 fixedWidth && 'BridgePage--fixed-width',
-                fullScreen && 'BridgePage--full-screen',
+                fullScreen && 'h-screen overflow-hidden',
                 className
             )}
         >
