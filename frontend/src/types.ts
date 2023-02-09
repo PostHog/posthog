@@ -1146,7 +1146,7 @@ export enum InsightColor {
 
 export interface Cacheable {
     last_refresh: string | null
-    next_allowed_refresh: string | null
+    next_allowed_refresh?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
