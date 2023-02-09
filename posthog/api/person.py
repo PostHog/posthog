@@ -59,7 +59,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
@@ -96,6 +96,13 @@ def get_person_name(person: Person) -> str:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+class PersonsThrottle(ClickHouseSustainedRateThrottle):
+    # Throttle class that's scoped just to the person endpoint.
+    # This makes the rate limit apply to all endpoints under /api/person/
+    # and independent of other endpoints.
+    scope = "persons"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -158,7 +165,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness

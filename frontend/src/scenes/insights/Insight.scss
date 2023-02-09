@@ -112,7 +112,6 @@
     }
 
     .insight-wrapper {
-        &.insight-wrapper--editorpanels,
         &.insight-wrapper--singlecolumn {
             position: relative;
             @include screen($xl) {

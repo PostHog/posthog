@@ -60,7 +60,7 @@ ACTIVE_USERS_SQL = """
 WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
 toDateTime(%(date_from)s, %(timezone)s) AS date_from,
 arrayMap(
-    n -> toDateTime(n, %(timezone)s),
+    n -> {rounding_func}(toDateTime(n, %(timezone)s)),
     range(
         toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s)), %(timezone)s)),
         toUInt32(date_to),
@@ -73,7 +73,7 @@ SELECT counts AS total,
 FROM (
     SELECT
         count(DISTINCT actor_id) AS counts,
-        arrayJoin(event_buckets) as timestamp
+        {rounding_func}(arrayJoin(event_buckets)) as timestamp
     FROM (
         SELECT
             {aggregator} as actor_id,

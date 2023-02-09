@@ -5269,7 +5269,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][17], 1)
         self.assertEqual(len(response[0]["data"]), 24)
 
-        # Custom date range, single day, dayly interval
+        # Custom date range, single day, daily interval
         response = Trends().run(
             Filter(
                 data={
@@ -5282,6 +5282,72 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.team,
         )
         self.assertEqual(response[0]["data"], [1.0])
+
+    # Regression test to ensure we handle non-deterministic timezones correctly
+    # US/Pacific for example changes from PST to PDT due to Daylight Savings Time
+    # In 2022, this happened on November 6, and previously we had a bug where
+    # a graph starting before that date and ending after it would show all 0s
+    # after November 6. Thus, this test ensures that doesn't happen
+    @snapshot_clickhouse_queries
+    def test_non_deterministic_timezones(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
+        with freeze_time("2022-11-03T01:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-10T01:01:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-17T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-24T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-30T08:30:01Z"):
+            _create_event(
+                team=self.team,
+                event="sign up",
+                distinct_id="blabla",
+                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            )
+
+        with freeze_time("2022-11-30T13:01:01Z"):
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-30d",
+                        "events": [{"id": "sign up", "name": "sign up", "math": "wau"}],
+                        "interval": "week",
+                    },
+                    team=self.team,
+                ),
+                self.team,
+            )
+
+        # The key is to not get any 0s here
+        self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0])
 
     @snapshot_clickhouse_queries
     def test_timezone_weekly(self):
