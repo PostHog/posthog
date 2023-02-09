@@ -131,7 +131,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
                     }
                 }
 
-                const productOverLimit = billing.products.find((x) => {
+                const productOverLimit = billing.products?.find((x) => {
                     return x.percentage_usage > 1
                 })
 

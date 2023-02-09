@@ -450,16 +450,16 @@ export function addHistoricalEventsExportCapabilityV2(
 
         // We bump the statusTime every minute to let the coordinator know we are still
         // alive and we don't need to be resumed.
-        const interval = setInterval(
-            async () =>
-                await meta.storage.set(payload.statusKey, {
-                    ...payload,
-                    done: false,
-                    progress: progress,
-                    statusTime: Date.now(),
-                } as ExportChunkStatus),
-            60 * 1000
-        )
+        const interval = setInterval(async () => {
+            const now = Date.now()
+            createLog(`Still running, updating ${payload.statusKey} statusTime for plugin ${pluginConfig.id} to ${now}`)
+            await meta.storage.set(payload.statusKey, {
+                ...payload,
+                done: false,
+                progress: progress,
+                statusTime: now,
+            } as ExportChunkStatus)
+        }, 60 * 1000)
 
         if (events.length > 0) {
             try {
