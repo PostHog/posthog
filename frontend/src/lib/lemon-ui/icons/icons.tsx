@@ -2206,6 +2206,7 @@ export function XmasTree(props: LemonIconProps): JSX.Element {
     )
 }
 
+/* Material design robot-outline icon https://pictogrammers.com/library/mdi/icon/robot-outline */
 export function IconRobot(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props} fill="currentColor">
