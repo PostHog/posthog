@@ -33,13 +33,7 @@ class Symbol(AST):
 
 
 class AliasSymbol(Symbol):
-    expr: "Expr"
-
-    def get_child(self, name: str) -> "Symbol":
-        if isinstance(self.expr, SelectQuery):
-            return self.expr.symbol.get_child(name)
-        elif isinstance(self.expr, Field):
-            return self.expr.symbol.get_child(name)
+    symbol: "Symbol"
 
 
 class TableSymbol(Symbol):
@@ -60,10 +54,17 @@ class TableSymbol(Symbol):
 
 
 class SelectQuerySymbol(Symbol):
-    # expr: "Expr"
-
     symbols: Dict[str, Symbol]
     tables: Dict[str, Symbol]
+
+    def get_child(self, name: str) -> "Symbol":
+        if name in self.symbols:
+            return self.symbols[name]
+        if name in self.tables:
+            return self.tables[name]
+
+    def has_child(self, name: str) -> bool:
+        return name in self.symbols or name in self.tables
 
 
 class FieldSymbol(Symbol):
@@ -77,7 +78,6 @@ class FieldSymbol(Symbol):
                 raise NotImplementedError(f"Can not resolve field {self.name} on table events")
         else:
             raise NotImplementedError(f"Can not resolve fields on table: {self.name}")
-        self.table.get_child(name)
 
 
 class PropertySymbol(Symbol):

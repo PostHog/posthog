@@ -28,9 +28,10 @@ class Resolver(TraversingVisitor):
         if node.alias == "":
             raise ResolverException("Alias cannot be empty")
 
-        symbol = ast.AliasSymbol(name=node.alias, expr=node.expr)
-        last_select.symbols[node.alias] = symbol
         self.visit(node.expr)
+
+        node.symbol = ast.AliasSymbol(name=node.alias, symbol=node.expr.symbol)
+        last_select.symbols[node.alias] = node.symbol
 
     def visit_field(self, node):
         if node.symbol is not None:
@@ -43,6 +44,7 @@ class Resolver(TraversingVisitor):
         symbol: Optional[ast.Symbol] = None
         for scope in reversed(self.scopes):
             if name in scope.tables and len(node.chain) > 1:
+                # CH assumes you're selecting a field, unless it's with a "." in the field, then check for tables
                 symbol = scope.tables[name]
                 break
             elif name in scope.symbols:
