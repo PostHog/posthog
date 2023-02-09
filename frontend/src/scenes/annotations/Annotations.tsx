@@ -92,7 +92,7 @@ export function Annotations(): JSX.Element {
                 return (
                     <div className="flex flex-row items-center">
                         <ProfilePicture
-                            name={creation_type === 'GIT' ? 'GitHub automation' : created_by?.first_name}
+                            name={creation_type === 'GIT' ? 'GitHub Actions' : created_by?.first_name}
                             email={creation_type === 'GIT' ? 'maxbot@posthog.com' : created_by?.email}
                             showName
                             size="md"
