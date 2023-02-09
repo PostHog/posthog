@@ -44,7 +44,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs, now, Dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
@@ -664,7 +664,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         lastRefreshed: [
             (s) => [s.insightTiles],
-            (insightTiles) => {
+            (insightTiles): Dayjs | null => {
                 if (!insightTiles || !insightTiles.length) {
                     return null
                 }
@@ -676,7 +676,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         blockRefresh: [
             (s) => [s.lastRefreshed],
-            (lastRefreshed) => {
+            (lastRefreshed: Dayjs) => {
                 return (
                     !!lastRefreshed &&
                     now()
