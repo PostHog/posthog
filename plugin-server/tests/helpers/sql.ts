@@ -330,7 +330,7 @@ export const createOrganization = async (pgClient: Pool) => {
         available_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 20000),
+        slug: new UUIDT().toString(),
     })
     return organizationId
 }
