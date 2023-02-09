@@ -18,11 +18,9 @@ import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface ChartFilterProps {
     filters: FilterType
-    onChange?: (chartFilter: ChartDisplayType) => void
-    disabled?: boolean
 }
 
-export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
+export function ChartFilter({ filters }: ChartFilterProps): JSX.Element {
     const { insightProps, isSingleSeries } = useValues(insightLogic)
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
@@ -112,20 +110,21 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     ]
 
     return (
-        <LemonSelect
-            key="2"
-            value={chartFilter || ChartDisplayType.ActionsLineGraph}
-            onChange={(value) => {
-                setChartFilter(value as ChartDisplayType)
-                onChange?.(value as ChartDisplayType)
-            }}
-            dropdownPlacement="bottom-end"
-            optionTooltipPlacement="left"
-            dropdownMatchSelectWidth={false}
-            data-attr="chart-filter"
-            disabled={disabled}
-            options={options}
-            size="small"
-        />
+        <>
+            <span>Chart type</span>
+            <LemonSelect
+                key="2"
+                value={chartFilter || ChartDisplayType.ActionsLineGraph}
+                onChange={(value) => {
+                    setChartFilter(value as ChartDisplayType)
+                }}
+                dropdownPlacement="bottom-end"
+                optionTooltipPlacement="left"
+                dropdownMatchSelectWidth={false}
+                data-attr="chart-filter"
+                options={options}
+                size="small"
+            />
+        </>
     )
 }
