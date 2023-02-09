@@ -3,7 +3,6 @@ from datetime import datetime, timedelta
 from typing import Literal, Optional, Tuple, Union
 
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
@@ -86,7 +85,7 @@ class RetentionDateDerivedMixin(PeriodMixin, TotalIntervalsMixin, DateMixin, Sel
             else:
                 date_to = self._date_to
         else:
-            date_to = timezone.now()
+            date_to = datetime.now()
 
         date_to = date_to + self.period_increment
         if self.period == "Hour":

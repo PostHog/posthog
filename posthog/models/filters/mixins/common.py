@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 import pytz
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import (
@@ -347,7 +346,7 @@ class DateMixin(BaseParamMixin):
                 return date
             else:
                 return self._date_from
-        return timezone.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+        return datetime.datetime.now().replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
             days=DEFAULT_DATE_FROM_DAYS
         )
 
@@ -355,7 +354,7 @@ class DateMixin(BaseParamMixin):
     def date_to(self) -> datetime.datetime:
         self.date_to_delta_mapping = None
         if not self._date_to:
-            return timezone.now()
+            return datetime.datetime.now()
         else:
             if isinstance(self._date_to, str):
                 try:
