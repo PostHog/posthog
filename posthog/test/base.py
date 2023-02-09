@@ -354,7 +354,9 @@ class QueryMatchingTest:
 
 
 @contextmanager
-def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_numbers: bool = True):
+def snapshot_postgres_queries_context(
+    testcase: QueryMatchingTest, replace_all_numbers: bool = True, using: str = "default"
+):
     """
     Captures and snapshots select queries from test using `syrupy` library.
     Requires queries to be stable to avoid flakiness.
@@ -381,7 +383,7 @@ def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_n
                 # Run some code that generates queries
 
     """
-    with CaptureQueriesContext(connections["default"]) as context:
+    with CaptureQueriesContext(connections[using]) as context:
         yield context
 
     for query_with_time in context.captured_queries:

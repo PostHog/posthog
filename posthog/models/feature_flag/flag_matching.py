@@ -27,6 +27,8 @@ from .feature_flag import (
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
 
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 3 * 1000  # 3 seconds. Any longer and we'll just error out.
+
 
 class FeatureFlagMatchReason(str, Enum):
     CONDITION_MATCH = "condition_match"
@@ -68,7 +70,7 @@ class FlagsMatcherCache:
 
     @cached_property
     def group_types_to_indexes(self) -> Dict[GroupTypeName, GroupTypeIndex]:
-        group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
+        group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id).using("decide")
         return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
 
     @cached_property
@@ -237,8 +239,8 @@ class FeatureFlagMatcher:
         team_id = self.feature_flags[0].team_id
         person_query: QuerySet = Person.objects.filter(
             team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
-        )
-        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
+        ).using("decide")
+        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id).using("decide")
         group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
         # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
         # If no groups for a group type are passed in, we can skip querying for that group type,
