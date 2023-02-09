@@ -28,8 +28,9 @@ class Command(BaseCommand):
         if not TEST:
             raise ValueError("TEST environment variable needs to be set for this command to function")
 
-        test_runner = TestRunner(interactive=False)
         disable_migrations()
+
+        test_runner = TestRunner(interactive=False)
         test_runner.setup_databases()
         test_runner.setup_test_environment()
 
@@ -84,9 +85,19 @@ def disable_migrations() -> None:
         def handle(self, *args, **kwargs):
             from django.db import connection
 
-            # :TRICKY: Create extension depended on by models.
+            from posthog.models.person.person import CREATE_FUNCTION_FOR_CONSTRAINT_SQL
+
+            create_function = ";".join(
+                (
+                    "SET check_function_bodies=off",
+                    CREATE_FUNCTION_FOR_CONSTRAINT_SQL,
+                )
+            )
+
+            # :TRICKY: Create extension and function depended on by models.
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION pg_trgm")
+                cursor.execute(create_function)
 
             return super().handle(*args, **kwargs)
 
