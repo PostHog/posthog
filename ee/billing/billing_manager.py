@@ -54,6 +54,11 @@ class BillingPeriod(TypedDict):
     current_period_end: str
 
 
+class UsageSummary(TypedDict):
+    limit: Optional[int]
+    usage: Optional[int]
+
+
 class CustomerInfo(TypedDict):
     customer_id: Optional[str]
     deactivated: bool
@@ -65,7 +70,7 @@ class CustomerInfo(TypedDict):
     products: Optional[List[CustomerProduct]]
     custom_limits_usd: Optional[Dict[str, str]]
     free_trial_until: Optional[str]
-    usage_summary: Optional[Dict[str, Dict[str, Optional[int]]]]  # TODO: Type this better
+    usage_summary: Dict[str, UsageSummary]
 
 
 class BillingStatus(TypedDict):
@@ -267,19 +272,21 @@ class BillingManager:
         if usage_summary:
             # TRICKY: We don't want to overwrite the "todays_usage" value unless the
             # usage from the billing service is different than what we have locally.
+
             new_org_usage = OrganizationUsageInfo(
                 events={
                     "usage": usage_summary["events"]["usage"],
                     "limit": usage_summary["events"]["limit"],
                     "todays_usage": organization.usage["events"]["todays_usage"]
-                    if usage_summary["events"]["usage"] == organization.usage["events"]["usage"]
+                    if organization.usage and usage_summary["events"]["usage"] == organization.usage["events"]["usage"]
                     else 0,
                 },
                 recordings={
                     "usage": usage_summary["recordings"]["usage"],
                     "limit": usage_summary["recordings"]["limit"],
                     "todays_usage": organization.usage["recordings"]["todays_usage"]
-                    if usage_summary["recordings"]["usage"] == organization.usage["recordings"]["usage"]
+                    if organization.usage
+                    and usage_summary["recordings"]["usage"] == organization.usage["recordings"]["usage"]
                     else 0,
                 },
                 period=[

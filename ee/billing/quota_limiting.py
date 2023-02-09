@@ -17,7 +17,6 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_current_day
 
-
 RATE_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 
 

@@ -37,7 +37,7 @@ def create_missing_billing_customer(**kwargs) -> CustomerInfo:
         billing_period=BillingPeriod(
             current_period_start="2022-10-07T11:12:48", current_period_end="2022-11-07T11:12:48"
         ),
-        last_reported_usage={"events": 0, "recordings": 0},
+        usage_summary={"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
         free_trial_until=None,
         available_features=[],
     )
@@ -79,7 +79,7 @@ def create_billing_customer(**kwargs) -> CustomerInfo:
         billing_period=BillingPeriod(
             current_period_start="2022-10-07T11:12:48", current_period_end="2022-11-07T11:12:48"
         ),
-        last_reported_usage={"events": 0, "recordings": 0},
+        usage_summary={"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
         free_trial_until=None,
     )
     data.update(kwargs)
@@ -275,7 +275,7 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "last_reported_usage": {"events": 0, "recordings": 0},
+            "usage_summary": {"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
             "free_trial_until": None,
         }
 
@@ -368,12 +368,10 @@ class TestBillingAPI(APILicensedTest):
                 "current_period_start": "2022-10-07T11:12:48",
                 "current_period_end": "2022-11-07T11:12:48",
             },
-            "last_reported_usage": {"events": 0, "recordings": 0},
+            "usage_summary": {"events": {"limit": None, "usage": 0}, "recordings": {"limit": None, "usage": 0}},
             "free_trial_until": None,
             "current_total_amount_usd": "0.00",
             "deactivated": False,
-            "free_trial_until": None,
-            "last_reported_usage": {"events": 0, "recordings": 0},
             "stripe_portal_url": "https://billing.stripe.com/p/session/test_1234",
         }
 

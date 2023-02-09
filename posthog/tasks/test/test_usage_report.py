@@ -434,6 +434,24 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
         flush_persons_and_events()
 
+    def _usage_report_response(self):
+        # A roughly correct billing response
+        return {
+            "customer": {
+                "billing_period": {
+                    "current_period_start": "2021-10-01T00:00:00Z",
+                    "current_period_end": "2021-10-31T00:00:00Z",
+                },
+                "usage_summary": {
+                    "events": {"usage": 10000, "limit": None},
+                    "recordings": {
+                        "usage": 1000,
+                        "limit": None,
+                    },
+                },
+            }
+        }
+
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthog.tasks.usage_report.Client")
     @patch("requests.post")
@@ -441,7 +459,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
-        mockresponse.json = lambda: {}
+        mockresponse.json = lambda: self._usage_report_response()
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
@@ -469,7 +487,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mockresponse = Mock()
             mock_post.return_value = mockresponse
             mockresponse.status_code = 200
-            mockresponse.json = lambda: {}
+            mockresponse.json = lambda: self._usage_report_response()
             mock_posthog = MagicMock()
             mock_client.return_value = mock_posthog
 
@@ -520,14 +538,8 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
-        usage = {
-            "events": {"usage": 10000, "limit": None},
-            "recordings": {
-                "usage": 1000,
-                "limit": None,
-            },
-        }
-        mockresponse.json = lambda: {"organization_usage": usage}
+        usage_report_response = self._usage_report_response()
+        mockresponse.json = lambda: usage_report_response
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
@@ -537,7 +549,11 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         send_all_org_usage_reports(dry_run=False)
 
         self.team.organization.refresh_from_db()
-        assert self.team.organization.usage == usage
+        assert self.team.organization.usage == {
+            "events": {"limit": None, "usage": 10000, "todays_usage": 0},
+            "recordings": {"limit": None, "usage": 1000, "todays_usage": 0},
+            "period": ["2021-10-01T00:00:00Z", "2021-10-31T00:00:00Z"],
+        }
 
 
 class SendUsageNoLicenseTest(APIBaseTest):
