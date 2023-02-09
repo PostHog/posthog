@@ -671,11 +671,10 @@ class InsightViewSet(
                 name="refresh",
                 type=OpenApiTypes.BOOL,
                 description="""
-To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
-
-This allows the UI to render and then request the result separately.
-
-To ensure the result is calculated and returned include a `refresh=true` query parameter.""",
+                The client can request that an insight be refreshed by setting the `refresh=true` parameter.
+                The server will then decide if the data should or not be refreshed based on a set of heuristics
+                meant to determine the staleness of cached data. The result will contain as `is_cached` field
+                that indicates whether the insight was actually refreshed or not through the request.""",
             ),
             OpenApiParameter(
                 name="from_dashboard",
