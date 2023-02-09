@@ -9,7 +9,7 @@ from posthog.models.person.person import CREATE_FUNCTION_FOR_CONSTRAINT_SQL, DRO
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0298_add_insight_queries"),
+        ("posthog", "0299_set_templates_global"),
     ]
 
     operations = [
