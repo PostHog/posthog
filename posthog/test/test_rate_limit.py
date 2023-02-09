@@ -355,5 +355,5 @@ class TestUserAPI(APIBaseTest):
                         f"/api/projects/{self.team.pk}/feature_flags",
                         HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
                     )
-                self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+                    self.assertEqual(response.status_code, status.HTTP_200_OK)
                 assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
