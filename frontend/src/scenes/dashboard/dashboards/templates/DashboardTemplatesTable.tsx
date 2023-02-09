@@ -51,16 +51,17 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                             installed: boolean | undefined,
                             record: DashboardTemplatesRepositoryEntry
                         ) {
+                            const recordUrl = record.url
                             return (
                                 <div className="template-installed">
-                                    {!record.url || (installed && !record.has_new_version) ? (
+                                    {recordUrl === undefined || (installed && !record.has_new_version) ? (
                                         <LemonSnack>INSTALLED</LemonSnack>
                                     ) : (
                                         <LemonButton
                                             status={'primary'}
                                             type={'primary'}
                                             icon={<IconCloudUpload />}
-                                            onClick={() => installTemplate({ name: record.name, url: record.url })}
+                                            onClick={() => installTemplate({ name: record.name, url: recordUrl })}
                                             loading={templateLoading && templateBeingSaved === record.name}
                                             disabledReason={
                                                 templateLoading
