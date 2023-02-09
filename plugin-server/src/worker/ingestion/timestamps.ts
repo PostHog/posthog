@@ -6,7 +6,7 @@ import { status } from '../../utils/status'
 
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
-const FutureEventHoursCutoffMillis = 23 * 3600 * 1000
+const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
 
 export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
