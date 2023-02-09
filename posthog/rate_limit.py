@@ -88,6 +88,7 @@ class TeamRateThrottle(SimpleRateThrottle):
                         tags={"team_id": team_id, "path": path},
                     )
                     RATE_LIMIT_BYPASSED_COUNTER.labels(team_id=team_id, path=path).inc()
+                    return True
                 else:
                     scope = getattr(self, "scope", None)
                     rate = getattr(self, "rate", None)
