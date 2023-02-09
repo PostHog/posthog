@@ -1,6 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import tk from 'timekeeper'
 
 import { Database, Hub, Person, RawPerson } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
@@ -26,24 +25,29 @@ describe('PersonState.update()', () => {
     let uuid2: UUIDT
     let teamId: number
 
+    beforeAll(async () => {
+        ;[hub, closeHub] = await createHub({})
+        await hub.db.clickhouseQuery('SYSTEM STOP MERGES')
+    })
+
     beforeEach(async () => {
         uuid = new UUIDT()
         uuid2 = new UUIDT()
-        teamId++
-        ;[hub, closeHub] = await createHub({})
-        await Promise.all([
-            // Avoid collapsing merge tree causing race conditions in tests!
-            hub.db.clickhouseQuery('SYSTEM STOP MERGES'),
-        ])
         const organizationId = await createOrganization(hub.db.postgres)
         teamId = await createTeam(hub.db.postgres, organizationId)
 
         jest.spyOn(hub.personManager, 'isNewPerson')
         jest.spyOn(hub.db, 'fetchPerson')
         jest.spyOn(hub.db, 'updatePersonDeprecated')
+
+        jest.useFakeTimers({ advanceTimers: 50 })
     })
 
-    afterEach(async () => {
+    afterEach(() => {
+        jest.clearAllTimers()
+    })
+
+    afterAll(async () => {
         await closeHub()
         await hub.db.clickhouseQuery('SYSTEM START MERGES')
     })
@@ -1792,6 +1796,43 @@ describe('PersonState.update()', () => {
         })
     })
     describe('on persons merges', () => {
+        // For some reason these tests failed if I ran them with a hub shared
+        // with other tests, so I'm creating a new hub for each test.
+        let hub: Hub
+        let closeHub: () => Promise<void>
+
+        beforeEach(async () => {
+            ;[hub, closeHub] = await createHub({})
+
+            jest.spyOn(hub.personManager, 'isNewPerson')
+            jest.spyOn(hub.db, 'fetchPerson')
+            jest.spyOn(hub.db, 'updatePersonDeprecated')
+        })
+
+        afterEach(async () => {
+            await closeHub()
+        })
+
+        function personState(event: Partial<PluginEvent>, person?: Person) {
+            const fullEvent = {
+                team_id: teamId,
+                properties: {},
+                ...event,
+            }
+            const personContainer = new LazyPersonContainer(teamId, event.distinct_id!, hub, person)
+            return new PersonState(
+                fullEvent as any,
+                teamId,
+                event.distinct_id!,
+                timestamp,
+                hub.db,
+                hub.statsd,
+                hub.personManager,
+                personContainer,
+                uuid
+            )
+        }
+
         it('postgres and clickhouse get updated', async () => {
             const first: Person = await hub.db.createPerson(
                 timestamp,
@@ -1992,7 +2033,7 @@ describe('PersonState.update()', () => {
 
     describe('ageInMonthsLowCardinality', () => {
         beforeEach(() => {
-            tk.freeze(new Date('2022-03-15'))
+            jest.setSystemTime(new Date('2022-03-15'))
         })
         it('gets the correct age in months', () => {
             let date = DateTime.fromISO('2022-01-16')
