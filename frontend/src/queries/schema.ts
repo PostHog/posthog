@@ -244,7 +244,7 @@ export interface InsightVizNode extends Node {
 }
 
 // Base class should not be used directly
-interface InsightsQueryBase extends Node {
+export interface InsightsQueryBase extends Node {
     /** Date range for the query */
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
