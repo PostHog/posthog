@@ -84,7 +84,18 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _load_repository_listing() -> List[Dict]:
         url = "https://raw.githubusercontent.com/PostHog/templates-repository/main/dashboards/dashboards.json"
         loaded_templates: List[Dict] = json.loads(requests.get(url).text)
-        return loaded_templates
+        return [
+            # The OG template is hard-coded, not served by the repository,
+            # because it is used in tests and in team setup, so we need to make sure it's always there.
+            # It is added in to the template listing here
+            {
+                "name": "Product analytics",
+                "url": None,
+                "description": "The OG PostHog product analytics dashboard template",
+                "verified": True,
+                "maintainer": "official",
+            }
+        ] + loaded_templates
 
     @staticmethod
     def _current_installed_templates() -> Dict[str, str]:
