@@ -1,10 +1,10 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import EverythingVisitor
+from posthog.hogql.visitor import CloningVisitor
 from posthog.test.base import BaseTest
 
 
-class ConstantVisitor(EverythingVisitor):
+class ConstantVisitor(CloningVisitor):
     def __init__(self):
         self.constants = []
         self.fields = []
@@ -93,4 +93,4 @@ class TestVisitor(BaseTest):
                 ),
             ]
         )
-        self.assertEqual(node, EverythingVisitor().visit(node))
+        self.assertEqual(node, CloningVisitor().visit(node))

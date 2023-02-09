@@ -21,7 +21,9 @@ def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no
     return node
 
 
-def parse_select(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
+def parse_select(
+    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+) -> ast.SelectQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:

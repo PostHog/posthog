@@ -444,6 +444,13 @@ class TestParser(BaseTest):
             ),
         )
         self.assertEqual(
+            parse_select("select 1 from events e"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+            ),
+        )
+        self.assertEqual(
             parse_select("select 1 from complex.table"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
@@ -452,6 +459,13 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             parse_select("select 1 from complex.table as a"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from complex.table a"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),

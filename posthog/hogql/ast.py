@@ -1,10 +1,12 @@
 import re
 from enum import Enum
-from typing import Any, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Extra
 
-# NOTE: when you add new AST fields or nodes, add them to EverythingVisitor as well!
+from posthog.hogql.constants import EVENT_FIELDS
+
+# NOTE: when you add new AST fields or nodes, add them to CloningVisitor as well!
 
 camel_case_pattern = re.compile(r"(?<!^)(?=[A-Z])")
 
@@ -20,8 +22,75 @@ class AST(BaseModel):
         return visit(self)
 
 
+class Symbol(AST):
+    name: str
+
+    def get_child(self, name: str) -> "Symbol":
+        raise NotImplementedError()
+
+    def has_child(self, name: str) -> bool:
+        return self.get_child(name) is not None
+
+
+class AliasSymbol(Symbol):
+    expr: "Expr"
+
+    def get_child(self, name: str) -> "Symbol":
+        if isinstance(self.expr, SelectQuery):
+            return self.expr.symbol.get_child(name)
+        elif isinstance(self.expr, Field):
+            return self.expr.symbol.get_child(name)
+
+
+class TableSymbol(Symbol):
+    table_name: Literal["events"]
+
+    def has_child(self, name: str) -> bool:
+        if self.table_name == "events":
+            return name in EVENT_FIELDS
+        else:
+            raise NotImplementedError(f"Can not resolve table: {self.name}")
+
+    def get_child(self, name: str) -> "Symbol":
+        if self.table_name == "events":
+            if name in EVENT_FIELDS:
+                return FieldSymbol(name=name, table=self)
+        else:
+            raise NotImplementedError(f"Can not resolve table: {self.name}")
+
+
+class SelectQuerySymbol(Symbol):
+    # expr: "Expr"
+
+    symbols: Dict[str, Symbol]
+    tables: Dict[str, Symbol]
+
+
+class FieldSymbol(Symbol):
+    table: TableSymbol
+
+    def get_child(self, name: str) -> "Symbol":
+        if self.table.table_name == "events":
+            if self.name == "properties":
+                raise NotImplementedError(f"Property symbol resolution not implemented yet")
+            else:
+                raise NotImplementedError(f"Can not resolve field {self.name} on table events")
+        else:
+            raise NotImplementedError(f"Can not resolve fields on table: {self.name}")
+        self.table.get_child(name)
+
+
+class PropertySymbol(Symbol):
+    field: FieldSymbol
+
+
 class Expr(AST):
-    pass
+    symbol: Optional[Symbol]
+
+
+Symbol.update_forward_refs(Expr=Expr)
+AliasSymbol.update_forward_refs(Expr=Expr)
+SelectQuerySymbol.update_forward_refs(Expr=Expr)
 
 
 class Alias(Expr):
