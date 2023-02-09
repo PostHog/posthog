@@ -53,7 +53,7 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                         ) {
                             return (
                                 <div className="template-installed">
-                                    {installed && !record.has_new_version ? (
+                                    {!record.url || (installed && !record.has_new_version) ? (
                                         <LemonSnack>INSTALLED</LemonSnack>
                                     ) : (
                                         <LemonButton
