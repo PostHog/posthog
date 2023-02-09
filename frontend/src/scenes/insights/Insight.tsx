@@ -87,7 +87,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
     let setQuery = insighVizSetQuery
-    if (!!insight.query && isQueryBasedInsight) {
+    if (!!insightEditorQuery && isQueryBasedInsight) {
         query = insightEditorQuery
         setQuery = insighEditorSetQuery
     }
@@ -339,7 +339,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
             {isUsingDataExploration ? (
                 <>
-                    {insightMode === ItemMode.Edit && (
+                    {insightMode === ItemMode.Edit && isQueryBasedInsight && (
                         <>
                             <InsightsNav />
                             <QueryEditor

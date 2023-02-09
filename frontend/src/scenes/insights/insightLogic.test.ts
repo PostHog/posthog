@@ -1276,4 +1276,72 @@ describe('insightLogic', () => {
             ])
         })
     })
+
+    describe('active view', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: 'new',
+            })
+            logic.mount()
+        })
+
+        it('has a default view', async () => {
+            await expectLogic(logic).toMatchValues({
+                // TODO can we make the default TRENDS so there's no change
+                activeView: InsightType.QUERY, // which is a change to the default
+            })
+        })
+
+        it('can set the active view to TRENDS which sets the filters', () => {
+            expectLogic(logic, () => {
+                logic.actions.setActiveView(InsightType.TRENDS)
+            }).toMatchValues({
+                filters: {
+                    actions: [],
+                    display: 'ActionsLineGraph',
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                            type: 'events',
+                        },
+                    ],
+                    filter_test_accounts: false,
+                    insight: 'TRENDS',
+                    interval: 'day',
+                    properties: [],
+                },
+            })
+        })
+
+        it('can set the active view to FUNNEL which sets the filters differently', () => {
+            expectLogic(logic, () => {
+                logic.actions.setActiveView(InsightType.FUNNELS)
+            }).toMatchValues({
+                filters: {
+                    actions: [],
+                    events: [
+                        {
+                            id: '$pageview',
+                            name: '$pageview',
+                            order: 0,
+                            type: 'events',
+                        },
+                    ],
+                    exclusions: [],
+                    funnel_viz_type: 'steps',
+                    insight: 'FUNNELS',
+                },
+            })
+        })
+
+        it('can set the active view to QUERY which sets the filters to empty', () => {
+            expectLogic(logic, () => {
+                logic.actions.setActiveView(InsightType.QUERY)
+            }).toMatchValues({
+                filters: {},
+            })
+        })
+    })
 })
