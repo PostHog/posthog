@@ -1169,7 +1169,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
 
                                                 {property.type === 'cohort' ? (
                                                     <a
-                                                        href={`/cohorts/${property.value}`}
+                                                        href={urls.cohort(property.value)}
+                                                        target="_blank"
+                                                        rel="noopener"
                                                         className="simple-tag tag-light-blue text-primary-alt display-value"
                                                     >
                                                         {(property.value && cohortsById[property.value]?.name) ||
