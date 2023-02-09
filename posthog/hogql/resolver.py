@@ -18,76 +18,61 @@ class Resolver(TraversingVisitor):
     def __init__(self):
         self.scopes: List[ast.SelectQuerySymbol] = []
 
-    def visit_alias(self, node: ast.Alias):
+    def visit_select_query(self, node):
+        """Visit each SELECT query or subquery."""
+
         if node.symbol is not None:
             return
 
-        if len(self.scopes) == 0:
-            raise ResolverException("Aliases are allowed only within SELECT queries")
-        last_select = self.scopes[-1]
-        if node.alias in last_select.aliases:
-            raise ResolverException(f"Found multiple expressions with the same alias: {node.alias}")
-        if node.alias == "":
-            raise ResolverException("Alias cannot be empty")
+        # Create a new lexical scope each time we enter a SELECT query.
+        node.symbol = ast.SelectQuerySymbol(aliases={}, columns={}, tables={})
+        # Keep those scopes stacked in a list as we traverse the tree.
+        self.scopes.append(node.symbol)
 
-        self.visit(node.expr)
+        # Visit all the FROM and JOIN tables (JoinExpr nodes)
+        if node.select_from:
+            self.visit(node.select_from)
 
-        node.symbol = ast.ColumnAliasSymbol(name=node.alias, symbol=unwrap_column_alias_symbol(node.expr.symbol))
-        last_select.aliases[node.alias] = node.symbol
+        # Visit all the SELECT columns.
+        # Then mark them for export in "columns". This means they will be available outside of this query via:
+        # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
+        for expr in node.select or []:
+            self.visit(expr)
+            if isinstance(expr.symbol, ast.ColumnAliasSymbol):
+                node.symbol.columns[expr.symbol.name] = expr.symbol
+            elif isinstance(expr, ast.Alias):
+                node.symbol.columns[expr.alias] = expr.symbol
+            elif isinstance(expr.symbol, ast.FieldSymbol):
+                node.symbol.columns[expr.symbol.name] = expr.symbol
 
-    def visit_field(self, node):
-        if node.symbol is not None:
-            return
-        if len(node.chain) == 0:
-            raise Exception("Invalid field access with empty chain")
+        if node.where:
+            self.visit(node.where)
+        if node.prewhere:
+            self.visit(node.prewhere)
+        if node.having:
+            self.visit(node.having)
 
-        # resolve the first part of the chain
-        name = node.chain[0]
-        symbol: Optional[ast.Symbol] = None
+        self.scopes.pop()
 
-        # to keep things simple, we only allow selecting fields from within this (select x) scope
-        scope = self.scopes[-1]
-
-        if len(node.chain) > 1 and name in scope.tables:
-            # CH assumes you're selecting a field, unless it's with a "." in the field, then check for tables
-            symbol = scope.tables[name]
-        elif name in scope.aliases:
-            symbol = scope.aliases[name]
-        else:
-            fields_in_scope = [table.get_child(name) for table in scope.tables.values() if table.has_child(name)]
-            if len(fields_in_scope) > 1:
-                raise ResolverException(
-                    f'Found multiple joined tables with field "{name}". Please where you\'re selecting from.'
-                )
-            elif len(fields_in_scope) == 1:
-                symbol = fields_in_scope[0]
-
-        if not symbol:
-            raise ResolverException(f'Cannot resolve symbol: "{name}"')
-
-        # recursively resolve the rest of the chain
-        for child_name in node.chain[1:]:
-            symbol = symbol.get_child(child_name)
-            if symbol is None:
-                raise ResolverException(
-                    f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {child_name} on {name}"
-                )
-
-        node.symbol = symbol
+        return node.symbol
 
     def visit_join_expr(self, node):
+        """Visit each FROM and JOIN table or subquery."""
+
         if node.symbol is not None:
             return
         if len(self.scopes) == 0:
             raise ResolverException("Unexpected JoinExpr outside a SELECT query")
-        last_select = self.scopes[-1]
+        scope = self.scopes[-1]
 
         if isinstance(node.table, ast.Field):
             if node.alias is None:
+                # Make sure there is a way to call the field in the scope.
                 node.alias = node.table.chain[0]
-            if node.alias in last_select.tables:
-                raise ResolverException(f"Table alias with the same name as another table: {node.alias}")
+            if node.alias in scope.tables:
+                raise ResolverException(f'Already have a joined table called "{node.alias}", can\'t redefine.')
 
+            # Only joining the events table is supported
             if node.table.chain == ["events"]:
                 node.table.symbol = ast.TableSymbol(table_name="events")
                 if node.alias == node.table.symbol.table_name:
@@ -107,41 +92,72 @@ class Resolver(TraversingVisitor):
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-        last_select.tables[node.alias] = node.symbol
+        scope.tables[node.alias] = node.symbol
 
         self.visit(node.join_expr)
 
-    def visit_select_query(self, node):
+    def visit_alias(self, node: ast.Alias):
+        """Visit column aliases. SELECT 1, (select 3 as y) as x."""
         if node.symbol is not None:
             return
 
-        node.symbol = ast.SelectQuerySymbol(aliases={}, columns={}, tables={})
-        self.scopes.append(node.symbol)
+        if len(self.scopes) == 0:
+            raise ResolverException("Aliases are allowed only within SELECT queries")
+        scope = self.scopes[-1]
+        if node.alias in scope.aliases:
+            raise ResolverException(f"Cannot redefine an alias with the name: {node.alias}")
+        if node.alias == "":
+            raise ResolverException("Alias cannot be empty")
 
-        if node.select_from:
-            self.visit(node.select_from)
-        if node.select:
-            for expr in node.select:
-                self.visit(expr)
-                if isinstance(expr.symbol, ast.ColumnAliasSymbol):
-                    node.symbol.columns[expr.symbol.name] = expr.symbol
+        self.visit(node.expr)
+        node.symbol = ast.ColumnAliasSymbol(name=node.alias, symbol=unwrap_column_alias_symbol(node.expr.symbol))
+        scope.aliases[node.alias] = node.symbol
 
-                elif isinstance(expr, ast.Alias):
-                    node.symbol.columns[expr.alias] = expr.symbol
+    def visit_field(self, node):
+        """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
+        if node.symbol is not None:
+            return
+        if len(node.chain) == 0:
+            raise Exception("Invalid field access with empty chain")
 
-                elif isinstance(expr.symbol, ast.FieldSymbol):
-                    node.symbol.columns[expr.symbol.name] = expr.symbol
+        # ClickHouse does not support subqueries accessing "x.event" like this:
+        # "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
+        #
+        # But this is supported:
+        # "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t",
+        #
+        # Thus only look into the current scope, for columns and aliases.
+        scope = self.scopes[-1]
+        symbol: Optional[ast.Symbol] = None
+        name = node.chain[0]
 
-        if node.where:
-            self.visit(node.where)
-        if node.prewhere:
-            self.visit(node.prewhere)
-        if node.having:
-            self.visit(node.having)
+        if len(node.chain) > 1 and name in scope.tables:
+            # If the field has a chain of at least one (e.g "e", "event"), the first part could refer to a table.
+            symbol = scope.tables[name]
+        elif name in scope.columns:
+            symbol = scope.columns[name]
+        elif name in scope.aliases:
+            symbol = scope.aliases[name]
+        else:
+            # Look through all FROM/JOIN tables, if they export a field by this name.
+            fields_in_scope = [table.get_child(name) for table in scope.tables.values() if table.has_child(name)]
+            if len(fields_in_scope) > 1:
+                raise ResolverException(f'Ambiguous query. Found multiple sources for field "{name}".')
+            elif len(fields_in_scope) == 1:
+                symbol = fields_in_scope[0]
 
-        self.scopes.pop()
+        if not symbol:
+            raise ResolverException(f'Cannot resolve symbol: "{name}"')
 
-        return node.symbol
+        # Recursively resolve the rest of the chain until we can point to the deepest node.
+        for child_name in node.chain[1:]:
+            symbol = symbol.get_child(child_name)
+            if symbol is None:
+                raise ResolverException(
+                    f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {child_name} on {name}"
+                )
+
+        node.symbol = symbol
 
 
 def unwrap_column_alias_symbol(symbol: ast.Symbol) -> ast.Symbol:
