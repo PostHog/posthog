@@ -46,8 +46,7 @@ CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.events_plugin_ingestion_parti
     `data_size` AggregateFunction(sum, UInt64)
 )
 ENGINE = {EVENTS_PLUGIN_INGESTION_PARTITION_STATISTICS_TABLE_ENGINE()}
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), session_id, user_id)
+ORDER BY (`_topic`, `_partition`, `timestamp`, `api_key`, `distinct_id`)
 """
 )
 
