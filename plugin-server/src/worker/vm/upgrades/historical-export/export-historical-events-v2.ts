@@ -453,12 +453,7 @@ export function addHistoricalEventsExportCapabilityV2(
         const interval = setInterval(async () => {
             const now = Date.now()
             createLog(`Still running, updating ${payload.statusKey} statusTime for plugin ${pluginConfig.id} to ${now}`)
-            await meta.storage.set(payload.statusKey, {
-                ...payload,
-                done: false,
-                progress: progress,
-                statusTime: now,
-            } as ExportChunkStatus)
+            await meta.storage.updateStatusTime(payload.statusKey)
         }, 60 * 1000)
 
         if (events.length > 0) {

@@ -173,6 +173,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
 
             jest.spyOn(vm.meta.storage, 'set')
+            jest.spyOn(vm.meta.storage, 'updateStatusTime')
             jest.spyOn(global, 'clearInterval')
 
             const defaultProgress =
@@ -182,9 +183,10 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             jest.mocked(vm.methods.exportEvents).mockImplementationOnce(async () => {
                 let advanced = 0
                 while (advanced < 3) {
-                    // The +1 accounts for the first status update that happens once at the beginning of
+                    // This 1 check accounts for the first status update that happens once at the beginning of
                     // exportHistoricalEvents.
-                    expect(vm.meta.storage.set).toHaveBeenCalledTimes(advanced + 1)
+                    expect(vm.meta.storage.set).toHaveBeenCalledTimes(1)
+                    expect(vm.meta.storage.updateStatusTime).toHaveBeenCalledTimes(advanced)
 
                     expect(await storage().get('statusKey', null)).toEqual({
                         ...defaultPayload,

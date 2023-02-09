@@ -40,6 +40,32 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
         })
     }
 
+    const updateStatusTime = async function (key: string): Promise<void> {
+        const timer = new Date()
+
+        await server.db.postgresQuery(
+            `
+                UPDATE posthog_pluginstorage
+                SET "value" = jsonb_set("value"::JSONB, '{statusTime}', to_jsonb($3))
+                WHERE "plugin_config_id" = $1
+                AND "key" = $2
+                -- Deal with out of order queries:
+                AND $3 > ("value"::JSONB ->> 'statusTime')::BIGINT
+            `,
+            [pluginConfig.id, key, Date.now()],
+            'storageUpdateStatusTime'
+        )
+
+        server.statsd?.increment('vm_extension_storage_set', {
+            plugin: pluginConfig.plugin?.name ?? '?',
+            team_id: pluginConfig.team_id.toString(),
+        })
+        server.statsd?.timing('vm_extension_storage_update_status_time_timing', timer, {
+            plugin: pluginConfig.plugin?.name ?? '?',
+            team_id: pluginConfig.team_id.toString(),
+        })
+    }
+
     const del = async function (key: string): Promise<void> {
         await server.db.postgresQuery(
             'DELETE FROM posthog_pluginstorage WHERE "plugin_config_id"=$1 AND "key"=$2',
@@ -52,5 +78,6 @@ export function createStorage(server: Hub, pluginConfig: PluginConfig): StorageE
         get,
         set,
         del,
+        updateStatusTime,
     }
 }
