@@ -7,7 +7,18 @@ from rest_framework import status
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.test.base import APIBaseTest
 
-template_listing_json: List[Dict] = [
+# github does not return the OG template
+github_response_json: List[Dict] = [
+    {
+        "name": "Website traffic",
+        "url": "a github url",
+        "description": "The website analytics dashboard that PostHog uses",
+        "verified": True,
+        "maintainer": "official",
+    },
+]
+
+expected_template_listing_json: List[Dict] = [
     {
         "name": "Product analytics",
         "url": "some url",
@@ -25,9 +36,8 @@ template_listing_json: List[Dict] = [
 ]
 
 updated_template_listing_json: List[Dict] = [
-    template_listing_json[0],
     {
-        **template_listing_json[1],
+        **expected_template_listing_json[1],
         "url": "https://github.com/PostHog/templates-repository/blob/a-new-commit-hash/dashboards/posthog-website-traffic.json",
     },
 ]
@@ -69,13 +79,13 @@ class TestDashboardTemplates(APIBaseTest):
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
-        self._patch_request_get(patched_requests, template_listing_json)
+        self._patch_request_get(patched_requests, github_response_json)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/repository")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         expected_listing: List[Dict[str, Any]] = []
-        for tl in template_listing_json:
+        for tl in expected_template_listing_json:
             expected_listing.append({**tl, "installed": tl["name"] == "Product analytics", "has_new_version": False})
 
         assert response.json() == expected_listing
@@ -98,14 +108,14 @@ class TestDashboardTemplates(APIBaseTest):
 
         # all now show as installed
 
-        self._patch_request_get(patched_requests, template_listing_json)
+        self._patch_request_get(patched_requests, github_response_json)
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/repository")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
         assert len(response.json()) == 2
 
         expected_listing: List[Dict[str, Any]] = []
-        for tl in template_listing_json:
+        for tl in expected_template_listing_json:
             expected_listing.append({**tl, "installed": True, "has_new_version": False})
 
         assert response.json() == expected_listing
