@@ -431,7 +431,7 @@ class TestBillingAPI(APILicensedTest):
             "customer": create_billing_customer(),
         }
 
-        assert self.license.plan == "cloud"
+        assert self.license.plan == "enterprise"
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
 
@@ -441,14 +441,14 @@ class TestBillingAPI(APILicensedTest):
 
         mock_request.return_value.json.return_value = {
             "license": {
-                "type": "cloud",
+                "type": "enterprise",
             },
             "customer": create_billing_customer(),
         }
 
         self.client.get("/api/billing-v2")
         self.license.refresh_from_db()
-        assert self.license.plan == "cloud"
+        assert self.license.plan == "enterprise"
         # Should be extended by 30 days
         assert self.license.valid_until == datetime(2022, 1, 31, 12, 0, 0, tzinfo=pytz.UTC)
 
@@ -494,7 +494,7 @@ class TestBillingAPI(APILicensedTest):
                 mock.json.return_value = create_billing_response(
                     customer=create_billing_customer(has_active_subscription=True)
                 )
-                mock.json.return_value["customer"]["products"][0]["current_usage"] = 1000
+                mock.json.return_value["customer"]["usage_summary"]["events"]["usage"] = 1000
 
             if "api/products" in url:
                 mock.status_code = 200
@@ -514,16 +514,15 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.usage == {
             "events": {
                 "limit": None,
+                "todays_usage": 0,
                 "usage": 1000,
             },
             "recordings": {
                 "limit": None,
-                "usage": None,  # Our mock data has no recording product
+                "todays_usage": 0,
+                "usage": 0,
             },
-            "period": {
-                "current_period_end": "2022-11-07T11:12:48",
-                "current_period_start": "2022-10-07T11:12:48",
-            },
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
 
         def mock_implementation_missing_customer(url: str, headers: Any = None, params: Any = None) -> MagicMock:
@@ -550,16 +549,15 @@ class TestBillingAPI(APILicensedTest):
         assert self.organization.usage == {
             "events": {
                 "limit": None,
+                "todays_usage": 0,
                 "usage": 0,
             },
             "recordings": {
                 "limit": None,
+                "todays_usage": 0,
                 "usage": 0,
             },
-            "period": {
-                "current_period_end": "2022-11-07T11:12:48",
-                "current_period_start": "2022-10-07T11:12:48",
-            },
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }
         assert self.organization.customer_id == "cus_123"
 
@@ -614,17 +612,9 @@ class TestBillingAPI(APILicensedTest):
         res = self.client.get("/api/billing-v2")
         assert res.status_code == 200
         self.organization.refresh_from_db()
+
         assert self.organization.usage == {
-            "events": {
-                "limit": None,
-                "usage": 0,
-            },
-            "recordings": {
-                "limit": None,
-                "usage": 0,
-            },
-            "period": {
-                "current_period_end": "2022-11-07T11:12:48",
-                "current_period_start": "2022-10-07T11:12:48",
-            },
+            "events": {"limit": None, "usage": 0, "todays_usage": 0},
+            "recordings": {"limit": None, "usage": 0, "todays_usage": 0},
+            "period": ["2022-10-07T11:12:48", "2022-11-07T11:12:48"],
         }

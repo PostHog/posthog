@@ -128,7 +128,7 @@ class BillingManager:
             # Ensure the license and org are updated with the latest info
             if billing_service_response.get("license"):
                 self.update_license_details(billing_service_response)
-            if organization:
+            if organization and billing_service_response:
                 self.update_org_details(organization, billing_service_response)
 
             response: Dict[str, Any] = {"available_features": []}
@@ -154,8 +154,9 @@ class BillingManager:
             }
 
         # Extend the products with accurate usage_limit info
+
         for product in response["products"]:
-            usage = response["usage_summary"].get(product["type"], {})
+            usage = response.get("usage_summary", {}).get(product["type"], {})
             usage_limit = usage.get("limit")
             current_usage = usage.get("usage") or 0
 
