@@ -278,14 +278,14 @@ class BillingManager:
                 events={
                     "usage": usage_summary["events"]["usage"],
                     "limit": usage_summary["events"]["limit"],
-                    "todays_usage": organization.usage["events"]["todays_usage"]
+                    "todays_usage": organization.usage["events"].get("todays_usage", 0)
                     if organization.usage and usage_summary["events"]["usage"] == organization.usage["events"]["usage"]
                     else 0,
                 },
                 recordings={
                     "usage": usage_summary["recordings"]["usage"],
                     "limit": usage_summary["recordings"]["limit"],
-                    "todays_usage": organization.usage["recordings"]["todays_usage"]
+                    "todays_usage": organization.usage["recordings"].get("todays_usage", 0)
                     if organization.usage
                     and usage_summary["recordings"]["usage"] == organization.usage["recordings"]["usage"]
                     else 0,
