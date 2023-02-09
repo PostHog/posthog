@@ -351,6 +351,9 @@ class TestUserAPI(APIBaseTest):
         with freeze_time("2022-04-01 12:34:45"):
             with override_instance_config("RATE_LIMITING_ALLOW_LIST_TEAMS", f"{self.team.pk}"):
                 for _ in range(10):
-                    response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
+                    response = self.client.get(
+                        f"/api/projects/{self.team.pk}/feature_flags",
+                        HTTP_AUTHORIZATION=f"Bearer {self.personal_api_key}",
+                    )
                     self.assertEqual(response.status_code, status.HTTP_200_OK)
                 assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls

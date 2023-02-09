@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 import uuid
 from typing import Any, Dict, List, Optional, Set, Union
@@ -109,17 +110,16 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
     inserts = []
     params: Dict[str, Any] = {}
     for index, event in enumerate(events):
-        timestamp = event.get("timestamp")
         datetime64_default_timestamp = timezone.now().astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")
-        if not timestamp:
-            timestamp = timezone.now()
-        # clickhouse specific formatting
+        timestamp = event.get("timestamp") or dt.datetime.now()
         if isinstance(timestamp, str):
             timestamp = isoparse(timestamp)
-        else:
-            timestamp = timestamp.astimezone(pytz.utc)
-
-        timestamp = timestamp.strftime("%Y-%m-%d %H:%M:%S.%f")
+        # Offset timezone-naive datetime by project timezone, to facilitate @also_test_with_different_timezones
+        if timestamp.tzinfo is None:
+            team_timezone = event["team"].timezone if event.get("team") else "UTC"
+            timestamp = pytz.timezone(team_timezone).localize(timestamp)
+        # Format for ClickHouse
+        timestamp = timestamp.astimezone(pytz.utc).strftime("%Y-%m-%d %H:%M:%S.%f")
 
         elements_chain = ""
         if event.get("elements") and len(event["elements"]) > 0:
@@ -156,7 +156,7 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
         )
 
         #  use person properties mapping to populate person properties in given event
-        team_id = event["team"].pk if event.get("team") else event["team_id"]
+        team_id = event["team"].pk
         if person_mapping and person_mapping.get(event["distinct_id"]):
             person = person_mapping[event["distinct_id"]]
             person_properties = person.properties
