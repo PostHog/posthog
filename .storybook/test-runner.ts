@@ -33,7 +33,7 @@ declare module '@storybook/react' {
     }
 }
 
-const RETRY_TIMES = 3
+const RETRY_TIMES = 5
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 const updateSnapshot = expect.getState().snapshotState._updateSnapshot === 'all'
@@ -135,7 +135,8 @@ module.exports = {
             // But that's not the case, so we need to introduce a bit of a delay.
             // The delay is extended when updating snapshots, so that we're 100% sure they represent the final state.
             const delayMultiplier: number = updateSnapshot ? RETRY_TIMES : 1
-            await page.waitForTimeout(250 * delayMultiplier)
+            // Get number of Jest retry, without using test name
+            await page.waitForTimeout(100 * delayMultiplier)
             await expectStoryToMatchSnapshot(page, context, currentBrowser) // Don't retry when updating
         }
     },
