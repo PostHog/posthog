@@ -4,9 +4,9 @@ import { urls } from 'scenes/urls'
 import { PageHeader } from 'lib/components/PageHeader'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
-import { LemonTable } from 'lib/components/LemonTable'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
 
 export const scene: SceneExport = {

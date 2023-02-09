@@ -60,6 +60,7 @@ describe('vm tests', () => {
         expect(Object.keys(vm).sort()).toEqual(['methods', 'tasks', 'vm', 'vmResponseVariable'])
         expect(Object.keys(vm.methods).sort()).toEqual([
             'exportEvents',
+            'getSettings',
             'onEvent',
             'onSnapshot',
             'processEvent',
@@ -1048,22 +1049,6 @@ describe('vm tests', () => {
         }
         await vm.methods.onEvent!(event)
         expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=onEvent')
-    })
-
-    test('onSnapshot', async () => {
-        const indexJs = `
-            async function onSnapshot (event, meta) {
-                await fetch('https://google.com/results.json?query=' + event.event)
-            }
-        `
-        await resetTestDatabase(indexJs)
-        const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event: ProcessedPluginEvent = {
-            ...defaultEvent,
-            event: '$snapshot',
-        }
-        await vm.methods.onSnapshot!(event)
-        expect(fetch).toHaveBeenCalledWith('https://google.com/results.json?query=$snapshot')
     })
 
     describe('exportEvents', () => {

@@ -1,27 +1,27 @@
 import {
     ActionsNode,
     DataTableNode,
+    DateRange,
     EventsNode,
     EventsQuery,
+    TrendsQuery,
     FunnelsQuery,
+    RetentionQuery,
+    PathsQuery,
+    StickinessQuery,
+    LifecycleQuery,
     InsightFilter,
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
     LegacyQuery,
-    LifecycleQuery,
     Node,
     NodeKind,
-    PathsQuery,
     PersonsNode,
     RecentPerformancePageViewNode,
-    RetentionQuery,
-    StickinessQuery,
-    SupportedNodeKind,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
-    TrendsQuery,
-    UnimplementedQuery,
+    InsightNodeKind,
 } from '~/queries/schema'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
@@ -93,10 +93,6 @@ export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
-export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
-    return node?.kind === NodeKind.UnimplementedQuery
-}
-
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
@@ -104,8 +100,7 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node) ||
-        isUnimplementedQuery(node)
+        isLifecycleQuery(node)
     )
 }
 
@@ -121,7 +116,39 @@ export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerf
     return node?.kind === NodeKind.RecentPerformancePageViewNode
 }
 
-const nodeKindToFilterProperty: Record<SupportedNodeKind, InsightFilterProperty> = {
+export function dateRangeFor(node?: Node): DateRange | undefined {
+    if (isInsightQueryNode(node)) {
+        return node.dateRange
+    } else if (isTimeToSeeDataQuery(node)) {
+        return {
+            date_from: node.sessionStart,
+            date_to: node.sessionEnd,
+        }
+    } else if (isRecentPerformancePageViewNode(node)) {
+        return undefined // convert from number of days to date range
+    } else if (isTimeToSeeDataSessionsQuery(node)) {
+        return node.dateRange
+    } else if (isLegacyQuery(node)) {
+        return {
+            date_from: node.filters?.date_from,
+            date_to: node.filters?.date_to,
+        }
+    } else if (isActionsNode(node)) {
+        return undefined
+    } else if (isEventsNode(node)) {
+        return undefined
+    } else if (isPersonsNode(node)) {
+        return undefined
+    } else if (isDataTableNode(node)) {
+        return undefined
+    } else if (isInsightVizNode(node)) {
+        return node.source.dateRange
+    }
+
+    return undefined
+}
+
+const nodeKindToFilterProperty: Record<InsightNodeKind, InsightFilterProperty> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -130,15 +157,12 @@ const nodeKindToFilterProperty: Record<SupportedNodeKind, InsightFilterProperty>
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-export function filterPropertyForQuery(node: Exclude<InsightQueryNode, UnimplementedQuery>): InsightFilterProperty {
+export function filterPropertyForQuery(node: InsightQueryNode): InsightFilterProperty {
     return nodeKindToFilterProperty[node.kind]
 }
 
 export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
-    if (node.kind === NodeKind.UnimplementedQuery) {
-        return undefined
-    }
-    const filterProperty = filterPropertyForQuery(node)
+    const filterProperty = nodeKindToFilterProperty[node.kind]
     return node[filterProperty]
 }
 

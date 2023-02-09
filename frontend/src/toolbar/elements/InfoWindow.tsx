@@ -4,7 +4,8 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
 export function InfoWindow(): JSX.Element | null {
-    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta } = useValues(elementsLogic)
+    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, relativePositionCompensation } =
+        useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
 
     // use rectUpdateCounter to reload component when it changes, but discard the output
@@ -25,6 +26,10 @@ export function InfoWindow(): JSX.Element | null {
 
     const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
     const windowHeight = Math.min(document.documentElement.clientHeight, window.innerHeight)
+    let positioningHeight = windowHeight
+    if (window.getComputedStyle(document.body).position === 'relative') {
+        positioningHeight = document.documentElement.offsetHeight
+    }
 
     let left = rect.left + window.pageXOffset + (rect.width > 300 ? (rect.width - 300) / 2 : 0)
     let width = 300
@@ -36,7 +41,9 @@ export function InfoWindow(): JSX.Element | null {
         }
     }
 
-    let top: number | undefined = Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset)
+    let top: number | undefined =
+        Math.max(window.pageYOffset + 16, rect.top + rect.height + 10 + window.pageYOffset) +
+        relativePositionCompensation
     let bottom: number | undefined
     const minHeight: number | undefined = 50
     let maxHeight: number | undefined
@@ -46,7 +53,7 @@ export function InfoWindow(): JSX.Element | null {
 
     if (spaceAbove > spaceBelow) {
         top = undefined
-        bottom = windowHeight - rect.top + 10 - window.pageYOffset
+        bottom = positioningHeight - rect.top + 10 - window.pageYOffset - relativePositionCompensation
         maxHeight = spaceAbove
     } else {
         maxHeight = spaceBelow

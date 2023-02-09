@@ -49,6 +49,7 @@ import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/human
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
+import { QuerySchema } from '~/queries/schema'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -422,6 +423,11 @@ class ApiRequest {
             .addPathComponent('performance_events')
             .addPathComponent('recent_pageviews')
             .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
+    }
+
+    // # Queries
+    public query(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('query')
     }
 
     // Request finalization
@@ -1109,6 +1115,15 @@ const api = {
         ): Promise<PaginatedResponse<PerformanceEvent>> {
             return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
         },
+        recentPageViewsURL(teamId: TeamType['id'] = getCurrentTeamId(), dateFrom?: string, dateTo?: string): string {
+            return new ApiRequest()
+                .recentPageViewPerformanceEvents(
+                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
+                    dateTo || dayjs().toISOString(),
+                    teamId
+                )
+                .assembleEndpointUrl()
+        },
         async recentPageViews(
             teamId: TeamType['id'] = getCurrentTeamId(),
             dateFrom?: string,
@@ -1122,6 +1137,22 @@ const api = {
                 )
                 .get()
         },
+    },
+
+    queryURL: (): string => {
+        return new ApiRequest().query().assembleEndpointUrl()
+    },
+    async query<T extends Record<string, any> = QuerySchema>(
+        query: T,
+        options?: ApiMethodOptions
+    ): Promise<
+        T extends { [response: string]: any }
+            ? T['response'] extends infer P | undefined
+                ? P
+                : T['response']
+            : Record<string, any>
+    > {
+        return await new ApiRequest().query().create({ ...options, data: query })
     },
 
     /** Fetch data from specified URL. The result already is JSON-parsed. */

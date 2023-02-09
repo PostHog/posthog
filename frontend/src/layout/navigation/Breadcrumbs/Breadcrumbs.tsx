@@ -1,12 +1,12 @@
 import React, { useState } from 'react'
 import { useValues } from 'kea'
-import { IconArrowDropDown, IconChevronRight } from 'lib/components/icons'
-import { Link } from 'lib/components/Link'
+import { IconArrowDropDown, IconChevronRight } from 'lib/lemon-ui/icons'
+import { Link } from 'lib/lemon-ui/Link'
 import './Breadcrumbs.scss'
 import { breadcrumbsLogic } from './breadcrumbsLogic'
 import { Breadcrumb as IBreadcrumb } from '~/types'
 import clsx from 'clsx'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: number }): JSX.Element {
     const [popoverShown, setPopoverShown] = useState(false)
@@ -15,16 +15,16 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
         <div
             className={clsx(
                 'Breadcrumbs__breadcrumb',
-                (breadcrumb.path || breadcrumb.popup) && 'Breadcrumbs__breadcrumb--actionable'
+                (breadcrumb.path || breadcrumb.popover) && 'Breadcrumbs__breadcrumb--actionable'
             )}
             onClick={() => {
-                breadcrumb.popup && setPopoverShown(!popoverShown)
+                breadcrumb.popover && setPopoverShown(!popoverShown)
             }}
             data-attr={`breadcrumb-${index}`}
         >
             {breadcrumb.symbol}
             <span>{breadcrumb.name}</span>
-            {breadcrumb.popup && <IconArrowDropDown className="text-muted-alt text-lg" />}
+            {breadcrumb.popover && <IconArrowDropDown className="text-muted-alt text-lg" />}
         </div>
     )
 
@@ -32,10 +32,10 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
         breadcrumbContent = <Link to={breadcrumb.path}>{breadcrumbContent}</Link>
     }
 
-    if (breadcrumb.popup) {
+    if (breadcrumb.popover) {
         return (
-            <Popup
-                {...breadcrumb.popup}
+            <Popover
+                {...breadcrumb.popover}
                 visible={popoverShown}
                 onClickOutside={() => {
                     if (popoverShown) {
@@ -44,7 +44,7 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
                 }}
             >
                 {breadcrumbContent}
-            </Popup>
+            </Popover>
         )
     }
 

@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import tk from 'timekeeper'
 
 import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
 
@@ -31,10 +30,10 @@ describe('parseDate()', () => {
 
 describe('parseEventTimestamp()', () => {
     beforeEach(() => {
-        tk.freeze('2020-08-12T01:02:00.000Z')
+        jest.useFakeTimers().setSystemTime(new Date('2020-08-12T01:02:00.000Z'))
     })
     afterEach(() => {
-        tk.reset()
+        jest.useRealTimers()
     })
 
     it('captures sent_at to adjusts timestamp', () => {
@@ -156,6 +155,8 @@ describe('parseEventTimestamp()', () => {
             timestamp: '2021-10-29T02:30:00.000Z',
             sent_at: '2021-10-28T01:00:00.000Z',
             now: '2021-10-29T01:00:00.000Z',
+            event: 'test event name',
+            uuid: '12345678-1234-1234-1234-123456789abc',
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -169,17 +170,21 @@ describe('parseEventTimestamp()', () => {
                     result: '2021-10-30T02:30:00.000Z',
                     sentAt: '2021-10-28T01:00:00.000Z',
                     timestamp: '2021-10-29T02:30:00.000Z',
+                    eventUuid: '12345678-1234-1234-1234-123456789abc',
+                    eventName: 'test event name',
                 },
             ],
         ])
 
-        expect(timestamp.toISO()).toEqual('2021-10-30T02:30:00.000Z')
+        expect(timestamp.toISO()).toEqual('2021-10-29T02:30:00.000Z')
     })
 
     it('reports event_timestamp_in_future with negative offset', () => {
         const event = {
             offset: -82860000,
             now: '2021-10-29T01:00:00.000Z',
+            event: 'test event name',
+            uuid: '12345678-1234-1234-1234-123456789abc',
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -194,10 +199,12 @@ describe('parseEventTimestamp()', () => {
                     result: '2021-10-30T00:01:00.000Z',
                     sentAt: '',
                     timestamp: '',
+                    eventUuid: '12345678-1234-1234-1234-123456789abc',
+                    eventName: 'test event name',
                 },
             ],
         ])
 
-        expect(timestamp.toISO()).toEqual('2021-10-30T00:01:00.000Z')
+        expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
     })
 })

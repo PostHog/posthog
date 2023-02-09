@@ -6,8 +6,8 @@ import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { FunnelPathType, EditorFilterProps, QueryEditorFilterProps, PathsFilterType } from '~/types'
 import { PathItemSelector } from 'lib/components/PropertyFilters/components/PathItemSelector'
-import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
-import { IconClose, IconFunnelVertical } from 'lib/components/icons'
+import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
+import { IconClose, IconFunnelVertical } from 'lib/lemon-ui/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function PathsTargetStartDataExploration(props: QueryEditorFilterProps): JSX.Element {

@@ -42,11 +42,13 @@ import {
 import { createPluginActivityLog } from '../../../../utils/db/activity-log'
 import { processError } from '../../../../utils/db/error'
 import { isTestEnv } from '../../../../utils/env-utils'
+import { status } from '../../../../utils/status'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 
 const TEN_MINUTES = 1000 * 60 * 10
 const TWELVE_HOURS = 1000 * 60 * 60 * 12
-export const EVENTS_PER_RUN = 500
+export const EVENTS_PER_RUN_SMALL = 500
+export const EVENTS_PER_RUN_BIG = 10000
 
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
 export const EXPORT_COORDINATION_KEY = 'EXPORT_COORDINATION'
@@ -163,16 +165,19 @@ export function addHistoricalEventsExportCapabilityV2(
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
-    // Set the number of events to fetch per chunk, defaulting to 10000
-    // if the plugin is PostHog S3 Export plugin, otherwise we detault to
-    // 500. This is to avoid writting lots of small files to S3.
+    // Set the number of events to fetch per chunk, defaulting to 500 unless
+    // the plugin indicates bigger batches are preferable (notably plugins writing
+    // to blob storage with a fixed cost per batch), in which case we use 10000.
     //
     // It also has the other benefit of using fewer requests to ClickHouse. In
-    // it's current implementation the querying logic for pulling pages of
+    // its current implementation the querying logic for pulling pages of
     // events from ClickHouse will read a much larger amount of data from disk
     // than is required, due to us trying to order the dataset by `timestamp`
     // and this not being included in the `sharded_events` table sort key.
-    const eventsPerRun = pluginConfig.plugin?.name === 'S3 Export Plugin' ? 10000 : EVENTS_PER_RUN
+    let eventsPerRun = EVENTS_PER_RUN_SMALL
+    if (methods.getSettings && methods.getSettings()?.handlesLargeBatches) {
+        eventsPerRun = EVENTS_PER_RUN_BIG
+    }
 
     // If public job hasn't been registered or has changed, update it!
     if (
@@ -327,6 +332,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 doneDates.add(date)
                 runningDates.delete(date)
                 progress += progressPerDay
+                continue
             } else {
                 progress += progressPerDay * (dateStatus?.progress ?? 0)
             }
@@ -382,6 +388,11 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
+        status.info('ℹ️', 'Running export historical events', {
+            pluginConfigId: pluginConfig.id,
+            payload,
+        })
+
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped
@@ -402,10 +413,12 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        const progress = (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime)
+
         await meta.storage.set(payload.statusKey, {
             ...payload,
             done: false,
-            progress: (payload.timestampCursor - payload.startTime) / (payload.endTime - payload.startTime),
+            progress: progress,
             statusTime: Date.now(),
         } as ExportChunkStatus)
 
@@ -435,6 +448,19 @@ export function addHistoricalEventsExportCapabilityV2(
             return
         }
 
+        // We bump the statusTime every minute to let the coordinator know we are still
+        // alive and we don't need to be resumed.
+        const interval = setInterval(async () => {
+            const now = Date.now()
+            createLog(`Still running, updating ${payload.statusKey} statusTime for plugin ${pluginConfig.id} to ${now}`)
+            await meta.storage.set(payload.statusKey, {
+                ...payload,
+                done: false,
+                progress: progress,
+                statusTime: now,
+            } as ExportChunkStatus)
+        }, 60 * 1000)
+
         if (events.length > 0) {
             try {
                 await methods.exportEvents!(events)
@@ -459,10 +485,14 @@ export function addHistoricalEventsExportCapabilityV2(
                     plugin: pluginConfig.plugin?.name ?? '?',
                 })
             } catch (error) {
+                clearInterval(interval)
+
                 await handleExportError(error, activeExportParameters, payload, events.length)
                 return
             }
         }
+
+        clearInterval(interval)
 
         const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
 
@@ -595,6 +625,10 @@ export function addHistoricalEventsExportCapabilityV2(
     function shouldResume(status: ExportChunkStatus, now: number): boolean {
         // When a export hasn't updated in 10 minutes plus whatever time is spent on retries, it's likely already timed out or died
         // Note that status updates happen every time the export makes _any_ progress
+        // NOTE from the future: we discovered that 10 minutes was not enough time as we have exports running for longer
+        // without failing, and this logic was triggering multiple simultaneous resumes. Simultaneous resumes start to fight to update
+        // the status, and cause duplicate data to be exported. Overall, a nightmare.
+        // To mitigate this, we have historialExportEvents update the status as it waits.
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 

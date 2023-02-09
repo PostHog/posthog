@@ -11,7 +11,6 @@ import {
     InsightType,
     MultivariateFlagOptions,
     MultivariateFlagVariant,
-    PropertyFilter,
     PropertyFilterType,
     PropertyOperator,
     RolloutConditionType,
@@ -26,7 +25,7 @@ import { teamLogic } from '../teamLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
@@ -147,7 +146,7 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
     if (flag.filters?.multivariate) {
         const newPayloads = {}
         flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-            const payload = flag.filters?.payloads[index]
+            const payload = flag.filters?.payloads?.[index]
             if (payload) {
                 newPayloads[key] = payload
             }
@@ -160,7 +159,19 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
             },
         }
     }
-
+    if (flag.filters && !flag.filters.multivariate) {
+        let cleanedPayloadValue = {}
+        if (flag.filters.payloads?.['true']) {
+            cleanedPayloadValue = { true: flag.filters.payloads['true'] }
+        }
+        return {
+            ...flag,
+            filters: {
+                ...flag.filters,
+                payloads: cleanedPayloadValue,
+            },
+        }
+    }
     return flag
 }
 
@@ -253,7 +264,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             if (group.properties) {
                                 return {
                                     ...group,
-                                    properties: convertPropertyGroupToProperties(group.properties) as PropertyFilter[],
+                                    properties: convertPropertyGroupToProperties(
+                                        group.properties
+                                    ) as AnyPropertyFilter[],
                                 }
                             }
                             return group

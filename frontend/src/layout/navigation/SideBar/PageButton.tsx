@@ -3,9 +3,9 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Scene } from 'scenes/sceneTypes'
-import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/components/LemonButton'
+import { LemonButton, LemonButtonProps, LemonButtonWithSideAction, SideAction } from 'lib/lemon-ui/LemonButton'
 import { sceneConfigurations } from 'scenes/scenes'
-import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 
 export interface PageButtonProps extends Pick<LemonButtonProps, 'icon' | 'onClick' | 'to'> {
     /** Used for highlighting the active scene. `identifier` of type number means dashboard ID instead of scene. */

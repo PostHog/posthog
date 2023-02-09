@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
+import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
@@ -8,7 +9,20 @@ import { IngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
-    await ingestEvent(queue.pluginsServer, queue.workerMethods, formPipelineEvent(message))
+    const event = formPipelineEvent(message)
+
+    if (['$snapshot', '$performance_event'].includes(event.event)) {
+        // We have switched to using a separate topic for session recording
+        // related events. On upgrading PostHog there may be some session
+        // recording events still in the main ingestion topic.
+        await queue.pluginsServer.kafkaProducer.queueMessage({
+            topic: KAFKA_SESSION_RECORDING_EVENTS,
+            messages: [message],
+        })
+        return
+    }
+
+    await ingestEvent(queue.pluginsServer, queue.workerMethods, event)
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {

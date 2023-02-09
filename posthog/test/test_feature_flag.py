@@ -1,11 +1,13 @@
 import concurrent.futures
 from typing import cast
 
+from django.core.cache import cache
 from django.db import connection
 from django.test import TransactionTestCase
 from django.utils import timezone
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
+from posthog.models.feature_flag import get_feature_flags_for_team_in_cache
 from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
@@ -443,6 +445,91 @@ class TestFeatureFlagCohortExpansion(BaseTest):
                 },
             ],
         )
+
+
+class TestModelCache(BaseTest):
+    def setUp(self):
+        cache.clear()
+        return super().setUp()
+
+    def test_save_updates_cache(self):
+        initial_cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        self.assertIsNone(initial_cached_flags)
+
+        key = "test-flag"
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            name="Beta feature",
+            key=key,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+        )
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, key)
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [{"properties": [], "rollout_percentage": None}],
+            },
+        )
+        self.assertEqual(cached_flags[0].name, "Beta feature")
+        self.assertEqual(cached_flags[0].active, True)
+        self.assertEqual(cached_flags[0].deleted, False)
+
+        flag.name = "New name"
+        flag.key = "new-key"
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+        self.assertEqual(cached_flags[0].key, "new-key")
+        self.assertEqual(
+            cached_flags[0].filters,
+            {
+                "groups": [{"properties": [], "rollout_percentage": None}],
+            },
+        )
+        self.assertEqual(cached_flags[0].name, "New name")
+        self.assertEqual(cached_flags[0].active, True)
+        self.assertEqual(cached_flags[0].deleted, False)
+
+        flag.deleted = True
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
+
+        flag.deleted = False
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+
+        flag.active = False
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
+
+        flag.active = True
+        flag.save()
+
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(1, len(cached_flags))
+
+        flag.delete()
+        cached_flags = get_feature_flags_for_team_in_cache(self.team.pk)
+        assert cached_flags is not None
+        self.assertEqual(0, len(cached_flags))
 
 
 class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
@@ -1378,6 +1465,26 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         )
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "3").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+    def test_user_in_cohort_without_calculation(self):
+        Person.objects.create(team=self.team, distinct_ids=["example_id_1"], properties={"$some_prop_1": "something_1"})
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop_1", "value": "something_1", "type": "person"}]}],
+            name="cohort1",
+        )
+        feature_flag: FeatureFlag = self.create_feature_flag(
+            filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
         )
 

@@ -2,7 +2,7 @@ import './index.scss'
 import { Col, Popover, Row } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ProjectOutlined, LaptopOutlined, GlobalOutlined, SettingOutlined } from '@ant-design/icons'
-import { Link } from '../Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from '../../../scenes/teamLogic'
@@ -113,7 +113,7 @@ function TZLabelRaw({
         )
 
         return (
-            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} zIndex={styles.zPopup}>
+            <Popover content={PopoverContent} onVisibleChange={handleVisibleChange} zIndex={styles.zPopover}>
                 {innerContent}
             </Popover>
         )

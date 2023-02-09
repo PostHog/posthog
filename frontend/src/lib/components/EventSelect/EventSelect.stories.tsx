@@ -42,9 +42,7 @@ export default {
             },
         }),
     ],
-    parameters: {
-        chromatic: { disableSnapshot: false },
-    },
+    parameters: {},
 } as Meta
 
 export function EventSelect_(): JSX.Element {

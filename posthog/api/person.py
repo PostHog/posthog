@@ -49,6 +49,7 @@ from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
 from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrictActors
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.properties_timeline import PropertiesTimeline
@@ -58,7 +59,7 @@ from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.lifecycle import Lifecycle
 from posthog.queries.trends.trends_actors import TrendsActors
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import EE_AVAILABLE
 from posthog.tasks.split_person import split_person
 from posthog.utils import convert_property_value, format_query_params_absolute_url, is_anonymous_id, relative_date_parse
@@ -95,6 +96,13 @@ def get_person_name(person: Person) -> str:
         # Prefer non-UUID distinct IDs (presumably from user identification) over UUIDs
         return sorted(person.distinct_ids, key=is_anonymous_id)[0]
     return person.pk
+
+
+class PersonsThrottle(ClickHouseSustainedRateThrottle):
+    # Throttle class that's scoped just to the person endpoint.
+    # This makes the rate limit apply to all endpoints under /api/person/
+    # and independent of other endpoints.
+    scope = "persons"
 
 
 class PersonSerializer(serializers.HyperlinkedModelSerializer):
@@ -157,7 +165,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
     serializer_class = PersonSerializer
     pagination_class = PersonLimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    throttle_classes = [ClickHouseBurstRateThrottle, PersonsThrottle]
     lifecycle_class = Lifecycle
     retention_class = Retention
     stickiness_class = Stickiness
@@ -191,13 +199,15 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         is_csv_request = self.request.accepted_renderer.format == "csv"
         if is_csv_request:
-            filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
+            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
-            filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+            filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = sync_execute(query, params)
+        raw_result = insight_sync_execute(
+            query, {**params, **filter.hogql_context.values}, filter=filter, query_type="person_list"
+        )
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)
@@ -634,7 +644,7 @@ T = TypeVar("T", Filter, PathFilter, RetentionFilter, StickinessFilter)
 
 def prepare_actor_query_filter(filter: T) -> T:
     if not filter.limit:
-        filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
+        filter = filter.shallow_clone({LIMIT: DEFAULT_PAGE_LIMIT})
 
     search = getattr(filter, "search", None)
     if not search:
@@ -674,7 +684,7 @@ def prepare_actor_query_filter(filter: T) -> T:
         else new_group
     )
 
-    return filter.with_data({"properties": prop_group, "search": None})
+    return filter.shallow_clone({"properties": prop_group, "search": None})
 
 
 class LegacyPersonViewSet(PersonViewSet):

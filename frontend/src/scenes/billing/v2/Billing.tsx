@@ -2,13 +2,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { billingV2Logic } from './billingV2Logic'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
-import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonDialog } from 'lib/components/LemonDialog'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { BillingProductV2Type } from '~/types'
-import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import { BillingGauge, BillingGaugeProps } from './BillingGauge'
@@ -16,7 +16,7 @@ import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './bi
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { IconDelete, IconEdit } from 'lib/components/icons'
+import { IconDelete, IconEdit } from 'lib/lemon-ui/icons'
 import { PlanTable } from './PlanTable'
 import { BillingHero } from './BillingHero'
 
@@ -86,7 +86,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </AlertMessage>
             ) : null}
-            {!billing?.billing_period && cloudOrDev && (
+            {!billing?.has_active_subscription && cloudOrDev && (
                 <>
                     <div className="my-8">
                         <BillingHero />
@@ -111,10 +111,16 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                                 <b>{billing.billing_period.current_period_end.format('LL')}</b>
                             </p>
 
-                            <LemonLabel info={'This is the current amount you have been billed for this month so far.'}>
-                                Current bill total
-                            </LemonLabel>
-                            <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+                            {billing?.has_active_subscription && (
+                                <>
+                                    <LemonLabel
+                                        info={'This is the current amount you have been billed for this month so far.'}
+                                    >
+                                        Current bill total
+                                    </LemonLabel>
+                                    <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+                                </>
+                            )}
 
                             <p>
                                 <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
@@ -216,9 +222,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
     const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
 
-    const billingLimitAsUsage = isEditingBillingLimit
-        ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-        : convertAmountToUsage(customLimitUsd || '', product.tiers)
+    const billingLimitAsUsage = product.tiers
+        ? isEditingBillingLimit
+            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
+            : convertAmountToUsage(customLimitUsd || '', product.tiers)
+        : 0
 
     const productType = { plural: product.type, singular: product.type.slice(0, -1) }
 
@@ -232,7 +240,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             return actuallyUpdateLimit()
         }
 
-        const newAmountAsUsage = convertAmountToUsage(`${value}`, product.tiers)
+        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({
@@ -279,7 +287,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     useEffect(() => {
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
-                parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers)) ||
+                (product.tiers
+                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
     }, [customLimitUsd])
@@ -374,7 +384,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
                         </div>
-                        {product.tiered && (
+                        {product.tiered && product.tiers && (
                             <>
                                 <div className="space-y-2">
                                     <LemonLabel
@@ -519,7 +529,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </div>
 
                             <ul>
-                                {product.tiers.map((tier, i) => (
+                                {product.tiers?.map((tier, i) => (
                                     <li
                                         key={i}
                                         className={clsx('flex justify-between py-2', {
@@ -531,10 +541,10 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             {i === 0
                                                 ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
                                                 : tier.up_to
-                                                ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
-                                                      tier.up_to
-                                                  )}`
-                                                : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
+                                                ? `${summarizeUsage(
+                                                      product.tiers?.[i - 1].up_to || null
+                                                  )} - ${summarizeUsage(tier.up_to)}`
+                                                : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`}
                                         </span>
                                         <b>
                                             {tierAmountType === 'individual' ? (

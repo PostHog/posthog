@@ -4,7 +4,7 @@ import { promptLogic } from 'lib/logic/promptLogic'
 import { InsightModel } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
-import { lemonToast } from 'lib/components/lemonToast'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],

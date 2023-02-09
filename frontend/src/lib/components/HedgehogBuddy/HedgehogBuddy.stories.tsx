@@ -4,6 +4,9 @@ import { HedgehogBuddy } from './HedgehogBuddy'
 export default {
     title: 'Components/Hedgehog Buddy',
     component: HedgehogBuddy,
+    parameters: {
+        testOptions: { skip: true }, // Hedgehogs aren't particularly snapshotable
+    },
 } as ComponentMeta<typeof HedgehogBuddy>
 
 export const Template: ComponentStory<typeof HedgehogBuddy> = () => {

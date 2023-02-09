@@ -4,7 +4,7 @@ import { EachBatchPayload, Kafka } from 'kafkajs'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import { KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_EVENTS_DLQ } from '../../config/kafka-topics'
-import { PipelineEvent, RawEventMessage } from '../../types'
+import { PipelineEvent, RawEventMessage, Team } from '../../types'
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
@@ -123,7 +123,7 @@ export const eachBatch =
                 })
                 .observe(message.value.length)
 
-            if (!messagePayload.team_id && !event.token) {
+            if (messagePayload.team_id == null && !messagePayload.token) {
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'no_token',
                     partition: batch.partition,
@@ -133,13 +133,16 @@ export const eachBatch =
                 continue
             }
 
-            let teamId: number | null = null
+            let team: Team | null = null
 
             try {
-                teamId =
-                    messagePayload.team_id ?? (event.token ? (await teamManager.getTeamByToken(event.token))?.id : null)
+                if (messagePayload.team_id != null) {
+                    team = await teamManager.fetchTeam(messagePayload.team_id)
+                } else if (messagePayload.token) {
+                    team = await teamManager.getTeamByToken(messagePayload.token)
+                }
 
-                if (!teamId) {
+                if (team == null) {
                     status.warn('⚠️', 'invalid_message', {
                         reason: 'team_not_found',
                         partition: batch.partition,
@@ -149,26 +152,28 @@ export const eachBatch =
                     continue
                 }
 
-                if (event.event === '$snapshot') {
-                    await createSessionRecordingEvent(
-                        messagePayload.uuid,
-                        teamId,
-                        messagePayload.distinct_id,
-                        parseEventTimestamp(event as PluginEvent),
-                        event.ip,
-                        event.properties || {},
-                        producer
-                    )
-                } else if (event.event === '$performance_event') {
-                    await createPerformanceEvent(
-                        messagePayload.uuid,
-                        teamId,
-                        messagePayload.distinct_id,
-                        event.properties || {},
-                        event.ip,
-                        parseEventTimestamp(event as PluginEvent),
-                        producer
-                    )
+                if (team.session_recording_opt_in) {
+                    if (event.event === '$snapshot') {
+                        await createSessionRecordingEvent(
+                            messagePayload.uuid,
+                            team.id,
+                            messagePayload.distinct_id,
+                            parseEventTimestamp(event as PluginEvent),
+                            event.ip,
+                            event.properties || {},
+                            producer
+                        )
+                    } else if (event.event === '$performance_event') {
+                        await createPerformanceEvent(
+                            messagePayload.uuid,
+                            team.id,
+                            messagePayload.distinct_id,
+                            event.properties || {},
+                            event.ip,
+                            parseEventTimestamp(event as PluginEvent),
+                            producer
+                        )
+                    }
                 }
             } catch (error) {
                 status.error('⚠️', 'processing_error', {

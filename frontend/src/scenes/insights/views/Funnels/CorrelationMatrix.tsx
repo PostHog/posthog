@@ -3,11 +3,11 @@ import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { capitalizeFirstLetter, percentage, pluralize } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { Link } from 'lib/components/Link'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Link } from 'lib/lemon-ui/Link'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
 import {
     IconCancel,
@@ -15,8 +15,8 @@ import {
     IconErrorOutline,
     IconTrendingFlat,
     IconTrendingFlatDown,
-} from 'lib/components/icons'
-import { AlertMessage } from 'lib/components/AlertMessage'
+} from 'lib/lemon-ui/icons'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import clsx from 'clsx'
 
 export function CorrelationMatrix(): JSX.Element {

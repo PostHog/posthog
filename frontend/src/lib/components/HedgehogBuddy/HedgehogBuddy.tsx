@@ -14,11 +14,11 @@ import hhWalkXmas from 'public/hedgehog/sprites/walk-xmas.png'
 import hhWaveXmas from 'public/hedgehog/sprites/wave-xmas.png'
 import clsx from 'clsx'
 import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
-import { Popup } from '../Popup/Popup'
-import { LemonButton } from '../LemonButton'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
-import { LemonDivider } from '../LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -160,7 +160,7 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
     const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - size)
     const position = useRef([startX, 200])
     const [isDragging, setIsDragging] = useState(false)
-    const [popupVisible, setPopupVisible] = useState(false)
+    const [popoverVisible, setPopoverVisible] = useState(false)
 
     const [animationName, setAnimationName] = useState('fall')
 
@@ -234,21 +234,21 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
     }, [isDragging])
 
     const onClick = (): void => {
-        !isDragging && setPopupVisible(!popupVisible)
+        !isDragging && setPopoverVisible(!popoverVisible)
     }
     const disappear = (): void => {
-        setPopupVisible(false)
+        setPopoverVisible(false)
         setAnimationName('wave')
         setTimeout(() => onClose(), (animations.wave.frames * 1000) / fps)
     }
 
     return (
-        <Popup
+        <Popover
             onClickOutside={() => {
-                setPopupVisible(false)
+                setPopoverVisible(false)
                 setAnimationName('fall')
             }}
-            visible={popupVisible}
+            visible={popoverVisible}
             overlay={
                 <div className="p-2">
                     <h3>Hello!</h3>
@@ -269,7 +269,7 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                         <LemonButton type="secondary" status="danger" onClick={() => disappear()}>
                             Good bye!
                         </LemonButton>
-                        <LemonButton type="secondary" onClick={() => setPopupVisible(false)}>
+                        <LemonButton type="secondary" onClick={() => setPopoverVisible(false)}>
                             Carry on!
                         </LemonButton>
                     </div>
@@ -338,7 +338,7 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                     />
                 ))}
             </div>
-        </Popup>
+        </Popover>
     )
 }
 

@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'
 import PostHogIcon from 'public/icon-white.svg'
-import { IconEdit, IconMagnifier } from '../icons'
+import { IconEdit, IconMagnifier } from 'lib/lemon-ui/icons'
 
 export function CommandInput(): JSX.Element {
     const { input, isSqueak, activeFlow } = useValues(commandPaletteLogic)

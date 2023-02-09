@@ -1,14 +1,16 @@
-import dataclasses
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
+from pydantic import BaseModel
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql.hogql import SELECT_STAR_FROM_EVENTS_FIELDS, HogQLContext, translate_hogql
+from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.hogql import translate_hogql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.element import chain_to_elements
@@ -20,16 +22,20 @@ from posthog.models.event.sql import (
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns, insight_sync_execute
+from posthog.schema import EventsQuery
 from posthog.utils import relative_date_parse
 
+# Return at most this number of events in CSV export
+QUERY_DEFAULT_LIMIT = 100
+QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+QUERY_MAXIMUM_LIMIT = 100_000
 
-# sync with "schema.ts"
-@dataclasses.dataclass
-class EventsQueryResponse:
-    columns: List[str] = dataclasses.field(default_factory=list)
-    types: List[str] = dataclasses.field(default_factory=list)
-    results: List[List[Any]] = dataclasses.field(default_factory=list)
-    has_more: bool = False
+
+class EventsQueryResponse(BaseModel):
+    columns: List[str]
+    types: List[str]
+    results: List[List]
+    hasMore: bool
 
 
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
@@ -72,12 +78,10 @@ def query_events_list(
     request_get_query_dict: Dict,
     order_by: List[str],
     action_id: Optional[str],
-    select: Optional[List[str]],
-    where: Optional[List[str]],
     unbounded_date_from: bool = False,
-    limit: int = 100,
+    limit: int = QUERY_DEFAULT_LIMIT,
     offset: int = 0,
-) -> Union[List, EventsQueryResponse]:
+) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
     hogql_context = HogQLContext()
@@ -107,34 +111,101 @@ def query_events_list(
         if action.steps.count() == 0:
             return []
 
-        # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        action_query, params = format_action_filter(team_id=team.pk, action=action)
+        action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
-    # if not using hogql-powered "select" to fetch certain columns, return an array of objects
-    if not isinstance(select, list):
-        order = "DESC" if len(order_by) == 1 and order_by[0] == "-timestamp" else "ASC"
-        if where:
-            raise ValueError("Cannot use 'where' without 'select'")
-        if prop_filters != "":
-            return insight_query_with_columns(
-                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                    conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
-                ),
-                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params, **prop_filter_params},
-                query_type="events_list",
-                workload=Workload.OFFLINE,
-            )
-        else:
-            return insight_query_with_columns(
-                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params},
-                query_type="events_list",
-                workload=Workload.OFFLINE,
-            )
+    order = "DESC" if len(order_by) == 1 and order_by[0] == "-timestamp" else "ASC"
+    if prop_filters != "":
+        return insight_query_with_columns(
+            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+            ),
+            {
+                "team_id": team.pk,
+                "limit": limit,
+                "offset": offset,
+                **condition_params,
+                **prop_filter_params,
+                **hogql_context.values,
+            },
+            query_type="events_list",
+            workload=Workload.OFFLINE,
+        )
+    else:
+        return insight_query_with_columns(
+            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
+            {
+                "team_id": team.pk,
+                "limit": limit,
+                "offset": offset,
+                **condition_params,
+                **hogql_context.values,
+            },
+            query_type="events_list",
+            workload=Workload.OFFLINE,
+        )
 
-    # events list v2 - hogql
+
+def run_events_query(
+    team: Team,
+    query: EventsQuery,
+) -> EventsQueryResponse:
+    # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
+    # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
+    hogql_context = HogQLContext()
+
+    # adding +1 to the limit to check if there's a "next page" after the requested results
+    limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
+    offset = 0 if query.offset is None else query.offset
+    action_id = query.actionId
+    person_id = query.personId
+    order_by = query.orderBy
+    select = query.select
+    where = query.where.copy() if query.where else []  # Shallow-copy since we'll be modifying it
+    event = query.event
+
+    classic_properties = []
+    classic_properties.extend(query.fixedProperties or [])
+    classic_properties.extend(query.properties or [])
+
+    # Split HogQL properties from the rest, as "where" supports filtering by "having" aggregations like "count() > 2"
+    properties = []
+    for prop in classic_properties:
+        if prop.type == "hogql":
+            where.append(str(prop.key))
+        else:
+            properties.append(prop.dict())
+
+    limit_sql = "LIMIT %(limit)s"
+    if offset > 0:
+        limit_sql += " OFFSET %(offset)s"
+
+    conditions, condition_params = determine_event_conditions(
+        {
+            # Don't show events that have been ingested with timestamps in the future. Would break new event polling.
+            "after": query.after,
+            "before": query.before or (now() + timedelta(seconds=5)).isoformat(),
+            "person_id": person_id,
+            "event": event,
+        }
+    )
+    filter = Filter(team=team, data={"properties": properties}, hogql_context=hogql_context)
+    prop_filters, prop_filter_params = parse_prop_grouped_clauses(
+        team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
+    )
+
+    if action_id:
+        try:
+            action = Action.objects.get(pk=action_id, team_id=team.pk)
+        except Action.DoesNotExist:
+            raise Exception("Action does not exist")
+        if action.steps.count() == 0:
+            raise Exception("Action does not have any match groups")
+
+        action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_context=hogql_context)
+        prop_filters += " AND {}".format(action_query)
+        prop_filter_params = {**prop_filter_params, **params}
 
     select_columns: List[str] = []
     group_by_columns: List[str] = []
@@ -168,7 +239,12 @@ def query_events_list(
                 fragment = fragment[1:]
             order_by_list.append(translate_hogql(fragment, hogql_context) + " " + order_direction)
     else:
-        order_by_list.append(select_columns[0] + " ASC")
+        if "count(*)" in select_columns or "count()" in select_columns:
+            order_by_list.append("count() DESC")
+        elif "timestamp" in select_columns:
+            order_by_list.append("timestamp DESC")
+        else:
+            order_by_list.append(select_columns[0] + " ASC")
 
     if select_columns == group_by_columns:
         group_by_columns = []
@@ -195,6 +271,7 @@ def query_events_list(
         with_column_types=True,
         query_type="events_list",
         workload=Workload.OFFLINE,
+        filter=filter,
     )
 
     # Convert star field from tuple to dict in each result
@@ -217,7 +294,7 @@ def query_events_list(
         results=results[: limit - 1] if received_extra_row else results,
         columns=select,
         types=[type for _, type in types],
-        has_more=received_extra_row,
+        hasMore=received_extra_row,
     )
 
 
@@ -225,13 +302,13 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
     new_result["properties"] = json.loads(new_result["properties"])
     new_result["person"] = {
-        "id": new_result["person_id"],
-        "created_at": new_result["person_created_at"],
-        "properties": json.loads(new_result["person_properties"]),
+        "id": new_result["person.id"],
+        "created_at": new_result["person.created_at"],
+        "properties": json.loads(new_result["person.properties"]),
     }
-    new_result.pop("person_id")
-    new_result.pop("person_created_at")
-    new_result.pop("person_properties")
+    new_result.pop("person.id")
+    new_result.pop("person.created_at")
+    new_result.pop("person.properties")
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result

@@ -60,9 +60,9 @@ ACTIVE_USERS_SQL = """
 WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
 toDateTime(%(date_from)s, %(timezone)s) AS date_from,
 arrayMap(
-    n -> toDateTime(n, %(timezone)s),
+    n -> {rounding_func}(toDateTime(n, %(timezone)s)),
     range(
-        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s)))),
+        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s)), %(timezone)s)),
         toUInt32(date_to),
         %(bucket_increment_seconds)s
     )
@@ -73,25 +73,33 @@ SELECT counts AS total,
 FROM (
     SELECT
         count(DISTINCT actor_id) AS counts,
-        arrayJoin(event_buckets) as timestamp
+        {rounding_func}(arrayJoin(event_buckets)) as timestamp
     FROM (
         SELECT
             {aggregator} as actor_id,
+            toTimeZone(timestamp, %(timezone)s) as tz_adjusted_timestamp,
             arrayMap(
                 n -> toDateTime(n, %(timezone)s),
                 range(
-                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))),
-                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}),
+                    toUInt32(
+                        toDateTime(
+                            {rounding_func}(
+                                if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)
+                            )
+                        )
+                    ),
+                    toUInt32(
+                        if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL {prev_interval}
+                    ),
                     %(grouping_increment_seconds)s
                 )
             ) AS event_buckets
         {event_query_base}
-        GROUP BY {aggregator}, timestamp
+        GROUP BY {aggregator}, tz_adjusted_timestamp
     )
     GROUP BY timestamp
     HAVING
         has(buckets, timestamp)
-        {parsed_date_from} {parsed_date_to}
     ORDER BY timestamp
 )
 """
@@ -113,7 +121,6 @@ SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     GROUP BY day_start
     ORDER BY day_start
 )
-SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """

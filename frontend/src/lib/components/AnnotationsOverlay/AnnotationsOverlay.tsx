@@ -3,23 +3,23 @@ import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
 import React, { useRef, useState } from 'react'
 import { IntervalType, AnnotationType } from '~/types'
-import { IconDelete, IconEdit, IconPlusMini } from '../icons'
-import { LemonBadge } from '../LemonBadge/LemonBadge'
-import { LemonModal } from '../LemonModal'
+import { IconDelete, IconEdit, IconPlusMini } from 'lib/lemon-ui/icons'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import {
     annotationsOverlayLogic,
     AnnotationsOverlayLogicProps,
     determineAnnotationsDateGroup,
 } from './annotationsOverlayLogic'
 import './AnnotationsOverlay.scss'
-import { LemonButton } from '../LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
-import { ProfilePicture } from '../ProfilePicture'
+import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { Popup } from '../Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -180,7 +180,7 @@ function AnnotationsPopover({
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <Popup
+        <Popover
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"

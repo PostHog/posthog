@@ -3,12 +3,11 @@ import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { Popup } from 'lib/components/Popup/Popup'
-import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import './FilterRow.scss'
 import clsx from 'clsx'
-import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
+import { IconClose, IconDelete, IconPlus } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 interface FilterRowProps {
     item: Record<string, any>
@@ -76,8 +75,8 @@ export const FilterRow = React.memo(function FilterRow({
                         )}
                     </>
                 ) : (
-                    <Popup
-                        className={'filter-row-popup'}
+                    <Popover
+                        className={'filter-row-popover'}
                         visible={open}
                         onClickOutside={() => handleVisibleChange(false)}
                         overlay={filterComponent(() => setOpen(false))}
@@ -100,7 +99,7 @@ export const FilterRow = React.memo(function FilterRow({
                                 {label}
                             </LemonButton>
                         )}
-                    </Popup>
+                    </Popover>
                 )}
                 {key && showConditionBadge && index + 1 < totalCount && (
                     <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">

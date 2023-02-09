@@ -1,11 +1,11 @@
 import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
-import { Popup } from 'lib/components/Popup/Popup'
-import { LemonButton } from 'lib/components/LemonButton'
-import { IconPlus } from 'lib/components/icons'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconPlus } from 'lib/lemon-ui/icons'
 
-import { PathRegexPopup } from './PathRegexPopup'
+import { PathRegexPopover } from './PathRegexPopover'
 
 type PathCleanFilterAddItemButtonProps = {
     onAdd: (filter: PathCleaningFilter) => void
@@ -14,11 +14,11 @@ type PathCleanFilterAddItemButtonProps = {
 export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemButtonProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     return (
-        <Popup
+        <Popover
             visible={visible}
             onClickOutside={() => setVisible(false)}
             overlay={
-                <PathRegexPopup
+                <PathRegexPopover
                     onSave={(filter: PathCleaningFilter) => {
                         onAdd(filter)
                         setVisible(false)
@@ -31,6 +31,6 @@ export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemBu
             <LemonButton onClick={() => setVisible(!visible)} type="secondary" size="small" icon={<IconPlus />}>
                 Add rule
             </LemonButton>
-        </Popup>
+        </Popover>
     )
 }

@@ -2,6 +2,7 @@ import json
 from unittest.mock import MagicMock
 
 from dateutil import parser
+from django.test import override_settings
 from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
@@ -21,6 +22,12 @@ from posthog.utils import generate_cache_key
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
+        self.organization.available_features = [
+            AvailableFeature.TAGGING,
+            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.save()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @snapshot_postgres_queries
@@ -147,6 +154,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertAlmostEqual(Dashboard.objects.get().last_accessed_at, now(), delta=timezone.timedelta(seconds=5))
         self.assertEqual(response["tiles"][0]["insight"]["result"][0]["count"], 0)
 
+    # :KLUDGE: avoid making extra queries that are explicitly not cached in tests. Avoids false N+1-s.
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False)
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():
@@ -157,20 +166,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 "insight": "TRENDS",
             }
 
-            with self.assertNumQueries(10):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(11):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(20):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(20):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(20):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(21):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -931,17 +940,3 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
-
-    def test_dashboard_items_deprecation(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "items deprecation"})
-        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
-
-        default_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={})
-
-        assert len(default_dashboard_json["tiles"]) == 1
-        assert len(default_dashboard_json["items"]) == 1
-
-        no_items_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": True})
-
-        assert len(no_items_dashboard_json["tiles"]) == 1
-        assert no_items_dashboard_json["items"] is None

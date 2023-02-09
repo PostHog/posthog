@@ -19,7 +19,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
 
     def _get_actors_at_step(self, filter, entrance_period_start, drop_off):
-        person_filter = filter.with_data({"entrance_period_start": entrance_period_start, "drop_off": drop_off})
+        person_filter = filter.shallow_clone({"entrance_period_start": entrance_period_start, "drop_off": drop_off})
         funnel_query_builder = ClickhouseFunnelTrendsActors(person_filter, self.team)
         _, serialized_result, _ = funnel_query_builder.get_actors()
 

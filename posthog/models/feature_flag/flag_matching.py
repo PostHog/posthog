@@ -267,8 +267,6 @@ class FeatureFlagMatcher:
                         )
                     expr = properties_to_Q(
                         Filter(data=condition).property_groups.flat,
-                        team_id=team_id,
-                        is_direct_query=True,
                         override_property_values=target_properties,
                     )
 
@@ -475,7 +473,12 @@ def get_all_feature_flags(
             # would fail server side anyway.
 
         if person_id is not None:
-            set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+            try:
+                set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+            except Exception as e:
+                # If the database is in read-only mode, we can't handle experience continuity flags.
+                # Do not error on decide for this case.
+                capture_exception(e)
 
     # :TRICKY: Consistency matters only when personIDs exist
     # as overrides are stored on personIDs.

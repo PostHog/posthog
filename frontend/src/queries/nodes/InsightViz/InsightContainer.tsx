@@ -1,5 +1,5 @@
 import { Card, Col, Row } from 'antd'
-import { InsightDisplayConfig } from 'scenes/insights/InsightDisplayConfig'
+import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import {
     // ChartDisplayType,
@@ -19,9 +19,9 @@ import {
 // import { InsightsTable } from 'scenes/insights/views/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
-    // FunnelInvalidExclusionState,
-    // FunnelSingleStepState,
-    // InsightEmptyState,
+    FunnelInvalidExclusionState,
+    FunnelSingleStepState,
+    InsightEmptyState,
     InsightErrorState,
     InsightTimeoutState,
 } from 'scenes/insights/EmptyStates'
@@ -29,14 +29,13 @@ import {
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-// import { Tooltip } from 'lib/components/Tooltip'
+// import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
-// import { FunnelInsight } from './views/Funnels/FunnelInsight'
 // import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-// import { AlertMessage } from 'lib/components/AlertMessage'
+// import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import {
     isFilterWithDisplay,
     isFunnelsFilter,
@@ -44,12 +43,16 @@ import {
     // isTrendsFilter
 } from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
+import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
+import { FunnelsQuery } from '~/queries/schema'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
     [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
     [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    // [`${InsightType.FUNNELS}`]: <FunnelInsight />,
+    [`${InsightType.FUNNELS}`]: <FunnelInsightDataExploration />,
     [`${InsightType.RETENTION}`]: <RetentionContainer />,
     [`${InsightType.PATHS}`]: <PathsDataExploration />,
 }
@@ -68,7 +71,7 @@ export function InsightContainer({
     insightMode?: ItemMode
 }): JSX.Element {
     const {
-        // insightProps,
+        insightProps,
         // canEditInsight,
         insightLoading,
         activeView,
@@ -85,6 +88,12 @@ export function InsightContainer({
     //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
+    const { querySource } = useValues(funnelDataLogic(insightProps))
+    // TODO: convert to data exploration with insightLogic
+    const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+
+    // TODO: implement in funnelDataLogic
+    const isValidFunnel = true
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -96,18 +105,18 @@ export function InsightContainer({
             )
         }
 
-        // // Insight specific empty states - note order is important here
-        // if (loadedView === InsightType.FUNNELS) {
-        //     if (!areFiltersValid) {
-        //         return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
-        //     }
-        //     if (!areExclusionFiltersValid) {
-        //         return <FunnelInvalidExclusionState />
-        //     }
-        //     if (!isValidFunnel && !insightLoading) {
-        //         return <InsightEmptyState />
-        //     }
-        // }
+        // Insight specific empty states - note order is important here
+        if (loadedView === InsightType.FUNNELS) {
+            if (((querySource as FunnelsQuery).series || []).length <= 1) {
+                return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
+            }
+            if (!areExclusionFiltersValid) {
+                return <FunnelInvalidExclusionState />
+            }
+            if (!isValidFunnel && !insightLoading) {
+                return <InsightEmptyState />
+            }
+        }
 
         // Insight agnostic empty states
         if (!!erroredQueryId) {
@@ -198,16 +207,7 @@ export function InsightContainer({
             ) : null} */}
             {/* These are filters that are reused between insight features. They each have generic logic that updates the url */}
             <Card
-                title={
-                    disableHeader ? null : (
-                        <InsightDisplayConfig
-                            activeView={activeView as InsightType}
-                            insightMode={insightMode || ItemMode.View}
-                            filters={filters}
-                            disableTable={!!disableTable}
-                        />
-                    )
-                }
+                title={disableHeader ? null : <InsightDisplayConfig disableTable={!!disableTable} />}
                 data-attr="insights-graph"
                 className="insights-graph-container"
             >

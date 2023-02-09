@@ -1,11 +1,7 @@
 import { capitalizeFirstLetter, isGroupType, percentage } from 'lib/utils'
-import {
-    RetentionTablePayload,
-    RetentionTablePeoplePayload,
-    RetentionTableAppearanceType,
-} from 'scenes/retention/types'
+import { RetentionTableAppearanceType } from 'scenes/retention/types'
 import { dayjs } from 'lib/dayjs'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import './RetentionTable.scss'
 import { urls } from 'scenes/urls'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
@@ -15,36 +11,33 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import clsx from 'clsx'
 import { MissingPersonsAlert } from 'scenes/trends/persons-modal/PersonsModal'
-import { Noun } from '~/models/groupsModel'
+import { useActions, useValues } from 'kea'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { retentionLogic } from './retentionLogic'
+import { retentionPeopleLogic } from './retentionPeopleLogic'
+import { retentionModalLogic } from './retentionModalLogic'
 
-export function RetentionModal({
-    results,
-    visible,
-    selectedRow,
-    dismissModal,
-    actorsLoading,
-    actors,
-    loadMore,
-    loadingMore,
-    aggregationTargetLabel,
-}: {
-    results: RetentionTablePayload[]
-    visible: boolean
-    selectedRow: number
-    dismissModal: () => void
-    loadMore: () => void
-    actorsLoading: boolean
-    loadingMore: boolean
-    actors: RetentionTablePeoplePayload
-    aggregationTargetLabel: Noun
-}): JSX.Element | null {
+export function RetentionModal(): JSX.Element | null {
+    const { insightProps } = useValues(insightLogic)
+    const { results } = useValues(retentionLogic(insightProps))
+    const { people, peopleLoading, peopleLoadingMore } = useValues(retentionPeopleLogic(insightProps))
+    const { loadMorePeople } = useActions(retentionPeopleLogic(insightProps))
+    const { aggregationTargetLabel, selectedRow } = useValues(retentionModalLogic(insightProps))
+    const { closeModal } = useActions(retentionModalLogic(insightProps))
+
+    if (!results || selectedRow === null) {
+        return null
+    }
+
+    const row = results[selectedRow]
+    const isEmpty = row.values[0]?.count === 0
     return (
         <LemonModal
-            isOpen={visible}
-            onClose={dismissModal}
+            isOpen // always open, as we simply don't mount otherwise
+            onClose={closeModal}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={dismissModal}>
+                    <LemonButton type="secondary" onClick={closeModal}>
                         Close
                     </LemonButton>
                     <LemonButton
@@ -53,7 +46,7 @@ export function RetentionModal({
                             triggerExport({
                                 export_format: ExporterFormat.CSV,
                                 export_context: {
-                                    path: results[selectedRow]?.people_url,
+                                    path: row?.people_url,
                                     max_limit: 10000,
                                 },
                             })
@@ -63,16 +56,16 @@ export function RetentionModal({
                     </LemonButton>
                 </>
             }
-            width={results[selectedRow]?.values[0]?.count === 0 ? undefined : '90%'}
-            title={results[selectedRow] ? dayjs(results[selectedRow].date).format('MMMM D, YYYY') : ''}
+            width={isEmpty ? undefined : '90%'}
+            title={`${dayjs(row.date).format('MMMM D, YYYY')} Cohort`}
         >
-            {actors && !!actors.missing_persons && (
-                <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={actors.missing_persons} />
+            {people && !!people.missing_persons && (
+                <MissingPersonsAlert actorLabel={aggregationTargetLabel} missingActorsCount={people.missing_persons} />
             )}
             <div className="min-h-20">
-                {actorsLoading ? (
+                {peopleLoading ? (
                     <SpinnerOverlay />
-                ) : results[selectedRow]?.values[0]?.count === 0 ? (
+                ) : isEmpty ? (
                     <span>No {aggregationTargetLabel.plural} during this period.</span>
                 ) : (
                     <>
@@ -80,7 +73,7 @@ export function RetentionModal({
                             <tbody>
                                 <tr>
                                     <th>{capitalizeFirstLetter(aggregationTargetLabel.singular)}</th>
-                                    {results?.[selectedRow]?.values?.map((data: any, index: number) => (
+                                    {row.values?.map((data: any, index: number) => (
                                         <th key={index}>
                                             <div>{results[index].label}</div>
                                             <div>
@@ -88,19 +81,15 @@ export function RetentionModal({
                                                 &nbsp;
                                                 {data.count > 0 && (
                                                     <span className="text-muted">
-                                                        (
-                                                        {percentage(
-                                                            data.count / results[selectedRow]?.values[0]['count']
-                                                        )}
-                                                        )
+                                                        ({percentage(data.count / row?.values[0]['count'])})
                                                     </span>
                                                 )}
                                             </div>
                                         </th>
                                     ))}
                                 </tr>
-                                {actors.result &&
-                                    actors.result.map((personAppearances: RetentionTableAppearanceType) => (
+                                {people.result &&
+                                    people.result.map((personAppearances: RetentionTableAppearanceType) => (
                                         <tr key={personAppearances.person.id}>
                                             {/* eslint-disable-next-line react/forbid-dom-props */}
                                             <td style={{ minWidth: 200 }}>
@@ -129,14 +118,14 @@ export function RetentionModal({
                                                 )}
                                             </td>
                                             {personAppearances.appearances.map((appearance: number, index: number) => {
+                                                const hasAppearance = !!appearance
                                                 return (
                                                     <td key={index}>
                                                         <div
-                                                            className={clsx('RetentionTable__Tab')}
-                                                            style={{
-                                                                opacity: appearance ? 1 : 0.2,
-                                                                color: appearance ? 'var(--white)' : 'var(--default)',
-                                                            }}
+                                                            className={clsx(
+                                                                'RetentionTable__Tab',
+                                                                hasAppearance ? 'opacity-100' : 'opacity-20'
+                                                            )}
                                                         />
                                                     </td>
                                                 )
@@ -146,8 +135,8 @@ export function RetentionModal({
                             </tbody>
                         </table>
                         <div className="m-4 flex justify-center">
-                            {actors.next ? (
-                                <LemonButton type="primary" onClick={loadMore} loading={loadingMore}>
+                            {people.next ? (
+                                <LemonButton type="primary" onClick={loadMorePeople} loading={peopleLoadingMore}>
                                     Load more {aggregationTargetLabel.plural}
                                 </LemonButton>
                             ) : null}

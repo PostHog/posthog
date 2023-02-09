@@ -23,7 +23,7 @@ import { getCurrentTeamId } from 'lib/utils/logics'
 import { groupsModelType } from '~/models/groupsModelType'
 import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { RETENTION_FIRST_TIME } from 'lib/constants'
-import { retentionOptions } from 'scenes/retention/retentionTableLogic'
+import { retentionOptions } from 'scenes/retention/constants'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 import { apiValueToMathType, MathCategory, MathDefinition } from 'scenes/trends/mathsLogic'
@@ -39,15 +39,16 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
 import {
-    ActionsNode,
-    BreakdownFilter,
-    EventsNode,
-    InsightQueryNode,
-    StickinessQuery,
-    TrendsQuery,
-} from '~/queries/schema'
-import { isEventsNode, isLifecycleQuery, isPathsQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -341,7 +342,7 @@ export function summarizeInsightQuery(
     mathDefinitions: mathsLogicType['values']['mathDefinitions']
 ): string {
     if (isTrendsQuery(query)) {
-        let summary = (query as TrendsQuery).series
+        let summary = query.series
             .map((s, index) => {
                 const mathType = apiValueToMathType(s.math, s.math_group_type_index)
                 const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
@@ -386,6 +387,43 @@ export function summarizeInsightQuery(
         }
 
         return summary
+    } else if (isFunnelsQuery(query)) {
+        let summary = ''
+        const linkSymbol =
+            query.funnelsFilter?.funnel_order_type === StepOrderValue.STRICT
+                ? '⇉'
+                : query.funnelsFilter?.funnel_order_type === StepOrderValue.UNORDERED
+                ? '&'
+                : '→'
+        summary = `${query.series.map((s) => getDisplayNameFromEntityNode(s)).join(` ${linkSymbol} `)} ${
+            aggregationLabel(query.aggregation_group_type_index, true).singular
+        } conversion`
+        if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert) {
+            summary += ' time'
+        } else if (query.funnelsFilter?.funnel_viz_type === FunnelVizType.Trends) {
+            summary += ' trend'
+        } else {
+            // Steps are the default viz type
+            summary += ' rate'
+        }
+        if (query.breakdown?.breakdown_type) {
+            summary += ` by ${summarizeBreakdown(query.breakdown, aggregationLabel, cohortsById)}`
+        }
+        return summary
+    } else if (isRetentionQuery(query)) {
+        const areTargetAndReturningIdentical =
+            query.retentionFilter?.returning_entity?.id === query.retentionFilter?.target_entity?.id &&
+            query.retentionFilter?.returning_entity?.type === query.retentionFilter?.target_entity?.type
+        return (
+            `Retention of ${aggregationLabel(query.aggregation_group_type_index, true).plural}` +
+            ` based on doing ${getDisplayNameFromEntityFilter(
+                (query.retentionFilter?.target_entity || {}) as EntityFilter
+            )}` +
+            ` ${retentionOptions[query.retentionFilter?.retention_type || RETENTION_FIRST_TIME]} and returning with ` +
+            (areTargetAndReturningIdentical
+                ? 'the same event'
+                : getDisplayNameFromEntityFilter((query.retentionFilter?.returning_entity || {}) as EntityFilter))
+        )
     } else if (isPathsQuery(query)) {
         // Sync format with PathsSummary in InsightDetails
         let summary = `User paths based on ${humanizePathsEventTypes(query.pathsFilter?.include_event_types).join(

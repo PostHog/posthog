@@ -17,6 +17,7 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, Tempor
 from posthog.client import sync_execute
 from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
+from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -189,7 +190,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
         team = self.team
         filter = Filter(request=request, team=self.team)
         if not filter.limit:
-            filter = filter.with_data({LIMIT: 100})
+            filter = filter.shallow_clone({LIMIT: 100})
 
         entity = get_target_entity(filter)
 
@@ -235,7 +236,8 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        query, params = format_action_filter(team_id=action.team_id, action=action)
+        hogql_context = HogQLContext()
+        query, params = format_action_filter(team_id=action.team_id, action=action, hogql_context=hogql_context)
         if query == "":
             return Response({"count": 0})
 
@@ -248,6 +250,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
                 "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
                 **params,
+                **hogql_context.values,
             },
         )
         return Response({"count": results[0][0]})

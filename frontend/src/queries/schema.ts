@@ -21,6 +21,18 @@ import {
     LifecycleToggle,
 } from '~/types'
 
+/**
+ * PostHog Query Schema definition.
+ *
+ * This file acts as the source of truth for:
+ *
+ * - frontend/src/queries/schema.json
+ *   - generated from typescript via "pnpm run generate:schema:json"
+ *
+ * - posthog/schema.py
+ *   - generated from json the above json via "pnpm run generate:schema:python"
+ * */
+
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
@@ -48,9 +60,6 @@ export enum NodeKind {
 
     /** Performance */
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
-
-    /** Used for insights that haven't been converted to the new query format yet */
-    UnimplementedQuery = 'UnimplementedQuery',
 }
 
 export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
@@ -137,11 +146,20 @@ export interface EventsQuery extends DataNode {
     fixedProperties?: AnyPropertyFilter[]
     /** Limit to events matching this string */
     event?: string
-    /** Number of rows to return */
+    /**
+     * Number of rows to return
+     * @asType integer
+     */
     limit?: number
-    /** Number of rows to skip before returning rows */
+    /**
+     * Number of rows to skip before returning rows
+     * @asType integer
+     */
     offset?: number
-    /** Show events matching a given action */
+    /**
+     * Show events matching a given action
+     * @asType integer
+     */
     actionId?: number
     /** Show events for a given person */
     personId?: string
@@ -233,6 +251,8 @@ interface InsightsQueryBase extends Node {
     filterTestAccounts?: boolean
     /** Property filters for all series */
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
+    /** Groups aggregation */
+    aggregation_group_type_index?: number
 }
 
 export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
@@ -299,9 +319,6 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
 }
-export interface UnimplementedQuery extends InsightsQueryBase {
-    kind: NodeKind.UnimplementedQuery
-}
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -310,7 +327,6 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
-    | UnimplementedQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 export type InsightFilterProperty =
     | 'trendsFilter'
@@ -326,7 +342,13 @@ export type InsightFilter =
     | PathsFilter
     | StickinessFilter
     | LifecycleFilter
-export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
+
+export const dateRangeForFilter = (source: FilterType | undefined): DateRange | undefined => {
+    if (!source) {
+        return undefined
+    }
+    return { date_from: source.date_from, date_to: source.date_to }
+}
 
 export interface TimeToSeeDataSessionsQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataSessionsQuery
@@ -337,6 +359,8 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Project to filter on. Defaults to current project */
     teamId?: number
 }
+
+export type HogQLExpression = string
 
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
@@ -356,8 +380,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
     numberOfDays?: number // defaults to 7
 }
-
-export type HogQLExpression = string
 
 // Legacy queries
 

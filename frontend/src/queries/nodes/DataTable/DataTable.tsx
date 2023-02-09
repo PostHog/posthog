@@ -3,7 +3,7 @@ import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
+import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
@@ -16,7 +16,7 @@ import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
-import { LemonDivider } from 'lib/components/LemonDivider'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
@@ -27,8 +27,8 @@ import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
-import { LemonButton } from 'lib/components/LemonButton'
-import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
@@ -121,7 +121,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             )}
                         </div>
                         <LemonDivider />
-                        <TaxonomicPopup
+                        <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
                             renderValue={() => <>Edit column</>}
@@ -187,7 +187,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 <LemonDivider />
                             </>
                         ) : null}
-                        <TaxonomicPopup
+                        <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
@@ -212,7 +212,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             groupTypes={groupTypes}
                             buttonProps={{ type: undefined }}
                         />
-                        <TaxonomicPopup
+                        <TaxonomicPopover
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
@@ -337,7 +337,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="space-y-4 relative">
+                <div className="relative w-full h-full">
                     {showFirstRow && (
                         <div className="flex gap-4 items-center">
                             {firstRowLeft}

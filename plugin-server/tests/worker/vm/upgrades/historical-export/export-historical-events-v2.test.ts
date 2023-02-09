@@ -13,7 +13,7 @@ import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import {
     addHistoricalEventsExportCapabilityV2,
-    EVENTS_PER_RUN,
+    EVENTS_PER_RUN_SMALL,
     EXPORT_COORDINATION_KEY,
     EXPORT_PARAMETERS_KEY,
     ExportHistoricalEventsJobPayload,
@@ -126,11 +126,15 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
         })
 
+        afterEach(() => {
+            jest.clearAllTimers()
+            jest.useRealTimers()
+        })
+
         it('stores current progress in storage under `statusKey`', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
 
             await exportHistoricalEvents({ ...defaultPayload, timestampCursor: 1635730000000 })
-
             expect(await storage().get('statusKey', null)).toEqual({
                 ...defaultPayload,
                 timestampCursor: 1635730000000,
@@ -161,10 +165,45 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('calls exportEvents and logs with fetched events', async () => {
+            createVM()
+
+            jest.useFakeTimers({
+                // These are required otherwise queries and other things were breaking.
+                doNotFake: ['setImmediate', 'clearImmediate', 'clearInterval', 'nextTick', 'Date'],
+            })
+
+            jest.spyOn(vm.meta.storage, 'set')
+            jest.spyOn(global, 'clearInterval')
+
+            const defaultProgress =
+                (defaultPayload.timestampCursor - defaultPayload.startTime) /
+                (defaultPayload.endTime - defaultPayload.startTime)
+
+            jest.mocked(vm.methods.exportEvents).mockImplementationOnce(async () => {
+                let advanced = 0
+                while (advanced < 3) {
+                    // The +1 accounts for the first status update that happens once at the beginning of
+                    // exportHistoricalEvents.
+                    expect(vm.meta.storage.set).toHaveBeenCalledTimes(advanced + 1)
+
+                    expect(await storage().get('statusKey', null)).toEqual({
+                        ...defaultPayload,
+                        timestampCursor: defaultPayload.startTime,
+                        done: false,
+                        progress: defaultProgress,
+                        statusTime: Date.now(),
+                    })
+
+                    advanced = advanced + 1
+                    jest.advanceTimersByTime(60 * 1000)
+                }
+                return
+            })
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.methods.exportEvents).toHaveBeenCalledWith([1, 2, 3])
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -178,9 +217,11 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
 
         it('does not call exportEvents or log if no events in time range', async () => {
             jest.mocked(fetchEventsForInterval).mockResolvedValue([])
+            jest.spyOn(global, 'clearInterval')
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.methods.exportEvents).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).not.toHaveBeenCalled()
         })
@@ -209,11 +250,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('schedules a retry if exportEvents raises a RetryError', async () => {
             createVM()
 
+            jest.spyOn(global, 'clearInterval')
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
             jest.mocked(vm.methods.exportEvents).mockRejectedValue(new RetryError('Retry error'))
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
                     message: expect.stringContaining(
@@ -253,11 +296,13 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('stops processing date if an unknown error was raised in exportEvents', async () => {
             createVM()
 
+            jest.spyOn(global, 'clearInterval')
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
             jest.mocked(vm.methods.exportEvents).mockRejectedValue(new Error('Unknown error'))
 
             await exportHistoricalEvents(defaultPayload)
 
+            expect(clearInterval).toHaveBeenCalledTimes(1)
             expect(vm.meta.jobs.exportHistoricalEventsV2).not.toHaveBeenCalled()
             expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
                 expect.objectContaining({
@@ -631,7 +676,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             const dateStatus = {
                 done: false,
                 progress: 0.5,
-                statusTime: Date.now() - 20 * 60 * 1000,
+                statusTime: Date.now() - 70 * 60 * 1000,
                 retriesPerformedSoFar: 0,
             }
             await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
@@ -652,6 +697,32 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 exportIsDone: false,
             })
         })
+
+        it('does not resume tasks that are done', async () => {
+            const dateStatus = {
+                done: true,
+                progress: 1,
+                statusTime: Date.now() - 70 * 60 * 1000,
+                retriesPerformedSoFar: 0,
+            }
+            await storage().set('EXPORT_DATE_STATUS_2021-10-29T00:00:00.000Z', dateStatus)
+
+            const result = await calculateCoordination(params, [], [
+                '2021-10-29T00:00:00.000Z',
+                '2021-10-30T00:00:00.000Z',
+                '2021-10-31T00:00:00.000Z',
+            ] as ISOTimestamp[])
+
+            expect(result).toEqual({
+                hasChanges: true,
+                done: ['2021-10-29T00:00:00.000Z'],
+                running: ['2021-10-30T00:00:00.000Z', '2021-10-31T00:00:00.000Z', '2021-11-01T00:00:00.000Z'],
+                toStartRunning: [['2021-11-01T00:00:00.000Z', '2021-11-01T05:00:00.000Z']],
+                toResume: [],
+                progress: 0.25,
+                exportIsDone: false,
+            })
+        })
     })
 
     describe('nextCursor()', () => {
@@ -669,22 +740,22 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         it('increases only offset if more in current time range', () => {
-            expect(nextCursor(defaultPayload, EVENTS_PER_RUN)).toEqual({
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN_SMALL)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor,
                 fetchTimeInterval: ONE_HOUR,
-                offset: EVENTS_PER_RUN,
+                offset: EVENTS_PER_RUN_SMALL,
             })
         })
         it('increases only offset if more in current time range on a late page', () => {
-            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, EVENTS_PER_RUN)).toEqual({
+            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN_SMALL }, EVENTS_PER_RUN_SMALL)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor,
                 fetchTimeInterval: ONE_HOUR,
-                offset: 6 * EVENTS_PER_RUN,
+                offset: 6 * EVENTS_PER_RUN_SMALL,
             })
         })
 
         it('returns existing fetchTimeInterval if time range mostly full', () => {
-            expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.9)).toEqual({
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN_SMALL * 0.9)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                 fetchTimeInterval: ONE_HOUR,
                 offset: 0,
@@ -692,7 +763,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('increases fetchTimeInterval if time range mostly empty', () => {
-            expect(nextCursor(defaultPayload, EVENTS_PER_RUN * 0.1)).toEqual({
+            expect(nextCursor(defaultPayload, EVENTS_PER_RUN_SMALL * 0.1)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                 fetchTimeInterval: ONE_HOUR * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 offset: 0,
@@ -704,7 +775,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 ...defaultPayload,
                 fetchTimeInterval: 11.5 * 60 * 60 * 1000, // 11.5 hours
             }
-            expect(nextCursor(payload, EVENTS_PER_RUN * 0.1)).toEqual({
+            expect(nextCursor(payload, EVENTS_PER_RUN_SMALL * 0.1)).toEqual({
                 timestampCursor: payload.timestampCursor + payload.fetchTimeInterval,
                 fetchTimeInterval: 12 * 60 * 60 * 1000,
                 offset: 0,
@@ -712,7 +783,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('decreases fetchTimeInterval if on a late page and no more to fetch', () => {
-            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN }, 10)).toEqual({
+            expect(nextCursor({ ...defaultPayload, offset: 5 * EVENTS_PER_RUN_SMALL }, 10)).toEqual({
                 timestampCursor: defaultPayload.timestampCursor + defaultPayload.fetchTimeInterval,
                 fetchTimeInterval: ONE_HOUR / hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER,
                 offset: 0,
@@ -722,7 +793,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         it('does not decrease fetchTimeInterval below 10 minutes', () => {
             const payload = {
                 ...defaultPayload,
-                offset: 5 * EVENTS_PER_RUN,
+                offset: 5 * EVENTS_PER_RUN_SMALL,
                 fetchTimeInterval: 10.5 * 60 * 1000, // 10.5 minutes
             }
 
@@ -749,18 +820,34 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             })
         })
 
-        it('specifically for the S3 exporter, make sure to use a larger than default batch size', () => {
+        it('make sure to use a larger batch size if the plugin recommends it', () => {
             // NOTE: this doesn't actually check that this value is used in the
             // requests to ClickHouse, but :fingercrossed: it's good enough.
             createVM()
+
+            // When no settings are returned, the default small batch size is used
             let eventsPerRun = addHistoricalEventsExportCapabilityV2(
+                hub,
+                { plugin: { name: 'S3 Export Plugin' } } as any,
+                vm
+            ).eventsPerRun
+            expect(eventsPerRun).toEqual(500)
+
+            // Set the handlesLargeBatches flag to true and expect a big batch size
+            vm.methods.getSettings = jest.fn().mockReturnValue({
+                handlesLargeBatches: true,
+            })
+            eventsPerRun = addHistoricalEventsExportCapabilityV2(
                 hub,
                 { plugin: { name: 'S3 Export Plugin' } } as any,
                 vm
             ).eventsPerRun
             expect(eventsPerRun).toEqual(10000)
 
-            // Otherwise it should be the default, 500
+            // Keep the default of 500 if the flag is false
+            vm.methods.getSettings = jest.fn().mockReturnValue({
+                handlesLargeBatches: false,
+            })
             eventsPerRun = addHistoricalEventsExportCapabilityV2(
                 hub,
                 { plugin: { name: 'foo' } } as any,
@@ -917,8 +1004,8 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(shouldResume(status, 9_000_000_000)).toEqual(false)
             expect(shouldResume(status, 10_000_060_000)).toEqual(false)
             expect(shouldResume(status, 10_000_590_000)).toEqual(false)
-            expect(shouldResume(status, 10_000_660_000)).toEqual(true)
-            expect(shouldResume(status, 10_001_000_000)).toEqual(true)
+            expect(shouldResume(status, 10_000_600_000)).toEqual(false)
+            expect(shouldResume(status, 10_003_660_000)).toEqual(true)
         })
 
         it('accounts for retries exponential backoff', () => {

@@ -45,8 +45,8 @@ import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
-import { lemonToast } from 'lib/components/lemonToast'
-import { Link } from 'lib/components/Link'
+import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { Link } from 'lib/lemon-ui/Link'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
@@ -76,7 +76,7 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
@@ -230,7 +230,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             filters: values.filters,
-                            no_items_field: true,
                         })
                     } catch (e) {
                         lemonToast.error('Could not update dashboardFilters: ' + e)
@@ -245,7 +244,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                         tiles: [{ id: tileId, color }],
-                        no_items_field: true,
                     })
                     const matchingTile = values.tiles.find((tile) => tile.id === tileId)
                     if (matchingTile) {
@@ -257,7 +255,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     try {
                         await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
-                            no_items_field: true,
                         })
                         dashboardsModel.actions.tileRemovedFromDashboard({
                             tile: tile,
@@ -282,7 +279,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         }
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [newTile],
-                            no_items_field: true,
                         } as Partial<InsightModel>)
                     } catch (e) {
                         lemonToast.error('Could not duplicate tile: ' + e)
@@ -302,7 +298,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             {
                                 tile,
                                 toDashboard,
-                                no_items_field: true,
                             }
                         )
                     }
@@ -557,7 +552,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 interval: number
                 enabled: boolean
             },
-            { persist: true, prefix: '1_' },
+            { persist: true, prefix: '2_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -645,7 +640,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return (refresh?: boolean) =>
                     `api/projects/${teamLogic.values.currentTeamId}/dashboards/${id}/?${toParams({
                         refresh,
-                        no_items_field: true,
                     })}`
             },
         ],
@@ -861,7 +855,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
             return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
                 tiles: layoutsToUpdate,
-                no_items_field: true,
             })
         },
         moveToDashboardSuccess: ({ payload }) => {
@@ -1080,7 +1073,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             // Initial load of actual data for dashboard items after general dashboard is fetched
             if (
                 values.lastRefreshed &&
-                values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours'))
+                values.lastRefreshed.isBefore(now().subtract(AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS, 'hours')) &&
+                !process.env.STORYBOOK // allow mocking of date in storybook without triggering refresh
             ) {
                 actions.refreshAllDashboardItems({ action: 'refresh_above_threshold', initialLoad, dashboardQueryId })
                 allLoaded = false

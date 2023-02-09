@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Popup } from 'lib/components/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { SimpleOption, TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
@@ -23,7 +23,7 @@ export function PathItemSelector({
 }: PathItemSelectorProps): JSX.Element {
     const [visible, setVisible] = useState(false)
     return (
-        <Popup
+        <Popover
             visible={visible}
             placement={'bottom-end'}
             onClickOutside={() => setVisible(false)}
@@ -40,6 +40,6 @@ export function PathItemSelector({
             }
         >
             <div onClick={disabled ? () => {} : () => setVisible(!visible)}>{children}</div>
-        </Popup>
+        </Popover>
     )
 }

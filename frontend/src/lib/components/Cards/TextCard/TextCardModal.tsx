@@ -1,10 +1,10 @@
 import { AvailableFeature, DashboardType } from '~/types'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { useActions, useValues } from 'kea'
-import { LemonModal } from 'lib/components/LemonModal'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field, Form } from 'kea-forms'
-import { LemonTextMarkdown } from 'lib/components/LemonTextArea/LemonTextArea'
+import { LemonTextMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { userLogic } from 'scenes/userLogic'
 

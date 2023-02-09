@@ -124,8 +124,10 @@
                                                                                                                                                                                                                        last_value("$window_id_2") over (PARTITION by aggregation_target
                                                                                                                                                                                                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -141,29 +143,19 @@
                               if(step_2 = 1, "uuid", null) as "uuid_2",
                               if(step_2 = 1, "$session_id", null) as "$session_id_2",
                               if(step_2 = 1, "$window_id", null) as "$window_id_2"
-                       FROM
-                         (SELECT e.event as event,
-                                 e.team_id as team_id,
-                                 e.distinct_id as distinct_id,
-                                 e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 e.uuid AS uuid,
-                                 e."$session_id" as "$session_id",
-                                 e."$window_id" as "$window_id",
-                                 pdi.person_id as person_id
-                          FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
                           WHERE team_id = 2
-                            AND event IN ['step one', 'step three', 'step two']
-                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
-                       WHERE (step_0 = 1
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                         AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))
@@ -312,8 +304,10 @@
                                                                                                                                                                                                                        last_value("$window_id_2") over (PARTITION by aggregation_target
                                                                                                                                                                                                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -329,29 +323,19 @@
                               if(step_2 = 1, "uuid", null) as "uuid_2",
                               if(step_2 = 1, "$session_id", null) as "$session_id_2",
                               if(step_2 = 1, "$window_id", null) as "$window_id_2"
-                       FROM
-                         (SELECT e.event as event,
-                                 e.team_id as team_id,
-                                 e.distinct_id as distinct_id,
-                                 e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 e.uuid AS uuid,
-                                 e."$session_id" as "$session_id",
-                                 e."$window_id" as "$window_id",
-                                 pdi.person_id as person_id
-                          FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
                           WHERE team_id = 2
-                            AND event IN ['step one', 'step three', 'step two']
-                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
-                       WHERE (step_0 = 1
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                         AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))
@@ -500,8 +484,10 @@
                                                                                                                                                                                                                        last_value("$window_id_2") over (PARTITION by aggregation_target
                                                                                                                                                                                                                                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) "$window_id_2"
                     FROM
-                      (SELECT aggregation_target,
-                              timestamp,
+                      (SELECT e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e.uuid AS uuid,
+                              pdi.person_id as person_id ,
                               if(event = 'step one', 1, 0) as step_0,
                               if(step_0 = 1, timestamp, null) as latest_0,
                               if(step_0 = 1, "uuid", null) as "uuid_0",
@@ -517,29 +503,19 @@
                               if(step_2 = 1, "uuid", null) as "uuid_2",
                               if(step_2 = 1, "$session_id", null) as "$session_id_2",
                               if(step_2 = 1, "$window_id", null) as "$window_id_2"
-                       FROM
-                         (SELECT e.event as event,
-                                 e.team_id as team_id,
-                                 e.distinct_id as distinct_id,
-                                 e.timestamp as timestamp,
-                                 pdi.person_id as aggregation_target,
-                                 e.uuid AS uuid,
-                                 e."$session_id" as "$session_id",
-                                 e."$window_id" as "$window_id",
-                                 pdi.person_id as person_id
-                          FROM events e
-                          INNER JOIN
-                            (SELECT distinct_id,
-                                    argMax(person_id, version) as person_id
-                             FROM person_distinct_id2
-                             WHERE team_id = 2
-                             GROUP BY distinct_id
-                             HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
                           WHERE team_id = 2
-                            AND event IN ['step one', 'step three', 'step two']
-                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
-                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC') ) events
-                       WHERE (step_0 = 1
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['step one', 'step three', 'step two']
+                         AND toTimeZone(timestamp, 'UTC') >= toDateTime('2021-01-01 00:00:00', 'UTC')
+                         AND toTimeZone(timestamp, 'UTC') <= toDateTime('2021-01-08 23:59:59', 'UTC')
+                         AND (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
            WHERE step_0 = 1 ))

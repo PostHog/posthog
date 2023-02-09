@@ -11,6 +11,8 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
+from django.conf import settings
+
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
 
@@ -61,7 +63,9 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
     -- for details.
     ENGINE = ReplicatedReplacingMergeTree(
-        '/clickhouse/tables/noshard/{CLICKHOUSE_DATABASE}.person_overrides',
+        -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
+        -- when the tests tear down and recreate the table.
+        '/clickhouse/tables/{'{uuid}' if settings.TEST else ''}noshard/{CLICKHOUSE_DATABASE}.person_overrides',
         '{{replica}}-{{shard}}',
         version
     )
@@ -140,4 +144,39 @@ DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     DROP VIEW IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     SYNC
+"""
+
+GET_LATEST_PERSON_OVERRIDE_ID_SQL = f"""
+SELECT
+    team_id,
+    old_person_id,
+    argMax(override_person_id, version)
+FROM
+    `{CLICKHOUSE_DATABASE}`.`person_overrides` AS overrides
+GROUP BY
+    team_id,
+    old_person_id
+"""
+
+# ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
+PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
+    CREATE OR REPLACE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
+        team_id INT,
+        old_person_id UUID,
+        override_person_id UUID
+    )
+    PRIMARY KEY team_id, old_person_id
+    SOURCE(CLICKHOUSE(QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'))
+    LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
+
+    -- The LIFETIME setting indicates to ClickHouse to automatically update this dictionary
+    -- when not set to 0. When using a time range ClickHouse will pick a uniformly random time in
+    -- the range. We are setting an initial update time range of 5 to 10 seconds.
+    LIFETIME(MIN 5 MAX 10)
+"""
+
+DROP_PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
+    DROP DICTIONARY IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 """

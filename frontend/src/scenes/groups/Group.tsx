@@ -6,13 +6,13 @@ import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
-import { Tooltip } from 'lib/components/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
-import { Group as IGroup, PersonsTabType } from '~/types'
+import { Group as IGroup, PersonsTabType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
 import { Query } from '~/queries/Query/Query'
@@ -20,7 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { IconInfo } from 'lib/components/icons'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 const { TabPane } = Tabs
 
@@ -85,7 +85,14 @@ export function Group(): JSX.Element {
                                 source: {
                                     kind: NodeKind.EventsQuery,
                                     select: defaultDataTableColumns(NodeKind.EventsQuery),
-                                    fixedProperties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                                    fixedProperties: [
+                                        {
+                                            key: `$group_${groupTypeIndex}`,
+                                            value: groupKey,
+                                            type: PropertyFilterType.Event,
+                                            operator: PropertyOperator.Exact,
+                                        },
+                                    ],
                                 },
                             }}
                         />
@@ -93,7 +100,14 @@ export function Group(): JSX.Element {
                         <EventsTable
                             pageKey={`${groupTypeIndex}::${groupKey}`}
                             fixedFilters={{
-                                properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                                properties: [
+                                    {
+                                        key: `$group_${groupTypeIndex}`,
+                                        value: groupKey,
+                                        type: PropertyFilterType.Event,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
                             }}
                             sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
                             showCustomizeColumns={false}

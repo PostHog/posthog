@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import type { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType, FunnelsFilterType, FunnelVizType, InsightLogicProps, TrendsFilterType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, TrendsFilterType } from '~/types'
 import {
     isFilterWithDisplay,
     isStickinessFilter,
@@ -9,14 +9,9 @@ import {
     keyForInsightLogicProps,
 } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { TrendsFilter, StickinessFilter } from '~/queries/schema'
-import { filterForQuery, isStickinessQuery, isTrendsQuery, isFunnelsQuery } from '~/queries/utils'
-
-function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is FunnelVizType {
-    return Object.values(FunnelVizType).includes(filter as FunnelVizType)
-}
+import { filterForQuery, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -28,45 +23,28 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     }),
 
     actions: () => ({
-        setChartFilter: (chartFilter: ChartDisplayType | FunnelVizType) => ({ chartFilter }),
+        setChartFilter: (chartFilter: ChartDisplayType) => ({ chartFilter }),
     }),
 
     selectors: {
         chartFilter: [
             (s) => [s.filters],
-            (filters): ChartDisplayType | FunnelVizType | null => {
-                return (
-                    (isFunnelsFilter(filters)
-                        ? filters.funnel_viz_type
-                        : isFilterWithDisplay(filters)
-                        ? filters.display
-                        : null) || null
-                )
+            (filters): ChartDisplayType | null => {
+                return (isFilterWithDisplay(filters) ? filters.display : null) || null
             },
         ],
     },
 
     listeners: ({ actions, values }) => ({
         setChartFilter: ({ chartFilter }) => {
-            if (isFunnelVizType(chartFilter)) {
-                const funnel_viz_type = isFunnelsFilter(values.filters) ? values.filters.funnel_viz_type : null
-                if (funnel_viz_type !== chartFilter) {
-                    const newFilters: Partial<FunnelsFilterType> = {
-                        ...values.filters,
-                        funnel_viz_type: chartFilter,
-                    }
-                    actions.setFilters(newFilters)
-                }
-            } else if (isTrendsFilter(values.filters) || isStickinessFilter(values.filters)) {
+            if (isTrendsFilter(values.filters) || isStickinessFilter(values.filters)) {
                 if (!objectsEqual(values.filters.display, chartFilter)) {
                     const newFilteres: Partial<TrendsFilterType> = { ...values.filters, display: chartFilter }
                     actions.setFilters(newFilteres)
                 }
             }
 
-            if (isFunnelsQuery(values.querySource)) {
-                // TODO
-            } else if (isTrendsQuery(values.querySource) || isStickinessQuery(values.querySource)) {
+            if (isTrendsQuery(values.querySource) || isStickinessQuery(values.querySource)) {
                 const currentDisplay = (
                     filterForQuery(values.querySource) as TrendsFilter | StickinessFilter | undefined
                 )?.display

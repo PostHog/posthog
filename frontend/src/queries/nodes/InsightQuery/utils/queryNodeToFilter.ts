@@ -2,10 +2,10 @@ import {
     InsightQueryNode,
     EventsNode,
     ActionsNode,
-    SupportedNodeKind,
     NodeKind,
     BreakdownFilter,
     NewEntityNode,
+    InsightNodeKind,
 } from '~/queries/schema'
 import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
 import {
@@ -15,7 +15,6 @@ import {
     isRetentionQuery,
     isPathsQuery,
     isStickinessQuery,
-    isUnimplementedQuery,
     isLifecycleQuery,
     isActionsNode,
 } from '~/queries/utils'
@@ -67,7 +66,7 @@ export const seriesToActionsAndEvents = (
     return { actions, events, new_entity }
 }
 
-const insightMap: Record<SupportedNodeKind, InsightType> = {
+const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
@@ -76,7 +75,7 @@ const insightMap: Record<SupportedNodeKind, InsightType> = {
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
 
-const filterMap: Record<SupportedNodeKind, string> = {
+const filterMap: Record<InsightNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -96,7 +95,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         entity_type: 'events',
     })
 
-    if (!isRetentionQuery(query) && !isPathsQuery(query) && !isUnimplementedQuery(query)) {
+    if (!isRetentionQuery(query) && !isPathsQuery(query)) {
         const { actions, events, new_entity } = seriesToActionsAndEvents(query.series)
         if (actions.length > 0) {
             filters.actions = actions

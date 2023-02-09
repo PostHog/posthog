@@ -14,6 +14,7 @@ from posthog.models.property.util import get_single_or_multi_property_string_exp
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
+from posthog.queries.query_date_range import QueryDateRange
 from posthog.queries.util import get_trunc_func_ch
 
 
@@ -88,7 +89,7 @@ class RetentionEventsQuery(EventQuery):
             # lives easier when zero filling the response. We could however
             # handle this WITH FILL within the query.
 
-            start_of_week_day = _to_start_of_week_day(self._trunc_func)
+            start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._trunc_func)
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [
                     f"""
@@ -169,7 +170,7 @@ class RetentionEventsQuery(EventQuery):
             )
 
     def get_timestamp_field(self) -> str:
-        start_of_week_day = _to_start_of_week_day(self._trunc_func)
+        start_of_week_day = QueryDateRange.determine_extra_trunc_func_args(self._trunc_func)
         if self._event_query_type == RetentionQueryType.TARGET:
             return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
@@ -204,6 +205,7 @@ class RetentionEventsQuery(EventQuery):
                 if self._using_person_on_events
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+                hogql_context=self._filter.hogql_context,
             )
             condition = action_query
         elif entity.type == TREND_FILTER_TYPE_EVENTS:
@@ -234,10 +236,3 @@ class RetentionEventsQuery(EventQuery):
             f"{self._event_query_type}_end_date": end_date.strftime("%Y-%m-%d %H:%M:%S"),
         }
         return query, params
-
-
-# toStartOfWeek, unlike other toStartOfX functions, takes a second argument indicating
-# if weeks should be Sunday-based (mode=0) or Monday-based (mode=1)
-# we use Sunday-based, so set the mode to 0
-def _to_start_of_week_day(trunc_func: str) -> str:
-    return ", 0" if trunc_func == "toStartOfWeek" else ""

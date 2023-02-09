@@ -13,7 +13,7 @@ import { ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } 
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { IconDelete, IconPlusMini } from 'lib/components/icons'
+import { IconDelete, IconPlusMini } from 'lib/lemon-ui/icons'
 import { InfoCircleOutlined, CloseOutlined } from '@ant-design/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { dayjs } from 'lib/dayjs'
@@ -24,16 +24,16 @@ import { SecondaryMetrics } from './SecondaryMetrics'
 import { getSeriesColor } from 'lib/colors'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { Link } from 'lib/components/Link'
+import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { ExperimentPreview } from './ExperimentPreview'
 import { ExperimentImplementationDetails } from './ExperimentImplementationDetails'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { router } from 'kea-router'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonDivider, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 import { NotFound } from 'lib/components/NotFound'
-import { AlertMessage } from 'lib/components/AlertMessage'
+import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { Form, Group } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 
@@ -242,7 +242,7 @@ export function Experiment(): JSX.Element {
                                             <div className="text-muted">
                                                 Participants are divided into variant groups evenly. All experiments
                                                 must consist of a control group and at least one test group. Experiments
-                                                may have at most 3 test groups. Variant names can only contain letters,
+                                                may have at most 9 test groups. Variant names can only contain letters,
                                                 numbers, hyphens, and underscores.
                                             </div>
                                             <Col className="variants">
@@ -674,7 +674,7 @@ export function Experiment(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             )}
-                            {experiment && isExperimentRunning && !experiment.end_date && (
+                            {experiment && isExperimentRunning && (
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
                                         placement="topLeft"
@@ -692,18 +692,24 @@ export function Experiment(): JSX.Element {
                                             Reset
                                         </LemonButton>
                                     </Popconfirm>
-                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                        Stop
-                                    </LemonButton>
+                                    {!experiment.end_date && (
+                                        <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                            Stop
+                                        </LemonButton>
+                                    )}
+                                    {experiment?.end_date &&
+                                        dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                        !experiment.archived && (
+                                            <LemonButton
+                                                type="secondary"
+                                                status="danger"
+                                                onClick={() => archiveExperiment()}
+                                            >
+                                                <b>Archive</b>
+                                            </LemonButton>
+                                        )}
                                 </div>
                             )}
-                            {experiment?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
-                                !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
                         </Row>
                     </Row>
                     <Row>

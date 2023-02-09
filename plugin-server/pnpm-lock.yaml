@@ -15,7 +15,7 @@ specifiers:
   '@posthog/clickhouse': ^1.7.0
   '@posthog/piscina': ^3.2.0-posthog
   '@posthog/plugin-contrib': ^0.0.5
-  '@posthog/plugin-scaffold': 1.3.4
+  '@posthog/plugin-scaffold': 1.4.0
   '@sentry/node': ^7.17.4
   '@sentry/tracing': ^7.17.4
   '@sentry/types': ^7.17.4
@@ -67,7 +67,7 @@ specifiers:
   hot-shots: ^9.2.0
   ioredis: ^4.27.6
   jest: ^28.1.1
-  jsonwebtoken: ^8.5.1
+  jsonwebtoken: ^9.0.0
   kafkajs: ^2.2.0
   kafkajs-snappy: ^1.1.0
   lru-cache: ^6.0.0
@@ -81,11 +81,10 @@ specifiers:
   posthog-node: 2.0.2
   prettier: ^2.7.1
   pretty-bytes: ^5.6.0
-  prom-client: ^14.1.0
+  prom-client: ^14.1.1
   re2: ^1.17.7
   safe-stable-stringify: ^2.4.0
   snowflake-sdk: ^1.6.10
-  timekeeper: ^2.2.0
   ts-node: ^10.9.1
   ts-node-dev: ^2.0.0
   typescript: ^4.7.4
@@ -105,7 +104,7 @@ dependencies:
   '@posthog/clickhouse': 1.7.0
   '@posthog/piscina': 3.2.0-posthog
   '@posthog/plugin-contrib': 0.0.5
-  '@posthog/plugin-scaffold': 1.3.4
+  '@posthog/plugin-scaffold': 1.4.0
   '@sentry/node': 7.17.4
   '@sentry/tracing': 7.17.4
   '@sentry/utils': 7.17.4
@@ -120,7 +119,7 @@ dependencies:
   graphile-worker: 0.13.0
   hot-shots: 9.3.0
   ioredis: 4.28.5
-  jsonwebtoken: 8.5.1
+  jsonwebtoken: 9.0.0
   kafkajs: 2.2.2
   kafkajs-snappy: 1.1.0
   lru-cache: 6.0.0
@@ -131,7 +130,7 @@ dependencies:
   pino: 8.7.0
   posthog-node: 2.0.2
   pretty-bytes: 5.6.0
-  prom-client: 14.1.0
+  prom-client: 14.1.1
   re2: 1.17.7
   safe-stable-stringify: 2.4.1
   snowflake-sdk: 1.6.15_asn1.js@5.4.1
@@ -181,7 +180,6 @@ devDependencies:
   parse-prometheus-text-format: 1.1.1
   pino-pretty: 9.1.1
   prettier: 2.7.1
-  timekeeper: 2.2.0
   ts-node: 10.9.1_uusaoo756f3l7x5w4ayk4pz43y
   ts-node-dev: 2.0.0_uusaoo756f3l7x5w4ayk4pz43y
   typescript: 4.8.4
@@ -2399,8 +2397,8 @@ packages:
     resolution: {integrity: sha512-ic2JsfFUdLGF+fGYJPatWEB6gEFNoD89qz92FN1RE2QfLpr6YdyPNuMowzahya3hfC/jaLZ8QdPG/j5pSOgT7A==}
     dev: false
 
-  /@posthog/plugin-scaffold/1.3.4:
-    resolution: {integrity: sha512-69AC7GA3sU/z5X6SVlH7mgj+0XgolvOp9IUtvRNA4CXF/OglFM81SXbTkURxL9VBSNfdAZxRp+8x+h4rmyj4dw==}
+  /@posthog/plugin-scaffold/1.4.0:
+    resolution: {integrity: sha512-vDSc0ElMeeZkCGRjfIqkzTYZxeL7dOc0osw4wbQ0gLt0N2Csy4H/gHtoj0qum/b90ge3cGcHyHYIwld804mrfg==}
     dependencies:
       '@maxmind/geoip2-node': 3.5.0
     dev: false
@@ -6203,6 +6201,16 @@ packages:
       semver: 5.7.1
     dev: false
 
+  /jsonwebtoken/9.0.0:
+    resolution: {integrity: sha512-tuGfYXxkQGDPnLJ7SibiQgVgeDgfbPq2k2ICcbgqW8WxWLBAxKQM/ZCu/IT8SOSwmaYl4dpTFCW5xZv7YbbWUw==}
+    engines: {node: '>=12', npm: '>=6'}
+    dependencies:
+      jws: 3.2.2
+      lodash: 4.17.21
+      ms: 2.1.3
+      semver: 7.3.8
+    dev: false
+
   /jsprim/2.0.2:
     resolution: {integrity: sha512-gqXddjPqQ6G40VdnI6T6yObEC+pDNvyP95wdQhkWkg7crHH3km5qP1FsOXEkzEQwnz6gz5qGTn1c2Y52wP3OyQ==}
     engines: {'0': node >=0.6.0}
@@ -7274,8 +7282,8 @@ packages:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==}
     engines: {node: '>= 0.6.0'}
 
-  /prom-client/14.1.0:
-    resolution: {integrity: sha512-iFWCchQmi4170omLpFXbzz62SQTmPhtBL35v0qGEVRHKcqIeiexaoYeP0vfZTujxEq3tA87iqOdRbC9svS1B9A==}
+  /prom-client/14.1.1:
+    resolution: {integrity: sha512-hFU32q7UZQ59bVJQGUtm3I2PrJ3gWvoCkilX9sF165ks1qflhugVCeK+S1JjJYHvyt3o5kj68+q3bchormjnzw==}
     engines: {node: '>=10'}
     dependencies:
       tdigest: 0.1.2
@@ -8139,10 +8147,6 @@ packages:
   /through/2.3.8:
     resolution: {integrity: sha512-w89qg7PI8wAdvX60bMDP+bFoD5Dvhm9oLheFp5O4a2QF0cSBGsBX4qZmadPMvVqlLJBBci+WqGGOAPvcDeNSVg==}
     dev: false
-
-  /timekeeper/2.2.0:
-    resolution: {integrity: sha512-W3AmPTJWZkRwu+iSNxPIsLZ2ByADsOLbbLxe46UJyWj3mlYLlwucKiq+/dPm0l9wTzqoF3/2PH0AGFCebjq23A==}
-    dev: true
 
   /tiny-lru/9.0.3:
     resolution: {integrity: sha512-/i9GruRjXsnDgehxvy6iZ4AFNVxngEFbwzirhdulomMNPGPVV3ECMZOWSw0w4sRMZ9Al9m4jy08GPvRxRUGYlw==}

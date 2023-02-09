@@ -10,7 +10,7 @@ import { dashboardLogic, BREAKPOINT_COLUMN_COUNTS, BREAKPOINTS } from 'scenes/da
 import clsx from 'clsx'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from 'lib/components/LemonButton'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 
@@ -96,7 +96,7 @@ export function DashboardItems(): JSX.Element {
                         isDragging.current = false
                     }, 250)
                 }}
-                draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
+                draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popover"
             >
                 {tiles?.map((tile: DashboardTile) => {
                     const { insight, text } = tile
