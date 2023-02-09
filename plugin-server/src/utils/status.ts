@@ -1,7 +1,7 @@
 import pino from 'pino'
 
 import { LogLevel, PluginsServerConfig } from '../types'
-import { isProdEnv } from './env-utils'
+import { isProdEnv, isTestEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -22,7 +22,7 @@ export class Status implements StatusBlueprint {
     constructor(mode?: string) {
         this.mode = mode
 
-        const logLevel: LogLevel = this.explicitLogLevel || LogLevel.Info
+        const logLevel: LogLevel = this.explicitLogLevel || (isTestEnv() ? LogLevel.Debug : LogLevel.Info)
         if (isProdEnv()) {
             this.logger = pino({
                 // By default pino will log the level number. So we can easily unify

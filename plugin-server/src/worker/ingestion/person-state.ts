@@ -6,6 +6,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
+import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -520,7 +521,7 @@ export class PersonState {
 
             let personOverrideMessages: ProducerRecord[] = []
             if (this.poEEmbraceJoin) {
-                personOverrideMessages = [await this.db.addPersonOverride(otherPerson, mergeInto, client)]
+                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
             }
 
             return [
@@ -528,6 +529,92 @@ export class PersonState {
                 person,
             ]
         })
+    }
+
+    private async addPersonOverride(
+        oldPerson: Person,
+        overridePerson: Person,
+        client?: PoolClient
+    ): Promise<ProducerRecord> {
+        const mergedAt = DateTime.now()
+        const oldestEvent = overridePerson.created_at
+        /** We'll need to do two updates:
+         1. to add an override from oldPerson to override person
+         2. update any entries that have oldPerson as the override person to now also point to the new override person
+
+         TODO: how do we want to be updating oldest_event ? 
+         I'm thinking: we write it if it's not there, but don't update it on conflicts (alternative update to the older date)
+         In the transitive one the same don't update or update to older data (if that's not too complex to do)
+         it's an optimization anyway and squash job might be updating those values anyway and it's just a hint, so ignoring if complex seems better
+         in any case it's important that we use the oldest_event we stored in postgres in CH too.
+        */
+
+        // (1)
+        const {
+            rows: [{ version }],
+        } = await this.db.postgresQuery(
+            `
+                INSERT INTO posthog_personoverride (
+                    team_id, 
+                    old_person_id, 
+                    override_person_id, 
+                    oldest_event,
+                    version
+                ) VALUES ($1, $2, $3, $4, $5)
+                RETURNING version
+            `,
+            [oldPerson.team_id, oldPerson.uuid, overridePerson.uuid, oldestEvent, 1],
+            'personOverrides',
+            client
+        )
+        // TODO: test run it twice and make sure it fails the second time
+
+        // (2)
+        // TODO: Race conditions here - 2 in parallel some might be left as the now overridden person?
+        // Can that be a problem?
+        const { rows: transitiveUpdates } = await this.db.postgresQuery(
+            `
+                UPDATE posthog_personoverride
+                SET override_person_id = $3, version = version + 1
+                WHERE team_id = $1 AND override_person_id = $2
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event
+            `,
+            [oldPerson.team_id, oldPerson.uuid, overridePerson.uuid],
+            'transitivePersonOverrides',
+            client
+        )
+
+        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
+
+        const personOverrideMessages: ProducerRecord = {
+            topic: KAFKA_PERSON_OVERRIDE,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: oldPerson.team_id,
+                        merged_at: mergedAt,
+                        override_person_id: overridePerson.id,
+                        old_person_id: oldPerson.id,
+                        oldest_event: oldestEvent,
+                        version: version,
+                    }),
+                },
+                ...transitiveUpdates.map(({ oldPersonId, version, oldestEvent }) => ({
+                    value: JSON.stringify({
+                        team_id: oldPerson.team_id,
+                        merged_at: mergedAt,
+                        override_person_id: overridePerson.id,
+                        old_person_id: oldPersonId,
+                        oldest_event: oldestEvent,
+                        version: version,
+                    }),
+                })),
+            ],
+        }
+        return personOverrideMessages
     }
 
     private async handleTablesDependingOnPersonID(
