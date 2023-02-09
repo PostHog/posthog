@@ -18,12 +18,6 @@ export async function emitToBufferStep(
 ): Promise<[PluginEvent, LazyPersonContainer] | null> {
     status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
 
-    // TODO: REMOVE Incident mitigation details in https://posthog.slack.com/archives/C0185UNBSJZ/p1675841292796619
-    if (event.event == '$groupidentify' && event.team_id == 19279) {
-        runner.hub.statsd?.increment('groupidentify-blackhole-incident-mitigation')
-        return null
-    }
-
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (

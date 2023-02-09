@@ -95,3 +95,14 @@
   WHERE "posthog_organizationmembership"."user_id" = 2 /*controller='element-stats',route='api/element/stats/%3F%24'*/
   '
 ---
+# name: TestElement.test_element_stats_postgres_queries_are_as_expected.3
+  '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
+  '
+---

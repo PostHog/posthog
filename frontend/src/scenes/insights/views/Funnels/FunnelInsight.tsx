@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { FunnelsQuery } from '~/queries/schema'
 
-export function FunnnelInsightDataExploration(): JSX.Element {
+export function FunnelInsightDataExploration(): JSX.Element {
     const { insightLoading, insightProps } = useValues(insightLogic)
     const { querySource } = useValues(funnelDataLogic(insightProps))
 
