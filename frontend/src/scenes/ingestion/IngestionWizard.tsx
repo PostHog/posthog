@@ -55,7 +55,7 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
     const { isSmallScreen } = useValues(ingestionLogic)
 
     return (
-        <div className="flex h-full flex-col">
+        <div className="flex h-screen flex-col">
             <div className="IngestionTopbar">
                 <FriendlyLogo style={{ fontSize: '1.125rem' }} />
                 <div className="flex">
@@ -63,7 +63,6 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     <SitePopover />
                 </div>
             </div>
-            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
             <div className="flex h-full">
                 {!isSmallScreen && <Sidebar />}
                 {/* <div className="IngestionContainer" */}
@@ -72,11 +71,13 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                     noLogo
                     fixedWidth={false}
                     header={<PanelHeader />}
-                    className="IngestionContent"
+                    className="IngestionContent h-full"
+                    fullScreen={false}
                 >
                     {children}
                 </BridgePage>
             </div>
+            <InviteModal isOpen={isInviteModalShown} onClose={hideInviteModal} />
         </div>
     )
 }
