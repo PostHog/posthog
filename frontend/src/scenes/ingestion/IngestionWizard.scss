@@ -58,6 +58,26 @@
     }
 }
 
+.IngestionSidebar {
+    background: white;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    align-items: center;
+    width: 250px;
+}
+
+.IngestionSidebar__content {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    height: 100%;
+    flex: 1;
+    padding: 1rem;
+    position: fixed;
+    width: 250px;
+}
+
 .IngestionSidebar__help {
     display: flex;
     flex-direction: column;
