@@ -3,6 +3,8 @@ from typing import List, Optional
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
 
+# https://github.com/ClickHouse/ClickHouse/issues/23194 - "Describe how identifiers in SELECT queries are resolved"
+
 
 def resolve_symbols(node: ast.SelectQuery):
     Resolver().visit(node)
@@ -30,7 +32,7 @@ class Resolver(TraversingVisitor):
 
         self.visit(node.expr)
 
-        node.symbol = ast.AliasSymbol(name=node.alias, symbol=node.expr.symbol)
+        node.symbol = ast.ColumnAliasSymbol(name=node.alias, symbol=node.expr.symbol)
         last_select.symbols[node.alias] = node.symbol
 
     def visit_field(self, node):
@@ -77,26 +79,30 @@ class Resolver(TraversingVisitor):
         if len(self.scopes) == 0:
             raise ResolverException("Unexpected JoinExpr outside a SELECT query")
         last_select = self.scopes[-1]
-        if node.alias in last_select.tables:
-            raise ResolverException(f"Table alias with the same name as another table: {node.alias}")
 
         if isinstance(node.table, ast.Field):
+            if node.alias is None:
+                node.alias = node.table.chain[0]
+            if node.alias in last_select.tables:
+                raise ResolverException(f"Table alias with the same name as another table: {node.alias}")
+
             if node.table.chain == ["events"]:
-                if node.alias is None:
-                    node.alias = node.table.chain[0]
-                symbol = ast.TableSymbol(name=node.alias, table_name="events")
+                node.table.symbol = ast.TableSymbol(table_name="events")
+                node.symbol = ast.TableAliasSymbol(name=node.alias, symbol=node.table.symbol)
             else:
                 raise ResolverException(f"Cannot resolve table {node.table.chain[0]}")
 
         elif isinstance(node.table, ast.SelectQuery):
-            symbol = self.visit(node.table)
-            symbol.name = node.alias
+            node.table.symbol = self.visit(node.table)
+            if node.alias is None:
+                node.symbol = node.table.symbol
+            else:
+                node.symbol = ast.TableAliasSymbol(name=node.alias, symbol=node.table.symbol)
 
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-        node.table.symbol = symbol
-        last_select.tables[node.alias] = symbol
+        last_select.tables[node.alias] = node.table.symbol
 
         self.visit(node.join_expr)
 
@@ -104,7 +110,7 @@ class Resolver(TraversingVisitor):
         if node.symbol is not None:
             return
 
-        node.symbol = ast.SelectQuerySymbol(name="", symbols={}, tables={})
+        node.symbol = ast.SelectQuerySymbol(symbols={}, tables={})
         self.scopes.append(node.symbol)
 
         if node.select_from:

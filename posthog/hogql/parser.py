@@ -303,7 +303,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Field(chain=["*"])
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
-        raise NotImplementedError(f"Unsupported node: ColumnsExprSubquery")
+        return self.visit(ctx.selectUnionStmt())
 
     def visitColumnsExprColumn(self, ctx: HogQLParser.ColumnsExprColumnContext):
         return self.visit(ctx.columnExpr())

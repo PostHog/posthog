@@ -23,8 +23,6 @@ class AST(BaseModel):
 
 
 class Symbol(AST):
-    name: str
-
     def get_child(self, name: str) -> "Symbol":
         raise NotImplementedError()
 
@@ -32,8 +30,26 @@ class Symbol(AST):
         return self.get_child(name) is not None
 
 
-class AliasSymbol(Symbol):
+class ColumnAliasSymbol(Symbol):
+    name: str
     symbol: "Symbol"
+
+    def get_child(self, name: str) -> "Symbol":
+        return self.symbol.get_child(name)
+
+    def has_child(self, name: str) -> bool:
+        return self.symbol.has_child(name)
+
+
+class TableAliasSymbol(Symbol):
+    name: str
+    symbol: "Symbol"
+
+    def get_child(self, name: str) -> "Symbol":
+        return self.symbol.get_child(name)
+
+    def has_child(self, name: str) -> bool:
+        return self.symbol.has_child(name)
 
 
 class TableSymbol(Symbol):
@@ -68,6 +84,7 @@ class SelectQuerySymbol(Symbol):
 
 
 class FieldSymbol(Symbol):
+    name: str
     table: TableSymbol
 
     def get_child(self, name: str) -> "Symbol":
@@ -81,6 +98,7 @@ class FieldSymbol(Symbol):
 
 
 class PropertySymbol(Symbol):
+    name: str
     field: FieldSymbol
 
 
@@ -88,8 +106,8 @@ class Expr(AST):
     symbol: Optional[Symbol]
 
 
-Symbol.update_forward_refs(Expr=Expr)
-AliasSymbol.update_forward_refs(Expr=Expr)
+ColumnAliasSymbol.update_forward_refs(Expr=Expr)
+TableAliasSymbol.update_forward_refs(Expr=Expr)
 SelectQuerySymbol.update_forward_refs(Expr=Expr)
 
 
