@@ -85,6 +85,7 @@ function handleTimestamp(
 
     // Events in the future would indicate an instrumentation bug, lets' ingest them
     // but publish an integration warning to help diagnose such issues.
+    // We will also 'fix' the date to be now()
     if (nowDiff > FutureEventHoursCutoffMillis) {
         callback?.('event_timestamp_in_future', {
             timestamp: data['timestamp'] ?? '',
@@ -96,7 +97,7 @@ function handleTimestamp(
             eventName: data['event'],
         })
 
-        parsedTs = timestamp
+        parsedTs = now
     }
 
     return parsedTs
