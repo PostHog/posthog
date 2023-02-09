@@ -3,6 +3,7 @@ import { useValues } from 'kea'
 import md5 from 'md5'
 import { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
+import { IconRobot } from '../icons'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import './ProfilePicture.scss'
 
@@ -16,6 +17,7 @@ export interface ProfilePictureProps {
     title?: string
     index?: number
     isSystem?: boolean
+    isBot?: boolean
 }
 
 export function ProfilePicture({
@@ -28,6 +30,7 @@ export function ProfilePicture({
     index,
     title,
     isSystem,
+    isBot,
 }: ProfilePictureProps): JSX.Element {
     const { user } = useValues(userLogic)
     const [didImageError, setDidImageError] = useState(false)
@@ -51,7 +54,9 @@ export function ProfilePicture({
             />
         )
     } else {
-        pictureComponent = (
+        pictureComponent = isBot ? (
+            <IconRobot className={pictureClass} style={{ padding: '0.1rem' }} />
+        ) : (
             <span className={pictureClass} style={style}>
                 <Lettermark
                     name={combinedNameAndEmail}

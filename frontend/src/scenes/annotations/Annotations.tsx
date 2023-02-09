@@ -96,6 +96,7 @@ export function Annotations(): JSX.Element {
                             email={creation_type === 'GIT' ? undefined : created_by?.email}
                             showName
                             size="md"
+                            isBot={creation_type === 'GIT'}
                         />
                     </div>
                 )

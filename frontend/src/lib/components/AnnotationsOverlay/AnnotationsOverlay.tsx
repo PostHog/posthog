@@ -257,6 +257,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                     email={annotation.creation_type === 'GIT' ? undefined : annotation.created_by?.email}
                     showName
                     size="md"
+                    isBot={annotation.creation_type === 'GIT'}
                 />{' '}
                 • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
             </div>
