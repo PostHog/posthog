@@ -23,7 +23,6 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { isLemonSelectSection } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { TextCardModal } from 'lib/components/Cards/TextCard/TextCardModal'
 import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
@@ -295,8 +294,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                         }}
                                                         data-attr="add-text-tile-to-dashboard"
                                                     >
-                                                        Add text card &nbsp;
-                                                        <LemonTag type="warning">BETA</LemonTag>
+                                                        Add text card
                                                     </LemonButton>
                                                 </>
                                             ),
