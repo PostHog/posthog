@@ -14,6 +14,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.api.insight import DEFAULT_INSIGHT_REFRESH_FREQUENCY, should_refresh_insight
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.models import (
@@ -2514,3 +2515,30 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             ).json()
             self.assertEqual(len(response["result"]), 11)
             self.assertEqual(response["result"][0]["values"][0]["count"], 1)
+
+    def test_should_refresh_insight(self) -> None:
+        # should_refresh_now should always be true if the insight doesn't have last_refresh
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "interval": "month"}, "name": "insight"}
+        )
+        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id))
+        self.assertEqual(should_refresh_now, True)
+        self.assertEqual(refresh_frequency, DEFAULT_INSIGHT_REFRESH_FREQUENCY)
+
+        # insights with hour intervals can be refreshed more often
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "interval": "hour"}, "name": "insight"}
+        )
+        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id))
+        self.assertEqual(should_refresh_now, True)
+        self.assertEqual(refresh_frequency, timedelta(minutes=3))
+
+        # insight recently refreshed should return False for should_refresh_now
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "interval": "month"}, "name": "insight"}
+        )
+        insight = Insight.objects.get(id=insight_id)
+        insight.last_refresh = datetime.now(tz=pytz.timezone("UTC"))
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight)
+        self.assertEqual(should_refresh_now, False)
+        self.assertEqual(refresh_frequency, timedelta(minutes=3))

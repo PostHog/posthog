@@ -129,6 +129,7 @@ export const insightLogic = kea<insightLogicType>([
             view: InsightType
             scene: Scene | null
             lastRefresh: string | null
+            nextAllowedRefresh: string | null
             exception?: Record<string, any>
             response?: { cached: boolean; apiResponseBytes: number; apiUrl: string }
         }) => payload,
@@ -143,6 +144,7 @@ export const insightLogic = kea<insightLogicType>([
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
+        setNextAllowedRefresh: (nextAllowedRefresh: string | null) => ({ nextAllowedRefresh }),
         setNotFirstLoad: true,
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
@@ -358,6 +360,7 @@ export const insightLogic = kea<insightLogicType>([
                             view: insight,
                             scene: scene,
                             lastRefresh: null,
+                            nextAllowedRefresh: null,
                             exception: e,
                         })
                         if (dashboardItemId && dashboardsModel.isMounted()) {
@@ -382,6 +385,7 @@ export const insightLogic = kea<insightLogicType>([
                         view: (values.filters.insight as InsightType) || InsightType.TRENDS,
                         scene: scene,
                         lastRefresh: response.last_refresh,
+                        nextAllowedRefresh: response.next_allowed_refresh,
                         response: {
                             cached: response?.is_cached,
                             apiResponseBytes: getResponseBytes(fetchResponse),
@@ -532,6 +536,14 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
                 loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
+                setActiveView: () => null,
+            },
+        ],
+        nextAllowedRefresh: [
+            null as string | null,
+            {
+                setNextAllowedRefresh: (_, { nextAllowedRefresh }) => nextAllowedRefresh,
+                loadInsightSuccess: (_, { insight }) => insight.next_allowed_refresh || null,
                 setActiveView: () => null,
             },
         ],
@@ -903,7 +915,7 @@ export const insightLogic = kea<insightLogicType>([
                 insight: values.activeView,
             })
         },
-        endQuery: ({ queryId, view, lastRefresh, scene, exception, response }) => {
+        endQuery: ({ queryId, view, lastRefresh, scene, exception, response, nextAllowedRefresh }) => {
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
@@ -911,6 +923,7 @@ export const insightLogic = kea<insightLogicType>([
                 actions.markInsightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
                 actions.marktInsightErrored(values.maybeShowErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
+                actions.setNextAllowedRefresh(nextAllowedRefresh || null)
                 actions.setIsLoading(false)
 
                 const duration = performance.now() - values.queryStartTimes[queryId]

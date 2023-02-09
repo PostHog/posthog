@@ -1,7 +1,18 @@
 import json
+from datetime import datetime, timedelta
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import (
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    cast,
+)
 
+import pytz
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -79,9 +90,24 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
+
+# default minimum wait time for refreshing an insight
+DEFAULT_INSIGHT_REFRESH_FREQUENCY = timedelta(minutes=15)
+
+# returns should_refresh, refresh_frequency
+def should_refresh_insight(insight: Insight) -> Tuple[bool, timedelta]:
+    refresh_frequency = DEFAULT_INSIGHT_REFRESH_FREQUENCY
+
+    if "interval" in insight.filters and insight.filters["interval"] == "hour":
+        refresh_frequency = timedelta(minutes=3)
+
+    if not insight.last_refresh:
+        return True, refresh_frequency
+
+    return insight.last_refresh + refresh_frequency <= datetime.now(tz=pytz.timezone("UTC")), refresh_frequency
 
 
 def log_insight_activity(
@@ -196,6 +222,13 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
+    next_allowed_refresh = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="""
+    The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+    by querying the database.
+    """,
+    )
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -234,6 +267,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "dashboards",
             "dashboard_tiles",
             "last_refresh",
+            "next_allowed_refresh",
             "result",
             "created_at",
             "created_by",
@@ -413,13 +447,16 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_timezone(self, insight: Insight):
         # :TODO: This doesn't work properly as background cache updates don't set timezone in the response.
         # This should get refactored.
-        if should_refresh(self.context["request"]):
+        if refresh_requested_by_client(self.context["request"]):
             return insight.team.timezone
 
         return self.insight_result(insight).timezone
 
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
+
+    def get_next_allowed_refresh(self, insight: Insight):
+        return self.insight_result(insight).next_allowed_refresh
 
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
@@ -462,12 +499,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def insight_result(self, insight: Insight) -> InsightResult:
         dashboard = self.context.get("dashboard", None)
 
-        if insight.filters and should_refresh(self.context["request"]):
-            return synchronously_update_cache(insight, dashboard)
+        refresh_insight_now, refresh_frequency = should_refresh_insight(insight)
+        if insight.filters and refresh_requested_by_client(self.context["request"]):
+            if refresh_insight_now:
+                return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
         target = insight if dashboard is None else self.dashboard_tile_from_context(insight, dashboard)
         # :TODO: Clear up if tile can be null or not
-        return fetch_cached_insight_result(target or insight)
+        return fetch_cached_insight_result(target or insight, refresh_frequency)
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
