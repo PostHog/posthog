@@ -70,7 +70,7 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                     'insight-wrapper--singlecolumn': isFunnels,
                 })}
             >
-                <EditorFilters query={query.source} setQuery={setQuerySource} />
+                <EditorFilters query={query.source} setQuery={setQuerySource} showing={insightMode === ItemMode.Edit} />
 
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer insightMode={insightMode} />

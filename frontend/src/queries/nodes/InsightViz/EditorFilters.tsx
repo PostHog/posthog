@@ -40,9 +40,10 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
+    showing: boolean
 }
 
-export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
+export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
 
@@ -57,8 +58,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         isStepsFunnel
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isStepsFunnel
-
-    const showFilters = true // TODO: implement with insightVizLogic
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
@@ -250,7 +249,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     ]
 
     return (
-        <CSSTransition in={showFilters} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+        <CSSTransition in={showing} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
             <div
                 className={clsx('EditorFiltersWrapper', {
                     'EditorFiltersWrapper--singlecolumn': isFunnels,
