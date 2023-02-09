@@ -159,6 +159,12 @@ class Resolver(TraversingVisitor):
 
         node.symbol = symbol
 
+    def visit_constant(self, node):
+        """Visit a constant"""
+        if node.symbol is not None:
+            return
+        node.symbol = ast.ConstantSymbol(value=node.value)
+
 
 def unwrap_column_alias_symbol(symbol: ast.Symbol) -> ast.Symbol:
     i = 0

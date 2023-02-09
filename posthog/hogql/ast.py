@@ -99,6 +99,10 @@ class FieldSymbol(Symbol):
             raise NotImplementedError(f"Can not resolve fields on table: {self.name}")
 
 
+class ConstantSymbol(Symbol):
+    value: Any
+
+
 class PropertySymbol(Symbol):
     name: str
     field: FieldSymbol

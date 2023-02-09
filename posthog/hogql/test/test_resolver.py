@@ -31,7 +31,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["events", "event"], symbol=event_field_symbol),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test"),
+                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
             ),
             symbol=select_query_symbol,
         )
@@ -69,7 +69,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], symbol=event_field_symbol),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test"),
+                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
             ),
             symbol=select_query_symbol,
         )
@@ -125,7 +125,7 @@ class TestResolver(BaseTest):
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], symbol=event_field_symbol),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test"),
+                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
             ),
             symbol=select_query_symbol,
         )
@@ -204,7 +204,7 @@ class TestResolver(BaseTest):
                     ),
                 ),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test"),
+                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
             ),
             symbol=ast.SelectQuerySymbol(
                 aliases={},
@@ -237,18 +237,15 @@ class TestResolver(BaseTest):
             "SELECT x IN (SELECT 1 AS x)",
             "SELECT events.x FROM (SELECT event as x FROM events) AS t",
             "SELECT x.y FROM (SELECT event as y FROM events AS x) AS t",
-            # "SELECT x IN (SELECT 1 AS x) FROM (SELECT 1 AS x)",
         ]
         for query in queries:
             with self.assertRaises(ResolverException) as e:
                 resolve_symbols(parse_select(query))
-            self.assertEqual(str(e.exception), "Cannot resolve symbol")
+            self.assertIn("Cannot resolve symbol", str(e.exception))
 
 
 # "with 2 as a select 1 as a" -> "Different expressions with the same alias a:"
 # "with 2 as b, 3 as c select (select 1 as b) as a, b, c" -> "Different expressions with the same alias b:"
-
-
 # "select a, b, e.c from (select 1 as a, 2 as b, 3 as c) as e" -> 1, 2, 3
 
 # # good
@@ -258,3 +255,4 @@ class TestResolver(BaseTest):
 # SELECT 1 AS x, x, x + 1;
 # SELECT x, x + 1, 1 AS x;
 # SELECT x, 1 + (2 + (3 AS x));
+# "SELECT x IN (SELECT 1 AS x) FROM (SELECT 1 AS x)",
