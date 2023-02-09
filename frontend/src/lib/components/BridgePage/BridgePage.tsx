@@ -15,7 +15,6 @@ export type BridgePageCommonProps = {
     sideLogo?: boolean
     fixedWidth?: boolean
     leftContainerContent?: JSX.Element
-    fullScreen?: boolean
 }
 
 interface NoHedgehogProps extends BridgePageCommonProps {
@@ -43,7 +42,6 @@ export function BridgePage({
     fixedWidth = true,
     leftContainerContent,
     hedgehog = false,
-    fullScreen = true,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
 
@@ -55,14 +53,7 @@ export function BridgePage({
     }, [])
 
     return (
-        <div
-            className={clsx(
-                'BridgePage',
-                fixedWidth && 'BridgePage--fixed-width',
-                fullScreen && 'BridgePage--full-screen',
-                className
-            )}
-        >
+        <div className={clsx('BridgePage', fixedWidth && 'BridgePage--fixed-width', className)}>
             <div className="BridgePage__main">
                 {leftContainerContent || hedgehog ? (
                     <div className="BridgePage__left-wrapper">

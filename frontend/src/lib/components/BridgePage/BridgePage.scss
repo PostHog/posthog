@@ -7,6 +7,7 @@
     flex-direction: column;
     flex: 1;
     overflow: hidden;
+    min-height: 100vh;
 
     .BridgePage__main {
         display: flex;
@@ -142,10 +143,5 @@
                 width: 400px;
             }
         }
-    }
-    // This will make the bridgepage compnent full screen, so if there
-    // is anything above or below it, it will be taller than the viewport
-    &.BridgePage--full-screen {
-        min-height: 100vh;
     }
 }

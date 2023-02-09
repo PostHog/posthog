@@ -209,8 +209,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
         goToView: (view: INGESTION_VIEWS) => ({ view }),
         setSidebarSteps: (steps: string[]) => ({ steps }),
         setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
-        toggleProjectSwitcher: true,
-        hideProjectSwitcher: true,
     }),
     windowValues({
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
@@ -299,13 +297,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
             0,
             {
                 setPollTimeout: (_, payload) => payload.pollTimeout,
-            },
-        ],
-        isProjectSwitcherShown: [
-            false,
-            {
-                toggleProjectSwitcher: (state) => !state,
-                hideProjectSwitcher: () => false,
             },
         ],
     }),
