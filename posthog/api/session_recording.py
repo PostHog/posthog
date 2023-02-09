@@ -120,6 +120,18 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         return Response(serializer.data)
 
+    def delete(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+
+        if recording.deleted:
+            raise exceptions.NotFound("Recording not found")
+        
+        recording.deleted = True
+        recording.save()
+
+        return JsonResponse({"status": "success"})
+
+
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):

@@ -4,9 +4,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { useActions } from 'kea'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconLink } from 'lib/lemon-ui/icons'
+import { IconDelete, IconLink } from 'lib/lemon-ui/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
 import { PlaylistPopover } from './playlist-popover/PlaylistPopover'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
 export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { sessionRecordingId } = props
@@ -21,6 +22,20 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.El
         })
     }
 
+    const onDelete = (): void => {
+        LemonDialog.open({
+            title: 'Delete recording',
+            description: 'Are you sure you want to delete this recording? This cannot be undone.',
+            secondaryButton: {
+                children: 'Cancel',
+            },
+            primaryButton: {
+                children: 'Delete',
+                status: 'danger',
+            },
+        })
+    }
+
     return (
         <div className="flex flex-row gap-2">
             <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
@@ -28,6 +43,8 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.El
             </LemonButton>
 
             <PlaylistPopover {...props} />
+
+            <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} />
         </div>
     )
 }
