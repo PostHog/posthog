@@ -741,7 +741,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             )}
             {featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] && !multivariateEnabled && (
                 <div className="mb-6">
-                    <h3 className="l4">Payload</h3>
+                    <h3 className="l4">
+                        Payload
+                        <LemonTag type="warning" className="uppercase ml-2">
+                            Beta
+                        </LemonTag>
+                    </h3>
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -787,7 +792,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 <Col span={6}>Description</Col>
                                 <Col span={8}>
                                     <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
-                                        <b>Payload</b>
+                                        <b>
+                                            Payload
+                                            <LemonTag type="warning" className="uppercase ml-2">
+                                                Beta
+                                            </LemonTag>
+                                        </b>
                                         <span className="text-muted">
                                             Specify return payload when the variant key matches
                                         </span>
