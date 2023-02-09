@@ -80,7 +80,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             latest_date = cached_result[0]["days"][len(cached_result[0]["days"]) - 1]
 
             parsed_latest_date = parser.parse(latest_date)
-            parsed_latest_date = pytz.timezone(team.timezone).localize(parsed_latest_date)
+            parsed_latest_date = parsed_latest_date.replace(tzinfo=pytz.timezone(team.timezone))
             _is_present = is_filter_date_present(filter, parsed_latest_date)
         else:
             _is_present = False

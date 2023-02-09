@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 
 import pytest
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -146,7 +147,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event="step two",
             distinct_id="user_1",
             team=self.team,
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
             properties={"$session_id": "s1", "$window_id": "w1"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
@@ -154,12 +155,12 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event="step one",
             distinct_id="user_1",
             team=self.team,
-            timestamp=(datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            timestamp=(timezone.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             properties={"$session_id": "s1", "$window_id": "w1"},
             event_uuid="11111111-1111-1111-1111-111111111111",
         )
 
-        create_session_recording_events(self.team.pk, datetime.now() + timedelta(days=1), "user_1", "s1")
+        create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_1", "s1")
 
         filter = Filter(
             data={

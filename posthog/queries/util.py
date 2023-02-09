@@ -60,7 +60,7 @@ def get_earliest_timestamp(team_id: int) -> datetime:
     if len(results) > 0:
         return results[0][0]
     else:
-        return datetime.now() - DEFAULT_EARLIEST_TIME_DELTA
+        return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def get_trunc_func_ch(period: Optional[str]) -> str:

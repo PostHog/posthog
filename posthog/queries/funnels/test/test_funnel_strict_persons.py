@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.utils import timezone
 from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
@@ -125,7 +126,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event="step one",
             distinct_id="user_1",
             team=self.team,
-            timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
+            timestamp=timezone.now().strftime("%Y-%m-%d %H:%M:%S.%f"),
             properties={"$session_id": "s1", "$window_id": "w1"},
             event_uuid="11111111-1111-1111-1111-111111111111",
         )
@@ -133,7 +134,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event="step two",
             distinct_id="user_1",
             team=self.team,
-            timestamp=(datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            timestamp=(timezone.now() + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
@@ -141,7 +142,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event="interupting step",
             distinct_id="user_1",
             team=self.team,
-            timestamp=(datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            timestamp=(timezone.now() + timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
@@ -149,7 +150,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event="step three",
             distinct_id="user_1",
             team=self.team,
-            timestamp=(datetime.now() + timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+            timestamp=(timezone.now() + timedelta(days=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
@@ -208,7 +209,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     "events": [
                         {
                             "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": datetime.now() + timedelta(days=1),
+                            "timestamp": timezone.now() + timedelta(days=1),
                             "window_id": "w2",
                         }
                     ],
@@ -243,7 +244,7 @@ class TestFunnelStrictStepsPersons(ClickhouseTestMixin, APIBaseTest):
                     "events": [
                         {
                             "uuid": UUID("21111111-1111-1111-1111-111111111111"),
-                            "timestamp": datetime.now() + timedelta(days=1),
+                            "timestamp": timezone.now() + timedelta(days=1),
                             "window_id": "w2",
                         }
                     ],

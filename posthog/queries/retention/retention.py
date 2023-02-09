@@ -105,8 +105,8 @@ class Retention:
                     for day in range(filter.total_intervals - first_day)
                 ],
                 "label": "{} {}".format(filter.period, first_day),
-                "date": pytz.timezone(team.timezone).localize(
-                    filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]
+                "date": (filter.date_from + RetentionFilter.determine_time_delta(first_day, filter.period)[0]).replace(
+                    tzinfo=pytz.timezone(team.timezone)
                 ),
                 "people_url": construct_url(first_day),
             }

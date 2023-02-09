@@ -6,6 +6,7 @@ from typing import Dict, Generic, Literal, Optional, Tuple, TypeVar
 import pytz
 from dateutil import parser
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.filters.mixins.common import DateMixin
@@ -50,7 +51,7 @@ class QueryDateRange(Generic[F]):
         try:
             earliest_date = get_earliest_timestamp(self._team.pk)
         except IndexError:
-            return datetime.now()
+            return timezone.now()  # TODO: fix
         else:
             return earliest_date
 
@@ -75,7 +76,7 @@ class QueryDateRange(Generic[F]):
 
     @cached_property
     def _now(self):
-        return self._localize_to_team(datetime.utcnow().replace(tzinfo=pytz.utc))
+        return self._localize_to_team(timezone.now())
 
     def _localize_to_team(self, target: datetime):
         return target.astimezone(pytz.timezone(self._team.timezone))
@@ -223,7 +224,7 @@ class QueryDateRange(Generic[F]):
 
     @cached_property
     def _end_time(self) -> datetime:
-        return self._filter.date_to or datetime.now()
+        return self._filter.date_to or timezone.now()
 
     @cached_property
     def time_difference(self) -> timedelta:
