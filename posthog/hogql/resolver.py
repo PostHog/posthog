@@ -15,6 +15,8 @@ class ResolverException(ValueError):
 
 
 class Resolver(TraversingVisitor):
+    """The Resolver visits an AST and assigns Symbols to the nodes."""
+
     def __init__(self):
         self.scopes: List[ast.SelectQuerySymbol] = []
 

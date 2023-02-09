@@ -222,7 +222,7 @@ class TestResolver(BaseTest):
         self.assertEqual(expr, expected)
 
     def test_resolve_subquery_no_field_access(self):
-        # "Aliases defined outside of subquery are not visible in subqueries (but see below)."
+        # From ClickHouse's GitHub: "Aliases defined outside of subquery are not visible in subqueries (but see below)."
         expr = parse_select(
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )

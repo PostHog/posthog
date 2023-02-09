@@ -65,6 +65,7 @@ class TableSymbol(Symbol):
         if self.table_name == "events":
             if name in EVENT_FIELDS:
                 return FieldSymbol(name=name, table=self)
+            raise NotImplementedError(f"Event field not found: {name}")
         else:
             raise NotImplementedError(f"Can not resolve table: {self.table_name}")
 
@@ -80,6 +81,7 @@ class SelectQuerySymbol(Symbol):
     def get_child(self, name: str) -> "Symbol":
         if name in self.columns:
             return self.columns[name]
+        raise NotImplementedError(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
