@@ -23,8 +23,8 @@ export enum INGESTION_STEPS {
     START = 'Get started',
     PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
-    SUPERPOWERS = 'Enable superpowers',
     VERIFY = 'Listen for events',
+    SUPERPOWERS = 'Enable superpowers',
     BILLING = 'Add payment method',
     DONE = 'Done!',
 }
@@ -33,8 +33,8 @@ export enum INGESTION_STEPS_WITHOUT_BILLING {
     START = 'Get started',
     PLATFORM = 'Select your platform',
     CONNECT_PRODUCT = 'Connect your product',
-    SUPERPOWERS = 'Enable superpowers',
     VERIFY = 'Listen for events',
+    SUPERPOWERS = 'Enable superpowers',
     DONE = 'Done!',
 }
 
@@ -116,18 +116,6 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
             }
-        case INGESTION_VIEWS.SUPERPOWERS:
-            return {
-                isTechnicalUser: null,
-                hasInvitedMembers: null,
-                platform: props.platform,
-                framework: props.framework,
-                readyToVerify: false,
-                showSuperpowers: true,
-                showBilling: false,
-                isDemoProject: props.isDemoProject,
-                generatingDemoData: false,
-            }
         case INGESTION_VIEWS.VERIFICATION:
             return {
                 isTechnicalUser: true,
@@ -136,6 +124,18 @@ const viewToState = (view: string, props: IngestionState): IngestionState => {
                 framework: props.framework,
                 readyToVerify: true,
                 showSuperpowers: false,
+                showBilling: false,
+                isDemoProject: props.isDemoProject,
+                generatingDemoData: false,
+            }
+        case INGESTION_VIEWS.SUPERPOWERS:
+            return {
+                isTechnicalUser: null,
+                hasInvitedMembers: null,
+                platform: props.platform,
+                framework: props.framework,
+                readyToVerify: false,
+                showSuperpowers: true,
                 showBilling: false,
                 isDemoProject: props.isDemoProject,
                 generatingDemoData: false,
@@ -404,11 +404,11 @@ export const ingestionLogic = kea<ingestionLogicType>([
                 if (showBilling) {
                     return INGESTION_VIEWS.BILLING
                 }
-                if (readyToVerify) {
-                    return INGESTION_VIEWS.VERIFICATION
-                }
                 if (showSuperpowers) {
                     return INGESTION_VIEWS.SUPERPOWERS
+                }
+                if (readyToVerify) {
+                    return INGESTION_VIEWS.VERIFICATION
                 }
                 if (isTechnicalUser) {
                     if (!platform) {
@@ -435,7 +435,7 @@ export const ingestionLogic = kea<ingestionLogicType>([
                         return INGESTION_VIEWS.INVITE_TEAM
                     }
                 }
-
+                console.log('CURRENT IT DIDNT FIND ANYTHING')
                 return INGESTION_VIEWS.INVITE_TEAM
             },
         ],
@@ -484,11 +484,12 @@ export const ingestionLogic = kea<ingestionLogicType>([
 
     actionToUrl(({ values }) => ({
         setState: () => getUrl(values),
-        updateCurrentTeamSuccess: () => {
+        updateCurrentTeamSuccess: (val) => {
             if (
                 router.values.location.pathname.includes(
-                    values.showBillingStep ? '/ingestion/billing' : '/ingestion/verify'
-                )
+                    values.showBillingStep ? '/ingestion/billing' : '/ingestion/superpowers'
+                ) &&
+                val.payload?.completed_snippet_onboarding
             ) {
                 return combineUrl(urls.events(), { onboarding_completed: true }).url
             }
@@ -520,9 +521,12 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
     listeners(({ actions, values }) => ({
         next: (props) => {
+            console.log('CURRENT', 'NEXT TRIGGERED', values.currentState, props)
             actions.setState({ ...values.currentState, ...props } as IngestionState)
+            console.log('CURRENT', values.currentState)
         },
         goToView: ({ view }) => {
+            console.log(values.currentState, 'CURRENT STATE', view, 'VIEW')
             actions.setState(viewToState(view, values.currentState as IngestionState))
         },
         completeOnboarding: () => {
@@ -655,8 +659,8 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
         return url + '/billing'
     }
 
-    if (readyToVerify) {
-        url += '/verify'
+    if (showSuperpowers) {
+        url += '/superpowers'
         return [
             url,
             {
@@ -666,8 +670,8 @@ function getUrl(values: ingestionLogicType['values']): string | [string, Record<
         ]
     }
 
-    if (showSuperpowers) {
-        url += '/superpowers'
+    if (readyToVerify) {
+        url += '/verify'
         return [
             url,
             {

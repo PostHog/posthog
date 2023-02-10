@@ -1,25 +1,32 @@
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { CardContainer } from 'scenes/ingestion/CardContainer'
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { SupportHeroHog } from 'lib/components/hedgehogs'
 import { useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { ingestionLogic } from '../ingestionLogic'
 
 export function SuperpowersPanel(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
+    const { showBillingStep } = useValues(ingestionLogic)
+    const { completeOnboarding } = useActions(ingestionLogic)
     const [sessionRecordingsChecked, setSessionRecordingsChecked] = useState(true)
 
     return (
         <CardContainer
-            nextProps={{ readyToVerify: true }}
-            onContinue={() =>
+            nextProps={{ showBilling: showBillingStep }}
+            onContinue={() => {
                 updateCurrentTeam({
                     session_recording_opt_in: sessionRecordingsChecked,
                     capture_console_log_opt_in: sessionRecordingsChecked,
                     capture_performance_opt_in: sessionRecordingsChecked,
                 })
-            }
+                if (!showBillingStep) {
+                    console.log('YES HERE')
+                    completeOnboarding()
+                }
+            }}
         >
             <div className="flex justify-between items-center -mt-4">
                 <div>
