@@ -23,7 +23,7 @@ export function VerificationPanel(): JSX.Element {
     }, 2000)
 
     return (
-        <CardContainer nextProps={{ showSuperpowers: true }}>
+        <CardContainer>
             <div className="text-center">
                 {!currentTeam?.ingested_event ? (
                     <>
