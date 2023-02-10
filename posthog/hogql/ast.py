@@ -18,8 +18,12 @@ class AST(BaseModel):
     def accept(self, visitor):
         camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
         method_name = "visit_{}".format(camel_case_name)
-        visit = getattr(visitor, method_name)
-        return visit(self)
+        if hasattr(visitor, method_name):
+            visit = getattr(visitor, method_name)
+            return visit(self)
+        if hasattr(visitor, "visit_unknown"):
+            return visitor.visit_unknown(self)
+        raise ValueError("Visitor has no method visit_constant")
 
 
 class Symbol(AST):
