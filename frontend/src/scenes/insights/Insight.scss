@@ -7,41 +7,6 @@
         font-weight: 600;
     }
 
-    .top-bar {
-        width: 100%;
-
-        .ant-tabs,
-        .ant-tabs-nav-list {
-            width: 100%;
-        }
-
-        .ant-btn-loading-icon {
-            display: none;
-        }
-
-        .ant-tabs-tab {
-            padding: 0; // More compact tabs to save vertical space
-
-            .ant-tabs-tab-btn {
-                height: 100%;
-                width: 100%;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-
-                .tab-text {
-                    height: 100%;
-                    width: 100%;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                    padding-bottom: 6px;
-                    color: inherit;
-                }
-            }
-        }
-    }
-
     .insight-history-button {
         padding-right: 0;
         padding-left: 0;
