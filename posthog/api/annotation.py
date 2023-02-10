@@ -35,7 +35,6 @@ class AnnotationSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             "id",
-            "creation_type",
             "insight_short_id",
             "insight_name",
             "created_by",

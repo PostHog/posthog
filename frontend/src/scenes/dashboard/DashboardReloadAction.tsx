@@ -21,7 +21,7 @@ export const LastRefreshText = (): JSX.Element => {
 
 // in seconds
 const intervalOptions = [
-    ...Array.from([1800, 2400, 3000, 3600], (v) => ({
+    ...Array.from([1800, 3600], (v) => ({
         label: humanFriendlyDuration(v),
         value: v,
     })),
