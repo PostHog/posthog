@@ -49,7 +49,7 @@ export function EditorFilterGroup({
                     {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
                         if (Component && Component.name === 'component') {
                             throw new Error(
-                                `Component for filter ${key} is an anymous function, which is not a valid React component! Use a named function instead.`
+                                `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
                             )
                         }
                         return (
