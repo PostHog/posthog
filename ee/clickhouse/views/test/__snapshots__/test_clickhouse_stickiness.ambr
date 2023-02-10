@@ -346,7 +346,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 12:00:00', 'UTC')
-       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-01 20:00:00', 'UTC')
+       AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-01 20:59:59', 'UTC')
        AND event = 'watched movie'
      GROUP BY aggregation_target)
   WHERE num_intervals <= 10
