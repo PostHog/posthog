@@ -19,8 +19,9 @@ labels: bug
 
 ## Environment
 
-- [ ] PostHog Cloud
-- [ ] self-hosted PostHog, version/commit: please provide
+- [ ] PostHog Cloud: EU or US and Project ID (from setting page): please provide
+- [ ] self-hosted Open Source Docker compose, version/commit: please provide
+- [ ] self-hosted Kubernetes (see [k8s sunsetting](https://posthog.com/blog/sunsetting-helm-support-posthog))
 
 ## Additional context
 
