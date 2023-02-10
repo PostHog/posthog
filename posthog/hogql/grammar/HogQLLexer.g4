@@ -230,6 +230,7 @@ HEXADECIMAL_LITERAL: '0' X HEX_DIGIT+;
 
 // It's important that quote-symbol is a single character.
 STRING_LITERAL: QUOTE_SINGLE ( ~([\\']) | ESCAPE_CHAR | (QUOTE_SINGLE QUOTE_SINGLE) )* QUOTE_SINGLE;
+PLACEHOLDER: LBRACE ( ~([\\}]) | ESCAPE_CHAR | (LBRACE LBRACE) )* RBRACE;
 
 // Alphabet and allowed symbols
 

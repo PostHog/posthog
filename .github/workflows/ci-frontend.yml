@@ -119,6 +119,10 @@ jobs:
         runs-on: ubuntu-20.04
         container:
             image: mcr.microsoft.com/playwright:v1.29.2-focal
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: ['chromium', 'firefox', 'webkit']
         env:
             CYPRESS_INSTALL_BINARY: '0'
             NODE_OPTIONS: --max_old_space_size=4096
@@ -148,16 +152,23 @@ jobs:
             - name: Serve Storybook in the background
               run: pnpm exec http-server storybook-static --port 6006 --silent &
 
-            - name: Compare current Storybook to the baseline
+            - name: Run @storybook/test-runner
+              env:
+                  HOME: /root # Solves https://github.com/microsoft/playwright/issues/6500
               run: |
-                  pnpm wait-on http://127.0.0.1:6006 --timeout 60
-                  pnpm test:visual-regression:ci
+                  pnpm wait-on http://127.0.0.1:6006 --timeout 60 # Wait for the server to be ready
+                  pnpm test:visual-regression:stories:ci ${{ matrix.browser }}
+
+            - name: Run @playwright/test (legacy, Chromium-only)
+              if: ${{ matrix.browser == 'chromium' }}
+              run: |
+                  pnpm test:visual-regression:legacy:ci
 
             - name: Upload Playwright report and diffs
               uses: actions/upload-artifact@v3
-              if: always() # We want the report even if there's no failure
+              if: failure()
               with:
-                  name: playwright-report
+                  name: visual-regression-report-${{ matrix.browser }}
                   path: |
                       playwright-report/
                       test-results/

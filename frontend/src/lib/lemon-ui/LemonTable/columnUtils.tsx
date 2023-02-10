@@ -14,7 +14,7 @@ export function createdAtColumn<T extends { created_at?: string | null }>(): Lem
                     <TZLabel time={created_at} />
                 </div>
             ) : (
-                <span style={{ color: 'var(--muted)' }}>—</span>
+                <span className="text-muted">—</span>
             )
         },
         align: 'right',

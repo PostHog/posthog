@@ -61,11 +61,11 @@ def clickhouse_at_least_228() -> bool:
 
 
 def extra_settings(query_id: Optional[str], tags: Dict[str, Any]) -> Dict[str, Any]:
-    if tags.get("kind") != "celery":
+    if tags.get("kind") != "celery" or not clickhouse_at_least_228():
         return {}
 
     # The `default` option for join_algorithm was introduced with CH 22.8
-    default_join_algorithm = "default" if clickhouse_at_least_228() else "direct,hash"
+    default_join_algorithm = "default"
 
     join_algorithm = (
         posthoganalytics.get_feature_flag(

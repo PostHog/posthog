@@ -1374,7 +1374,7 @@ export interface RawAnnotationType {
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
-    creation_type?: string
+    creation_type?: 'USR' | 'GIT'
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
@@ -1632,6 +1632,7 @@ export interface InsightEditorFilter<T = EditorFilterProps> {
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
+    /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: T) => JSX.Element | null
 }
 
