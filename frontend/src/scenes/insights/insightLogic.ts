@@ -831,6 +831,18 @@ export const insightLogic = kea<insightLogicType>([
                 return disabledReason
             },
         ],
+        isTestGroupForNewRefreshUX: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
+            },
+        ],
+        displayRefreshButtonChangedNotice: [
+            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged],
+            (isTestGroupForNewRefreshUX: boolean, acknowledgedRefreshButtonChanged: boolean): boolean => {
+                return isTestGroupForNewRefreshUX && !acknowledgedRefreshButtonChanged
+            },
+        ],
     }),
     listeners(({ actions, selectors, values, cache }) => ({
         setFiltersMerge: ({ filters }) => {
