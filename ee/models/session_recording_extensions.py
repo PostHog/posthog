@@ -44,7 +44,9 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         raise Exception(f"Recording {recording_id} not found")
 
     if recording.deleted:
-        logger.info("Persisting recording: skipping as recording is deleted", recording_id=recording_id, team_id=team_id)
+        logger.info(
+            "Persisting recording: skipping as recording is deleted", recording_id=recording_id, team_id=team_id
+        )
         return
 
     logger.info("Persisting recording: loading metadata...", recording_id=recording_id, team_id=team_id)
