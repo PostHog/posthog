@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.visitor import TraversingVisitor
@@ -19,6 +19,7 @@ class Resolver(TraversingVisitor):
 
     def __init__(self):
         self.scopes: List[ast.SelectQuerySymbol] = []
+        self.global_tables: Dict[str, ast.Symbol] = {}
 
     def visit_select_query(self, node):
         """Visit each SELECT query or subquery."""
@@ -53,6 +54,14 @@ class Resolver(TraversingVisitor):
             self.visit(node.prewhere)
         if node.having:
             self.visit(node.having)
+        for expr in node.group_by or []:
+            self.visit(expr)
+        for expr in node.order_by or []:
+            self.visit(expr)
+        for expr in node.limit_by or []:
+            self.visit(expr)
+        self.visit(node.limit)
+        self.visit(node.offset)
 
         self.scopes.pop()
 
@@ -76,7 +85,9 @@ class Resolver(TraversingVisitor):
 
             # Only joining the events table is supported
             if node.table.chain == ["events"]:
-                node.table.symbol = ast.TableSymbol(table_name="events")
+                print_name = f"{node.alias[0:1] or 't'}{len(self.global_tables)}"
+                node.table.symbol = ast.TableSymbol(table_name="events", print_name=print_name)
+                self.global_tables[print_name] = node.table.symbol
                 if node.alias == node.table.symbol.table_name:
                     node.symbol = node.table.symbol
                 else:
@@ -89,12 +100,17 @@ class Resolver(TraversingVisitor):
             if node.alias is None:
                 node.symbol = node.table.symbol
             else:
-                node.symbol = ast.TableAliasSymbol(name=node.alias, symbol=node.table.symbol)
+                print_name = self._new_global_table_print_name(node.alias)
+                node.symbol = ast.TableAliasSymbol(name=node.alias, symbol=node.table.symbol, print_name=print_name)
+                self.global_tables[print_name] = node.symbol
 
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
         scope.tables[node.alias] = node.symbol
+
+        # node.symbol.print_name = self._new_global_table_print_name(node.alias)
+        # self.global_tables[node.symbol.print_name] = node.symbol
 
         self.visit(node.join_expr)
 
@@ -166,6 +182,9 @@ class Resolver(TraversingVisitor):
         if node.symbol is not None:
             return
         node.symbol = ast.ConstantSymbol(value=node.value)
+
+    def _new_global_table_print_name(self, table_name):
+        return f"{table_name[0:1] or 't'}{len(self.global_tables)}"
 
 
 def unwrap_column_alias_symbol(symbol: ast.Symbol) -> ast.Symbol:

@@ -44,16 +44,28 @@ def print_ast(
 
         from_table = None
         if node.select_from:
-            if node.select_from.alias is not None:
-                raise ValueError("Table aliases not yet supported")
-            if isinstance(node.select_from.table, ast.Field):
-                if node.select_from.table.chain != ["events"]:
-                    raise ValueError('Only selecting from the "events" table is supported')
-                from_table = "events"
-            elif isinstance(node.select_from.table, ast.SelectQuery):
-                from_table = f"({print_ast(node.select_from.table, stack, context, dialect)})"
+            if node.symbol:
+                if isinstance(node.symbol, ast.TableSymbol):
+                    if node.symbol.table_name != "events":
+                        raise ValueError('Only selecting from the "events" table is supported')
+                    from_table = f"events"
+                    if node.symbol.print_name:
+                        from_table = f"{from_table} AS {node.symbol.print_name}"
+                elif isinstance(node.symbol, ast.SelectQuerySymbol):
+                    from_table = f"({print_ast(node.select_from.table, stack, context, dialect)})"
+                    if node.symbol.print_name:
+                        from_table = f"{from_table} AS {node.symbol.print_name}"
             else:
-                raise ValueError("Only selecting from a table or a subquery is supported")
+                if node.select_from.alias is not None:
+                    raise ValueError("Table aliases not yet supported")
+                if isinstance(node.select_from.table, ast.Field):
+                    if node.select_from.table.chain != ["events"]:
+                        raise ValueError('Only selecting from the "events" table is supported')
+                    from_table = "events"
+                elif isinstance(node.select_from.table, ast.SelectQuery):
+                    from_table = f"({print_ast(node.select_from.table, stack, context, dialect)})"
+                else:
+                    raise ValueError("Only selecting from a table or a subquery is supported")
 
         where = node.where
         # Guard with team_id if selecting from a table and printing ClickHouse SQL
@@ -184,6 +196,13 @@ def print_ast(
         elif node.chain == ["person"]:
             query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
             response = print_ast(parse_expr(query), stack, context, dialect)
+        elif node.symbol is not None:
+            if isinstance(node.symbol, ast.FieldSymbol):
+                response = f"{node.symbol.table.print_name}.{node.symbol.name}"
+            elif isinstance(node.symbol, ast.TableSymbol):
+                response = node.symbol.print_name
+            else:
+                raise ValueError(f"Unknown Symbol, can not print {type(node.symbol)}")
         else:
             field_access = parse_field_access(node.chain, context)
             context.field_access_logs.append(field_access)

@@ -23,6 +23,8 @@ class AST(BaseModel):
 
 
 class Symbol(AST):
+    print_name: Optional[str]
+
     def get_child(self, name: str) -> "Symbol":
         raise NotImplementedError()
 
