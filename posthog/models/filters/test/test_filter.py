@@ -574,6 +574,86 @@ class TestDjangoPropertyGroupToQ(BaseTest, QueryMatchingTest):
         self.assertEqual(["person1", "person3"], results)
 
     @snapshot_postgres_queries
+    def test_property_group_to_q_with_negation_cohorts(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person1"], properties={"bla": 1, "other": 1})
+        _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"bla": 2, "other": 1})
+        _create_person(team_id=self.team.pk, distinct_ids=["person3"], properties={"bla": 3, "other": 2})
+        _create_person(team_id=self.team.pk, distinct_ids=["person4"], properties={"bla": 4, "other": 1})
+        _create_person(team_id=self.team.pk, distinct_ids=["person5"], properties={"bla": 5, "other": 1})
+        _create_person(team_id=self.team.pk, distinct_ids=["person6"], properties={"bla": 6, "other": 1})
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "person", "key": "bla", "value": 1},
+                        {"type": "person", "key": "bla", "value": 2},
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "person", "key": "bla", "value": 3},
+                        {"type": "person", "key": "bla", "value": 4},
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        cohort3 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "person", "key": "other", "value": 1},
+                    ],
+                }
+            },
+            name="cohort3",
+        )
+
+        cohort4 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort1.pk, "negation": True},
+                        {"type": "cohort", "key": "id", "value": cohort2.pk, "negation": True},
+                        {"type": "cohort", "key": "id", "value": cohort3.pk},
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        filter = Filter(
+            data={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {"type": "cohort", "key": "id", "value": cohort4.pk},
+                    ],
+                }
+            }
+        )
+
+        results = filter_persons_with_property_group(filter, self.team)
+        self.assertEqual(len(results), 2)
+        self.assertEqual(["person5", "person6"], results)
+
+    @snapshot_postgres_queries
     def test_property_group_to_q_with_cohorts_no_match(self):
         _create_person(
             team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com", "bla": 1}
