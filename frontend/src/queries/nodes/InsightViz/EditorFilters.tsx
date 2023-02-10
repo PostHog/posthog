@@ -30,7 +30,6 @@ import {
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FunnelsQueryStepsDataExploration } from 'scenes/insights/EditorFilters/FunnelsQuerySteps'
 import { AttributionDataExploration } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvancedDataExploration } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
@@ -212,11 +211,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                 isPaths && {
                     key: 'paths-advanced',
                     position: 'left',
-                    component: (props) => (
-                        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
-                            <PathsAdvancedDataExploration {...props} />
-                        </PayGateMini>
-                    ),
+                    component: PathsAdvancedDataExploration,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',

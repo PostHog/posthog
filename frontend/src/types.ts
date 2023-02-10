@@ -1633,6 +1633,7 @@ export interface InsightEditorFilter<T = EditorFilterProps> {
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
+    /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: T) => JSX.Element | null
 }
 
