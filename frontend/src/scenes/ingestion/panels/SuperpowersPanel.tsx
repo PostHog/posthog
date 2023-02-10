@@ -27,6 +27,7 @@ export function SuperpowersPanel(): JSX.Element {
                     completeOnboarding()
                 }
             }}
+            finalStep={!showBillingStep}
         >
             <div className="flex justify-between items-center -mt-4">
                 <div>

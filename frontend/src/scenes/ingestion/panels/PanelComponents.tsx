@@ -17,9 +17,11 @@ const DEMO_TEAM_NAME: string = 'Hedgebox'
 export function PanelFooter({
     nextProps,
     onContinue,
+    finalStep = false,
 }: {
     nextProps: Partial<IngestionState>
     onContinue?: () => void
+    finalStep?: boolean
 }): JSX.Element {
     const { next } = useActions(ingestionLogic)
 
@@ -38,7 +40,7 @@ export function PanelFooter({
                         next(nextProps)
                     }}
                 >
-                    Continue
+                    {finalStep ? 'Complete' : 'Continue'}
                 </LemonButton>
                 <IngestionInviteMembersButton />
             </div>

@@ -435,7 +435,6 @@ export const ingestionLogic = kea<ingestionLogicType>([
                         return INGESTION_VIEWS.INVITE_TEAM
                     }
                 }
-                console.log('CURRENT IT DIDNT FIND ANYTHING')
                 return INGESTION_VIEWS.INVITE_TEAM
             },
         ],
@@ -521,12 +520,9 @@ export const ingestionLogic = kea<ingestionLogicType>([
     })),
     listeners(({ actions, values }) => ({
         next: (props) => {
-            console.log('CURRENT', 'NEXT TRIGGERED', values.currentState, props)
             actions.setState({ ...values.currentState, ...props } as IngestionState)
-            console.log('CURRENT', values.currentState)
         },
         goToView: ({ view }) => {
-            console.log(values.currentState, 'CURRENT STATE', view, 'VIEW')
             actions.setState(viewToState(view, values.currentState as IngestionState))
         },
         completeOnboarding: () => {
