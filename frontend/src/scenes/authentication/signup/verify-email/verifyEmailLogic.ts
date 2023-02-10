@@ -49,7 +49,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                     try {
                         await api.create(`api/verify/`, { uuid })
                         lemonToast.success(
-                            'A new verificaiton link has been sent to the associated email address. Please check your inbox.'
+                            'A new verification link has been sent to the associated email address. Please check your inbox.'
                         )
                         return true
                     } catch (e: any) {
