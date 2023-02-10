@@ -19,4 +19,4 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
         raise ValueError(f"SyntaxError: {err.msg}")
     except NotImplementedError as err:
         raise ValueError(f"NotImplementedError: {err}")
-    return print_ast(node, [], context, dialect)
+    return print_ast(node, context, dialect)

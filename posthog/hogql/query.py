@@ -41,8 +41,8 @@ def execute_hogql_query(
 
     hogql_context = HogQLContext(select_team_id=team.pk)
     resolve_symbols(select_query)
-    clickhouse = print_ast(select_query, [], hogql_context, "clickhouse")
-    hogql = print_ast(select_query, [], hogql_context, "hogql")
+    clickhouse = print_ast(select_query, hogql_context, "clickhouse")
+    hogql = print_ast(select_query, hogql_context, "hogql")
 
     results, types = insight_sync_execute(
         clickhouse,
@@ -51,7 +51,7 @@ def execute_hogql_query(
         query_type=query_type,
         workload=workload,
     )
-    print_columns = [print_ast(col, [], HogQLContext(), "hogql") for col in select_query.select]
+    print_columns = [print_ast(col, HogQLContext(), "hogql") for col in select_query.select]
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,

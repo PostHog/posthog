@@ -13,6 +13,7 @@ from posthog.hogql.constants import (
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.print_string import print_hogql_identifier
+from posthog.hogql.visitor import Visitor
 
 
 def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
@@ -30,17 +31,27 @@ def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
     return where
 
 
-def print_ast(
-    node: ast.AST, stack: List[ast.AST], context: HogQLContext, dialect: Literal["hogql", "clickhouse"]
-) -> str:
-    """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
-    stack.append(node)
+def print_ast(node: ast.AST, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]) -> str:
+    return Printer(context=context, dialect=dialect).visit(node)
 
-    if isinstance(node, ast.SelectQuery):
-        if dialect == "clickhouse" and not context.select_team_id:
+
+class Printer(Visitor):
+    def __init__(self, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]):
+        self.context = context
+        self.dialect = dialect
+        self.stack: List[ast.AST] = []
+
+    def visit(self, node: ast.AST):
+        self.stack.append(node)
+        response = super().visit(node)
+        self.stack.pop()
+        return response
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
-        columns = [print_ast(column, stack, context, dialect) for column in node.select] if node.select else ["1"]
+        columns = [self.visit(column) for column in node.select] if node.select else ["1"]
 
         from_table = None
         if node.select_from:
@@ -52,7 +63,7 @@ def print_ast(
                     if node.symbol.print_name:
                         from_table = f"{from_table} AS {node.symbol.print_name}"
                 elif isinstance(node.symbol, ast.SelectQuerySymbol):
-                    from_table = f"({print_ast(node.select_from.table, stack, context, dialect)})"
+                    from_table = f"({self.visit(node.select_from.table)})"
                     if node.symbol.print_name:
                         from_table = f"{from_table} AS {node.symbol.print_name}"
             else:
@@ -63,7 +74,7 @@ def print_ast(
                         raise ValueError('Only selecting from the "events" table is supported')
                     from_table = "events"
                 elif isinstance(node.select_from.table, ast.SelectQuery):
-                    from_table = f"({print_ast(node.select_from.table, stack, context, dialect)})"
+                    from_table = f"({self.visit(node.select_from.table)})"
                 else:
                     raise ValueError("Only selecting from a table or a subquery is supported")
 
@@ -71,23 +82,23 @@ def print_ast(
         # Guard with team_id if selecting from a table and printing ClickHouse SQL
         # We do this in the printer, and not in a separate step, to be really sure this gets added.
         # This will be improved when we add proper table and column alias support. For now, let's just be safe.
-        if dialect == "clickhouse" and from_table is not None:
-            where = guard_where_team_id(where, context)
-        where = print_ast(where, stack, context, dialect) if where else None
+        if self.dialect == "clickhouse" and from_table is not None:
+            where = guard_where_team_id(where, self.context)
+        where = self.visit(where) if where else None
 
-        having = print_ast(node.having, stack, context, dialect) if node.having else None
-        prewhere = print_ast(node.prewhere, stack, context, dialect) if node.prewhere else None
-        group_by = [print_ast(column, stack, context, dialect) for column in node.group_by] if node.group_by else None
-        order_by = [print_ast(column, stack, context, dialect) for column in node.order_by] if node.order_by else None
+        having = self.visit(node.having) if node.having else None
+        prewhere = self.visit(node.prewhere) if node.prewhere else None
+        group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
+        order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
         limit = node.limit
-        if context.limit_top_select:
+        if self.context.limit_top_select:
             if limit is not None:
                 if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
                     limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
                 else:
                     limit = ast.Call(name="min2", args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit])
-            elif len(stack) == 1:
+            elif len(self.stack) == 1:
                 limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
 
         clauses = [
@@ -100,116 +111,125 @@ def print_ast(
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
         if limit is not None:
-            clauses.append(f"LIMIT {print_ast(limit, stack, context, dialect)}")
+            clauses.append(f"LIMIT {self.visit(limit)}")
             if node.offset is not None:
-                clauses.append(f"OFFSET {print_ast(node.offset, stack, context, dialect)}")
+                clauses.append(f"OFFSET {self.visit(node.offset)}")
             if node.limit_by is not None:
-                clauses.append(f"BY {', '.join([print_ast(expr, stack, context, dialect) for expr in node.limit_by])}")
+                clauses.append(f"BY {', '.join([self.visit(expr) for expr in node.limit_by])}")
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 
         response = " ".join([clause for clause in clauses if clause])
-        if len(stack) > 1:
+        if len(self.stack) > 1:
             response = f"({response})"
+        return response
 
-    elif isinstance(node, ast.BinaryOperation):
+    def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
-            response = f"plus({print_ast(node.left, stack, context, dialect)}, {print_ast(node.right, stack, context, dialect)})"
+            return f"plus({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.BinaryOperationType.Sub:
-            response = f"minus({print_ast(node.left, stack, context, dialect)}, {print_ast(node.right, stack, context, dialect)})"
+            return f"minus({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.BinaryOperationType.Mult:
-            response = f"multiply({print_ast(node.left, stack, context, dialect)}, {print_ast(node.right, stack, context, dialect)})"
+            return f"multiply({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.BinaryOperationType.Div:
-            response = f"divide({print_ast(node.left, stack, context, dialect)}, {print_ast(node.right, stack, context, dialect)})"
+            return f"divide({self.visit(node.left)}, {self.visit(node.right)})"
         elif node.op == ast.BinaryOperationType.Mod:
-            response = f"modulo({print_ast(node.left, stack, context, dialect)}, {print_ast(node.right, stack, context, dialect)})"
+            return f"modulo({self.visit(node.left)}, {self.visit(node.right)})"
         else:
             raise ValueError(f"Unknown BinaryOperationType {node.op}")
-    elif isinstance(node, ast.And):
-        response = f"and({', '.join([print_ast(operand, stack, context, dialect) for operand in node.exprs])})"
-    elif isinstance(node, ast.Or):
-        response = f"or({', '.join([print_ast(operand, stack, context, dialect) for operand in node.exprs])})"
-    elif isinstance(node, ast.Not):
-        response = f"not({print_ast(node.expr, stack, context, dialect)})"
-    elif isinstance(node, ast.OrderExpr):
-        response = f"{print_ast(node.expr, stack, context, dialect)} {node.order}"
-    elif isinstance(node, ast.CompareOperation):
-        left = print_ast(node.left, stack, context, dialect)
-        right = print_ast(node.right, stack, context, dialect)
+
+    def visit_and(self, node: ast.And):
+        return f"and({', '.join([self.visit(operand) for operand in node.exprs])})"
+
+    def visit_or(self, node: ast.Or):
+        return f"or({', '.join([self.visit(operand) for operand in node.exprs])})"
+
+    def visit_not(self, node: ast.Not):
+        return f"not({self.visit(node.expr)})"
+
+    def visit_order_expr(self, node: ast.OrderExpr):
+        return f"{self.visit(node.expr)} {node.order}"
+
+    def visit_compare_operation(self, node: ast.CompareOperation):
+        left = self.visit(node.left)
+        right = self.visit(node.right)
         if node.op == ast.CompareOperationType.Eq:
             if isinstance(node.right, ast.Constant) and node.right.value is None:
-                response = f"isNull({left})"
+                return f"isNull({left})"
             else:
-                response = f"equals({left}, {right})"
+                return f"equals({left}, {right})"
         elif node.op == ast.CompareOperationType.NotEq:
             if isinstance(node.right, ast.Constant) and node.right.value is None:
-                response = f"isNotNull({left})"
+                return f"isNotNull({left})"
             else:
-                response = f"notEquals({left}, {right})"
+                return f"notEquals({left}, {right})"
         elif node.op == ast.CompareOperationType.Gt:
-            response = f"greater({left}, {right})"
+            return f"greater({left}, {right})"
         elif node.op == ast.CompareOperationType.GtE:
-            response = f"greaterOrEquals({left}, {right})"
+            return f"greaterOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationType.Lt:
-            response = f"less({left}, {right})"
+            return f"less({left}, {right})"
         elif node.op == ast.CompareOperationType.LtE:
-            response = f"lessOrEquals({left}, {right})"
+            return f"lessOrEquals({left}, {right})"
         elif node.op == ast.CompareOperationType.Like:
-            response = f"like({left}, {right})"
+            return f"like({left}, {right})"
         elif node.op == ast.CompareOperationType.ILike:
-            response = f"ilike({left}, {right})"
+            return f"ilike({left}, {right})"
         elif node.op == ast.CompareOperationType.NotLike:
-            response = f"not(like({left}, {right}))"
+            return f"not(like({left}, {right}))"
         elif node.op == ast.CompareOperationType.NotILike:
-            response = f"not(ilike({left}, {right}))"
+            return f"not(ilike({left}, {right}))"
         elif node.op == ast.CompareOperationType.In:
-            response = f"in({left}, {right})"
+            return f"in({left}, {right})"
         elif node.op == ast.CompareOperationType.NotIn:
-            response = f"not(in({left}, {right}))"
+            return f"not(in({left}, {right}))"
         else:
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
-    elif isinstance(node, ast.Constant):
-        key = f"hogql_val_{len(context.values)}"
+
+    def visit_constant(self, node: ast.Constant):
+        key = f"hogql_val_{len(self.context.values)}"
         if isinstance(node.value, bool) and node.value is True:
-            response = "true"
+            return "true"
         elif isinstance(node.value, bool) and node.value is False:
-            response = "false"
+            return "false"
         elif isinstance(node.value, int) or isinstance(node.value, float):
             # :WATCH_OUT: isinstance(True, int) is True (!), so check for numbers lower down the chain
-            response = str(node.value)
+            return str(node.value)
         elif isinstance(node.value, str) or isinstance(node.value, list):
-            context.values[key] = node.value
-            response = f"%({key})s"
+            self.context.values[key] = node.value
+            return f"%({key})s"
         elif node.value is None:
-            response = "null"
+            return "null"
         else:
             raise ValueError(
                 f"Unknown AST Constant node type '{type(node.value).__name__}' for value '{str(node.value)}'"
             )
-    elif isinstance(node, ast.Field):
-        if dialect == "hogql":
+
+    def visit_field(self, node: ast.Field):
+        if self.dialect == "hogql":
             # When printing HogQL, we print the properties out as a chain instead of converting them to Clickhouse SQL
-            response = ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
+            return ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
         elif node.chain == ["*"]:
             query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-            response = print_ast(parse_expr(query), stack, context, dialect)
+            return self.visit(parse_expr(query))
         elif node.chain == ["person"]:
             query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
-            response = print_ast(parse_expr(query), stack, context, dialect)
+            return self.visit(parse_expr(query))
         elif node.symbol is not None:
             if isinstance(node.symbol, ast.FieldSymbol):
-                response = f"{node.symbol.table.print_name}.{node.symbol.name}"
+                return f"{node.symbol.table.print_name}.{node.symbol.name}"
             elif isinstance(node.symbol, ast.TableSymbol):
-                response = node.symbol.print_name
+                return node.symbol.print_name
             else:
                 raise ValueError(f"Unknown Symbol, can not print {type(node.symbol)}")
         else:
-            field_access = parse_field_access(node.chain, context)
-            context.field_access_logs.append(field_access)
-            response = field_access.sql
-    elif isinstance(node, ast.Call):
+            field_access = parse_field_access(node.chain, self.context)
+            self.context.field_access_logs.append(field_access)
+            return field_access.sql
+
+    def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
-            context.found_aggregation = True
+            self.context.found_aggregation = True
             required_arg_count = HOGQL_AGGREGATIONS[node.name]
 
             if required_arg_count != len(node.args):
@@ -218,35 +238,34 @@ def print_ast(
                 )
 
             # check that we're not running inside another aggregate
-            for stack_node in stack:
+            for stack_node in self.stack:
                 if stack_node != node and isinstance(stack_node, ast.Call) and stack_node.name in HOGQL_AGGREGATIONS:
                     raise ValueError(
                         f"Aggregation '{node.name}' cannot be nested inside another aggregation '{stack_node.name}'."
                     )
 
-            translated_args = ", ".join([print_ast(arg, stack, context, dialect) for arg in node.args])
-            if dialect == "hogql":
-                response = f"{node.name}({translated_args})"
+            translated_args = ", ".join([self.visit(arg) for arg in node.args])
+            if self.dialect == "hogql":
+                return f"{node.name}({translated_args})"
             elif node.name == "count":
-                response = "count(*)"
+                return "count(*)"
             elif node.name == "countDistinct":
-                response = f"count(distinct {translated_args})"
+                return f"count(distinct {translated_args})"
             elif node.name == "countDistinctIf":
-                response = f"countIf(distinct {translated_args})"
+                return f"countIf(distinct {translated_args})"
             else:
-                response = f"{node.name}({translated_args})"
+                return f"{node.name}({translated_args})"
 
         elif node.name in CLICKHOUSE_FUNCTIONS:
-            response = f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([print_ast(arg, stack, context, dialect) for arg in node.args])})"
+            return f"{CLICKHOUSE_FUNCTIONS[node.name]}({', '.join([self.visit(arg) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{node.name}(...)'")
-    elif isinstance(node, ast.Placeholder):
-        raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
-    else:
-        raise ValueError(f"Unknown AST node {type(node).__name__}")
 
-    stack.pop()
-    return response
+    def visit_placeholder(self, node: ast.Placeholder):
+        raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
+
+    def visit_unknown(self, node: ast.AST):
+        raise ValueError(f"Unknown AST node {type(node).__name__}")
 
 
 def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAccess:
