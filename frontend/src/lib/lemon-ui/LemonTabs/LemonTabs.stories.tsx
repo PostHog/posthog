@@ -19,6 +19,7 @@ export default {
                 {
                     key: 'calculator',
                     label: 'Calculator',
+                    tooltip: 'Calculate 2+2, as well as 1/0.',
                     content: <div>Imagine some calculator here. 🔢</div>,
                 },
                 {
