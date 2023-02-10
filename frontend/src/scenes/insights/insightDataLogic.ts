@@ -32,6 +32,7 @@ import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
     const filters = insightProps.cachedInsight?.filters
@@ -48,13 +49,24 @@ const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
     source: nodeKindToDefaultQuery[kind],
 })
 
+type InsightDataLogicProps = DataNodeLogicProps & InsightLogicProps
+
 export const insightDataLogic = kea<insightDataLogicType>([
-    props({} as InsightLogicProps),
+    props({} as InsightDataLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [featureFlagLogic, ['featureFlags'], trendsLogic, ['toggledLifecycles as trendsLifecycles']],
+        values: [
+            dataNodeLogic,
+            ['response'],
+            insightLogic,
+            ['insight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            trendsLogic,
+            ['toggledLifecycles as trendsLifecycles'],
+        ],
         actions: [
             insightLogic,
             ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],

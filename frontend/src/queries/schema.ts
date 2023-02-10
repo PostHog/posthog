@@ -19,6 +19,7 @@ import {
     StickinessFilterType,
     LifecycleFilterType,
     LifecycleToggle,
+    InsightLogicProps,
 } from '~/types'
 
 /**
@@ -239,6 +240,7 @@ export interface DataTableNode extends Node {
 export interface InsightVizNode extends Node {
     kind: NodeKind.InsightVizNode
     source: InsightQueryNode
+    insightId: InsightLogicProps['dashboardItemId']
 
     // showViz, showTable, etc.
 }

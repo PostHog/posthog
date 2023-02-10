@@ -185,6 +185,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors({
+        dataNodeProps: [() => [(_, props) => props], (props): DataNodeLogicProps => props],
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
