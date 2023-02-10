@@ -73,7 +73,6 @@ export function BillingPanel(): JSX.Element {
                             center
                             type="tertiary"
                             onClick={() => {
-                                console.log('CURRENT CLICKIND DIS OTHER')
                                 completeOnboarding()
                                 reportIngestionContinueWithoutBilling()
                             }}
@@ -115,7 +114,6 @@ export function BillingPanel(): JSX.Element {
                         center
                         type="tertiary"
                         onClick={() => {
-                            console.log('CURRENT CLICKIND DIS')
                             completeOnboarding()
                             reportIngestionContinueWithoutBilling()
                         }}
