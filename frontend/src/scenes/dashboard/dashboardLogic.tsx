@@ -44,7 +44,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from '../teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs, now, Dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
@@ -61,6 +61,8 @@ export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { s
 export const MIN_ITEM_WIDTH_UNITS = 3
 export const MIN_ITEM_HEIGHT_UNITS = 5
 
+export const DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES = 5
+
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
 export interface DashboardLogicProps {
@@ -76,7 +78,7 @@ export interface RefreshStatus {
     timer?: Date | null
 }
 
-export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 300
+export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
 
 export type LoadDashboardItemsProps = { refresh?: boolean; action: string }
 
@@ -552,7 +554,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 interval: number
                 enabled: boolean
             },
-            { persist: true, prefix: '1_' },
+            { persist: true, prefix: '2_' },
             {
                 setAutoRefresh: (_, { enabled, interval }) => ({ enabled, interval }),
             },
@@ -662,7 +664,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         lastRefreshed: [
             (s) => [s.insightTiles],
-            (insightTiles) => {
+            (insightTiles): Dayjs | null => {
                 if (!insightTiles || !insightTiles.length) {
                     return null
                 }
@@ -670,6 +672,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const oldest = sortDates(insightTiles.map((i) => i.last_refresh))
                 const candidateShortest = oldest.length > 0 ? dayjs(oldest[0]) : null
                 return candidateShortest?.isValid() ? candidateShortest : null
+            },
+        ],
+        blockRefresh: [
+            (s) => [s.lastRefreshed],
+            (lastRefreshed: Dayjs) => {
+                return (
+                    !!lastRefreshed &&
+                    now()
+                        .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                        .isBefore(lastRefreshed)
+                )
             },
         ],
         dashboard: [

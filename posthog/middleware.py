@@ -196,6 +196,8 @@ class CHQueries:
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
             container_hostname=settings.CONTAINER_HOSTNAME,
+            http_referer=request.META.get("HTTP_REFERER"),
+            http_user_agent=request.META.get("HTTP_USER_AGENT"),
         )
 
         if hasattr(user, "current_team_id") and user.current_team_id:
@@ -272,6 +274,8 @@ class ShortCircuitMiddleware:
                     id=request.path,
                     route_id=resolve(request.path).route,
                     container_hostname=settings.CONTAINER_HOSTNAME,
+                    http_referer=request.META.get("HTTP_REFERER"),
+                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
                 return get_decide(request)
             finally:
@@ -341,6 +345,8 @@ class CaptureMiddleware:
                     id=request.path,
                     route_id=resolve(request.path).route,
                     container_hostname=settings.CONTAINER_HOSTNAME,
+                    http_referer=request.META.get("HTTP_REFERER"),
+                    http_user_agent=request.META.get("HTTP_USER_AGENT"),
                 )
 
                 for middleware in self.CAPTURE_MIDDLEWARE:

@@ -1,6 +1,9 @@
 from typing import Any, List, Optional
 
 from django.db import models, transaction
+from django.db.models import F, Q
+from django.db.models.expressions import Func
+from django.db.models.fields import BooleanField
 
 from posthog.models.utils import UUIDT
 
@@ -102,11 +105,36 @@ class PersonDistinctId(models.Model):
 
 
 class PersonOverride(models.Model):
-    """A model of persons to be overriden in merge or merge-like events."""
+    """A model of persons to be overriden in merge or merge-like events.
+
+    This model has a set of constraints to ensure correctness:
+    1. Unique constraint on (team_id, old_person_id) pairs.
+    2. Check that old_person_id is different to override_person_id for every row.
+    3. Exclude rows that overlap across old_person_id and override_person_id (e.g. if
+        a row exists with old_person_id=123 then we would not allow a row with
+        override_person_id=123 to exist, as that would require a self join to figure
+        out the ultimate override_person_id required for old_person_id=123).
+    """
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id")
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
+            models.CheckConstraint(
+                check=~Q(old_person_id__exact=F("override_person_id")),
+                name="old_person_id_different_from_override_person_id",
+            ),
+            models.CheckConstraint(
+                check=Q(
+                    Func(
+                        F("team_id"),
+                        F("override_person_id"),
+                        F("old_person_id"),
+                        function="is_override_person_not_used_as_old_person",
+                        output_field=BooleanField(),
+                    )
+                ),
+                name="old_person_id_is_not_override_person_id",
+            ),
         ]
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
@@ -119,3 +147,26 @@ class PersonOverride(models.Model):
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+# This function checks two things:
+# 1. A new override_person_id must not match an existing old_person_id
+# 2. A new old_person_id must not match an existing override_person_id
+CREATE_FUNCTION_FOR_CONSTRAINT_SQL = f"""
+CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(team_id bigint, override_person_id uuid, old_person_id uuid)
+RETURNS BOOLEAN AS $$
+  SELECT NOT EXISTS (
+    SELECT 1
+      FROM "{PersonOverride._meta.db_table}"
+      WHERE team_id = $1
+      AND override_person_id = $3
+    ) AND NOT EXISTS (
+        SELECT 1
+      FROM "{PersonOverride._meta.db_table}"
+      WHERE team_id = $1
+      AND old_person_id = $2
+    );
+$$ LANGUAGE SQL;
+"""
+
+DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as_old_person"
