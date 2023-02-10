@@ -41,7 +41,7 @@ export default {
 } as ComponentMeta<typeof LemonTabsComponent>
 
 const Template: ComponentStory<typeof LemonTabsComponent> = (props) => {
-    const [activeKey, setActiveKey] = useState(props.tabs[0].key)
+    const [activeKey, setActiveKey] = useState((props.tabs[0] as LemonTab<string>).key)
 
     return <LemonTabsComponent {...props} activeKey={activeKey} onChange={(newValue) => setActiveKey(newValue)} />
 }
