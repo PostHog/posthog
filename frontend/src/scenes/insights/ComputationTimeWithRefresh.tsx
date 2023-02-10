@@ -8,6 +8,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh, insightRefreshButtonDisabledReason } = useValues(insightLogic)
     const { loadResults } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     usePeriodicRerender(15000)
 

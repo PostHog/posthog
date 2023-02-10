@@ -175,6 +175,7 @@ export const insightLogic = kea<insightLogicType>([
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
+        acknowledgeRefreshButtonChanged: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -592,6 +593,12 @@ export const insightLogic = kea<insightLogicType>([
                 saveInsightFailure: () => false,
             },
         ],
+        acknowledgedRefreshButtonChanged: [
+            !!localStorage.getItem('acknowledged_refresh_button_changed') as boolean,
+            {
+                acknowledgeRefreshButtonChanged: () => true,
+            },
+        ],
     })),
     selectors({
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
@@ -785,6 +792,18 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+            },
+        ],
+        isTestGroupForNewRefreshUX: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
+            },
+        ],
+        displayRefreshButtonChangedNotice: [
+            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged],
+            (isTestGroupForNewRefreshUX: boolean, acknowledgedRefreshButtonChanged: boolean): boolean => {
+                return isTestGroupForNewRefreshUX && !acknowledgedRefreshButtonChanged
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1133,6 +1152,9 @@ export const insightLogic = kea<insightLogicType>([
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
+        },
+        acknowledgeRefreshButtonChanged: () => {
+            localStorage.setItem('acknowledged_refresh_button_changed', 'true')
         },
     })),
     events(({ props, values, actions }) => ({

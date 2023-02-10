@@ -139,6 +139,7 @@ export const FEATURE_FLAGS = {
     FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
+    NEW_REFRESH_UX: 'new-refresh-ux', // owner: @yakkomajuri
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
