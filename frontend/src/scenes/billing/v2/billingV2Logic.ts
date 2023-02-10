@@ -143,7 +143,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
                     }
                 }
 
-                const productApproachingLimit = billing.products.find(
+                const productApproachingLimit = billing.products?.find(
                     (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
                 )
 
@@ -169,7 +169,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
                     ((billingVersion === 'v2' &&
                         !billing.has_active_subscription &&
                         !billing.free_trial_until &&
-                        billing.products.find((x) => {
+                        billing.products?.find((x) => {
                             return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
                         })) ||
                         billing.deactivated) &&
