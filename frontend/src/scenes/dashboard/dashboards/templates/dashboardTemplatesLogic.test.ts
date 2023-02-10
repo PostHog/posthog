@@ -12,7 +12,7 @@ describe('dashboardTemplatesLogic', () => {
                 'api/projects/@current/dashboard_templates/repository/': [
                     {
                         name: 'Product analytics',
-                        url: 'https://raw.githubusercontent.com/PostHog/templates-repository/8e3cc02518644c9b6e458b2fc6eb4504e3957f07/dashboards/posthog-product-analytics.json',
+                        url: null,
                         description: 'The OG PostHog product analytics dashboard template',
                         verified: true,
                         maintainer: 'official',
@@ -39,24 +39,22 @@ describe('dashboardTemplatesLogic', () => {
             .toDispatchActions(['loadRepository', 'loadRepositorySuccess'])
             .toMatchValues({
                 repository: {
-                    'https://raw.githubusercontent.com/PostHog/templates-repository/7916bed2463112a6354078065db1892eda51fd17/dashboards/posthog-website-traffic.json':
-                        {
-                            description: 'The website analytics dashboard that PostHog uses',
-                            installed: false,
-                            maintainer: 'official',
-                            name: 'Website traffic',
-                            url: 'https://raw.githubusercontent.com/PostHog/templates-repository/7916bed2463112a6354078065db1892eda51fd17/dashboards/posthog-website-traffic.json',
-                            verified: true,
-                        },
-                    'https://raw.githubusercontent.com/PostHog/templates-repository/8e3cc02518644c9b6e458b2fc6eb4504e3957f07/dashboards/posthog-product-analytics.json':
-                        {
-                            description: 'The OG PostHog product analytics dashboard template',
-                            installed: true,
-                            maintainer: 'official',
-                            name: 'Product analytics',
-                            url: 'https://raw.githubusercontent.com/PostHog/templates-repository/8e3cc02518644c9b6e458b2fc6eb4504e3957f07/dashboards/posthog-product-analytics.json',
-                            verified: true,
-                        },
+                    'Website traffic': {
+                        description: 'The website analytics dashboard that PostHog uses',
+                        installed: false,
+                        maintainer: 'official',
+                        name: 'Website traffic',
+                        url: 'https://raw.githubusercontent.com/PostHog/templates-repository/7916bed2463112a6354078065db1892eda51fd17/dashboards/posthog-website-traffic.json',
+                        verified: true,
+                    },
+                    'Product analytics': {
+                        description: 'The OG PostHog product analytics dashboard template',
+                        installed: true,
+                        maintainer: 'official',
+                        name: 'Product analytics',
+                        url: null,
+                        verified: true,
+                    },
                 },
             })
     })

@@ -43,6 +43,7 @@ class FeatureFlag(models.Model):
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)
         variants_count = len(self.variants)
+        payload_count = len(self._payloads)
 
         return {
             "groups_count": len(self.conditions),
@@ -53,6 +54,7 @@ class FeatureFlag(models.Model):
             "filter_count": filter_count,
             "created_at": self.created_at,
             "aggregating_by_groups": self.aggregation_group_type_index is not None,
+            "payload_count": payload_count,
         }
 
     @property

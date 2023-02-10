@@ -1375,7 +1375,7 @@ export interface RawAnnotationType {
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
-    creation_type?: string
+    creation_type?: 'USR' | 'GIT'
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {

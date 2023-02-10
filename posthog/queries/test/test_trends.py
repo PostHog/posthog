@@ -4,6 +4,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
 from urllib.parse import parse_qsl, urlparse
 
+import pytz
 from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
@@ -37,7 +38,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    also_test_with_different_timezone,
+    also_test_with_different_timezones,
     also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
@@ -2575,7 +2576,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             response = Trends().run(
                 Filter(
                     data={
-                        #  2019-11-24 is a Sunday, i.e. beginning of our week
+                        #  2019-11-24 is a Sunday, i.e. beginning of our week
                         "date_from": "2019-11-24",
                         "interval": "week",
                         "events": [{"id": "sign up"}],
@@ -4365,7 +4366,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # All were active on 2020-01-12 or in the preceding 6 days
         self.assertEqual(result[0]["aggregated_value"], 3)
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_monthly(self):
         self._create_active_users_events()
@@ -4383,7 +4384,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # No users fall into the period of 7 days during or before the first day of any of those three months
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0])
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_daily(self):
         self._create_active_users_events()
@@ -4431,7 +4432,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     def test_weekly_active_users_daily_based_on_action(self):
         action = _create_action(name="$pageview", team=self.team)
         self._create_active_users_events()
@@ -4464,7 +4465,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # Same as test_weekly_active_users_daily
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
-    @also_test_with_different_timezone
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_weekly_active_users_weekly(self):
         self._create_active_users_events()
@@ -4994,34 +4995,36 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                     self.team,
                 )
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
     def test_timezones_hourly(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-05T06:01:01Z"):  # Previous day in pacific time, don't include
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
-        with freeze_time("2020-01-05T15:01:01Z"):  # 07:01 in pacific time
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
-        with freeze_time("2020-01-05T16:01:01Z"):  # 08:01 in pacific time
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-04T22:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-05T07:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-05T08:01:01",
+        )
 
-        with freeze_time("2020-01-05T18:01:01Z"):  # 10:01 in pacific time
+        query_time = pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 10, 1, 1))
+        utc_offset_hours = query_time.tzinfo.utcoffset(query_time).total_seconds() // 3600  # type: ignore
+        utc_offset_sign = "-" if utc_offset_hours < 0 else "+"
+        with freeze_time(query_time):
             response = Trends().run(
                 Filter(
                     data={
@@ -5056,8 +5059,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 {
                     "breakdown_attribution_type": "first_touch",
                     "breakdown_normalize_url": "False",
-                    "date_from": "2020-01-05T07:00:00-08:00",
-                    "date_to": "2020-01-05T08:00:00-08:00",
+                    "date_from": f"2020-01-05T07:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
+                    "date_to": f"2020-01-05T08:00:00{utc_offset_sign}{abs(utc_offset_hours):02.0f}:00",
                     "display": "ActionsLineGraph",
                     "entity_id": "sign up",
                     "entity_math": "dau",
@@ -5103,38 +5106,33 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
-    def test_timezones(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
+    def test_timezones_daily(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-03T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-02T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T17:01:01",
+        )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-06T00:30:01",  # Shouldn't be included anywhere
+        )
 
-        with freeze_time("2020-01-04T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        # Shouldn't be included anywhere
-        with freeze_time("2020-01-06T08:30:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        #  volume
-        with freeze_time("2020-01-05T13:01:01Z"):
+        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 5, 5, 0))):
             response = Trends().run(
                 Filter(data={"date_from": "-7d", "events": [{"id": "sign up", "name": "sign up"}]}, team=self.team),
                 self.team,
@@ -5239,7 +5237,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-        #  breakdown + DAU
+        #  breakdown + DAU
         with freeze_time("2020-01-05T13:01:01Z"):
             response = Trends().run(
                 Filter(
@@ -5270,7 +5268,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][17], 1)
         self.assertEqual(len(response[0]["data"]), 24)
 
-        # Custom date range, single day, daily interval
+        # Custom date range, single day, dayly interval
         response = Trends().run(
             Filter(
                 data={
@@ -5350,37 +5348,35 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         # The key is to not get any 0s here
         self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0])
 
+    @also_test_with_different_timezones
     @snapshot_clickhouse_queries
-    def test_timezone_weekly(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
+    def test_timezones_weekly(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-12T02:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(  # This event should be ignored, as it's before the -14d range
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-11T19:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+        )
+        _create_event(  # This event should count towards week of 2020-01-12
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-12T02:01:01",  # TRICKY: This is the previous UTC day in Asia/Tokyo
+        )
+        _create_event(  # This event should count towards week of 2020-01-19
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-21T18:01:01",  # TRICKY: This is the next UTC day in America/Phoenix
+        )
 
-        with freeze_time("2020-01-12T09:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        with freeze_time("2020-01-22T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "second url", "$browser": "Firefox", "$os": "Mac"},
-            )
-
-        #  volume
-        with freeze_time("2020-01-26T07:00:00Z"):  # this is UTC
+        # TRICKY: This is the previous UTC day in Asia/Tokyo
+        with freeze_time(pytz.timezone(self.team.timezone).localize(datetime(2020, 1, 26, 3, 0))):
+            # Total volume query
             response = Trends().run(
                 Filter(
                     data={
@@ -5393,18 +5389,18 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-        self.assertEqual(response[0]["data"], [1.0, 1.0, 1.0])
-        self.assertEqual(response[0]["labels"], ["5-Jan-2020", "12-Jan-2020", "19-Jan-2020"])
+        self.assertEqual(response[0]["days"], ["2020-01-12", "2020-01-19", "2020-01-26"])
+        self.assertEqual(response[0]["data"], [1.0, 1.0, 0.0])
 
     def test_same_day(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla"], properties={})
-        with freeze_time("2020-01-03T01:01:01Z"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="blabla",
-                properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
-            )
+        _create_event(
+            team=self.team,
+            event="sign up",
+            distinct_id="blabla",
+            properties={"$current_url": "first url", "$browser": "Firefox", "$os": "Mac"},
+            timestamp="2020-01-03T01:01:01Z",
+        )
         response = Trends().run(
             Filter(
                 data={
