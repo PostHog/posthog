@@ -84,8 +84,9 @@ const WARNING_TYPE_RENDERER = {
         }
         return (
             <>
-                Timestamp computed to <code>{details.result}</code> from the following input:
+                The event timestamp computed too far in the future, so the capture time was used instead. Event values:
                 <ul>
+                    <li>Computed timestamp: {details.result}</li>
                     {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
                     {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
                     {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}
