@@ -19,9 +19,10 @@ labels: bug
 
 ## Environment
 
-- [ ] PostHog Cloud: EU or US and Project ID (from setting page): please provide
-- [ ] self-hosted Open Source Docker compose, version/commit: please provide
-- [ ] self-hosted Kubernetes (see [k8s sunsetting](https://posthog.com/blog/sunsetting-helm-support-posthog))
+- [ ] PostHog Cloud US, project ID: [please provide from https://app.posthog.com/project/settings#project-id]
+- [ ] PostHog Cloud EU, project ID: [please provide from https://eu.posthog.com/project/settings#project-id]
+- [ ] PostHog Hobby self-hosted with `docker compose`, version/commit: [please provide]
+- [ ] PostHog self-hosted with Kubernetes (deprecated, see ["Sunsetting Kubernetes support"](https://posthog.com/blog/sunsetting-helm-support-posthog)), version/commit: [please provide]
 
 ## Additional context
 
