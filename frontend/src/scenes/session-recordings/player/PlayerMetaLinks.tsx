@@ -12,7 +12,7 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { sessionRecordingId } = props
     const logic = sessionRecordingPlayerLogic(props)
-    const { setPause } = useActions(logic)
+    const { setPause, deleteRecording } = useActions(logic)
 
     const onShare = (): void => {
         setPause()
@@ -32,6 +32,7 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.El
             primaryButton: {
                 children: 'Delete',
                 status: 'danger',
+                onClick: deleteRecording,
             },
         })
     }

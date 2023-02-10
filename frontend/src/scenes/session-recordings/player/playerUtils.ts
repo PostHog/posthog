@@ -238,3 +238,10 @@ export async function removeRecordingFromPlaylist(
         lemonToast.success('Recording removed from playlist')
     }
 }
+
+export async function deleteRecording(recordingId: SessionRecordingType['id'], silent = false): Promise<void> {
+    await api.recordings.delete(recordingId)
+    if (!silent) {
+        lemonToast.success('Recording deleted')
+    }
+}

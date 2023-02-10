@@ -125,12 +125,11 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
-        
+
         recording.deleted = True
         recording.save()
 
-        return JsonResponse({"status": "success"})
-
+        return JsonResponse({"success": True})
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
@@ -144,7 +143,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         if recording.deleted:
             raise exceptions.NotFound("Recording not found")
-
 
         # Optimisation step if passed to speed up retrieval of CH data
         if not recording.start_time:
@@ -243,7 +241,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
-    
+
     recordings = [x for x in recordings if not x.deleted]
 
     # If we have specified session_ids we need to sort them by the order they were specified
