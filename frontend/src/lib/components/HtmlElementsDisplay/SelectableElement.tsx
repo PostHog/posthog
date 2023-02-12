@@ -146,19 +146,15 @@ export function SelectableElement({
     useEffect(() => {
         const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
             /**
-             * CSS supports selectors like
-             * .ClassOne.ClassTwo or [class~="ClassOne"][class~="ClassTwo"]
-             *
-             * which both match any element that has both classOne and classTwo regardless of order or other applied classes
-             *
-             * But _we_ don't :'(
-             *
-             * So this only allows a single selector with an exact value e.g. [class="ClassOne"]
-             *
-             * This should use a set for attributes since we _should_ support this but we can't without fixing action matching first
+             * TODO support matching on multiple values for the same class attribute
+             * e.g. ".TopBar .w-full.universal-search-button"
              */
             if (!!value && key !== 'tag' && key !== 'text') {
-                acc.push(`[${key}="${value}"]`)
+                if (key === 'class') {
+                    acc.push(`.${value}`)
+                } else {
+                    acc.push(`[${key}="${value}"]`)
+                }
             }
             return acc
         }, [] as string[])
