@@ -1,11 +1,9 @@
-import { LemonButton, LemonModal } from '@posthog/lemon-ui'
-import { useActions, useValues } from 'kea'
-import { HtmlElementsDisplay } from 'lib/components/HtmlElementsDisplay/HtmlElementsDisplay'
+import { LemonButton } from '@posthog/lemon-ui'
 import { IconBranch, IconClipboardEdit, IconEdit, IconLink, IconTextSize } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { ElementType } from '~/types'
 import { getShadowRootPopoverContainer } from '../utils'
-import { elementsLogic } from './elementsLogic'
+import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
 
 function SelectorString({
     value,
@@ -14,12 +12,7 @@ function SelectorString({
     value: string
     activeElementChain: ElementType[]
 }): JSX.Element {
-    const { activeMeta } = useValues(elementsLogic)
-    const { overrideSelector } = useActions(elementsLogic)
-
     const [modalOpen, setModalOpen] = useState(false)
-    const [overriddenSelector, setOverriddenSelector] = useState<string | null>(null)
-    const [overriddenSelectorIsUnique, setOverriddenSelectorIsUnique] = useState<boolean>(false)
 
     const [last, ...rest] = value.split(' ').reverse()
     const selector = (
@@ -28,53 +21,9 @@ function SelectorString({
         </span>
     )
 
-    const modal = (
-        <LemonModal
-            forceAbovePopovers={true}
-            getPopupContainer={getShadowRootPopoverContainer}
-            description="Click on elements and their attributes to build a selector"
-            footer={
-                <>
-                    <LemonButton type="secondary" onClick={() => setModalOpen(false)}>
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        type="primary"
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            if (activeMeta !== null) {
-                                overrideSelector(activeMeta.element, overriddenSelector)
-                                setModalOpen(false)
-                            }
-                        }}
-                        disabled={!overriddenSelectorIsUnique}
-                    >
-                        Apply
-                    </LemonButton>
-                </>
-            }
-            onClose={() => setModalOpen(false)}
-            isOpen={modalOpen}
-            title="Manually override the selector"
-        >
-            <HtmlElementsDisplay
-                editable={true}
-                highlight={false}
-                elements={activeElementChain}
-                checkUniqueness={true}
-                onChange={(selector, isUnique) => {
-                    if (selector.trim() !== overriddenSelector?.trim()) {
-                        setOverriddenSelector(selector.trim())
-                        setOverriddenSelectorIsUnique(isUnique)
-                    }
-                }}
-            />
-        </LemonModal>
-    )
-
     return (
         <>
-            {modal}
+            <SelectorEditingModal isOpen={modalOpen} setIsOpen={setModalOpen} activeElementChain={activeElementChain} />
             <div className="flex flex-row items-center">
                 {selector}
                 <LemonButton

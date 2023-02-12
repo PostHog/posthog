@@ -68,7 +68,7 @@ export function InfoWindow(): JSX.Element | null {
                 bottom,
                 left,
                 minWidth: width,
-                maxWidth: '95%',
+                maxWidth: '60%',
                 minHeight,
                 maxHeight,
                 zIndex: 1,

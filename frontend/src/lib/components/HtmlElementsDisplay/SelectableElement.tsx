@@ -157,7 +157,7 @@ export function SelectableElement({
              *
              * This should use a set for attributes since we _should_ support this but we can't without fixing action matching first
              */
-            if (!!value) {
+            if (!!value && key !== 'tag' && key !== 'text') {
                 acc.push(`[${key}="${value}"]`)
             }
             return acc

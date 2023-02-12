@@ -81,6 +81,7 @@ export function HtmlElementsDisplay({
     useEffect(() => {
         let lastKey = -2
         let builtSelector = ''
+
         Object.keys(selectors)
             .map((k) => Number.parseInt(k))
             .sort()
