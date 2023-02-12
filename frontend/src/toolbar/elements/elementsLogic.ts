@@ -195,7 +195,6 @@ export const elementsLogic = kea<elementsLogicType>({
                 s.overriddenSelectors,
             ],
             (heatmapElements, inspectElements, actionElements, actionsListElements, overridenSelectors): ElementMap => {
-                console.log('building element map', overridenSelectors)
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
                 inspectElements.forEach((e) => {
