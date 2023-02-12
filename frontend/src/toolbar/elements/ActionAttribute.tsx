@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ElementType } from '~/types'
 import { getShadowRootPopoverContainer } from '../utils'
 import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
+import { posthog } from '~/toolbar/posthog'
 
 function SelectorString({
     value,
@@ -28,7 +29,10 @@ function SelectorString({
                 {selector}
                 <LemonButton
                     icon={<IconEdit />}
-                    onClick={() => setModalOpen(true)}
+                    onClick={() => {
+                        posthog.capture('toolbar_manual_selector_modal_opened', { autoDetectedSelector: value })
+                        setModalOpen(true)
+                    }}
                     aria-label={'Manually choose a selector'}
                     title="Manually choose a selector"
                     getTooltipPopupContainer={getShadowRootPopoverContainer}
