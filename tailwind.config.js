@@ -174,7 +174,7 @@ module.exports = {
         // 'placeholderColor', // The placeholder color utilities like placeholder-red-600
         // 'placeholderOpacity', // The placeholder color opacity utilities like placeholder-opacity-25
         'pointerEvents', // The pointer-events utilities like pointer-events-none
-        'position', // The position utilities like absolute
+        // 'position', // The position utilities like absolute
         // 'preflight', // Tailwind's base/reset styles
         // 'resize', // The resize utilities like resize-y
         // 'ringColor', // The ring-color utilities like ring-green-700
