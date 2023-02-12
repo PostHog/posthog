@@ -33,7 +33,10 @@ export const elementsLogic = kea<elementsLogicType>({
         enableInspect: true,
         disableInspect: true,
 
-        selectElement: (element: HTMLElement | null) => ({ element }),
+        selectElement: (element: HTMLElement | null, elementType?: 'heatmap' | 'inspect' | 'action') => ({
+            element,
+            elementType,
+        }),
         createAction: (element: HTMLElement) => ({ element }),
 
         updateRects: true,
@@ -90,6 +93,16 @@ export const elementsLogic = kea<elementsLogicType>({
                 [actionsTabLogic.actionTypes.selectAction]: () => null,
             },
         ],
+        selectedElementIsInspected: [
+            false as boolean | null,
+            {
+                selectElement: (_, { elementType }) => elementType === 'inspect',
+                disableInspect: () => null,
+                createAction: () => null,
+                [heatmapLogic.actionTypes.disableHeatmap]: () => null,
+                [actionsTabLogic.actionTypes.selectAction]: () => null,
+            },
+        ],
         enabledLast: [
             null as null | 'inspect' | 'heatmap',
             {
@@ -121,6 +134,11 @@ export const elementsLogic = kea<elementsLogicType>({
     }),
 
     selectors: {
+        activeMetaIsSelected: [
+            (s) => [s.selectedElementMeta, s.activeMeta],
+            (selectedElementMeta, activeMeta) =>
+                !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element,
+        ],
         inspectEnabled: [
             (s) => [
                 s.inspectEnabledRaw,

@@ -73,7 +73,7 @@ export function Elements(): JSX.Element {
                             transition: 'opacity 0.2s, box-shadow 0.2s',
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
-                        onClick={() => selectElement(element)}
+                        onClick={() => selectElement(element, 'inspect')}
                         onMouseOver={() => selectedElement === null && setHoverElement(element)}
                         onMouseOut={() => selectedElement === null && setHoverElement(null)}
                     />
@@ -96,7 +96,7 @@ export function Elements(): JSX.Element {
                                         ((count || 0) / highestClickCount) * 0.4
                                     ),
                                 }}
-                                onClick={() => selectElement(element)}
+                                onClick={() => selectElement(element, 'heatmap')}
                                 onMouseOver={() => selectedElement === null && setHoverElement(element)}
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             />
@@ -123,7 +123,7 @@ export function Elements(): JSX.Element {
                                             highestClickCount
                                         )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                     }}
-                                    onClick={() => selectElement(element)}
+                                    onClick={() => selectElement(element, 'heatmap')}
                                     onMouseOver={() => selectedElement === null && setHoverElement(element)}
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
@@ -154,7 +154,7 @@ export function Elements(): JSX.Element {
                                         )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                     }}
                                     align={'left'}
-                                    onClick={() => selectElement(element)}
+                                    onClick={() => selectElement(element, 'heatmap')}
                                     onMouseOver={() => selectedElement === null && setHoverElement(element)}
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
                                 >
@@ -183,7 +183,7 @@ export function Elements(): JSX.Element {
                                     background: 'hsl(147, 100%, 62%)',
                                     boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
                                 }}
-                                onClick={() => selectElement(element)}
+                                onClick={() => selectElement(element, 'action')}
                                 onMouseOver={() => selectedElement === null && setHoverElement(element)}
                                 onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >

@@ -4,8 +4,14 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { ElementInfo } from '~/toolbar/elements/ElementInfo'
 
 export function InfoWindow(): JSX.Element | null {
-    const { hoverElement, hoverElementMeta, selectedElement, selectedElementMeta, relativePositionCompensation } =
-        useValues(elementsLogic)
+    const {
+        hoverElement,
+        hoverElementMeta,
+        selectedElement,
+        selectedElementMeta,
+        relativePositionCompensation,
+        activeMetaIsSelected,
+    } = useValues(elementsLogic)
     const { setSelectedElement } = useActions(elementsLogic)
 
     // use rectUpdateCounter to reload component when it changes, but discard the output
@@ -18,10 +24,7 @@ export function InfoWindow(): JSX.Element | null {
     }
 
     const pointerEvents = selectedElementMeta && (!hoverElement || hoverElement === selectedElement)
-    const onClose =
-        selectedElementMeta && activeMeta.element === selectedElementMeta.element
-            ? () => setSelectedElement(null)
-            : null
+    const onClose = activeMetaIsSelected ? () => setSelectedElement(null) : null
     const { rect } = activeMeta
 
     const windowWidth = Math.min(document.documentElement.clientWidth, window.innerWidth)
@@ -68,7 +71,7 @@ export function InfoWindow(): JSX.Element | null {
                 bottom,
                 left,
                 minWidth: width,
-                maxWidth: '60%',
+                width: '300px',
                 minHeight,
                 maxHeight,
                 zIndex: 1,

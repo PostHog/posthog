@@ -88,7 +88,7 @@ export function HtmlElementsDisplay({
             .forEach((key) => {
                 const selector = selectors[key]
                 if (!!selector.trim().length) {
-                    if (lastKey === key - 1) {
+                    if (lastKey === key - 1 && !!builtSelector.trim().length) {
                         builtSelector += ` > ${selector}`
                     } else {
                         builtSelector += ` ${selector}`
@@ -97,7 +97,7 @@ export function HtmlElementsDisplay({
                 lastKey = key
             })
 
-        builtSelector = !!builtSelector.trim().length ? builtSelector : 'no selectors chosen'
+        builtSelector = !!builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
         let selectorMatchCount = -1
         if (builtSelector !== chosenSelector) {
             if (checkUniqueness && !!builtSelector) {
