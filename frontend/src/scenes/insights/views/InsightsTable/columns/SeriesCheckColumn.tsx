@@ -35,7 +35,7 @@ export function SeriesCheckColumnTitle({
     )
 }
 
-type SeriesCheckColumnProps = {
+type SeriesCheckColumnItemProps = {
     item: IndexedTrendResult
     canCheckUncheckSeries: boolean
     hiddenLegendKeys: Record<string, boolean | undefined>
@@ -49,7 +49,7 @@ export function SeriesCheckColumnItem({
     hiddenLegendKeys,
     compare,
     toggleVisibility,
-}: SeriesCheckColumnProps): JSX.Element {
+}: SeriesCheckColumnItemProps): JSX.Element {
     return (
         <LemonCheckbox
             color={getSeriesColor(item.seriesIndex, compare)}

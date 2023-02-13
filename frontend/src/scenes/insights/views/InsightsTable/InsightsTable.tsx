@@ -1,11 +1,9 @@
 import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, IntervalType, ItemMode, TrendResult } from '~/types'
-import { average, median, capitalizeFirstLetter } from 'lib/utils'
-import { InsightLabel } from 'lib/components/InsightLabel'
+import { average, median } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined } from '@ant-design/icons'
@@ -16,11 +14,8 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
-import clsx from 'clsx'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import stringWithWBR from 'lib/utils/stringWithWBR'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconEdit } from 'lib/lemon-ui/icons'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -31,6 +26,7 @@ import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { TrendsQuery } from '~/queries/schema'
 import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
+import { SeriesColumnItem } from './columns/SeriesColumn'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -120,24 +116,20 @@ function InsightsTableComponent({
     const { calcColumnState, showTotalCount } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
-
-    const handleEditClick = (item: IndexedTrendResult): void => {
-        if (canEditSeriesNameInline) {
-            const entityFilter = entityFilterLogic.findMounted({
-                setFilters,
-                filters,
-                typeKey: filterKey,
-            })
-            if (entityFilter) {
-                entityFilter.actions.selectFilter(item.action)
-                entityFilter.actions.showModal()
-            }
-        }
-    }
-
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
+
+    const handleSeriesEditClick = (item: IndexedTrendResult): void => {
+        const entityFilter = entityFilterLogic.findMounted({
+            setFilters,
+            filters,
+            typeKey: filterKey,
+        })
+        if (entityFilter) {
+            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.showModal()
+        }
+    }
 
     if (isLegend) {
         columns.push({
@@ -164,35 +156,15 @@ function InsightsTableComponent({
 
     columns.push({
         title: 'Series',
-        render: function RenderLabel(_, item: IndexedTrendResult): JSX.Element {
-            return (
-                <div className="series-name-wrapper-col">
-                    <InsightLabel
-                        seriesColor={getSeriesColor(item.seriesIndex, compare)}
-                        action={item.action}
-                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                        hasMultipleSeries={indexedResults.length > 1}
-                        showCountedByTag={showCountedByTag}
-                        breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
-                        hideBreakdown
-                        hideIcon
-                        className={clsx({
-                            editable: canEditSeriesNameInline,
-                        })}
-                        pillMaxWidth={165}
-                        compareValue={compare ? formatCompareLabel(item) : undefined}
-                        onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
-                    />
-                    {canEditSeriesNameInline && (
-                        <LemonButton
-                            onClick={() => handleEditClick(item)}
-                            title="Rename graph series"
-                            icon={<IconEdit className="edit-icon" />}
-                        />
-                    )}
-                </div>
-            )
-        },
+        render: (_, item) => (
+            <SeriesColumnItem
+                item={item}
+                indexedResults={indexedResults}
+                canEditSeriesNameInline={canEditSeriesNameInline}
+                compare={compare}
+                handleEditClick={handleSeriesEditClick}
+            />
+        ),
         key: 'label',
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
@@ -363,10 +335,4 @@ function InsightsTableComponent({
             useURLForSorting={insightMode !== ItemMode.Edit}
         />
     )
-}
-
-export function formatCompareLabel(trendResult: TrendResult): string {
-    // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
-    const labels = trendResult.label.split(' - ')
-    return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
 }
