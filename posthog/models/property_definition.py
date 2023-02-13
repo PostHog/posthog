@@ -1,5 +1,3 @@
-import os
-
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 from django.db.models.expressions import F
@@ -61,27 +59,22 @@ class PropertyDefinition(UUIDModel):
     volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
 
     class Meta:
-        indexes = (
-            [
-                # This indexes the query in api/property_definition.py
-                # :KLUDGE: django ORM typing is off here
-                models.Index(  # type: ignore
-                    F("team_id"),  # type: ignore
-                    F("type"),  # type: ignore
-                    Coalesce(F("group_type_index"), -1),  # type: ignore
-                    F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
-                    F("name").asc(),  # type: ignore
-                    name="index_property_def_query",
-                )
-            ]
-            + [
-                GinIndex(
-                    name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
-                )  # To speed up DB-based fuzzy searching
-            ]
-            if not os.environ.get("SKIP_TRIGRAM_INDEX_FOR_TESTS")
-            else []
-        )  # This index breaks the --no-migrations option when running tests
+        indexes = [
+            # This indexes the query in api/property_definition.py
+            # :KLUDGE: django ORM typing is off here
+            models.Index(  # type: ignore
+                F("team_id"),  # type: ignore
+                F("type"),  # type: ignore
+                Coalesce(F("group_type_index"), -1),  # type: ignore
+                F("query_usage_30_day").desc(nulls_last=True),  # type: ignore
+                F("name").asc(),  # type: ignore
+                name="index_property_def_query",
+            )
+        ] + [
+            GinIndex(
+                name="index_property_definition_name", fields=["name"], opclasses=["gin_trgm_ops"]
+            )  # To speed up DB-based fuzzy searching
+        ]
         constraints = [
             models.CheckConstraint(
                 name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values)
