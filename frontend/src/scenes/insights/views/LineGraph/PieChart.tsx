@@ -31,6 +31,7 @@ import { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
 
 import './chartjsSetup'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
 
 let timer: NodeJS.Timeout | null = null
 
@@ -93,6 +94,7 @@ export function PieChart({
         const onlyOneValue = processedDatasets?.[0]?.data?.length === 1
         const newChart = new Chart(canvasRef.current?.getContext('2d') as ChartItem, {
             type: 'pie',
+            plugins: [ChartDataLabels],
             data: {
                 labels,
                 datasets: processedDatasets,
@@ -119,6 +121,24 @@ export function PieChart({
                     onChartClick(event, chart, datasets, onClick)
                 },
                 plugins: {
+                    datalabels: {
+                        color: 'white',
+                        anchor: 'end',
+                        backgroundColor: (context) => {
+                            return context.dataset.backgroundColor?.[context.dataIndex] || 'black'
+                        },
+                        display: (context) => {
+                            const total = context.dataset.data.reduce(
+                                (a, b) => (a as number) + (b as number),
+                                0
+                            ) as number
+                            const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
+                            return percentage > 5
+                        },
+                        borderRadius: 25,
+                        borderWidth: 2,
+                        borderColor: 'white',
+                    },
                     legend: {
                         display: false,
                     },
