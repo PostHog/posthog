@@ -7,6 +7,8 @@ import { FunnelsCue } from './views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface Tab {
     label: string
@@ -17,6 +19,7 @@ interface Tab {
 export function InsightsNav(): JSX.Element {
     const { activeView } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const tabs: Tab[] = [
         {
@@ -49,12 +52,14 @@ export function InsightsNav(): JSX.Element {
             type: InsightType.LIFECYCLE,
             dataAttr: 'insight-lifecycle-tab',
         },
-        {
+    ]
+
+    featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS] &&
+        tabs.push({
             label: 'Query',
             type: InsightType.QUERY,
             dataAttr: 'insight-query-tab',
-        },
-    ]
+        })
 
     return (
         <>
