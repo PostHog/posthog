@@ -1,3 +1,5 @@
+import { defaultConfig } from './../config/config'
+
 type Bucket = [tokens: number, lastReplenishedTimestamp: number]
 
 export class BucketKeyMissingError extends Error {
@@ -66,3 +68,8 @@ export class Limiter {
         return this.storage.consume(key, tokens)
     }
 }
+
+export const ConfiguredLimiter: Limiter = new Limiter(
+    defaultConfig.EVENT_OVERFLOW_BUCKET_CAPACITY,
+    defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
+)

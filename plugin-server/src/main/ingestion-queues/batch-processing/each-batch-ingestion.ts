@@ -1,11 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
+import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { ConfiguredLimiter } from '../../../utils/token_bucket'
 import { IngestionConsumer } from '../kafka-queue'
+import { defaultConfig } from './../../../config/config'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
@@ -17,6 +19,25 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
         // recording events still in the main ingestion topic.
         await queue.pluginsServer.kafkaProducer.queueMessage({
             topic: KAFKA_SESSION_RECORDING_EVENTS,
+            messages: [message],
+        })
+        return
+    }
+
+    if (
+        defaultConfig.KAFKA_CONSUMPTION_TOPIC != KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW &&
+        // A null key would indicate we are already consuming from the OVERFLOW topic
+        // Which the condition before already asserts is not happening, so this is more of a sanity check
+        message.key != null &&
+        ConfiguredLimiter.consume(message.key.toString(), 1) === false
+    ) {
+        // Events that have exceeded configured limiter are sent to the OVERFLOW topic for later processing.
+        // Unless we are already consuming from the OVERFLOW topic.
+        // Events going to OVERFLOW topic should always be randomly partitioned.
+        message.key = null
+
+        await queue.pluginsServer.kafkaProducer.queueMessage({
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             messages: [message],
         })
         return
