@@ -221,9 +221,7 @@ export function InsightsTable({
                 return (
                     <SeriesToggleWrapper
                         id={item.id}
-                        toggleVisibility={
-                            !isMainInsightView && canCheckUncheckSeries && toggleVisibility
-                        }
+                        toggleVisibility={!isMainInsightView && canCheckUncheckSeries ? toggleVisibility : undefined}
                     >
                         {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
                     </SeriesToggleWrapper>
