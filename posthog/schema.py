@@ -247,6 +247,7 @@ class InsightType(str, Enum):
     FUNNELS = "FUNNELS"
     RETENTION = "RETENTION"
     PATHS = "PATHS"
+    QUERY = "QUERY"
 
 
 class IntervalType(str, Enum):
@@ -1444,6 +1445,7 @@ class InsightVizNode(BaseModel):
         extra = Extra.forbid
 
     kind: str = Field("InsightVizNode", const=True)
+    showEditorPanel: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 

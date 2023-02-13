@@ -61,6 +61,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
+        isUsingQueryBasedInsights,
         erroredQueryId,
         isFilterBasedInsight,
         isQueryBasedInsight,
@@ -81,16 +82,20 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     // insightDataLogic
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+    const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
 
-    const { query: insightEditorQuery } = useValues(insightQueryEditorLogic(insightProps))
-    const { setQuery: insighEditorSetQuery } = useActions(insightQueryEditorLogic(insightProps))
+    const { query: insightEditorQuery } = useValues(
+        insightQueryEditorLogic({ ...insightProps, query: insightVizQuery })
+    )
+    const { setQuery: insightEditorSetQuery } = useActions(
+        insightQueryEditorLogic({ ...insightProps, query: insightVizQuery })
+    )
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
-    let setQuery = insighVizSetQuery
+    let setQuery = insightVizSetQuery
     if (!!insightEditorQuery && isQueryBasedInsight) {
         query = insightEditorQuery
-        setQuery = insighEditorSetQuery
+        setQuery = insightEditorSetQuery
     }
 
     // other logics
@@ -161,8 +166,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                   )
                                 : isFilterBasedInsight
                                 ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-                                : // TODO placeholder for non insight viz queries
-                                  ''
+                                : 'Custom query'
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
@@ -341,7 +345,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration ? (
+            {isUsingDataExploration || (isUsingQueryBasedInsights && isQueryBasedInsight) ? (
                 <>
                     {insightMode === ItemMode.Edit && isQueryBasedInsight && (
                         <>

@@ -25,6 +25,7 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
+    isInsightVizNode,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -75,7 +76,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         query: [
             defaultQuery(props) as Node,
             {
-                setQuery: (_, { query }) => query,
+                setQuery: (_, { query }) => {
+                    if (isInsightVizNode(query)) {
+                        // it _should_ always be an insight viz node, but just in case
+                        return { ...query, showEditorPanel: true }
+                    }
+                    return query
+                },
             },
         ],
     })),

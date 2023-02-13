@@ -624,7 +624,13 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.insight],
             (insight) => Object.keys(insight.filters || {}).length > 0 && !insight.query,
         ],
-        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
+        isQueryBasedInsight: [
+            (s) => [s.insight, s.filters, s.isUsingQueryBasedInsights],
+            (insight, filters, isUsingQueryBasedInsights) => {
+                const hasEmptyFilters = Object.keys(filters).length === 0
+                return isUsingQueryBasedInsights && (hasEmptyFilters || !!insight.query)
+            },
+        ],
         isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
         canEditInsight: [
             (s) => [s.insight],
@@ -804,6 +810,12 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+            },
+        ],
+        isUsingQueryBasedInsights: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
             },
         ],
     }),

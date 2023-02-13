@@ -243,6 +243,7 @@ export interface InsightVizNode extends Node {
     source: InsightQueryNode
 
     // showViz, showTable, etc.
+    showEditorPanel?: boolean
 }
 
 // Base class should not be used directly

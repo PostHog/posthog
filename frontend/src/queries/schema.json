@@ -1966,7 +1966,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -1975,6 +1975,9 @@
                 "kind": {
                     "const": "InsightVizNode",
                     "type": "string"
+                },
+                "showEditorPanel": {
+                    "type": "boolean"
                 },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
