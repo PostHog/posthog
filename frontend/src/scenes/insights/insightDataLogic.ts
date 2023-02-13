@@ -89,12 +89,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+        supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
 
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
 
         dateRange: [(s) => [s.querySource], (q) => q.dateRange],
         breakdown: [(s) => [s.querySource], (q) => getBreakdown(q)],
         display: [(s) => [s.querySource], (q) => getDisplay(q)],
+        compare: [(s) => [s.querySource], (q) => getCompare(q)],
 
         insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

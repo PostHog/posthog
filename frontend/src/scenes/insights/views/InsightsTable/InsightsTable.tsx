@@ -66,7 +66,7 @@ export function DashboardInsightsTable(): JSX.Element {
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { query, isNonTimeSeriesDisplay } = useValues(insightDataLogic(insightProps))
+    const { query, isNonTimeSeriesDisplay, compare } = useValues(insightDataLogic(insightProps))
     const { series } = query as TrendsQuery
 
     const hasMathUniqueFilter = !!series?.find(({ math }) => math === 'dau')
@@ -75,6 +75,7 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
         <InsightsTableComponent
             hasMathUniqueFilter={hasMathUniqueFilter}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            compare={!!compare}
             {...rest}
         />
     )
@@ -89,11 +90,13 @@ export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
     )
     const isNonTimeSeriesDisplay =
         isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+    const compare = isTrendsFilter(filters) && !!filters.compare
 
     return (
         <InsightsTableComponent
             hasMathUniqueFilter={hasMathUniqueFilter}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            compare={compare}
             {...rest}
         />
     )
@@ -102,6 +105,7 @@ export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
 type InsightsTableComponentProps = InsightsTableProps & {
     hasMathUniqueFilter: boolean
     isNonTimeSeriesDisplay: boolean
+    compare: boolean
 }
 
 function InsightsTableComponent({
@@ -113,6 +117,7 @@ function InsightsTableComponent({
     isMainInsightView = false,
     hasMathUniqueFilter,
     isNonTimeSeriesDisplay,
+    compare,
 }: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
@@ -145,7 +150,6 @@ function InsightsTableComponent({
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
-    const compare = isTrendsFilter(filters) && !!filters.compare
 
     if (isLegend) {
         const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])

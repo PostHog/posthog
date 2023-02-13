@@ -26,6 +26,16 @@ export const getDisplay = (query: InsightQueryNode): ChartDisplayType | undefine
     }
 }
 
+export const getCompare = (query: InsightQueryNode): boolean | undefined => {
+    if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.compare
+    } else if (isTrendsQuery(query)) {
+        return query.trendsFilter?.compare
+    } else {
+        return undefined
+    }
+}
+
 export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefined => {
     if (isInsightQueryWithBreakdown(query)) {
         return query.breakdown
