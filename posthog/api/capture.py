@@ -300,6 +300,9 @@ def get_event(request):
             if db_error:
                 send_events_to_dead_letter_queue = True
 
+    team_id = ingestion_context.team_id if ingestion_context else None
+    structlog.contextvars.bind_contextvars(team_id=team_id)
+
     with start_span(op="request.process"):
         if isinstance(data, dict):
             if data.get("batch"):  # posthog-python and posthog-ruby
@@ -364,7 +367,6 @@ def get_event(request):
                 )
                 continue
 
-            team_id = ingestion_context.team_id if ingestion_context else None
             try:
                 futures.append(
                     capture_internal(
