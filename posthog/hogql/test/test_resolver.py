@@ -55,7 +55,7 @@ class TestResolver(BaseTest):
         select_query_symbol = ast.SelectQuerySymbol(
             aliases={},
             columns={"event": event_field_symbol, "timestamp": timestamp_field_symbol},
-            tables={"e": ast.TableAliasSymbol(name="e", symbol=events_table_symbol)},
+            tables={"e": ast.TableAliasSymbol(name="e", table=events_table_symbol)},
             anonymous_tables=[],
         )
 
@@ -67,7 +67,7 @@ class TestResolver(BaseTest):
             select_from=ast.JoinExpr(
                 table=ast.Field(chain=["events"], symbol=events_table_symbol),
                 alias="e",
-                symbol=ast.TableAliasSymbol(name="e", symbol=events_table_symbol),
+                symbol=ast.TableAliasSymbol(name="e", table=events_table_symbol),
             ),
             where=ast.CompareOperation(
                 left=ast.Field(chain=["e", "event"], symbol=event_field_symbol),
@@ -102,7 +102,7 @@ class TestResolver(BaseTest):
                 "e": ast.ColumnAliasSymbol(name="e", symbol=event_field_symbol),
                 "timestamp": timestamp_field_symbol,
             },
-            tables={"e": ast.TableAliasSymbol(name="e", symbol=events_table_symbol)},
+            tables={"e": ast.TableAliasSymbol(name="e", table=events_table_symbol)},
             anonymous_tables=[],
         )
 
@@ -144,7 +144,7 @@ class TestResolver(BaseTest):
         expr = parse_select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
         resolve_symbols(expr)
         outer_events_table_symbol = ast.TableSymbol(table=database.events)
-        inner_events_table_symbol = ast.TableAliasSymbol(name="e1", symbol=ast.TableSymbol(table=database.events))
+        inner_events_table_symbol = ast.TableAliasSymbol(name="e1", table=ast.TableSymbol(table=database.events))
         outer_event_field_symbol = ast.FieldSymbol(name="event", table=outer_events_table_symbol)
         inner_event_field_symbol = ast.FieldSymbol(name="event", table=inner_events_table_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=outer_events_table_symbol)
@@ -200,7 +200,7 @@ class TestResolver(BaseTest):
                     symbol=inner_select_symbol,
                 ),
                 alias="e",
-                symbol=ast.TableAliasSymbol(name="e", symbol=inner_select_symbol),
+                symbol=ast.TableAliasSymbol(name="e", table=inner_select_symbol),
             ),
             where=ast.CompareOperation(
                 left=ast.Field(
@@ -218,7 +218,7 @@ class TestResolver(BaseTest):
                 columns={
                     "b": ast.ColumnAliasSymbol(name="b", symbol=outer_event_field_symbol),
                 },
-                tables={"e": ast.TableAliasSymbol(name="e", symbol=inner_select_symbol)},
+                tables={"e": ast.TableAliasSymbol(name="e", table=inner_select_symbol)},
             ),
         )
         # asserting individually to help debug if something is off

@@ -54,7 +54,7 @@ class TableSymbol(Symbol):
     def get_child(self, name: str) -> Symbol:
         if self.has_child(name):
             return FieldSymbol(name=name, table=self)
-        raise NotImplementedError(f"Field not found: {name}")
+        raise ValueError(f"Field not found: {name}")
 
 
 class TableAliasSymbol(Symbol):
@@ -74,9 +74,10 @@ class SelectQueryAliasSymbol(Symbol):
     name: str
     symbol: Symbol
 
-    def get_child(self, name: str) -> Optional[Symbol]:
+    def get_child(self, name: str) -> Symbol:
         if self.symbol.has_child(name):
             return FieldSymbol(name=name, table=self)
+        raise ValueError(f"Field not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return self.symbol.has_child(name)
@@ -95,7 +96,7 @@ class SelectQuerySymbol(Symbol):
     def get_child(self, name: str) -> Symbol:
         if name in self.columns:
             return FieldSymbol(name=name, table=self)
-        raise NotImplementedError(f"Column not found: {name}")
+        raise ValueError(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
@@ -117,16 +118,15 @@ class FieldSymbol(Symbol):
         table_symbol = self.table
         while isinstance(table_symbol, TableAliasSymbol):
             table_symbol = table_symbol.table
-        db_table = table_symbol.table
-        if isinstance(db_table, Table):
-            if self.name in db_table.__fields__ and isinstance(db_table.__fields__[self.name].default, StringJSONValue):
-                return PropertySymbol(name=name, field=self)
-            else:
-                raise NotImplementedError(
-                    f"Can not access property {name} on field {self.name} because it's not a JSON field"
-                )
-        else:
-            raise NotImplementedError(f"Can not resolve table for field: {self.name}")
+
+        if isinstance(table_symbol, TableSymbol):
+            db_table = table_symbol.table
+            if isinstance(db_table, Table):
+                if self.name in db_table.__fields__ and isinstance(
+                    db_table.__fields__[self.name].default, StringJSONValue
+                ):
+                    return PropertySymbol(name=name, field=self)
+        raise ValueError(f"Can not access property {name} on field {self.name}.")
 
 
 class ConstantSymbol(Symbol):

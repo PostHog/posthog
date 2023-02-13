@@ -86,7 +86,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [("tim@posthog.com",)])
 
             response = execute_hogql_query(
-                f"select distinct person_id, distinct_id from person_distinct_id",
+                f"select distinct person_id, distinct_id from person_distinct_ids",
                 self.team,
             )
             self.assertEqual(
@@ -107,7 +107,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 """
                 SELECT event, timestamp, pdi.distinct_id, p.id, p.properties.email
                 FROM events e
-                LEFT JOIN person_distinct_id pdi
+                LEFT JOIN person_distinct_ids pdi
                 ON pdi.distinct_id = e.distinct_id
                 LEFT JOIN persons p
                 ON p.id = pdi.person_id
@@ -134,7 +134,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 """select event, timestamp, pdi.person_id from events e INNER JOIN (
                         SELECT distinct_id,
                                argMax(person_id, version) as person_id
-                          FROM person_distinct_id
+                          FROM person_distinct_ids
                          GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0
                        ) AS pdi

@@ -370,7 +370,8 @@ class TestPrinter(TestCase):
         # currently not supported!
         self.assertEqual(self._select("select 1 as b"), "SELECT 1 AS b LIMIT 65535")
         self.assertEqual(
-            self._select("select 1 from events as e"), "SELECT 1 FROM events AS e WHERE equals(team_id, 42) LIMIT 65535"
+            self._select("select 1 from events as e"),
+            "SELECT 1 FROM events AS e WHERE equals(e.team_id, 42) LIMIT 65535",
         )
 
     def test_select_from(self):
@@ -469,5 +470,5 @@ class TestPrinter(TestCase):
         )
         self.assertEqual(
             self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
-            "SELECT event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
+            "SELECT e.event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
         )

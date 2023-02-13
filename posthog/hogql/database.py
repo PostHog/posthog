@@ -26,6 +26,10 @@ class BooleanValue(Field):
     pass
 
 
+class ArrayValue(Field):
+    field: Field
+
+
 class Table(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -79,6 +83,28 @@ class EventsTable(Table):
         return "events"
 
 
+class SessionRecordingEvents(Table):
+    uuid: StringValue = StringValue()
+    timestamp: DateTimeValue = DateTimeValue()
+    team_id: IntegerValue = IntegerValue()
+    distinct_id: StringValue = StringValue()
+    session_id: StringValue = StringValue()
+    window_id: StringValue = StringValue()
+    snapshot_data: StringValue = StringValue()
+    created_at: DateTimeValue = DateTimeValue()
+    has_full_snapshot: BooleanValue = BooleanValue()
+    events_summary: ArrayValue = ArrayValue(field=BooleanValue())
+    click_count: IntegerValue = IntegerValue()
+    keypress_count: IntegerValue = IntegerValue()
+    timestamps_summary: ArrayValue = ArrayValue(field=DateTimeValue())
+    first_event_timestamp: DateTimeValue = DateTimeValue()
+    last_event_timestamp: DateTimeValue = DateTimeValue()
+    urls: ArrayValue = ArrayValue(field=StringValue())
+
+    def clickhouse_table(self):
+        return "session_recording_events"
+
+
 # class NumbersTable(Table):
 #     args: [IntegerValue, IntegerValue]
 
@@ -87,10 +113,11 @@ class Database(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    # All fields below will be tables users can query from
+    # Users can query from the tables below
     events: EventsTable = EventsTable()
     persons: PersonsTable = PersonsTable()
-    person_distinct_id: PersonDistinctIdTable = PersonDistinctIdTable()
+    person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
+    session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
     # numbers: NumbersTable = NumbersTable()
 
 

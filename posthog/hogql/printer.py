@@ -1,4 +1,4 @@
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Tuple, Union
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.hogql import ast
@@ -123,7 +123,7 @@ class Printer(Visitor):
             response = f"({response})"
         return response
 
-    def visit_join_expr(self, node: ast.JoinExpr) -> (str, Optional[ast.Expr]):
+    def visit_join_expr(self, node: ast.JoinExpr) -> Tuple[str, Optional[ast.Expr]]:
         # return constraints we must place on the select query
         extra_where = None
 
