@@ -103,10 +103,10 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                 })}
             >
                 <div className="flex-1">
-                    {billing?.has_active_subscription && billing?.billing_period ? (
+                    {billing?.billing_period ? (
                         <div className="space-y-2">
                             <p>
-                                Your current billing period is from{' '}
+                                Your current {billing?.has_active_subscription ? 'billing period' : 'cycle'} is from{' '}
                                 <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
                                 <b>{billing.billing_period.current_period_end.format('LL')}</b>
                             </p>
@@ -124,7 +124,11 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
 
                             <p>
                                 <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
-                                in your billing period.
+                                in your{' '}
+                                {billing?.has_active_subscription
+                                    ? 'billing period'
+                                    : 'cycle. Your free allocation will reset at the end of the cycle.'}
+                                .
                             </p>
                         </div>
                     ) : (
