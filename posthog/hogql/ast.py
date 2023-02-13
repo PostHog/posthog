@@ -222,12 +222,12 @@ class Call(Expr):
 
 
 class JoinExpr(Expr):
-    table: Optional[Union["SelectQuery", Field]] = None
-    table_final: Optional[bool] = None
-    alias: Optional[str] = None
     join_type: Optional[str] = None
-    join_constraint: Optional[Expr] = None
-    join_expr: Optional["JoinExpr"] = None
+    table: Optional[Union["SelectQuery", Field]] = None
+    alias: Optional[str] = None
+    table_final: Optional[bool] = None
+    constraint: Optional[Expr] = None
+    next_join: Optional["JoinExpr"] = None
 
 
 class SelectQuery(Expr):

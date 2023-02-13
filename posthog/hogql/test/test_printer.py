@@ -377,7 +377,7 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("select 1 from events"), "SELECT 1 FROM events WHERE equals(team_id, 42) LIMIT 65535"
         )
-        self._assert_select_error("select 1 from other", 'Unknown table "other". Only "events" is supported.')
+        self._assert_select_error("select 1 from other", 'Unknown table "other".')
 
     def test_select_where(self):
         self.assertEqual(

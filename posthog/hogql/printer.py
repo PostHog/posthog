@@ -61,18 +61,15 @@ class Printer(Visitor):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
-        where = node.where
-
         select_from = ""
-        if node.select_from is not None:
+        if isinstance(node.select_from, ast.JoinExpr):
             if not node.select_from.symbol:
                 raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
             select_from = self.visit(node.select_from)
 
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
 
-        where = self.visit(where) if where else None
-
+        where = self.visit(node.where) if node.where else None
         having = self.visit(node.having) if node.having else None
         prewhere = self.visit(node.prewhere) if node.prewhere else None
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
@@ -113,6 +110,9 @@ class Printer(Visitor):
 
     def visit_join_expr(self, node: ast.JoinExpr) -> str:
         select_from = []
+        if node.join_type is not None:
+            select_from.append(node.join_type)
+
         if isinstance(node.symbol, ast.TableAliasSymbol):
             table_symbol = node.symbol.table
             if table_symbol is None:
@@ -128,7 +128,8 @@ class Printer(Visitor):
             # This will be improved when we add proper table and column alias support. For now, let's just be safe.
             if self.dialect == "clickhouse":
                 select = self._last_select()
-                select.where = guard_where_team_id(select.where, node.symbol, self.context)
+                if select is not None:
+                    select.where = guard_where_team_id(select.where, node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
             select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
@@ -138,7 +139,8 @@ class Printer(Visitor):
             # This will be improved when we add proper table and column alias support. For now, let's just be safe.
             if self.dialect == "clickhouse":
                 select = self._last_select()
-                select.where = guard_where_team_id(select.where, node.symbol, self.context)
+                if select is not None:
+                    select.where = guard_where_team_id(select.where, node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.SelectQuerySymbol):
             select_from.append(self.visit(node.table))
@@ -149,11 +151,14 @@ class Printer(Visitor):
         else:
             raise ValueError("Only selecting from a table or a subquery is supported")
 
-        if node.join_type is not None and node.join_expr is not None:
-            select_from.append(f"{node.join_type} {self.visit(node.join_expr)}")
+        if node.table_final:
+            select_from.append("FINAL")
 
-        if node.join_constraint is not None:
-            select_from.append(f"ON {self.visit(node.join_constraint)}")
+        if node.constraint is not None:
+            select_from.append(f"ON {self.visit(node.constraint)}")
+
+        if node.next_join is not None:
+            select_from.append(self.visit(node.next_join))
 
         return " ".join(select_from)
 

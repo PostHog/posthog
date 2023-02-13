@@ -148,18 +148,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
 
         if ctx.joinOp():
-            join_type = f"{self.visit(ctx.joinOp())} JOIN"
+            join2.join_type = f"{self.visit(ctx.joinOp())} JOIN"
         else:
-            join_type = "JOIN"
-        join_constraint = self.visit(ctx.joinConstraintClause())
+            join2.join_type = "JOIN"
+        join2.constraint = self.visit(ctx.joinConstraintClause())
 
-        join_without_next_expr = join1
-        while join_without_next_expr.join_expr:
-            join_without_next_expr = join_without_next_expr.join_expr
+        last_join = join1
+        while last_join.next_join is not None:
+            last_join = last_join.next_join
+        last_join.next_join = join2
 
-        join_without_next_expr.join_expr = join2
-        join_without_next_expr.join_constraint = join_constraint
-        join_without_next_expr.join_type = join_type
         return join1
 
     def visitJoinExprTable(self, ctx: HogQLParser.JoinExprTableContext):

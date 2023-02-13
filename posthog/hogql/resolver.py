@@ -104,8 +104,8 @@ class Resolver(TraversingVisitor):
         else:
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
-        self.visit(node.join_expr)
-        self.visit(node.join_constraint)
+        self.visit(node.constraint)
+        self.visit(node.next_join)
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""

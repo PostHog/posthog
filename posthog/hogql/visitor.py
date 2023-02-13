@@ -54,8 +54,8 @@ class TraversingVisitor(Visitor):
 
     def visit_join_expr(self, node: ast.JoinExpr):
         self.visit(node.table)
-        self.visit(node.join_expr)
-        self.visit(node.join_constraint)
+        self.visit(node.constraint)
+        self.visit(node.next_join)
 
     def visit_select_query(self, node: ast.SelectQuery):
         self.visit(node.select_from)
@@ -133,11 +133,11 @@ class CloningVisitor(Visitor):
     def visit_join_expr(self, node: ast.JoinExpr):
         return ast.JoinExpr(
             table=self.visit(node.table),
-            join_expr=self.visit(node.join_expr),
+            next_join=self.visit(node.next_join),
             table_final=node.table_final,
             alias=node.alias,
             join_type=node.join_type,
-            join_constraint=self.visit(node.join_constraint),
+            constraint=self.visit(node.constraint),
         )
 
     def visit_select_query(self, node: ast.SelectQuery):

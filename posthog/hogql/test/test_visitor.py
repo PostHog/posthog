@@ -71,13 +71,15 @@ class TestVisitor(BaseTest):
                         table=ast.Field(chain=["b"]),
                         table_final=True,
                         alias="c",
-                        join_type="INNER",
-                        join_constraint=ast.CompareOperation(
-                            op=ast.CompareOperationType.Eq,
-                            left=ast.Field(chain=["d"]),
-                            right=ast.Field(chain=["e"]),
+                        next_join=ast.JoinExpr(
+                            join_type="INNER",
+                            table=ast.Field(chain=["f"]),
+                            constraint=ast.CompareOperation(
+                                op=ast.CompareOperationType.Eq,
+                                left=ast.Field(chain=["d"]),
+                                right=ast.Field(chain=["e"]),
+                            ),
                         ),
-                        join_expr=ast.JoinExpr(table=ast.Field(chain=["f"])),
                     ),
                     where=ast.Constant(value=True),
                     prewhere=ast.Constant(value=True),
