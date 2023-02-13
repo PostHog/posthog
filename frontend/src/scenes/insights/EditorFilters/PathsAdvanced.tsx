@@ -2,7 +2,13 @@ import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { InputNumber } from 'antd'
 
-import { EditorFilterProps, PathEdgeParameters, PathsFilterType, QueryEditorFilterProps } from '~/types'
+import {
+    AvailableFeature,
+    EditorFilterProps,
+    PathEdgeParameters,
+    PathsFilterType,
+    QueryEditorFilterProps,
+} from '~/types'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
@@ -12,17 +18,20 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { IconSettings } from 'lib/lemon-ui/icons'
 
 import { PathCleaningFilter, PathCleaningFilterDataExploration } from '../filters/PathCleaningFilter'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export function PathsAdvancedDataExploration({ insightProps, ...rest }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     return (
-        <PathsAdvancedComponent
-            setFilter={updateInsightFilter}
-            cleaningFilterComponent={<PathCleaningFilterDataExploration insightProps={insightProps} {...rest} />}
-            {...insightFilter}
-        />
+        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
+            <PathsAdvancedComponent
+                setFilter={updateInsightFilter}
+                cleaningFilterComponent={<PathCleaningFilterDataExploration insightProps={insightProps} {...rest} />}
+                {...insightFilter}
+            />
+        </PayGateMini>
     )
 }
 
@@ -31,11 +40,13 @@ export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX
     const { setFilter } = useActions(pathsLogic(insightProps))
 
     return (
-        <PathsAdvancedComponent
-            setFilter={setFilter}
-            cleaningFilterComponent={<PathCleaningFilter insightProps={insightProps} {...rest} />}
-            {...filter}
-        />
+        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
+            <PathsAdvancedComponent
+                setFilter={setFilter}
+                cleaningFilterComponent={<PathCleaningFilter insightProps={insightProps} {...rest} />}
+                {...filter}
+            />
+        </PayGateMini>
     )
 }
 
