@@ -1,7 +1,7 @@
 import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
-import { isDevEnv, isOverflowMode, isTestEnv } from '../utils/env-utils'
+import { isDevEnv, isOverflowMode, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_EVENTS_JSON,
