@@ -45,17 +45,6 @@ class ColumnAliasSymbol(Symbol):
         return self.symbol.has_child(name)
 
 
-class SelectQueryAliasSymbol(Symbol):
-    name: str
-    symbol: Symbol
-
-    def get_child(self, name: str) -> Symbol:
-        return self.symbol.get_child(name)
-
-    def has_child(self, name: str) -> bool:
-        return self.symbol.has_child(name)
-
-
 class TableSymbol(Symbol):
     table: Table
 
@@ -81,6 +70,18 @@ class TableAliasSymbol(Symbol):
         return self.table.get_child(name)
 
 
+class SelectQueryAliasSymbol(Symbol):
+    name: str
+    symbol: Symbol
+
+    def get_child(self, name: str) -> Optional[Symbol]:
+        if self.symbol.has_child(name):
+            return FieldSymbol(name=name, table=self)
+
+    def has_child(self, name: str) -> bool:
+        return self.symbol.has_child(name)
+
+
 class SelectQuerySymbol(Symbol):
     # all aliases a select query has access to in its scope
     aliases: Dict[str, ColumnAliasSymbol]
@@ -93,7 +94,7 @@ class SelectQuerySymbol(Symbol):
 
     def get_child(self, name: str) -> Symbol:
         if name in self.columns:
-            return self.columns[name]
+            return FieldSymbol(name=name, table=self)
         raise NotImplementedError(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
@@ -110,7 +111,7 @@ class CallSymbol(Symbol):
 
 class FieldSymbol(Symbol):
     name: str
-    table: Union[TableSymbol, TableAliasSymbol]
+    table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
     def get_child(self, name: str) -> Symbol:
         table_symbol = self.table

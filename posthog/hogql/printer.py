@@ -77,9 +77,9 @@ class Printer(Visitor):
                 if where is None:
                     where = extra_where
                 elif isinstance(where, ast.And):
-                    where = ast.And(exprs=where.exprs + [extra_where])
+                    where = ast.And(exprs=[extra_where] + where.exprs)
                 else:
-                    where = ast.And(exprs=[where, extra_where])
+                    where = ast.And(exprs=[extra_where, where])
 
             next_join = next_join.next_join
 
@@ -328,8 +328,6 @@ class SymbolPrinter(Visitor):
         return print_hogql_identifier(symbol.name)
 
     def visit_field_symbol(self, symbol: ast.FieldSymbol):
-        # do we need a table prefix?
-        table_prefix = self.visit(symbol.table)
         printed_field = print_hogql_identifier(symbol.name)
 
         try:
@@ -342,6 +340,7 @@ class SymbolPrinter(Visitor):
             or isinstance(symbol.table, ast.TableAliasSymbol)
             or isinstance(symbol.table, ast.SelectQueryAliasSymbol)
         ):
+            table_prefix = self.visit(symbol.table)
             field_sql = f"{table_prefix}.{printed_field}"
         else:
             field_sql = printed_field

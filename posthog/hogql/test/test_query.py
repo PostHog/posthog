@@ -44,12 +44,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(2, "random event")])
 
             response = execute_hogql_query(
+                f"select count, event from (select count() as count, event from events where properties.random_uuid = '{random_uuid}' group by event) group by count, event",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event) GROUP BY count, event LIMIT 1000",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT count, event FROM (SELECT count() AS count, event FROM events WHERE equals(properties.random_uuid, %(hogql_val_2)s) GROUP BY event) GROUP BY count, event LIMIT 1000",
+            )
+            self.assertEqual(response.results, [(2, "random event")])
+
+            response = execute_hogql_query(
                 f"select count, event from (select count() as count, event from events where properties.random_uuid = '{random_uuid}' group by event) as c group by count, event",
                 self.team,
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT count, event FROM (SELECT count(*) AS count, event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event) AS c GROUP BY count, event LIMIT 1000",
+                f"SELECT c.count, c.event FROM (SELECT count(*) AS count, event FROM events WHERE and(equals(team_id, {self.team.id}), equals(replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', ''), %(hogql_val_1)s)) GROUP BY event) AS c GROUP BY c.count, c.event LIMIT 1000",
             )
             self.assertEqual(
                 response.hogql,
@@ -102,7 +116,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, e.timestamp, pdi.distinct_id, p.id, replaceRegexpAll(JSONExtractRaw(p.properties, %(hogql_val_0)s), '^\"|\"$', '') FROM events AS e LEFT JOIN person_distinct_id2 AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN person AS p ON equals(p.id, pdi.person_id) WHERE and(equals(e.team_id, {self.team.id}), equals(pdi.team_id, {self.team.id}), equals(p.team_id, {self.team.id})) LIMIT 1000",
+                f"SELECT e.event, e.timestamp, pdi.distinct_id, p.id, replaceRegexpAll(JSONExtractRaw(p.properties, %(hogql_val_0)s), '^\"|\"$', '') FROM events AS e LEFT JOIN person_distinct_id2 AS pdi ON equals(pdi.distinct_id, e.distinct_id) LEFT JOIN person AS p ON equals(p.id, pdi.person_id) WHERE and(equals(p.team_id, {self.team.id}), equals(pdi.team_id, {self.team.id}), equals(e.team_id, {self.team.id})) LIMIT 1000",
             )
             self.assertEqual(
                 response.hogql,
@@ -121,19 +135,19 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                         SELECT distinct_id,
                                argMax(person_id, version) as person_id
                           FROM person_distinct_id
-                         WHERE team_id = 1
                          GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0
                        ) AS pdi
                     ON e.distinct_id = pdi.distinct_id""",
                 self.team,
             )
+
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT DISTINCT person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.id}) LIMIT 1000",
+                f"SELECT e.event, e.timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_distinct_id2.person_id, version) AS person_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.id}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) WHERE equals(e.team_id, {self.team.id}) LIMIT 1000",
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT DISTINCT person_id, distinct_id FROM person_distinct_id LIMIT 1000",
+                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_id2 GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 1000",
             )
             self.assertTrue(len(response.results) > 0)
