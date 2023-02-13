@@ -24,6 +24,7 @@ from posthoganalytics.client import Client
 from psycopg2 import sql
 from sentry_sdk import capture_exception
 
+from ee.billing.billing_manager import BillingStatus
 from posthog import version_requirement
 from posthog.celery import app
 from posthog.client import sync_execute
@@ -220,7 +221,7 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     if not settings.EE_AVAILABLE:
         return
 
-    from ee.api.billing import build_billing_token
+    from ee.billing.billing_manager import BillingManager, build_billing_token
     from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
@@ -238,6 +239,9 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
         raise Exception(
             f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
         )
+
+    response_data: BillingStatus = response.json()
+    BillingManager(license).update_org_details(organization, response_data)
 
 
 def capture_event(
