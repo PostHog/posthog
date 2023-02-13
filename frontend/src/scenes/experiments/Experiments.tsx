@@ -141,10 +141,8 @@ export function Experiments(): JSX.Element {
                         </LemonButton>
                     ) : undefined
                 }
-            />
-            {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
-                <>
-                    <div className="mb-4">
+                caption={
+                    <>
                         Check out our
                         <Link
                             data-attr="experiment-help"
@@ -155,7 +153,12 @@ export function Experiments(): JSX.Element {
                             Experimentation user guide
                         </Link>{' '}
                         to learn more.
-                    </div>
+                    </>
+                }
+                tabbedPage={hasAvailableFeature(AvailableFeature.EXPERIMENTATION)}
+            />
+            {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
+                <>
                     <LemonTabs
                         activeKey={tab}
                         onChange={(newKey) => setExperimentsTab(newKey)}

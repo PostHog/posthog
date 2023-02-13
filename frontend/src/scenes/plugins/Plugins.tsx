@@ -61,6 +61,7 @@ export function Plugins(): JSX.Element | null {
                         .
                     </>
                 }
+                tabbedPage
             />
             <LemonTabs
                 data-attr="apps-tabs"
