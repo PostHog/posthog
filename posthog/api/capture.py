@@ -101,6 +101,8 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
         KAFKA_SESSION_RECORDING_EVENTS
         if event_name in SESSION_RECORDING_EVENT_NAMES
         else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+        if partition_key
+        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW_TOPIC
     )
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)

@@ -141,10 +141,14 @@ SUFFIX = "_test" if TEST else ""
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
 )
+KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW: str = f"{KAFKA_PREFIX}events_plugin_ingestion_overflow{SUFFIX}"
 
 # Topic to write events to between clickhouse
 KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
     "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
+)
+KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW_TOPIC: str = os.getenv(
+    "KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
 )
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
