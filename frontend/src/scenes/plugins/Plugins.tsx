@@ -5,7 +5,6 @@ import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from './pluginsLogic'
-import { Tabs } from 'antd'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PluginTab } from 'scenes/plugins/types'
 import { AdvancedTab } from 'scenes/plugins/tabs/advanced/AdvancedTab'
@@ -15,6 +14,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonTag } from '@posthog/lemon-ui'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: Plugins,
@@ -31,8 +31,6 @@ export function Plugins(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { pluginTab } = useValues(pluginsLogic)
     const { setPluginTab } = useActions(pluginsLogic)
-
-    const { TabPane } = Tabs
 
     useEffect(() => {
         if (!canViewPlugins(user?.organization)) {
@@ -63,37 +61,36 @@ export function Plugins(): JSX.Element | null {
                         .
                     </>
                 }
+                tabbedPage
             />
-            <Tabs
+            <LemonTabs
                 data-attr="apps-tabs"
                 activeKey={pluginTab}
-                onChange={(activeKey) => setPluginTab(activeKey as PluginTab)}
-            >
-                <TabPane tab="Installed" key={PluginTab.Installed}>
-                    <InstalledTab />
-                </TabPane>
-                {canGloballyManagePlugins(user.organization) ? (
-                    <TabPane tab="Repository" key={PluginTab.Repository}>
-                        <RepositoryTab />
-                    </TabPane>
-                ) : null}
-                <TabPane
-                    tab={
-                        <>
-                            History <BetaTag />{' '}
-                        </>
-                    }
-                    key={PluginTab.History}
-                >
-                    <ActivityLog scope={ActivityScope.PLUGIN} />
-                </TabPane>
-
-                {canInstallPlugins(user.organization) ? (
-                    <TabPane tab="Advanced" key={PluginTab.Advanced}>
-                        <AdvancedTab />
-                    </TabPane>
-                ) : null}
-            </Tabs>
+                onChange={(newKey) => setPluginTab(newKey)}
+                tabs={[
+                    { key: PluginTab.Installed, label: 'Installed', content: <InstalledTab /> },
+                    canGloballyManagePlugins(user.organization) && {
+                        key: PluginTab.Repository,
+                        label: 'Repository',
+                        content: <RepositoryTab />,
+                    },
+                    {
+                        key: PluginTab.History,
+                        label: (
+                            <>
+                                <span>History</span>
+                                <BetaTag />
+                            </>
+                        ),
+                        content: <ActivityLog scope={ActivityScope.PLUGIN} />,
+                    },
+                    canInstallPlugins(user.organization) && {
+                        key: PluginTab.Advanced,
+                        label: 'Advanced',
+                        content: <AdvancedTab />,
+                    },
+                ]}
+            />
             <PluginDrawer />
         </div>
     )

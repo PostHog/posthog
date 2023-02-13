@@ -960,3 +960,23 @@ $decorations: underline, overline, line-through, no-underline;
 .resize-y {
     resize: vertical;
 }
+
+.static {
+    position: static;
+}
+
+.relative {
+    position: relative;
+}
+
+.absolute {
+    position: absolute;
+}
+
+.fixed {
+    position: fixed;
+}
+
+.sticky {
+    position: sticky;
+}
