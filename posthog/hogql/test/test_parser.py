@@ -537,6 +537,52 @@ class TestParser(BaseTest):
                 ),
             ),
         )
+        self.assertEqual(
+            parse_select(
+                """
+                SELECT event, timestamp, e.distinct_id, p.id, p.properties.email
+                FROM events e
+                LEFT JOIN person_distinct_id pdi
+                ON pdi.distinct_id = e.distinct_id
+                LEFT JOIN persons p
+                ON p.id = pdi.person_id
+                """,
+                self.team,
+            ),
+            ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["event"]),
+                    ast.Field(chain=["timestamp"]),
+                    ast.Field(chain=["e", "distinct_id"]),
+                    ast.Field(chain=["p", "id"]),
+                    ast.Field(chain=["p", "properties", "email"]),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    alias="e",
+                    join_type="LEFT JOIN",
+                    join_constraint=ast.CompareOperation(
+                        op=ast.CompareOperationType.Eq,
+                        left=ast.Field(chain=["pdi", "distinct_id"]),
+                        right=ast.Field(chain=["e", "distinct_id"]),
+                    ),
+                    join_expr=ast.JoinExpr(
+                        table=ast.Field(chain=["person_distinct_id"]),
+                        alias="pdi",
+                        join_type="LEFT JOIN",
+                        join_constraint=ast.CompareOperation(
+                            op=ast.CompareOperationType.Eq,
+                            left=ast.Field(chain=["p", "id"]),
+                            right=ast.Field(chain=["pdi", "person_id"]),
+                        ),
+                        join_expr=ast.JoinExpr(
+                            table=ast.Field(chain=["persons"]),
+                            alias="p",
+                        ),
+                    ),
+                ),
+            ),
+        )
 
     def test_select_group_by(self):
         self.assertEqual(

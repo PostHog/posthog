@@ -181,16 +181,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitJoinOpInner(self, ctx: HogQLParser.JoinOpInnerContext):
         tokens = []
-        if ctx.LEFT():
-            tokens.append("INNER")
         if ctx.ALL():
             tokens.append("ALL")
-        if ctx.ANTI():
-            tokens.append("ANTI")
         if ctx.ANY():
             tokens.append("ANY")
         if ctx.ASOF():
             tokens.append("ASOF")
+        tokens.append("INNER")
         return " ".join(tokens)
 
     def visitJoinOpLeftRight(self, ctx: HogQLParser.JoinOpLeftRightContext):
