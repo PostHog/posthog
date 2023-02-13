@@ -178,9 +178,7 @@ class Resolver(TraversingVisitor):
 
 
 def lookup_field_by_name(scope: ast.SelectQuerySymbol, name: str) -> Optional[ast.Symbol]:
-    if name in scope.columns:
-        return scope.columns[name]
-    elif name in scope.aliases:
+    if name in scope.aliases:
         return scope.aliases[name]
     else:
         named_tables = [table for table in scope.tables.values() if table.has_child(name)]

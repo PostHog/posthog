@@ -61,15 +61,30 @@ class Printer(Visitor):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
-        select_from = ""
-        if isinstance(node.select_from, ast.JoinExpr):
-            if not node.select_from.symbol:
+        # we will add extra clauses onto this
+        where = node.where
+
+        select_from = []
+        next_join = node.select_from
+        while isinstance(next_join, ast.JoinExpr):
+            if next_join.symbol is None:
                 raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
-            select_from = self.visit(node.select_from)
+
+            (select_sql, extra_where) = self.visit_join_expr(next_join)
+            select_from.append(select_sql)
+
+            if extra_where is not None:
+                if where is None:
+                    where = extra_where
+                elif isinstance(where, ast.And):
+                    where = ast.And(exprs=where.exprs + [extra_where])
+                else:
+                    where = ast.And(exprs=[where, extra_where])
+
+            next_join = next_join.next_join
 
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
-
-        where = self.visit(node.where) if node.where else None
+        where = self.visit(where) if where else None
         having = self.visit(node.having) if node.having else None
         prewhere = self.visit(node.prewhere) if node.prewhere else None
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
@@ -87,7 +102,7 @@ class Printer(Visitor):
 
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
-            f"FROM {select_from}" if select_from else None,
+            f"FROM {' '.join(select_from)}" if len(select_from) > 0 else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
@@ -108,7 +123,10 @@ class Printer(Visitor):
             response = f"({response})"
         return response
 
-    def visit_join_expr(self, node: ast.JoinExpr) -> str:
+    def visit_join_expr(self, node: ast.JoinExpr) -> (str, Optional[ast.Expr]):
+        # return constraints we must place on the select query
+        extra_where = None
+
         select_from = []
         if node.join_type is not None:
             select_from.append(node.join_type)
@@ -123,24 +141,14 @@ class Printer(Visitor):
             if node.alias is not None:
                 select_from.append(f"AS {print_hogql_identifier(node.alias)}")
 
-            # Guard with team_id if selecting from a table and printing ClickHouse SQL
-            # We do this in the printer, and not in a separate step, to be really sure this gets added.
-            # This will be improved when we add proper table and column alias support. For now, let's just be safe.
             if self.dialect == "clickhouse":
-                select = self._last_select()
-                if select is not None:
-                    select.where = guard_where_team_id(select.where, node.symbol, self.context)
+                extra_where = guard_where_team_id(None, node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
             select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
 
-            # Guard with team_id if selecting from a table and printing ClickHouse SQL
-            # We do this in the printer, and not in a separate step, to be really sure this gets added.
-            # This will be improved when we add proper table and column alias support. For now, let's just be safe.
             if self.dialect == "clickhouse":
-                select = self._last_select()
-                if select is not None:
-                    select.where = guard_where_team_id(select.where, node.symbol, self.context)
+                extra_where = guard_where_team_id(None, node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.SelectQuerySymbol):
             select_from.append(self.visit(node.table))
@@ -157,10 +165,7 @@ class Printer(Visitor):
         if node.constraint is not None:
             select_from.append(f"ON {self.visit(node.constraint)}")
 
-        if node.next_join is not None:
-            select_from.append(self.visit(node.next_join))
-
-        return " ".join(select_from)
+        return (" ".join(select_from), extra_where)
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
@@ -332,10 +337,14 @@ class SymbolPrinter(Visitor):
         except ResolverException:
             symbol_with_name_in_scope = None
 
-        if symbol_with_name_in_scope == symbol:
-            field_sql = printed_field
-        else:
+        if (
+            symbol_with_name_in_scope != symbol
+            or isinstance(symbol.table, ast.TableAliasSymbol)
+            or isinstance(symbol.table, ast.SelectQueryAliasSymbol)
+        ):
             field_sql = f"{table_prefix}.{printed_field}"
+        else:
+            field_sql = printed_field
 
         if printed_field != "properties":
             # TODO: refactor this property access logging
