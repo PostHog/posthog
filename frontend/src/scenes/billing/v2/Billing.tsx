@@ -103,7 +103,7 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                 })}
             >
                 <div className="flex-1">
-                    {billing?.billing_period ? (
+                    {billing?.has_active_subscription && billing?.billing_period ? (
                         <div className="space-y-2">
                             <p>
                                 Your current billing period is from{' '}
