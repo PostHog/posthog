@@ -424,7 +424,11 @@ def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
         UUID(key)  # type: ignore
         return queryset.filter(uuid=key)
     except ValueError:
+        pass
+    try:
         return queryset.filter(pk=key)
+    except ValueError:
+        raise ValueError("Key is not a valid UUID or primary key.")
 
 
 def parse_bool(value: Union[str, List[str]]) -> bool:
