@@ -31,7 +31,6 @@ export function More({
             size="small"
             className={className}
             disabled={!overlay}
-            tooltip={tooltip}
             onClick={onClick}
         />
     )
