@@ -57,6 +57,8 @@ export enum NodeKind {
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
+    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
+    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
     /** Performance */
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
@@ -362,8 +364,6 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     teamId?: number
 }
 
-export type HogQLExpression = string
-
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
@@ -378,10 +378,24 @@ export interface TimeToSeeDataQuery extends DataNode {
     sessionEnd?: string
 }
 
+export interface TimeToSeeDataJSONNode {
+    kind: NodeKind.TimeToSeeDataSessionsJSONNode
+    source: TimeToSeeDataQuery
+}
+
+export interface TimeToSeeDataWaterfallNode {
+    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
+    source: TimeToSeeDataQuery
+}
+
+export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
+
 export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
     numberOfDays?: number // defaults to 7
 }
+
+export type HogQLExpression = string
 
 // Legacy queries
 

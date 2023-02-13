@@ -4,8 +4,6 @@ import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
-import { InsightsNav } from 'scenes/insights/InsightsNav'
-import { ItemMode } from '~/types'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
@@ -64,7 +62,6 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
 
     return (
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-            {insightMode === ItemMode.Edit && <InsightsNav />}
             <div
                 className={clsx('insight-wrapper', {
                     'insight-wrapper--singlecolumn': isFunnels,
