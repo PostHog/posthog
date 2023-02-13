@@ -15,6 +15,10 @@ def parse_string(text: str) -> str:
         text = text[1:-1]
         text = text.replace("``", "`")
         text = text.replace("\\`", "`")
+    elif text.startswith("{") and text.endswith("}"):
+        text = text[1:-1]
+        text = text.replace("{{", "{")
+        text = text.replace("\\{", "{")
     else:
         raise ValueError(f"Invalid string literal, must start and end with the same quote symbol: {text}")
 

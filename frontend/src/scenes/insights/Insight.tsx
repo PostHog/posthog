@@ -38,6 +38,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { isInsightVizNode } from '~/queries/utils'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { insightQueryEditorLogic } from './insightQueryEditorLogic'
 
@@ -271,7 +272,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
-                            canEditInsight && (
+                            canEditInsight &&
+                            (isFilterBasedInsight || isInsightVizNode(query)) && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
@@ -337,11 +339,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
+            {insightMode === ItemMode.Edit && <InsightsNav />}
+
             {isUsingDataExploration ? (
                 <>
                     {insightMode === ItemMode.Edit && isQueryBasedInsight && (
                         <>
-                            <InsightsNav />
                             <QueryEditor
                                 query={JSON.stringify(query, null, 4)}
                                 setQuery={setQuery ? (query) => setQuery(JSON.parse(query)) : undefined}
@@ -352,7 +355,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 </>
             ) : (
                 <>
-                    {insightMode === ItemMode.Edit && <InsightsNav />}
                     <div
                         className={clsx('insight-wrapper', {
                             'insight-wrapper--singlecolumn': filters.insight === InsightType.FUNNELS,

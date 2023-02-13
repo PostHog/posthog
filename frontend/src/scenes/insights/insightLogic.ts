@@ -81,7 +81,6 @@ export const createEmptyInsight = (
     insightId: InsightShortId | `new-${string}` | 'new',
     filterTestAccounts: boolean
 ): Partial<InsightModel> => {
-    console.log('creating empty insight')
     return {
         short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
         name: '',
@@ -496,25 +495,19 @@ export const insightLogic = kea<insightLogicType>([
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (state, { filters }) => {
-                    console.log('set filters filters reducer')
                     return cleanFilters(filters, state)
                 },
                 setInsight: (state, { insight: { filters }, options: { overrideFilter } }) => {
-                    console.log('set insight filters reducer')
                     return overrideFilter ? cleanFilters(filters || {}) : state
                 },
                 loadInsightSuccess: (state, { insight }) => {
-                    console.log('load insight success filters reducer')
                     return Object.keys(state).length === 0 && insight.filters ? insight.filters : state
                 },
                 loadResultsSuccess: (state, { insight }) => {
-                    console.log('load results success filters reducer')
                     return Object.keys(state).length === 0 && insight.filters ? insight.filters : state
                 },
                 setActiveView: (state, { type }) => {
-                    console.log('set active view filters reducer', type)
                     if (type === InsightType.QUERY) {
-                        console.log('setting empty filters')
                         return {}
                     }
                     return state

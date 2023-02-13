@@ -9,8 +9,8 @@ else:
 
 class HogQLParserVisitor(ParseTreeVisitor):
 
-    # Visit a parse tree produced by HogQLParser#selectQuery.
-    def visitSelectQuery(self, ctx:HogQLParser.SelectQueryContext):
+    # Visit a parse tree produced by HogQLParser#select.
+    def visitSelect(self, ctx:HogQLParser.SelectContext):
         return self.visitChildren(ctx)
 
 

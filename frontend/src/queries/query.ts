@@ -8,6 +8,7 @@ import {
     isTimeToSeeDataQuery,
     isRecentPerformancePageViewNode,
     isDataTableNode,
+    isTimeToSeeDataSessionsNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -78,6 +79,17 @@ export function queryExportContext<N extends DataNode = DataNode>(
                 session_end: query.sessionEnd ?? now().toISOString(),
             },
         }
+    } else if (isTimeToSeeDataSessionsNode(query)) {
+        return {
+            path: '/api/time_to_see_data/session_events',
+            method: 'POST',
+            body: {
+                team_id: query.source.teamId ?? getCurrentTeamId(),
+                session_id: query.source.sessionId ?? currentSessionId(),
+                session_start: query.source.sessionStart ?? now().subtract(1, 'day').toISOString(),
+                session_end: query.source.sessionEnd ?? now().toISOString(),
+            },
+        }
     } else if (isRecentPerformancePageViewNode(query)) {
         return { path: api.performanceEvents.recentPageViewsURL() }
     } else if (isDataTableNode(query)) {
@@ -130,6 +142,13 @@ export async function query<N extends DataNode = DataNode>(
             session_id: query.sessionId ?? currentSessionId(),
             session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
             session_end: query.sessionEnd ?? now().toISOString(),
+        })
+    } else if (isTimeToSeeDataSessionsNode(query)) {
+        return await api.create('/api/time_to_see_data/session_events', {
+            team_id: query.source.teamId ?? getCurrentTeamId(),
+            session_id: query.source.sessionId ?? currentSessionId(),
+            session_start: query.source.sessionStart ?? now().subtract(1, 'day').toISOString(),
+            session_end: query.source.sessionEnd ?? now().toISOString(),
         })
     } else if (isRecentPerformancePageViewNode(query)) {
         return await api.performanceEvents.recentPageViews()
