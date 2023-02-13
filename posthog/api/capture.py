@@ -270,6 +270,9 @@ def get_event(request):
     if error_response:
         return error_response
 
+    # At this point, we don't now which team_id we are working with, so unbind if set.
+    structlog.contextvars.unbind_contextvars("team_id")
+
     with start_span(op="request.authenticate"):
         token = get_token(data, request)
 
