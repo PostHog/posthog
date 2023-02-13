@@ -133,7 +133,7 @@ describe('Insights', () => {
     })
 
     it('Stickiness graph', () => {
-        cy.get('.ant-tabs-tab').contains('Stickiness').click()
+        cy.get('[role=tab]').contains('Stickiness').click()
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-1]').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -142,7 +142,7 @@ describe('Insights', () => {
 
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
-        cy.get('.ant-tabs-tab').contains('Lifecycle').click()
+        cy.get('[role=tab]').contains('Lifecycle').click()
         cy.get('div').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph
