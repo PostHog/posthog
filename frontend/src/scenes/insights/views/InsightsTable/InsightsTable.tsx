@@ -1,5 +1,5 @@
 import { Dropdown, Menu } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -50,18 +50,6 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
     average: 'Average',
     median: 'Median',
-}
-
-/**
- * InsightsTable for use in a dashboard.
- */
-export function DashboardInsightsTable(): JSX.Element {
-    const { insightProps } = useValues(insightLogic)
-    return (
-        <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
-        </BindLogic>
-    )
 }
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
