@@ -27,8 +27,25 @@ admin.site.register(Element)
 admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(Insight)
 admin.site.register(InstanceSetting)
+
+
+@admin.register(Insight)
+class InsightAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "short_id",
+        "team",
+        "organization",
+        "created_at",
+        "created_by",
+    )
+    search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
+    ordering = ("-created_at",)
+
+    def organization(self, insight: Insight):
+        return insight.team.organization.name
 
 
 @admin.register(Plugin)
