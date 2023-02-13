@@ -88,7 +88,7 @@ class Resolver(TraversingVisitor):
                     node.symbol = ast.TableAliasSymbol(name=table_alias, table=node.symbol)
                 scope.tables[table_alias] = node.symbol
             else:
-                raise ResolverException(f'Unknown table "{table_name}". Only "events" is supported.')
+                raise ResolverException(f'Unknown table "{table_name}".')
 
         elif isinstance(node.table, ast.SelectQuery):
             node.table.symbol = self.visit(node.table)
@@ -105,6 +105,7 @@ class Resolver(TraversingVisitor):
             raise ResolverException(f"JoinExpr with table of type {type(node.table).__name__} not supported")
 
         self.visit(node.join_expr)
+        self.visit(node.join_constraint)
 
     def visit_alias(self, node: ast.Alias):
         """Visit column aliases. SELECT 1, (select 3 as y) as x."""
@@ -151,24 +152,11 @@ class Resolver(TraversingVisitor):
         symbol: Optional[ast.Symbol] = None
         name = node.chain[0]
 
-        # More than one field and the first one is a table. Found the first match.
+        # Only look for matching tables if field contains at least two parts.
         if len(node.chain) > 1 and name in scope.tables:
             symbol = scope.tables[name]
-        elif name in scope.columns:
-            symbol = scope.columns[name]
-        elif name in scope.aliases:
-            symbol = scope.aliases[name]
-        else:
-            # Look through all FROM/JOIN tables, if they export a field by this name.
-            tables_with_field = [table for table in scope.tables.values() if table.has_child(name)] + [
-                table for table in scope.anonymous_tables if table.has_child(name)
-            ]
-            if len(tables_with_field) > 1:
-                raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
-            elif len(tables_with_field) == 1:
-                # accessed a field on a joined table by name
-                symbol = tables_with_field[0].get_child(name)
-
+        if not symbol:
+            symbol = lookup_field_by_name(scope, name)
         if not symbol:
             raise ResolverException(f"Unable to resolve field: {name}")
 
@@ -189,14 +177,19 @@ class Resolver(TraversingVisitor):
         node.symbol = ast.ConstantSymbol(value=node.value)
 
 
-def unwrap_column_alias_symbol(symbol: ast.Symbol) -> ast.Symbol:
-    i = 0
-    while isinstance(symbol, ast.ColumnAliasSymbol):
-        symbol = symbol.symbol
-        i += 1
-        if i > 100:
-            raise ResolverException("ColumnAliasSymbol recursion too deep!")
-    return symbol
+def lookup_field_by_name(scope: ast.SelectQuerySymbol, name: str) -> Optional[ast.Symbol]:
+    if name in scope.columns:
+        return scope.columns[name]
+    elif name in scope.aliases:
+        return scope.aliases[name]
+    else:
+        named_tables = [table for table in scope.tables.values() if table.has_child(name)]
+        anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name)]
+        tables = named_tables + anonymous_tables
 
-
-# select a from (select 1 as a)
+        if len(tables) > 1:
+            raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
+        elif len(tables) == 1:
+            # accessed a field on a joined table by name
+            return tables[0].get_child(name)
+        return None

@@ -91,6 +91,8 @@ HOGQL_AGGREGATIONS = {
     "avgIf": 2,
     "any": 1,
     "anyIf": 2,
+    "argMax": 2,
+    "argMin": 2,
 }
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]

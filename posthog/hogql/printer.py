@@ -5,6 +5,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.print_string import print_hogql_identifier
+from posthog.hogql.resolver import ResolverException, lookup_field_by_name
 from posthog.hogql.visitor import Visitor
 
 
@@ -44,6 +45,12 @@ class Printer(Visitor):
         self.dialect = dialect
         self.stack: List[ast.AST] = stack or []
 
+    def _last_select(self) -> Optional[ast.SelectQuery]:
+        for node in reversed(self.stack):
+            if isinstance(node, ast.SelectQuery):
+                return node
+        return None
+
     def visit(self, node: ast.AST):
         self.stack.append(node)
         response = super().visit(node)
@@ -56,47 +63,11 @@ class Printer(Visitor):
 
         where = node.where
 
-        select_from = None
+        select_from = ""
         if node.select_from is not None:
             if not node.select_from.symbol:
                 raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
-
-            if node.select_from.join_expr:
-                raise ValueError("Printing queries with a JOIN clause is not yet permitted")
-
-            if isinstance(node.select_from.symbol, ast.TableAliasSymbol):
-                table_symbol = node.select_from.symbol.table
-                if table_symbol is None:
-                    raise ValueError(f"Table alias {node.select_from.symbol.name} does not resolve!")
-                if not isinstance(table_symbol, ast.TableSymbol):
-                    raise ValueError(f"Table alias {node.select_from.symbol.name} does not resolve to a table!")
-                select_from = print_hogql_identifier(table_symbol.table.clickhouse_table())
-                if node.select_from.alias is not None:
-                    select_from += f" AS {print_hogql_identifier(node.select_from.alias)}"
-
-                # Guard with team_id if selecting from a table and printing ClickHouse SQL
-                # We do this in the printer, and not in a separate step, to be really sure this gets added.
-                # This will be improved when we add proper table and column alias support. For now, let's just be safe.
-                if self.dialect == "clickhouse":
-                    where = guard_where_team_id(where, node.select_from.symbol, self.context)
-
-            elif isinstance(node.select_from.symbol, ast.TableSymbol):
-                select_from = print_hogql_identifier(node.select_from.symbol.table.clickhouse_table())
-
-                # Guard with team_id if selecting from a table and printing ClickHouse SQL
-                # We do this in the printer, and not in a separate step, to be really sure this gets added.
-                # This will be improved when we add proper table and column alias support. For now, let's just be safe.
-                if self.dialect == "clickhouse":
-                    where = guard_where_team_id(where, node.select_from.symbol, self.context)
-
-            elif isinstance(node.select_from.symbol, ast.SelectQuerySymbol):
-                select_from = self.visit(node.select_from.table)
-
-            elif isinstance(node.select_from.symbol, ast.SelectQueryAliasSymbol) and node.select_from.alias is not None:
-                select_from = self.visit(node.select_from.table)
-                select_from += f" AS {print_hogql_identifier(node.select_from.alias)}"
-            else:
-                raise ValueError("Only selecting from a table or a subquery is supported")
+            select_from = self.visit(node.select_from)
 
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
 
@@ -139,6 +110,52 @@ class Printer(Visitor):
         if len(self.stack) > 1:
             response = f"({response})"
         return response
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> str:
+        select_from = []
+        if isinstance(node.symbol, ast.TableAliasSymbol):
+            table_symbol = node.symbol.table
+            if table_symbol is None:
+                raise ValueError(f"Table alias {node.symbol.name} does not resolve!")
+            if not isinstance(table_symbol, ast.TableSymbol):
+                raise ValueError(f"Table alias {node.symbol.name} does not resolve to a table!")
+            select_from.append(print_hogql_identifier(table_symbol.table.clickhouse_table()))
+            if node.alias is not None:
+                select_from.append(f"AS {print_hogql_identifier(node.alias)}")
+
+            # Guard with team_id if selecting from a table and printing ClickHouse SQL
+            # We do this in the printer, and not in a separate step, to be really sure this gets added.
+            # This will be improved when we add proper table and column alias support. For now, let's just be safe.
+            if self.dialect == "clickhouse":
+                select = self._last_select()
+                select.where = guard_where_team_id(select.where, node.symbol, self.context)
+
+        elif isinstance(node.symbol, ast.TableSymbol):
+            select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
+
+            # Guard with team_id if selecting from a table and printing ClickHouse SQL
+            # We do this in the printer, and not in a separate step, to be really sure this gets added.
+            # This will be improved when we add proper table and column alias support. For now, let's just be safe.
+            if self.dialect == "clickhouse":
+                select = self._last_select()
+                select.where = guard_where_team_id(select.where, node.symbol, self.context)
+
+        elif isinstance(node.symbol, ast.SelectQuerySymbol):
+            select_from.append(self.visit(node.table))
+
+        elif isinstance(node.symbol, ast.SelectQueryAliasSymbol) and node.alias is not None:
+            select_from.append(self.visit(node.table))
+            select_from.append(f"AS {print_hogql_identifier(node.alias)}")
+        else:
+            raise ValueError("Only selecting from a table or a subquery is supported")
+
+        if node.join_type is not None and node.join_expr is not None:
+            select_from.append(f"{node.join_type} {self.visit(node.join_expr)}")
+
+        if node.join_constraint is not None:
+            select_from.append(f"ON {self.visit(node.join_constraint)}")
+
+        return " ".join(select_from)
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
@@ -236,17 +253,10 @@ class Printer(Visitor):
         #     query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
         #     return self.visit(parse_expr(query))
         elif node.symbol is not None:
-            # find closest select query's symbol for context
-            select: Optional[ast.SelectQuerySymbol] = None
-            for stack_node in reversed(self.stack):
-                if isinstance(stack_node, ast.SelectQuery):
-                    if isinstance(stack_node.symbol, ast.SelectQuerySymbol):
-                        select = stack_node.symbol
-                        break
-                    raise ValueError(f"Closest SelectQuery to field {original_field} has no symbol!")
+            select_query = self._last_select()
+            select: Optional[ast.SelectQuerySymbol] = select_query.symbol if select_query else None
             if select is None:
                 raise ValueError(f"Can't find SelectQuerySymbol for field: {original_field}")
-
             return SymbolPrinter(select=select, context=self.context).visit(node.symbol)
         else:
             raise ValueError(f"Unknown Symbol, can not print {type(node.symbol)}")
@@ -305,28 +315,25 @@ class SymbolPrinter(Visitor):
         return print_hogql_identifier(symbol.table.clickhouse_table())
 
     def visit_table_alias_symbol(self, symbol: ast.TableAliasSymbol):
-        return f"{self.visit(symbol.table)} AS {print_hogql_identifier(symbol.name)}"
+        return print_hogql_identifier(symbol.name)
 
     def visit_field_symbol(self, symbol: ast.FieldSymbol):
         # do we need a table prefix?
         table_prefix = self.visit(symbol.table)
         printed_field = print_hogql_identifier(symbol.name)
 
-        field_sql = printed_field
+        try:
+            symbol_with_name_in_scope = lookup_field_by_name(self.select, symbol.name)
+        except ResolverException:
+            symbol_with_name_in_scope = None
 
-        # Field exists as a column name in this scope. Is it the same field?
-        if symbol.name in self.select.columns:
-            column_symbol = self.select.columns[symbol.name]
-            if column_symbol != symbol:
-                field_sql = f"{table_prefix}.{printed_field}"
-
-        # Field exists as an alias name in this scope. Is it the same field?
-        if symbol.name in self.select.aliases:
-            aliased_symbol = self.select.aliases[symbol.name]
-            if aliased_symbol != symbol:
-                field_sql = f"{table_prefix}.{printed_field}"
+        if symbol_with_name_in_scope == symbol:
+            field_sql = printed_field
+        else:
+            field_sql = f"{table_prefix}.{printed_field}"
 
         if printed_field != "properties":
+            # TODO: refactor this property access logging
             self.context.field_access_logs.append(
                 HogQLFieldAccess(
                     [symbol.name],

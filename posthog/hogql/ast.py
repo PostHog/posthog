@@ -72,11 +72,13 @@ class TableAliasSymbol(Symbol):
     name: str
     table: TableSymbol
 
-    def get_child(self, name: str) -> Symbol:
-        return self.table.get_child(name)
-
     def has_child(self, name: str) -> bool:
         return self.table.has_child(name)
+
+    def get_child(self, name: str) -> Symbol:
+        if self.has_child(name):
+            return FieldSymbol(name=name, table=self)
+        return self.table.get_child(name)
 
 
 class SelectQuerySymbol(Symbol):
@@ -111,7 +113,10 @@ class FieldSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol]
 
     def get_child(self, name: str) -> Symbol:
-        db_table = self.table.table
+        table_symbol = self.table
+        while isinstance(table_symbol, TableAliasSymbol):
+            table_symbol = table_symbol.table
+        db_table = table_symbol.table
         if isinstance(db_table, Table):
             if self.name in db_table.__fields__ and isinstance(db_table.__fields__[self.name].default, StringJSONValue):
                 return PropertySymbol(name=name, field=self)

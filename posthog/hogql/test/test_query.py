@@ -84,3 +84,49 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT DISTINCT person_id, distinct_id FROM person_distinct_id2 LIMIT 1000",
             )
             self.assertTrue(len(response.results) > 0)
+
+    def test_query_joins_simple(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                """
+                SELECT event, timestamp, e.distinct_id, p.id, p.properties.email
+                FROM events e
+                LEFT JOIN person_distinct_id pdi
+                ON pdi.distinct_id = e.distinct_id
+                LEFT JOIN persons p
+                ON p.id = pdi.person_id
+                """,
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"",
+            )
+
+    def test_query_joins(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                """select event, timestamp, pdi.person_id from events e INNER JOIN (
+                        SELECT distinct_id,
+                               argMax(person_id, version) as person_id
+                          FROM person_distinct_id
+                         WHERE team_id = 1
+                         GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
+                       ) AS pdi
+                    ON e.distinct_id = pdi.distinct_id""",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT DISTINCT person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.id}) LIMIT 1000",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT DISTINCT person_id, distinct_id FROM person_distinct_id LIMIT 1000",
+            )
+            self.assertTrue(len(response.results) > 0)
