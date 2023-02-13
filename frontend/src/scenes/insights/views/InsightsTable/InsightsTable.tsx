@@ -1,7 +1,6 @@
 import { Dropdown, Menu } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, IntervalType, ItemMode, TrendResult } from '~/types'
@@ -31,6 +30,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { TrendsQuery } from '~/queries/schema'
+import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -152,34 +152,24 @@ function InsightsTableComponent({
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
     if (isLegend) {
-        const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
-        const areAllSeriesChecked = indexedResults.every((series) => !hiddenLegendKeys[series.id])
         columns.push({
             title: (
-                <LemonCheckbox
-                    checked={areAllSeriesChecked || (isAnySeriesChecked ? 'indeterminate' : false)}
-                    onChange={(checked) =>
-                        indexedResults.forEach((i) => {
-                            if (checked && hiddenLegendKeys[i.id]) {
-                                toggleVisibility(i.id)
-                            } else if (!checked && !hiddenLegendKeys[i.id]) {
-                                toggleVisibility(i.id)
-                            }
-                        })
-                    }
-                    disabled={!canCheckUncheckSeries}
+                <SeriesCheckColumnTitle
+                    indexedResults={indexedResults}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    hiddenLegendKeys={hiddenLegendKeys}
+                    toggleVisibility={toggleVisibility}
                 />
             ),
-            render: function RenderCheckbox(_, item: IndexedTrendResult) {
-                return (
-                    <LemonCheckbox
-                        color={getSeriesColor(item.seriesIndex, compare)}
-                        checked={!hiddenLegendKeys[item.id]}
-                        onChange={() => toggleVisibility(item.id)}
-                        disabled={!canCheckUncheckSeries}
-                    />
-                )
-            },
+            render: (_, item) => (
+                <SeriesCheckColumnItem
+                    item={item}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    hiddenLegendKeys={hiddenLegendKeys}
+                    compare={compare}
+                    toggleVisibility={toggleVisibility}
+                />
+            ),
             width: 0,
         })
     }
