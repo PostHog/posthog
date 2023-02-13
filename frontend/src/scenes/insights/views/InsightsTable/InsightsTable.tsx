@@ -346,8 +346,6 @@ function InsightsTableComponent({
         columns.push(...valueColumns)
     }
 
-    const useURLForSorting = insightMode !== ItemMode.Edit
-
     return (
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
@@ -362,7 +360,7 @@ function InsightsTableComponent({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             className="insights-table"
-            useURLForSorting={useURLForSorting}
+            useURLForSorting={insightMode !== ItemMode.Edit}
         />
     )
 }
