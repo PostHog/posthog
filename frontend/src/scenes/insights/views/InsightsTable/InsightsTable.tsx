@@ -62,14 +62,24 @@ export function DashboardInsightsTable(): JSX.Element {
     )
 }
 
-export function InsightsTable({
+export function InsightTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
+    return <InsightsTableComponent {...rest} />
+}
+
+export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
+    return <InsightsTableComponent {...rest} />
+}
+
+type InsightsTableComponentProps = InsightsTableProps & {}
+
+function InsightsTableComponent({
     isLegend = false,
     embedded = false,
     filterKey,
     canEditSeriesNameInline = false,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
-}: InsightsTableProps): JSX.Element | null {
+}: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))

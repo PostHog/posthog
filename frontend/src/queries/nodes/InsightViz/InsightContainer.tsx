@@ -13,7 +13,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { PathsDataExploration } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -175,7 +175,7 @@ export function InsightContainer({
                                      </Tooltip>
                                  </div>
                              )} */}
-                    <InsightsTable
+                    <InsightsTableDataExploration
                         isLegend
                         filterKey="trends_TRENDS"
                         canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
