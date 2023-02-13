@@ -336,11 +336,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
+            {insightMode === ItemMode.Edit && <InsightsNav />}
+
             {isUsingDataExploration ? (
                 <Query query={query} setQuery={setQuery} />
             ) : (
                 <>
-                    {insightMode === ItemMode.Edit && <InsightsNav />}
                     <div
                         className={clsx('insight-wrapper', {
                             'insight-wrapper--singlecolumn': filters.insight === InsightType.FUNNELS,
