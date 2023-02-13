@@ -64,13 +64,20 @@ export function DashboardInsightsTable(): JSX.Element {
     )
 }
 
-export function InsightTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
-    const { query } = useValues(insightDataLogic)
+export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { query, isNonTimeSeriesDisplay } = useValues(insightDataLogic(insightProps))
     const { series } = query as TrendsQuery
 
-    const hasMathUniqueFilter = !!series.find(({ math }) => math === 'dau')
+    const hasMathUniqueFilter = !!series?.find(({ math }) => math === 'dau')
 
-    return <InsightsTableComponent hasMathUniqueFilter={hasMathUniqueFilter} {...rest} />
+    return (
+        <InsightsTableComponent
+            hasMathUniqueFilter={hasMathUniqueFilter}
+            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            {...rest}
+        />
+    )
 }
 
 export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
@@ -80,12 +87,21 @@ export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
+    const isNonTimeSeriesDisplay =
+        isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
-    return <InsightsTableComponent hasMathUniqueFilter={hasMathUniqueFilter} {...rest} />
+    return (
+        <InsightsTableComponent
+            hasMathUniqueFilter={hasMathUniqueFilter}
+            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            {...rest}
+        />
+    )
 }
 
 type InsightsTableComponentProps = InsightsTableProps & {
     hasMathUniqueFilter: boolean
+    isNonTimeSeriesDisplay: boolean
 }
 
 function InsightsTableComponent({
@@ -96,6 +112,7 @@ function InsightsTableComponent({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
     hasMathUniqueFilter,
+    isNonTimeSeriesDisplay,
 }: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
@@ -125,26 +142,6 @@ function InsightsTableComponent({
             }
         }
     }
-
-    const isDisplayModeNonTimeSeries: boolean =
-        isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
-
-    const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
-        <Menu>
-            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item
-                    key={key}
-                    onClick={(e) => {
-                        setCalcColumnState(key as CalcColumnState)
-                        reportInsightsTableCalcToggled(key)
-                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                    }}
-                >
-                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                </Menu.Item>
-            ))}
-        </Menu>
-    )
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
@@ -281,6 +278,22 @@ function InsightsTableComponent({
     }
 
     if (showTotalCount) {
+        const calcColumnMenu = !isNonTimeSeriesDisplay && (
+            <Menu>
+                {Object.keys(CALC_COLUMN_LABELS).map((key) => (
+                    <Menu.Item
+                        key={key}
+                        onClick={(e) => {
+                            setCalcColumnState(key as CalcColumnState)
+                            reportInsightsTableCalcToggled(key)
+                            e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
+                        }}
+                    >
+                        {CALC_COLUMN_LABELS[key as CalcColumnState]}
+                    </Menu.Item>
+                ))}
+            </Menu>
+        )
         columns.push({
             title: calcColumnMenu ? (
                 <Dropdown overlay={calcColumnMenu}>
@@ -294,7 +307,7 @@ function InsightsTableComponent({
             ),
             render: function RenderCalc(_: any, item: IndexedTrendResult) {
                 let value: number | undefined = undefined
-                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
+                if (calcColumnState === 'total' || isNonTimeSeriesDisplay) {
                     value = item.count ?? item.aggregated_value
                     if (item.aggregated_value > item.count) {
                         value = item.aggregated_value

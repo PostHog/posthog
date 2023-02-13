@@ -27,7 +27,7 @@ import {
     isLifecycleQuery,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
@@ -103,6 +103,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+
+        isNonTimeSeriesDisplay: [
+            (s) => [s.display],
+            (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
+        ],
     }),
 
     listeners(({ actions, values }) => ({
