@@ -153,7 +153,7 @@ function InsightsTableComponent({
 
     if (isLegend) {
         const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
-        const areAllSeriesChecked = isAnySeriesChecked && indexedResults.every((series) => !hiddenLegendKeys[series.id])
+        const areAllSeriesChecked = indexedResults.every((series) => !hiddenLegendKeys[series.id])
         columns.push({
             title: (
                 <LemonCheckbox
