@@ -7,22 +7,27 @@ from posthog.hogql import ast
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
-from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 
 
-def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
     parse_tree = get_parser(expr).expr()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         return replace_placeholders(node, placeholders)
+    elif no_placeholders:
+        assert_no_placeholders(node)
+
     return node
 
 
-def parse_select(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None) -> ast.Expr:
+def parse_select(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
         node = replace_placeholders(node, placeholders)
+    elif no_placeholders:
+        assert_no_placeholders(node)
     return node
 
 

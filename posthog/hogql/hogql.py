@@ -6,15 +6,15 @@ from posthog.hogql.printer import print_ast
 
 
 def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql", "clickhouse"] = "clickhouse") -> str:
-    """Translate a HogQL expression into a Clickhouse expression."""
+    """Translate a HogQL expression into a Clickhouse expression. Raises if any placeholders found."""
     if query == "":
         raise ValueError("Empty query")
 
     try:
         if context.select_team_id:
-            node = parse_select(query)
+            node = parse_select(query, no_placeholders=True)
         else:
-            node = parse_expr(query)
+            node = parse_expr(query, no_placeholders=True)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
     except NotImplementedError as err:
