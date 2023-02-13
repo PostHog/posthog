@@ -1125,7 +1125,9 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree(
-          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
+          -- when the tests tear down and recreate the table.
+          '/clickhouse/tables/{uuid}noshard/posthog_test.person_overrides',
           '{replica}-{shard}',
           version
       )
@@ -1774,7 +1776,9 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree(
-          '/clickhouse/tables/noshard/posthog_test.person_overrides',
+          -- NOTE: for testing we use a uuid to ensure that we don't get conflicts
+          -- when the tests tear down and recreate the table.
+          '/clickhouse/tables/{uuid}noshard/posthog_test.person_overrides',
           '{replica}-{shard}',
           version
       )

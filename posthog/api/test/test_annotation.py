@@ -118,11 +118,32 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         self.assertEqual(instance.scope, "organization")
         self.assertEqual(instance.date_marker, date_marker)
         self.assertEqual(instance.team, self.team)
+        self.assertEqual(instance.creation_type, "USR")
 
         # Assert analytics are sent
         mock_capture.assert_called_once_with(
             self.user, "annotation created", {"scope": "organization", "date_marker": date_marker}
         )
+
+    @patch("posthog.api.annotation.report_user_action")
+    def test_can_create_annotations_as_a_bot(self, mock_capture):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Marketing campaign",
+                "scope": "organization",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "team": self.team.pk,
+                "creation_type": "GIT",
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+
+        instance = Annotation.objects.get(pk=response.json()["id"])
+        assert instance.creation_type == "GIT"
+
+        get_created_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{instance.id}/")
+        assert get_created_response.json()["creation_type"] == "GIT"
 
     @patch("posthog.api.annotation.report_user_action")
     def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture):
