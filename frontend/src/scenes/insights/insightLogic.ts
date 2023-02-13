@@ -96,7 +96,7 @@ export const insightLogic = kea<insightLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
 
-    connect((props) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],

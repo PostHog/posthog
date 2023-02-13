@@ -73,7 +73,7 @@ export function InsightContainer({
     const { query } = useValues(insightQueryEditorLogic(insightProps))
 
     if (activeView === InsightType.QUERY) {
-        return <QueryEditorView query={query} setQuery={setQuery} />
+        return <QueryEditorView query={JSON.stringify(query)} setQuery={(q) => setQuery(JSON.parse(q))} />
     }
 
     // Empty states that completely replace the graph
