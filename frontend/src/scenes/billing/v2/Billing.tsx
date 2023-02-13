@@ -126,9 +126,8 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                                 <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
                                 in your{' '}
                                 {billing?.has_active_subscription
-                                    ? 'billing period'
+                                    ? 'billing period.'
                                     : 'cycle. Your free allocation will reset at the end of the cycle.'}
-                                .
                             </p>
                         </div>
                     ) : (
