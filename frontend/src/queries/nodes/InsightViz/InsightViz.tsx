@@ -8,7 +8,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
-import { InsightQueryNode, InsightVizNode } from '../../schema'
+import { InsightQueryNode, InsightVizNode, QueryContext } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
@@ -16,11 +16,12 @@ import { EditorFilters } from './EditorFilters'
 type InsightVizProps = {
     query: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
+    context?: QueryContext
 }
 
 let uniqueNode = 0
 
-export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
+export function InsightViz({ query, setQuery, context }: InsightVizProps): JSX.Element {
     // TODO use same key as insight props
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
 
@@ -70,7 +71,7 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                 <EditorFilters query={query.source} setQuery={setQuerySource} />
 
                 <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
+                    <InsightContainer insightMode={insightMode} context={context} />
                 </div>
             </div>
         </BindLogic>

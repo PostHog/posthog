@@ -44,17 +44,18 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
-import { FunnelsQuery } from '~/queries/schema'
+import { FunnelsQuery, QueryContext } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-const VIEW_MAP = {
-    [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
-    [`${InsightType.STICKINESS}`]: <TrendInsight view={InsightType.STICKINESS} />,
-    [`${InsightType.LIFECYCLE}`]: <TrendInsight view={InsightType.LIFECYCLE} />,
-    [`${InsightType.FUNNELS}`]: <FunnelInsightDataExploration />,
-    [`${InsightType.RETENTION}`]: <RetentionContainer />,
-    [`${InsightType.PATHS}`]: <PathsDataExploration />,
+const VIEW_MAP: Record<InsightType, (context: QueryContext | undefined) => JSX.Element> = {
+    // passes in query context so that for e.g. trend tables can disable hiding rows on click
+    [InsightType.TRENDS]: (q) => <TrendInsight view={InsightType.TRENDS} context={q} />,
+    [InsightType.STICKINESS]: () => <TrendInsight view={InsightType.STICKINESS} />,
+    [InsightType.LIFECYCLE]: () => <TrendInsight view={InsightType.LIFECYCLE} />,
+    [InsightType.FUNNELS]: () => <FunnelInsightDataExploration />,
+    [InsightType.RETENTION]: () => <RetentionContainer />,
+    [InsightType.PATHS]: () => <PathsDataExploration />,
 }
 
 export function InsightContainer({
@@ -63,12 +64,14 @@ export function InsightContainer({
     // disableCorrelationTable,
     disableLastComputation,
     insightMode,
+    context,
 }: {
     disableHeader?: boolean
     disableTable?: boolean
     disableCorrelationTable?: boolean
     disableLastComputation?: boolean
     insightMode?: ItemMode
+    context?: QueryContext
 }): JSX.Element {
     const {
         insightProps,
@@ -233,13 +236,13 @@ export function InsightContainer({
                         BlockingEmptyState
                     ) : isFilterWithDisplay(filters) && filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
-                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
+                            <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView](context)}</Col>
                             <Col className="insights-graph-container-row-right">
                                 <InsightLegend />
                             </Col>
                         </Row>
                     ) : (
-                        VIEW_MAP[activeView]
+                        VIEW_MAP[activeView](context)
                     )}
                 </div>
             </Card>

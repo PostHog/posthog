@@ -426,6 +426,7 @@ export interface BreakdownFilter {
 export interface QueryContext {
     /** Column templates for the DataTable */
     columns: Record<string, QueryContextColumn>
+    isInDashboardContext?: boolean
 }
 
 interface QueryContextColumn {
