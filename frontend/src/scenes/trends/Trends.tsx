@@ -9,14 +9,12 @@ import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
 import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { QueryContext } from '~/queries/schema'
 
 interface Props {
     view: InsightType
-    context?: QueryContext
 }
 
-export function TrendInsight({ view, context }: Props): JSX.Element {
+export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
     const { insightProps } = useValues(insightLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
@@ -44,7 +42,6 @@ export function TrendInsight({ view, context }: Props): JSX.Element {
                         filterKey={`trends_${view}`}
                         canEditSeriesNameInline={insightMode === ItemMode.Edit}
                         isMainInsightView={true}
-                        canCheckUncheckSeries={context?.isInDashboardContext === true}
                     />
                 </BindLogic>
             )
