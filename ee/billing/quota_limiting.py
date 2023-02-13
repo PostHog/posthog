@@ -95,7 +95,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         org = orgs_by_id[org_id]
 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
-        if org.usage and org.usage["period"]:
+        if org.usage and org.usage.get("period"):
             # for each organization, we check if the current usage + today's unreported usage is over the limit
             for field in ["events", "recordings"]:
                 summary = org.usage.get(field, {})
