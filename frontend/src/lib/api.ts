@@ -89,7 +89,7 @@ export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
-        return { statusText: response.statusText }
+        throw { statusText: response.statusText }
     }
 }
 
