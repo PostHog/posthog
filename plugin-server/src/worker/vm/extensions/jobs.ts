@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -29,6 +31,16 @@ const durations: Record<string, number> = {
     years,
 }
 
+const jobsEnqueuedCounter = new Counter({
+    name: 'jobs_enqueued_total',
+    help: 'Number of jobs added to the queue (into the Kafka buffer topic).',
+})
+
+const jobsEnqueueFailuresCounter = new Counter({
+    name: 'jobs_enqueue_failures_total',
+    help: 'Number of jobs we could not add to the queue (Kafka write errors).',
+})
+
 export function durationToMs(duration: number, unit: string): number {
     unit = `${unit}${unit.endsWith('s') ? '' : 's'}`
     if (typeof durations[unit] === 'undefined') {
@@ -38,6 +50,12 @@ export function durationToMs(duration: number, unit: string): number {
 }
 
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
+    /**
+     * Helper function to enqueue jobs to be executed by the jobs pool.
+     * To avoid disruptions if the Graphile PG is unhealthy, job payloads are
+     * written to a Kafka topic.
+     * job-consumer.ts will consume and place them in the Graphile queue asynchronously.
+     */
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         try {
             const job = {
@@ -49,7 +67,9 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
             }
             server.statsd?.increment('job_enqueue_attempt')
             await server.enqueuePluginJob(job)
+            jobsEnqueuedCounter.inc()
         } catch (e) {
+            jobsEnqueueFailuresCounter.inc()
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
                 PluginLogEntryType.Error

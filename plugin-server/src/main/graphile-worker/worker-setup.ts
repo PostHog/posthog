@@ -1,11 +1,17 @@
 import Piscina from '@posthog/piscina'
 import { CronItem, JobHelpers, TaskList } from 'graphile-worker'
+import { Counter } from 'prom-client'
 
 import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
+
+const jobsTriggeredCounter = new Counter({
+    name: 'jobs_triggered_total',
+    help: 'Number of jobs consumed from the Graphile job queue.',
+})
 
 export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
@@ -66,6 +72,7 @@ export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, p
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
             pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
+            jobsTriggeredCounter.inc()
             hub.statsd?.increment('triggered_job', {
                 instanceId: hub.instanceId.toString(),
             })
