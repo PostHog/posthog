@@ -29,6 +29,8 @@ import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/ut
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { TrendsQuery } from '~/queries/schema'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -63,14 +65,28 @@ export function DashboardInsightsTable(): JSX.Element {
 }
 
 export function InsightTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
-    return <InsightsTableComponent {...rest} />
+    const { query } = useValues(insightDataLogic)
+    const { series } = query as TrendsQuery
+
+    const hasMathUniqueFilter = !!series.find(({ math }) => math === 'dau')
+
+    return <InsightsTableComponent hasMathUniqueFilter={hasMathUniqueFilter} {...rest} />
 }
 
 export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
-    return <InsightsTableComponent {...rest} />
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
+
+    const hasMathUniqueFilter = !!(
+        filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
+    )
+
+    return <InsightsTableComponent hasMathUniqueFilter={hasMathUniqueFilter} {...rest} />
 }
 
-type InsightsTableComponentProps = InsightsTableProps & {}
+type InsightsTableComponentProps = InsightsTableProps & {
+    hasMathUniqueFilter: boolean
+}
 
 function InsightsTableComponent({
     isLegend = false,
@@ -79,6 +95,7 @@ function InsightsTableComponent({
     canEditSeriesNameInline = false,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
+    hasMathUniqueFilter,
 }: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
@@ -89,9 +106,6 @@ function InsightsTableComponent({
 
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
-    const hasMathUniqueFilter = !!(
-        filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
-    )
     const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
     const { calcColumnState, showTotalCount } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
