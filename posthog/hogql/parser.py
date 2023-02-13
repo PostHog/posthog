@@ -4,6 +4,7 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
+from posthog.hogql.constants import KEYWORDS, RESERVED_KEYWORDS
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
@@ -321,6 +322,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             raise NotImplementedError(f"Must specify an alias.")
         expr = self.visit(ctx.columnExpr())
+
+        if alias in RESERVED_KEYWORDS or alias in KEYWORDS:
+            raise ValueError(f"Alias '{alias}' is a reserved keyword.")
+
         return ast.Alias(expr=expr, alias=alias)
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
@@ -541,7 +546,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
-        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=self.visit(ctx.alias() or ctx.identifier()))
+        alias = self.visit(ctx.alias() or ctx.identifier())
+        if alias in RESERVED_KEYWORDS or alias in KEYWORDS:
+            raise ValueError(f"Alias '{alias}' is a reserved keyword.")
+        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         raise NotImplementedError(f"Unsupported node: TableExprFunction")

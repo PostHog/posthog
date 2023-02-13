@@ -1,27 +1,26 @@
-from typing import List, Literal
+from typing import List, Literal, Optional, Union
 
+from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.hogql import ast
-from posthog.hogql.constants import (
-    CLICKHOUSE_FUNCTIONS,
-    EVENT_FIELDS,
-    EVENT_PERSON_FIELDS,
-    HOGQL_AGGREGATIONS,
-    KEYWORDS,
-    MAX_SELECT_RETURNED_ROWS,
-    SELECT_STAR_FROM_EVENTS_FIELDS,
-)
+from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
-from posthog.hogql.parser import parse_expr
 from posthog.hogql.print_string import print_hogql_identifier
 from posthog.hogql.visitor import Visitor
 
 
-def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
+def guard_where_team_id(
+    where: Optional[ast.Expr], table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbol], context: HogQLContext
+) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.select_team_id:
         raise ValueError("context.select_team_id not found")
 
-    team_clause = parse_expr("team_id = {team_id}", {"team_id": ast.Constant(value=context.select_team_id)})
+    team_clause = ast.CompareOperation(
+        op=ast.CompareOperationType.Eq,
+        left=ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=table_symbol)),
+        right=ast.Constant(value=context.select_team_id),
+    )
+
     if isinstance(where, ast.And):
         where = ast.And(exprs=[team_clause] + where.exprs)
     elif where:
@@ -31,15 +30,19 @@ def guard_where_team_id(where: ast.Expr, context: HogQLContext) -> ast.Expr:
     return where
 
 
-def print_ast(node: ast.AST, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]) -> str:
-    return Printer(context=context, dialect=dialect).visit(node)
+def print_ast(
+    node: ast.AST, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: List[ast.AST] = []
+) -> str:
+    return Printer(context=context, dialect=dialect, stack=stack).visit(node)
 
 
 class Printer(Visitor):
-    def __init__(self, context: HogQLContext, dialect: Literal["hogql", "clickhouse"]):
+    def __init__(
+        self, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: Optional[List[ast.AST]] = None
+    ):
         self.context = context
         self.dialect = dialect
-        self.stack: List[ast.AST] = []
+        self.stack: List[ast.AST] = stack or []
 
     def visit(self, node: ast.AST):
         self.stack.append(node)
@@ -51,39 +54,52 @@ class Printer(Visitor):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
             raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
 
+        where = node.where
+
+        select_from = None
+        if node.select_from is not None:
+            if not node.select_from.symbol:
+                raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
+
+            if node.select_from.join_expr:
+                raise ValueError("Printing queries with a JOIN clause is not yet permitted")
+
+            if isinstance(node.select_from.symbol, ast.TableAliasSymbol):
+                table_symbol = node.select_from.symbol.table
+                if table_symbol is None:
+                    raise ValueError(f"Table alias {node.select_from.symbol.name} does not resolve!")
+                if not isinstance(table_symbol, ast.TableSymbol):
+                    raise ValueError(f"Table alias {node.select_from.symbol.name} does not resolve to a table!")
+                select_from = print_hogql_identifier(table_symbol.table.clickhouse_table())
+                if node.select_from.alias is not None:
+                    select_from += f" AS {print_hogql_identifier(node.select_from.alias)}"
+
+                # Guard with team_id if selecting from a table and printing ClickHouse SQL
+                # We do this in the printer, and not in a separate step, to be really sure this gets added.
+                # This will be improved when we add proper table and column alias support. For now, let's just be safe.
+                if self.dialect == "clickhouse":
+                    where = guard_where_team_id(where, node.select_from.symbol, self.context)
+
+            elif isinstance(node.select_from.symbol, ast.TableSymbol):
+                select_from = print_hogql_identifier(node.select_from.symbol.table.clickhouse_table())
+
+                # Guard with team_id if selecting from a table and printing ClickHouse SQL
+                # We do this in the printer, and not in a separate step, to be really sure this gets added.
+                # This will be improved when we add proper table and column alias support. For now, let's just be safe.
+                if self.dialect == "clickhouse":
+                    where = guard_where_team_id(where, node.select_from.symbol, self.context)
+
+            elif isinstance(node.select_from.symbol, ast.SelectQuerySymbol):
+                select_from = self.visit(node.select_from.table)
+
+            elif isinstance(node.select_from.symbol, ast.SelectQueryAliasSymbol) and node.select_from.alias is not None:
+                select_from = self.visit(node.select_from.table)
+                select_from += f" AS {print_hogql_identifier(node.select_from.alias)}"
+            else:
+                raise ValueError("Only selecting from a table or a subquery is supported")
+
         columns = [self.visit(column) for column in node.select] if node.select else ["1"]
 
-        from_table = None
-        if node.select_from:
-            if node.symbol:
-                if isinstance(node.symbol, ast.TableSymbol):
-                    if node.symbol.table_name != "events":
-                        raise ValueError('Only selecting from the "events" table is supported')
-                    from_table = f"events"
-                    if node.symbol.print_name:
-                        from_table = f"{from_table} AS {node.symbol.print_name}"
-                elif isinstance(node.symbol, ast.SelectQuerySymbol):
-                    from_table = f"({self.visit(node.select_from.table)})"
-                    if node.symbol.print_name:
-                        from_table = f"{from_table} AS {node.symbol.print_name}"
-            else:
-                if node.select_from.alias is not None:
-                    raise ValueError("Table aliases not yet supported")
-                if isinstance(node.select_from.table, ast.Field):
-                    if node.select_from.table.chain != ["events"]:
-                        raise ValueError('Only selecting from the "events" table is supported')
-                    from_table = "events"
-                elif isinstance(node.select_from.table, ast.SelectQuery):
-                    from_table = f"({self.visit(node.select_from.table)})"
-                else:
-                    raise ValueError("Only selecting from a table or a subquery is supported")
-
-        where = node.where
-        # Guard with team_id if selecting from a table and printing ClickHouse SQL
-        # We do this in the printer, and not in a separate step, to be really sure this gets added.
-        # This will be improved when we add proper table and column alias support. For now, let's just be safe.
-        if self.dialect == "clickhouse" and from_table is not None:
-            where = guard_where_team_id(where, self.context)
         where = self.visit(where) if where else None
 
         having = self.visit(node.having) if node.having else None
@@ -103,7 +119,7 @@ class Printer(Visitor):
 
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
-            f"FROM {from_table}" if from_table else None,
+            f"FROM {select_from}" if select_from else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
@@ -206,26 +222,34 @@ class Printer(Visitor):
             )
 
     def visit_field(self, node: ast.Field):
+        original_field = ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
+        if node.symbol is None:
+            raise ValueError(f"Field {original_field} has no symbol")
+
         if self.dialect == "hogql":
             # When printing HogQL, we print the properties out as a chain instead of converting them to Clickhouse SQL
             return ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
-        elif node.chain == ["*"]:
-            query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-            return self.visit(parse_expr(query))
-        elif node.chain == ["person"]:
-            query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
-            return self.visit(parse_expr(query))
+        # elif node.chain == ["*"]:
+        #     query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+        #     return self.visit(parse_expr(query))
+        # elif node.chain == ["person"]:
+        #     query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+        #     return self.visit(parse_expr(query))
         elif node.symbol is not None:
-            if isinstance(node.symbol, ast.FieldSymbol):
-                return f"{node.symbol.table.print_name}.{node.symbol.name}"
-            elif isinstance(node.symbol, ast.TableSymbol):
-                return node.symbol.print_name
-            else:
-                raise ValueError(f"Unknown Symbol, can not print {type(node.symbol)}")
+            # find closest select query's symbol for context
+            select: Optional[ast.SelectQuerySymbol] = None
+            for stack_node in reversed(self.stack):
+                if isinstance(stack_node, ast.SelectQuery):
+                    if isinstance(stack_node.symbol, ast.SelectQuerySymbol):
+                        select = stack_node.symbol
+                        break
+                    raise ValueError(f"Closest SelectQuery to field {original_field} has no symbol!")
+            if select is None:
+                raise ValueError(f"Can't find SelectQuerySymbol for field: {original_field}")
+
+            return SymbolPrinter(select=select, context=self.context).visit(node.symbol)
         else:
-            field_access = parse_field_access(node.chain, self.context)
-            self.context.field_access_logs.append(field_access)
-            return field_access.sql
+            raise ValueError(f"Unknown Symbol, can not print {type(node.symbol)}")
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
@@ -249,6 +273,7 @@ class Printer(Visitor):
                 return f"{node.name}({translated_args})"
             elif node.name == "count":
                 return "count(*)"
+            # TODO: rework these
             elif node.name == "countDistinct":
                 return f"count(distinct {translated_args})"
             elif node.name == "countDistinctIf":
@@ -264,68 +289,93 @@ class Printer(Visitor):
     def visit_placeholder(self, node: ast.Placeholder):
         raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
 
+    def visit_alias(self, node: ast.Alias):
+        return f"{self.visit(node.expr)} AS {print_hogql_identifier(node.alias)}"
+
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")
 
 
-def parse_field_access(chain: List[str], context: HogQLContext) -> HogQLFieldAccess:
-    # Circular import otherwise
-    from posthog.models.property.util import get_property_string_expr
+class SymbolPrinter(Visitor):
+    def __init__(self, select: ast.SelectQuerySymbol, context: HogQLContext):
+        self.select = select
+        self.context = context
 
-    """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
-    if len(chain) == 2:
-        if chain[0] == "properties":
-            key = f"hogql_val_{len(context.values)}"
-            context.values[key] = chain[1]
-            escaped_key = f"%({key})s"
-            expression, _ = get_property_string_expr(
-                "events",
-                chain[1],
-                escaped_key,
-                "properties",
+    def visit_table_symbol(self, symbol: ast.TableSymbol):
+        return print_hogql_identifier(symbol.table.clickhouse_table())
+
+    def visit_table_alias_symbol(self, symbol: ast.TableAliasSymbol):
+        return f"{self.visit(symbol.table)} AS {print_hogql_identifier(symbol.name)}"
+
+    def visit_field_symbol(self, symbol: ast.FieldSymbol):
+        # do we need a table prefix?
+        table_prefix = self.visit(symbol.table)
+        printed_field = print_hogql_identifier(symbol.name)
+
+        field_sql = printed_field
+
+        # Field exists as a column name in this scope. Is it the same field?
+        if symbol.name in self.select.columns:
+            column_symbol = self.select.columns[symbol.name]
+            if column_symbol != symbol:
+                field_sql = f"{table_prefix}.{printed_field}"
+
+        # Field exists as an alias name in this scope. Is it the same field?
+        if symbol.name in self.select.aliases:
+            aliased_symbol = self.select.aliases[symbol.name]
+            if aliased_symbol != symbol:
+                field_sql = f"{table_prefix}.{printed_field}"
+
+        if printed_field != "properties":
+            self.context.field_access_logs.append(
+                HogQLFieldAccess(
+                    [symbol.name],
+                    "event",
+                    symbol.name,
+                    field_sql,
+                )
             )
-            return HogQLFieldAccess(chain, "event.properties", chain[1], expression)
-        elif chain[0] == "person":
-            if chain[1] in EVENT_PERSON_FIELDS:
-                return HogQLFieldAccess(chain, "person", chain[1], f"person_{chain[1]}")
-            else:
-                raise ValueError(f"Unknown person field '{chain[1]}'")
-    elif len(chain) == 3 and chain[0] == "person" and chain[1] == "properties":
-        key = f"hogql_val_{len(context.values or {})}"
-        context.values[key] = chain[2]
-        escaped_key = f"%({key})s"
 
-        if context.using_person_on_events:
-            expression, _ = get_property_string_expr(
-                "events",
-                chain[2],
-                escaped_key,
-                "person_properties",
-                materialised_table_column="person_properties",
-            )
+        return field_sql
 
+    def visit_property_symbol(self, symbol: ast.PropertySymbol):
+        key = f"hogql_val_{len(self.context.values)}"
+        self.context.values[key] = symbol.name
+
+        table = symbol.field.table
+        if isinstance(table, ast.TableAliasSymbol):
+            table = table.table
+
+        # TODO: cache this
+        materialized_columns = get_materialized_columns(table.table.clickhouse_table())
+        materialized_column = materialized_columns.get((symbol.name, "properties"), None)
+
+        if materialized_column:
+            property_sql = print_hogql_identifier(materialized_column)
         else:
-            expression, _ = get_property_string_expr(
-                "person",
-                chain[2],
-                escaped_key,
-                "person_props",
-                materialised_table_column="properties",
+            field_sql = self.visit(symbol.field)
+            property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+
+        self.context.field_access_logs.append(
+            HogQLFieldAccess(
+                ["properties", symbol.name],
+                "event.properties",
+                symbol.name,
+                property_sql,
             )
+        )
 
-        return HogQLFieldAccess(chain, "person.properties", chain[2], expression)
-    elif len(chain) == 1:
-        if chain[0] in EVENT_FIELDS:
-            if chain[0] == "id":
-                return HogQLFieldAccess(chain, "event", "uuid", "uuid")
-            elif chain[0] == "properties":
-                return HogQLFieldAccess(chain, "event", "properties", "properties")
-            return HogQLFieldAccess(chain, "event", chain[0], chain[0])
-        elif chain[0].startswith("person_") and chain[0][7:] in EVENT_PERSON_FIELDS:
-            return HogQLFieldAccess(chain, "person", chain[0][7:], chain[0])
-        elif chain[0].lower() in KEYWORDS:
-            return HogQLFieldAccess(chain, None, None, chain[0].lower())
-        else:
-            raise ValueError(f"Unknown event field '{chain[0]}'")
+        return property_sql
 
-    raise ValueError(f"Unsupported property access: {chain}")
+    def visit_select_query_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
+        return print_hogql_identifier(symbol.name)
+
+    def visit_column_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
+        return print_hogql_identifier(symbol.name)
+
+    def visit_unknown(self, symbol: ast.AST):
+        raise ValueError(f"Unknown Symbol {type(symbol).__name__}")
+
+
+def trim_quotes_expr(expr: str) -> str:
+    return f"replaceRegexpAll({expr}, '^\"|\"$', '')"

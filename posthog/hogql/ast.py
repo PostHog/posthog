@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Extra
 
-from posthog.hogql.constants import EVENT_FIELDS
+from posthog.hogql.database import Table, database
 
 # NOTE: when you add new AST fields or nodes, add them to CloningVisitor as well!
 
@@ -27,8 +27,6 @@ class AST(BaseModel):
 
 
 class Symbol(AST):
-    print_name: Optional[str]
-
     def get_child(self, name: str) -> "Symbol":
         raise NotImplementedError()
 
@@ -38,20 +36,20 @@ class Symbol(AST):
 
 class ColumnAliasSymbol(Symbol):
     name: str
-    symbol: "Symbol"
+    symbol: Symbol
 
-    def get_child(self, name: str) -> "Symbol":
+    def get_child(self, name: str) -> Symbol:
         return self.symbol.get_child(name)
 
     def has_child(self, name: str) -> bool:
         return self.symbol.has_child(name)
 
 
-class TableAliasSymbol(Symbol):
+class SelectQueryAliasSymbol(Symbol):
     name: str
-    symbol: "Symbol"
+    symbol: Symbol
 
-    def get_child(self, name: str) -> "Symbol":
+    def get_child(self, name: str) -> Symbol:
         return self.symbol.get_child(name)
 
     def has_child(self, name: str) -> bool:
@@ -59,32 +57,39 @@ class TableAliasSymbol(Symbol):
 
 
 class TableSymbol(Symbol):
-    table_name: Literal["events"]
+    table: Table
 
     def has_child(self, name: str) -> bool:
-        if self.table_name == "events":
-            return name in EVENT_FIELDS
-        else:
-            raise NotImplementedError(f"Can not resolve table: {self.table_name}")
+        return name in self.table.__fields__
 
-    def get_child(self, name: str) -> "Symbol":
-        if self.table_name == "events":
-            if name in EVENT_FIELDS:
-                return FieldSymbol(name=name, table=self)
-            raise NotImplementedError(f"Event field not found: {name}")
-        else:
-            raise NotImplementedError(f"Can not resolve table: {self.table_name}")
+    def get_child(self, name: str) -> Symbol:
+        if self.has_child(name):
+            return FieldSymbol(name=name, table=self)
+        raise NotImplementedError(f"Field not found: {name}")
+
+
+class TableAliasSymbol(Symbol):
+    name: str
+    table: TableSymbol
+
+    def get_child(self, name: str) -> Symbol:
+        return self.table.get_child(name)
+
+    def has_child(self, name: str) -> bool:
+        return self.table.has_child(name)
 
 
 class SelectQuerySymbol(Symbol):
     # all aliases a select query has access to in its scope
-    aliases: Dict[str, Symbol]
+    aliases: Dict[str, ColumnAliasSymbol]
     # all symbols a select query exports
     columns: Dict[str, Symbol]
-    # all tables we join in this query on which we look for aliases
-    tables: Dict[str, Symbol]
+    # all from and join, tables and subqueries with aliases
+    tables: Dict[str, Union[TableSymbol, TableAliasSymbol, "SelectQuerySymbol", SelectQueryAliasSymbol]]
+    # all from and join subqueries without aliases
+    anonymous_tables: List["SelectQuerySymbol"]
 
-    def get_child(self, name: str) -> "Symbol":
+    def get_child(self, name: str) -> Symbol:
         if name in self.columns:
             return self.columns[name]
         raise NotImplementedError(f"Column not found: {name}")
@@ -93,14 +98,22 @@ class SelectQuerySymbol(Symbol):
         return name in self.columns
 
 
+SelectQuerySymbol.update_forward_refs(SelectQuerySymbol=SelectQuerySymbol)
+
+
+class CallSymbol(Symbol):
+    name: str
+    args: List[Symbol]
+
+
 class FieldSymbol(Symbol):
     name: str
-    table: TableSymbol
+    table: Union[TableSymbol, TableAliasSymbol]
 
-    def get_child(self, name: str) -> "Symbol":
-        if self.table.table_name == "events":
+    def get_child(self, name: str) -> Symbol:
+        if self.table.table == database.events:
             if self.name == "properties":
-                raise NotImplementedError(f"Property symbol resolution not implemented yet")
+                return PropertySymbol(name=name, field=self)
             else:
                 raise NotImplementedError(f"Can not resolve field {self.name} on table events")
         else:
@@ -118,11 +131,6 @@ class PropertySymbol(Symbol):
 
 class Expr(AST):
     symbol: Optional[Symbol]
-
-
-ColumnAliasSymbol.update_forward_refs(Expr=Expr)
-TableAliasSymbol.update_forward_refs(Expr=Expr)
-SelectQuerySymbol.update_forward_refs(Expr=Expr)
 
 
 class Alias(Expr):
@@ -215,6 +223,8 @@ class JoinExpr(Expr):
 
 
 class SelectQuery(Expr):
+    symbol: Optional[SelectQuerySymbol] = None
+
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None

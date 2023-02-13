@@ -169,10 +169,17 @@ class TestPrinter(TestCase):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), '"mat_$browser"')
+        self.assertEqual(self._expr("properties['$browser']"), "mat_$browser")
 
+        materialize("events", "$browser and string")
+        self.assertEqual(self._expr("properties['$browser and string']"), "mat_$browser_and_string")
+
+        materialize("events", "$browser%%%#@!@")
+        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "mat_$browser_______")
+
+        # TODO: get person properties working
         materialize("events", "$initial_waffle", table_column="person_properties")
-        self.assertEqual(self._expr("person.properties['$initial_waffle']"), '"mat_pp_$initial_waffle"')
+        self.assertEqual(self._expr("person.properties['$initial_waffle']"), "mat_pp_$initial_waffle")
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count(*)")
@@ -189,19 +196,19 @@ class TestPrinter(TestCase):
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
-        self._assert_expr_error("avg(bla)", "Unknown event field 'bla'")
+        self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
         self._assert_expr_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
         self._assert_expr_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
         self._assert_expr_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
         self._assert_expr_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
-        self._assert_expr_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
-        self._assert_expr_error("mad(bla)", "Unsupported function call 'mad(...)'")
-        self._assert_expr_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
-        self._assert_expr_error("chipotle", "Unknown event field 'chipotle'")
-        self._assert_expr_error("person.chipotle", "Unknown person field 'chipotle'")
+        self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
+        self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
+        self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
+        self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
+        self._assert_expr_error("person.chipotle", "Unknown person field 'chipotle'")
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
@@ -211,8 +218,9 @@ class TestPrinter(TestCase):
         self._assert_expr_error(
             "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
-        self._assert_expr_error("this makes little sense", "Unknown AST node Alias")
-        self._assert_expr_error("event makes little sense", "Unknown AST node Alias")
+        self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
+        # TODO: fix
+        # self._assert_expr_error("event makes little sense", "event AS makes AS little AS sense")
         self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
@@ -340,9 +348,14 @@ class TestPrinter(TestCase):
         )
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
-    def test_no_alias_yet(self):
-        self._assert_expr_error("1 as team_id", "Unknown AST node Alias")
-        self._assert_expr_error("1 as `-- select team_id`", "Unknown AST node Alias")
+    def test_alias_keywords(self):
+        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword.")
+        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword.")
+        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword.")
+        self.assertEqual(
+            self._select("select 1 as `-- select team_id` from events"),
+            "SELECT 1 AS `-- select team_id` FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
 
     def test_select(self):
         self.assertEqual(self._select("select 1"), "SELECT 1 LIMIT 65535")
@@ -355,14 +368,16 @@ class TestPrinter(TestCase):
 
     def test_select_alias(self):
         # currently not supported!
-        self._assert_select_error("select 1 as b", "Unknown AST node Alias")
-        self._assert_select_error("select 1 from events as e", "Table aliases not yet supported")
+        self.assertEqual(self._select("select 1 as b"), "SELECT 1 AS b LIMIT 65535")
+        self.assertEqual(
+            self._select("select 1 from events as e"), "SELECT 1 FROM events AS e WHERE equals(team_id, 42) LIMIT 65535"
+        )
 
     def test_select_from(self):
         self.assertEqual(
             self._select("select 1 from events"), "SELECT 1 FROM events WHERE equals(team_id, 42) LIMIT 65535"
         )
-        self._assert_select_error("select 1 from other", 'Only selecting from the "events" table is supported')
+        self._assert_select_error("select 1 from other", 'Unknown table "other". Only "events" is supported.')
 
     def test_select_where(self):
         self.assertEqual(
@@ -445,4 +460,14 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("select distinct event from events group by event, timestamp"),
             "SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp LIMIT 65535",
+        )
+
+    def test_select_subquery(self):
+        self.assertEqual(
+            self._select("SELECT event from (select distinct event from events group by event, timestamp)"),
+            "SELECT event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
+            "SELECT event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
         )

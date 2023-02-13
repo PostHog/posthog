@@ -1,18 +1,3 @@
-# fields you can select from in the events query
-EVENT_FIELDS = [
-    "id",
-    "uuid",
-    "event",
-    "timestamp",
-    "properties",
-    "elements_chain",
-    "created_at",
-    "distinct_id",
-    "team_id",
-]
-# "person.*" fields you can select from in the events query
-EVENT_PERSON_FIELDS = ["id", "created_at", "properties"]
-
 # HogQL -> ClickHouse allowed transformations
 CLICKHOUSE_FUNCTIONS = {
     # arithmetic
@@ -109,6 +94,9 @@ HOGQL_AGGREGATIONS = {
 }
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
+
+# Keywords you can't alias to
+RESERVED_KEYWORDS = ["team_id"]
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
