@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Extra
 
-from posthog.hogql.database import Table, database
+from posthog.hogql.database import StringJSONValue, Table
 
 # NOTE: when you add new AST fields or nodes, add them to CloningVisitor as well!
 
@@ -111,13 +111,16 @@ class FieldSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol]
 
     def get_child(self, name: str) -> Symbol:
-        if self.table.table == database.events:
-            if self.name == "properties":
+        db_table = self.table.table
+        if isinstance(db_table, Table):
+            if self.name in db_table.__fields__ and isinstance(db_table.__fields__[self.name].default, StringJSONValue):
                 return PropertySymbol(name=name, field=self)
             else:
-                raise NotImplementedError(f"Can not resolve field {self.name} on table events")
+                raise NotImplementedError(
+                    f"Can not access property {name} on field {self.name} because it's not a JSON field"
+                )
         else:
-            raise NotImplementedError(f"Can not resolve fields on table: {self.name}")
+            raise NotImplementedError(f"Can not resolve table for field: {self.name}")
 
 
 class ConstantSymbol(Symbol):
