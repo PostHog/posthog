@@ -30,7 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
+import { getBreakdown, getDisplay, getCompare } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
