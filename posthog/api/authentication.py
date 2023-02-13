@@ -97,7 +97,7 @@ class LoginSerializer(serializers.Serializer):
             if user.is_email_verified is False:
                 # If it's None, we want to let them log in still since they are an existing user
                 raise serializers.ValidationError(
-                    "Your account awaiting verification. Please check your email for a verification link.",
+                    "Your account is awaiting verification. Please check your email for a verification link.",
                     code="not_verified",
                 )
 
