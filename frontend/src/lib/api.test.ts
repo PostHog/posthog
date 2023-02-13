@@ -102,4 +102,23 @@ describe('API helper', () => {
             status: 0,
         })
     })
+
+    describe('json', () => {
+        it('parses body', async () => {
+            const response = new Response('{ "valid": 1 }', { statusText: 'text' })
+            fakeFetch.mockResolvedValue(response)
+
+            await expect(api.get('/api/valid')).resolves.toStrictEqual({ valid: 1 })
+        })
+
+        it('rejects invalid body', async () => {
+            const response = new Response('{ "invalid": }', { statusText: 'text' })
+            fakeFetch.mockResolvedValue(response)
+
+            await expect(api.get('/api/invalid')).rejects.toStrictEqual({
+                error: 'Unexpected token } in JSON at position 13',
+                statusText: 'text',
+            })
+        })
+    })
 })

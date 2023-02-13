@@ -89,7 +89,8 @@ export async function getJSONOrThrow(response: Response): Promise<any> {
     try {
         return await response.json()
     } catch (e) {
-        throw { statusText: response.statusText }
+        const message = e instanceof Error ? e.message : String(e)
+        throw { statusText: response.statusText, error: message }
     }
 }
 
