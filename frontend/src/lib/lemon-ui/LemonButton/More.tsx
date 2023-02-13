@@ -7,7 +7,6 @@ export interface MoreProps extends Partial<Pick<PopoverProps, 'overlay' | 'place
     style?: React.CSSProperties
     className?: string
     'data-attr'?: string
-    tooltip?: string
     onClick?: LemonButtonWithDropdownProps['onClick']
 }
 
@@ -16,7 +15,6 @@ export function More({
     placement = 'bottom-end',
     className,
     'data-attr': dataAttr,
-    tooltip,
     onClick,
 }: MoreProps): JSX.Element {
     return (

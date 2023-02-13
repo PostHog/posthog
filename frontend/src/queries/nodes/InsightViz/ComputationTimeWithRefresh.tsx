@@ -1,14 +1,11 @@
-import { Button } from 'antd'
-import { Tooltip } from 'antd'
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
+import { LemonButton } from '@posthog/lemon-ui'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 
-const REFRESH_INTERVAL_MINUTES = 3
-
 export function ComputationTimeWithRefresh(): JSX.Element | null {
-    const { lastRefresh } = useValues(dataNodeLogic)
+    const { lastRefresh, insightRefreshButtonDisabledReason, isTestGroupForNewRefreshUX } = useValues(dataNodeLogic)
     const { loadData } = useActions(dataNodeLogic)
 
     usePeriodicRerender(15000)
@@ -16,33 +13,19 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
     return (
         <div className="flex items-center text-muted-alt">
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
-            <span className="px-1">•</span>
-            <Tooltip
-                title={
-                    <>
-                        Insights can be refreshed
-                        <br />
-                        every {REFRESH_INTERVAL_MINUTES} minutes.
-                    </>
-                }
-            >
-                <Button
-                    size="small"
-                    type="link"
-                    onClick={() => {
-                        loadData(true)
-                    }}
-                    disabled={
-                        !!lastRefresh &&
-                        dayjs()
-                            .subtract(REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                            .isBefore(lastRefresh)
-                    }
-                    className="p-0"
-                >
-                    <span className="text-sm">Refresh</span>
-                </Button>
-            </Tooltip>
+            {isTestGroupForNewRefreshUX ? null : (
+                <>
+                    <span className="px-1">•</span>
+                    <LemonButton
+                        size="small"
+                        onClick={() => loadData(true)}
+                        disabledReason={insightRefreshButtonDisabledReason}
+                        className="p-0"
+                    >
+                        <span className="text-sm">Refresh</span>
+                    </LemonButton>
+                </>
+            )}
         </div>
     )
 }

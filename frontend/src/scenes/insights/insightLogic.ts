@@ -14,6 +14,7 @@ import {
     ItemMode,
     SetInsightOptions,
     TrendsFilterType,
+    UserType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -60,11 +61,15 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { dayjs, now } from 'lib/dayjs'
+<<<<<<< HEAD
 import { isInsightVizNode } from '~/queries/utils'
+=======
+import { userLogic } from 'scenes/userLogic'
+>>>>>>> 3ea9530ca6 (address review)
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
-const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
+export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
     // if the current _global_ value is true respect that over any local preference
@@ -107,6 +112,8 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
+            userLogic,
+            ['user'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
@@ -594,7 +601,8 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         acknowledgedRefreshButtonChanged: [
-            !!localStorage.getItem('acknowledged_refresh_button_changed') as boolean,
+            false,
+            { persist: true },
             {
                 acknowledgeRefreshButtonChanged: () => true,
             },
@@ -838,9 +846,17 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged],
-            (isTestGroupForNewRefreshUX: boolean, acknowledgedRefreshButtonChanged: boolean): boolean => {
-                return isTestGroupForNewRefreshUX && !acknowledgedRefreshButtonChanged
+            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
+            (
+                isTestGroupForNewRefreshUX: boolean,
+                acknowledgedRefreshButtonChanged: boolean,
+                user: UserType
+            ): boolean => {
+                return (
+                    dayjs(user.date_joined).isBefore('2023-02-13') &&
+                    isTestGroupForNewRefreshUX &&
+                    !acknowledgedRefreshButtonChanged
+                )
             },
         ],
     }),
