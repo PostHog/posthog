@@ -3,7 +3,14 @@ from uuid import uuid4
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
 
-from ee.billing.quota_limiting import RATE_LIMITER_CACHE_KEY, update_all_org_billing_quotas
+from ee.billing.quota_limiting import (
+    RATE_LIMITER_CACHE_KEY,
+    QuotaResource,
+    org_quota_limited_until,
+    set_org_usage_summary,
+    update_all_org_billing_quotas,
+)
+from posthog.models.organization import OrganizationUsageInfo
 from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
 
@@ -76,3 +83,97 @@ class TestQuotaLimiting(BaseTest):
             "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
+
+    def test_set_org_usage_summary_updates_correctly(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        new_usage = OrganizationUsageInfo(
+            events={"usage": 100, "limit": 100},
+            recordings={"usage": 2, "limit": 100},
+            period=[
+                "2021-01-01T00:00:00Z",
+                "2021-01-31T23:59:59Z",
+            ],
+        )
+
+        assert set_org_usage_summary(self.organization, new_usage=new_usage)
+
+        assert self.organization.usage == {
+            "events": {"usage": 100, "limit": 100, "todays_usage": 0},
+            "recordings": {"usage": 2, "limit": 100, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+    def test_set_org_usage_summary_does_nothing_if_the_same(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 11},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        new_usage = OrganizationUsageInfo(
+            events={"usage": 99, "limit": 100},
+            recordings={"usage": 1, "limit": 100},
+            period=[
+                "2021-01-01T00:00:00Z",
+                "2021-01-31T23:59:59Z",
+            ],
+        )
+
+        assert not set_org_usage_summary(self.organization, new_usage=new_usage)
+
+        assert self.organization.usage == {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 11},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+    def test_set_org_usage_summary_updates_todays_usage(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 11},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        assert set_org_usage_summary(self.organization, todays_usage={"events": 20, "recordings": 21})
+
+        assert self.organization.usage == {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 20},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 21},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+    def test_org_quota_limited_until(self):
+        self.organization.usage = None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage["events"]["usage"] = 120
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
+
+        self.organization.usage["events"]["usage"] = 90
+        self.organization.usage["events"]["todays_usage"] = 10
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
+
+        self.organization.usage["events"]["limit"] = None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage["recordings"]["usage"] = 1099  # Under limit + buffer
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
+
+        self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) == 1612137599

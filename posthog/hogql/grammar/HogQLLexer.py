@@ -1,7 +1,9 @@
 # Generated from HogQLLexer.g4 by ANTLR 4.11.1
-from antlr4 import *
-from io import StringIO
 import sys
+from io import StringIO
+
+from antlr4 import *
+
 if sys.version_info[1] > 5:
     from typing import TextIO
 else:

@@ -1,13 +1,14 @@
+import copy
 from datetime import timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Sequence, TypedDict
+from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
 import dateutil.parser
 from django.db.models import Q
 from django.utils import timezone
 
 from posthog.cache_utils import cache_for
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
@@ -39,6 +40,16 @@ def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, in
     pipe.execute()
 
 
+def add_limited_team_token(resource: QuotaResource, token: str, limited_until: int) -> None:
+    redis_client = get_client()
+    redis_client.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", {token: limited_until})
+
+
+def remove_limited_team_token(resource: QuotaResource, token: str) -> None:
+    redis_client = get_client()
+    redis_client.zrem(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", token)
+
+
 @cache_for(timedelta(seconds=30), background_refresh=True)
 def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
     now = timezone.now()
@@ -50,6 +61,72 @@ def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
 class UsageCounters(TypedDict):
     events: int
     recordings: int
+
+
+def org_quota_limited_until(organization: Organization, resource: QuotaResource) -> Optional[int]:
+    if not organization.usage:
+        return None
+
+    summary = organization.usage.get(resource.value, {})
+    usage = summary.get("usage", 0)
+    todays_usage = summary.get("todays_usage", 0)
+    limit = summary.get("limit")
+
+    if limit is None:
+        return None
+
+    is_rate_limited = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
+    billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+
+    if is_rate_limited and billing_period_end:
+        return billing_period_end
+
+
+def sync_org_quota_limits(organization: Organization):
+    if not organization.usage:
+        return None
+
+    for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
+        rate_limited_until = org_quota_limited_until(organization, resource)
+
+        if rate_limited_until:
+            add_limited_team_token(resource, organization.id, rate_limited_until)
+        else:
+            remove_limited_team_token(resource, organization.id)
+
+
+def set_org_usage_summary(
+    organization: Organization,
+    new_usage: Optional[OrganizationUsageInfo] = None,
+    todays_usage: Optional[UsageCounters] = None,
+) -> bool:
+    # TRICKY: We don't want to overwrite the "todays_usage" value unless the usage from the billing service is different than what we have locally.
+    # Also we want to return if anything changed so that the caller can update redis
+
+    has_changed = False
+    new_usage = new_usage or cast(OrganizationUsageInfo, organization.usage)
+
+    if not new_usage:
+        # If we are not setting it and it doesn't exist we can't update it
+        return False
+
+    new_usage = copy.deepcopy(new_usage)
+
+    if todays_usage:
+        for field in todays_usage:
+            new_usage[field]["todays_usage"] = todays_usage[field]
+    else:
+        # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
+        for field in ["events", "recordings"]:
+            if (organization.usage or {}).get(field, {}).get("usage") != new_usage.get(field, {}).get("usage"):
+                new_usage[field]["todays_usage"] = 0
+            else:
+                new_usage[field]["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0
+
+    has_changed = new_usage != organization.usage
+    organization.usage = new_usage
+
+    return has_changed
 
 
 def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, int]]:
@@ -97,26 +174,15 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
         if org.usage and org.usage.get("period"):
             # for each organization, we check if the current usage + today's unreported usage is over the limit
+            if set_org_usage_summary(org, todays_usage=todays_report):
+                org.save(update_fields=["usage"])
+
             for field in ["events", "recordings"]:
-                summary = org.usage.get(field, {})
-                unreported_usage = todays_report[field]  # type: ignore
-                usage = summary.get("usage", 0)
-                limit = summary.get("limit", 0)
+                rate_limited_until = org_quota_limited_until(org, QuotaResource(field))
 
-                if summary.get("todays_usage") != unreported_usage:
-                    summary["todays_usage"] = unreported_usage
-                    org.usage[field] = summary
-                    org.save(update_fields=["usage"])
-
-                if limit is None:
-                    continue
-
-                is_rate_limited = usage + unreported_usage > limit + OVERAGE_BUFFER[QuotaResource(field)]
-                billing_period_end = round(dateutil.parser.isoparse(org.usage["period"][1]).timestamp())
-
-                if is_rate_limited and billing_period_end:
+                if rate_limited_until:
                     # TODO: Set this rate limit to the end of the billing period
-                    rate_limited_orgs[field][org_id] = billing_period_end
+                    rate_limited_orgs[field][org_id] = rate_limited_until
 
     rate_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
 
