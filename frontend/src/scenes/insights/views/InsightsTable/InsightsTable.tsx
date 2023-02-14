@@ -2,20 +2,18 @@ import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, IntervalType, ItemMode, TrendResult } from '~/types'
+import { ChartDisplayType, IntervalType, ItemMode } from '~/types'
 import { average, median } from 'lib/utils'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
-import { SeriesToggleWrapper } from './SeriesToggleWrapper'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import stringWithWBR from 'lib/utils/stringWithWBR'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -25,8 +23,10 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { TrendsQuery } from '~/queries/schema'
+
 import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
+import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -131,6 +131,16 @@ function InsightsTableComponent({
         }
     }
 
+    const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
+        formatBreakdownLabel(
+            cohorts,
+            formatPropertyValueForDisplay,
+            item.breakdown_value,
+            item.filter?.breakdown,
+            item.filter?.breakdown_type,
+            item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
+        )
+
     if (isLegend) {
         columns.push({
             title: (
@@ -175,47 +185,20 @@ function InsightsTableComponent({
 
     if (filters.breakdown) {
         columns.push({
-            title: (
-                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+            title: <BreakdownColumnTitle breakdown={filters.breakdown} />,
+            render: (_, item) => (
+                <BreakdownColumnItem
+                    item={item}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    isMainInsightView={isMainInsightView}
+                    toggleVisibility={toggleVisibility}
+                    formatItemBreakdownLabel={formatItemBreakdownLabel}
+                />
             ),
-            render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
-                const breakdownLabel = formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    item.breakdown_value,
-                    item.filter?.breakdown,
-                    item.filter?.breakdown_type,
-                    item.filter &&
-                        isTrendsFilter(item.filter) &&
-                        item.filter?.breakdown_histogram_bin_count !== undefined
-                )
-                return (
-                    <SeriesToggleWrapper
-                        id={item.id}
-                        toggleVisibility={isMainInsightView ? undefined : toggleVisibility}
-                    >
-                        {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
-                    </SeriesToggleWrapper>
-                )
-            },
             key: 'breakdown',
             sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    a.breakdown_value,
-                    a.filter?.breakdown,
-                    a.filter?.breakdown_type,
-                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
-                )
-                const labelB = formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    b.breakdown_value,
-                    b.filter?.breakdown,
-                    b.filter?.breakdown_type,
-                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
-                )
+                const labelA = formatItemBreakdownLabel(a)
+                const labelB = formatItemBreakdownLabel(b)
                 return labelA.localeCompare(labelB)
             },
         })

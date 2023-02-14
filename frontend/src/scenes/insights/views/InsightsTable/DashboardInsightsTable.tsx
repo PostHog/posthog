@@ -12,7 +12,11 @@ export function DashboardInsightsTable(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     return (
         <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
+            <InsightsTable
+                filterKey={`dashboard_${insightProps.dashboardItemId}`}
+                embedded
+                canCheckUncheckSeries={false}
+            />
         </BindLogic>
     )
 }
