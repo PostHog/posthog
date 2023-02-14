@@ -34,8 +34,8 @@ export class Storage {
         const bucket: Bucket = this.buckets.get(key)!
 
         // replenishRate is per second, but timestamps are in milliseconds
-        const replenishedTokens = this.replenishRate * ((now - bucket[1]) / 1000)
-        bucket[0] += replenishedTokens
+        const replenishedTokens = this.replenishRate * ((now - bucket[1]) / 1000) + bucket[0]
+        bucket[0] = Math.min(replenishedTokens, this.bucketCapacity)
         bucket[1] = now
     }
 

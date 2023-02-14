@@ -26,13 +26,13 @@ describe('Storage', () => {
             jest.useFakeTimers().setSystemTime(now)
 
             storage.replenish(key)
-
+            storage.consume(key, 5)
             now.setSeconds(now.getSeconds() + 2)
             jest.setSystemTime(now)
             storage.replenish(key)
 
             expect(storage.buckets.has(key)).toEqual(true)
-            expect(storage.buckets.get(key)![0]).toEqual(12)
+            expect(storage.buckets.get(key)![0]).toEqual(7)
             expect(storage.buckets.get(key)![1]).toEqual(now.valueOf())
         })
 
@@ -42,11 +42,29 @@ describe('Storage', () => {
             const now = Date.now()
 
             storage.replenish(key, now)
+            storage.consume(key, 9)
             storage.replenish(key, now + 2000)
 
             expect(storage.buckets.has(key)).toEqual(true)
-            expect(storage.buckets.get(key)![0]).toEqual(12)
+            expect(storage.buckets.get(key)![0]).toEqual(3)
             expect(storage.buckets.get(key)![1]).toEqual(now + 2000)
+        })
+
+        it('does not add more than capacity tokens', () => {
+            const key = 'test'
+            const storage = new Storage(10, 1)
+            const now = new Date('2023-02-08T08:00:00')
+
+            storage.replenish(key, now.valueOf())
+            expect(storage.buckets.get(key)![0]).toEqual(10)
+            expect(storage.buckets.get(key)![1]).toEqual(now.valueOf())
+
+            // 20 seconds would exceed capacity of 10 tokens at 1 token/sec.
+            storage.replenish(key, now.valueOf() + 20000)
+
+            expect(storage.buckets.has(key)).toEqual(true)
+            expect(storage.buckets.get(key)![0]).toEqual(10)
+            expect(storage.buckets.get(key)![1]).toEqual(now.valueOf() + 20000)
         })
     })
 
