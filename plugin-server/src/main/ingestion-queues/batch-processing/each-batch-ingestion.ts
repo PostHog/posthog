@@ -5,7 +5,7 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, KAFKA_SESSION_RECORDING_EVENTS 
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
-import { ConfiguredLimiter } from '../../../utils/token-bucket'
+import { ConfiguredLimiter, WarningLimiter } from '../../../utils/token-bucket'
 import { IngestionConsumer } from '../kafka-queue'
 import { defaultConfig } from './../../../config/config'
 import { captureIngestionWarning } from './../../../worker/ingestion/utils'
@@ -34,7 +34,7 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
     ) {
         // Events that have exceeded configured limiter are sent to the OVERFLOW topic for later processing.
         // Unless we are already consuming from the OVERFLOW topic.
-        if (event.team_id) {
+        if (event.team_id && WarningLimiter.consume(message.key.toString(), 1)) {
             captureIngestionWarning(queue.pluginsServer.db, event.team_id, 'ingestion_capacity_overflow', {
                 overflowDistinctId: event.distinct_id,
             })

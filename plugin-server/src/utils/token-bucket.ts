@@ -73,3 +73,5 @@ export const ConfiguredLimiter: Limiter = new Limiter(
     defaultConfig.EVENT_OVERFLOW_BUCKET_CAPACITY,
     defaultConfig.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE
 )
+
+export const WarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
