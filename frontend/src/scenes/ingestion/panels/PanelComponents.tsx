@@ -18,10 +18,12 @@ export function PanelFooter({
     nextProps,
     onContinue,
     finalStep = false,
+    showInviteTeamMembers = true,
 }: {
     nextProps: Partial<IngestionState>
     onContinue?: () => void
     finalStep?: boolean
+    showInviteTeamMembers?: boolean
 }): JSX.Element {
     const { next } = useActions(ingestionLogic)
 
@@ -42,7 +44,7 @@ export function PanelFooter({
                 >
                     {finalStep ? 'Complete' : 'Continue'}
                 </LemonButton>
-                <IngestionInviteMembersButton />
+                {showInviteTeamMembers && <IngestionInviteMembersButton />}
             </div>
         </div>
     )
