@@ -16,9 +16,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                     const results = await api.get('/api/projects/@current/dashboard_templates/repository')
                     const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
                     for (const template of results as DashboardTemplatesRepositoryEntry[]) {
-                        if (template.url) {
-                            repository[template.url.replace(/\/+$/, '')] = template
-                        }
+                        repository[template.name] = template
                     }
                     return repository
                 },

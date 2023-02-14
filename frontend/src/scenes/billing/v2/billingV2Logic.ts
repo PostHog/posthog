@@ -143,7 +143,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
                     }
                 }
 
-                const productApproachingLimit = billing.products.find(
+                const productApproachingLimit = billing.products?.find(
                     (x) => x.percentage_usage > ALLOCATION_THRESHOLD_ALERT
                 )
 
@@ -152,7 +152,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
                         status: 'info',
                         title: 'You will soon hit your usage limit',
                         message: `You have currently used ${parseFloat(
-                            (productApproachingLimit.percentage_usage * 100).toPrecision(2)
+                            (productApproachingLimit.percentage_usage * 100).toFixed(2)
                         )}% of your ${productApproachingLimit.type.toLowerCase()} allocation.`,
                     }
                 }
@@ -169,7 +169,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
                     ((billingVersion === 'v2' &&
                         !billing.has_active_subscription &&
                         !billing.free_trial_until &&
-                        billing.products.find((x) => {
+                        billing.products?.find((x) => {
                             return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
                         })) ||
                         billing.deactivated) &&

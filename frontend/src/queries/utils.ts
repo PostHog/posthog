@@ -19,6 +19,7 @@ import {
     NodeKind,
     PersonsNode,
     RecentPerformancePageViewNode,
+    TimeToSeeDataNode,
     TimeToSeeDataQuery,
     TimeToSeeDataSessionsQuery,
     InsightNodeKind,
@@ -93,6 +94,10 @@ export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
+export function isInsightQueryWithSeries(node?: Node): node is TrendsQuery | FunnelsQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isLifecycleQuery(node) || isStickinessQuery(node)
+}
+
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
@@ -110,6 +115,13 @@ export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeData
 
 export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
     return node?.kind === NodeKind.TimeToSeeDataQuery
+}
+
+export function isTimeToSeeDataSessionsNode(node?: Node): node is TimeToSeeDataNode {
+    return (
+        !!node?.kind &&
+        [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
+    )
 }
 
 export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
