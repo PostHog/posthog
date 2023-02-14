@@ -36,6 +36,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
+                borderColor: colorList, // For colors to display in the tooltip
             },
         ])
         setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
