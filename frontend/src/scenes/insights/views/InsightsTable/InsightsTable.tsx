@@ -4,7 +4,6 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, IntervalType, ItemMode } from '~/types'
 import { average, median } from 'lib/utils'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { DownOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -27,6 +26,7 @@ import { TrendsQuery } from '~/queries/schema'
 import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
+import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -204,11 +204,13 @@ function InsightsTableComponent({
         })
         if (isTrendsFilter(filters) && filters.display === ChartDisplayType.WorldMap) {
             columns.push({
-                title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
-                render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
+                title: <WorldMapColumnTitle />,
+                render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
                 key: 'breakdown_addendum',
                 sorter: (a, b) => {
-                    return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
+                    const labelA = countryCodeToName[a.breakdown_value as string]
+                    const labelB = countryCodeToName[b.breakdown_value as string]
+                    return labelA.localeCompare(labelB)
                 },
             })
         }
