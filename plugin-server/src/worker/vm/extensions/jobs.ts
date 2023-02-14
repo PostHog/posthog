@@ -1,5 +1,3 @@
-import { Counter } from 'prom-client'
-
 import { Hub, PluginConfig, PluginLogEntryType } from '../../../types'
 
 type JobRunner = {
@@ -31,16 +29,6 @@ const durations: Record<string, number> = {
     years,
 }
 
-const jobsEnqueuedCounter = new Counter({
-    name: 'jobs_enqueued_total',
-    help: 'Number of jobs added to the queue (into the Kafka buffer topic).',
-})
-
-const jobsEnqueueFailuresCounter = new Counter({
-    name: 'jobs_enqueue_failures_total',
-    help: 'Number of jobs we could not add to the queue (Kafka write errors).',
-})
-
 export function durationToMs(duration: number, unit: string): number {
     unit = `${unit}${unit.endsWith('s') ? '' : 's'}`
     if (typeof durations[unit] === 'undefined') {
@@ -65,11 +53,10 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
+            // TODO: port to Prometheus, once we have multi-process metrics collection (running in piscina worker here)
             server.statsd?.increment('job_enqueue_attempt')
             await server.enqueuePluginJob(job)
-            jobsEnqueuedCounter.inc()
         } catch (e) {
-            jobsEnqueueFailuresCounter.inc()
             await pluginConfig.vm?.createLogEntry(
                 `Failed to enqueue job ${type} with error: ${e.message}`,
                 PluginLogEntryType.Error
