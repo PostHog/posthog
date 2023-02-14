@@ -28,10 +28,8 @@ COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS = get_from_env(
     "COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS", 1800, type_cast=int
 )
 
-BILLING_USAGE_CACHING_TTL = get_from_env("BILLING_USAGE_CACHING_TTL", 12 * 60 * 60, type_cast=int)
 
 CACHED_RESULTS_TTL = 7 * 24 * 60 * 60  # how long to keep cached results for
-SESSION_RECORDING_TTL = 30  # how long to keep session recording cache. Relatively short because cached result is used throughout the duration a session recording loads.
 
 # Schedule to run asynchronous data deletion on. Follows crontab syntax.
 # Use empty string to prevent this

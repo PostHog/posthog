@@ -327,8 +327,8 @@ export const mathsLogic = kea<mathsLogicType>({
                                     <br />
                                     <i>
                                         Example: If 7 users in a single $
-                                        {aggregationLabel(groupType.group_type_index).singular}
-                                        perform an event 9 times in the given period, it counts only as 1.
+                                        {aggregationLabel(groupType.group_type_index).singular} perform an event 9 times
+                                        in the given period, it counts only as 1.
                                     </i>
                                 </>
                             ),
