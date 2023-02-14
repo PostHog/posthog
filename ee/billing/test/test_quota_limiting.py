@@ -1,15 +1,21 @@
+from django.utils import timezone
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
 from django.utils.timezone import now
+from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
     RATE_LIMITER_CACHE_KEY,
     QuotaResource,
+    list_limited_team_tokens,
     org_quota_limited_until,
+    replace_limited_team_tokens,
     set_org_usage_summary,
+    sync_org_quota_limits,
     update_all_org_billing_quotas,
 )
+from posthog.api.test.test_team import create_team
 from posthog.models.organization import OrganizationUsageInfo
 from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
@@ -177,3 +183,29 @@ class TestQuotaLimiting(BaseTest):
 
         self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
         assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) == 1612137599
+
+    def test_sync_org_quota_limits(self):
+        with freeze_time("2021-01-01T12:59:59Z"):
+            other_team = create_team(organization=self.organization)
+
+            now = timezone.now().timestamp()
+
+            replace_limited_team_tokens(QuotaResource.EVENTS, {"1234": now + 10000})
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            sync_org_quota_limits(self.organization)
+            assert list_limited_team_tokens(QuotaResource.EVENTS) == ["1234"]
+
+            self.organization.usage["events"]["usage"] = 120
+            sync_org_quota_limits(self.organization)
+            assert sorted(list_limited_team_tokens(QuotaResource.EVENTS)) == sorted(
+                ["1234", self.team.api_token, other_team.api_token]
+            )
+
+            self.organization.usage["events"]["usage"] = 80
+            sync_org_quota_limits(self.organization)
+            assert sorted(list_limited_team_tokens(QuotaResource.EVENTS)) == sorted(["1234"])

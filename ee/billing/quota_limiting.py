@@ -40,14 +40,14 @@ def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, in
     pipe.execute()
 
 
-def add_limited_team_token(resource: QuotaResource, token: str, limited_until: int) -> None:
+def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
     redis_client = get_client()
-    redis_client.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", {token: limited_until})
+    redis_client.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", tokens)
 
 
-def remove_limited_team_token(resource: QuotaResource, token: str) -> None:
+def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str]) -> None:
     redis_client = get_client()
-    redis_client.zrem(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", token)
+    redis_client.zrem(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
@@ -86,13 +86,15 @@ def sync_org_quota_limits(organization: Organization):
     if not organization.usage:
         return None
 
+    team_tokens = organization.teams.values_list("api_token", flat=True)
+
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
         rate_limited_until = org_quota_limited_until(organization, resource)
 
         if rate_limited_until:
-            add_limited_team_token(resource, organization.id, rate_limited_until)
+            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens})
         else:
-            remove_limited_team_token(resource, organization.id)
+            remove_limited_team_tokens(resource, team_tokens)
 
 
 def set_org_usage_summary(
