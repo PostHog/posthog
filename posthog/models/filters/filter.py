@@ -119,7 +119,7 @@ class Filter(
                 properties = request.data[PROPERTIES]
 
             data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
-        elif not data:
+        elif data is None:
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data
