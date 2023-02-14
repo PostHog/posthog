@@ -30,6 +30,9 @@ describe('properties-updater', () => {
 
         team = await getFirstTeam(hub)
         await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
+
+        jest.spyOn(hub.db, 'updateGroup')
+        jest.spyOn(hub.db, 'insertGroup')
     })
 
     afterEach(async () => {
@@ -52,8 +55,8 @@ describe('properties-updater', () => {
 
             expect(group.version).toEqual(1)
             expect(group.group_properties).toEqual({})
-            expect(group.properties_last_operation).toEqual({})
-            expect(group.properties_last_updated_at).toEqual({})
+            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+            expect(hub.db.updateGroup).not.toHaveBeenCalled()
         })
 
         it('handles initial properties', async () => {
@@ -63,8 +66,8 @@ describe('properties-updater', () => {
 
             expect(group.version).toEqual(1)
             expect(group.group_properties).toEqual({ foo: 'bar' })
-            expect(group.properties_last_operation).toEqual({ foo: 'set' })
-            expect(group.properties_last_updated_at).toEqual({ foo: PAST_TIMESTAMP.toISO() })
+            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+            expect(hub.db.updateGroup).not.toHaveBeenCalled()
         })
 
         it('handles updating properties as new ones come in', async () => {
@@ -75,12 +78,8 @@ describe('properties-updater', () => {
 
             expect(group.version).toEqual(2)
             expect(group.group_properties).toEqual({ foo: 'zeta', a: 1, b: 2 })
-            expect(group.properties_last_operation).toEqual({ foo: 'set', a: 'set', b: 'set' })
-            expect(group.properties_last_updated_at).toEqual({
-                foo: FUTURE_TIMESTAMP.toISO(),
-                a: PAST_TIMESTAMP.toISO(),
-                b: FUTURE_TIMESTAMP.toISO(),
-            })
+            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+            expect(hub.db.updateGroup).toHaveBeenCalledTimes(1)
         })
 
         it('handles updating when processing old events', async () => {
@@ -90,49 +89,33 @@ describe('properties-updater', () => {
             const group = await fetchGroup()
 
             expect(group.version).toEqual(2)
-            expect(group.group_properties).toEqual({ foo: 'bar', a: 1, b: 2 })
-            expect(group.properties_last_operation).toEqual({ foo: 'set', a: 'set', b: 'set' })
-            expect(group.properties_last_updated_at).toEqual({
-                foo: FUTURE_TIMESTAMP.toISO(),
-                a: FUTURE_TIMESTAMP.toISO(),
-                b: PAST_TIMESTAMP.toISO(),
-            })
+            expect(group.group_properties).toEqual({ foo: 'zeta', a: 1, b: 2 })
+            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+            expect(hub.db.updateGroup).toHaveBeenCalledTimes(1)
         })
 
-        it('updates timestamp even if properties do not change', async () => {
-            await upsert({ foo: 'bar' }, PAST_TIMESTAMP)
-            await upsert({ foo: 'bar' }, FUTURE_TIMESTAMP)
-
-            const group = await fetchGroup()
-
-            expect(group.version).toEqual(2)
-            expect(group.group_properties).toEqual({ foo: 'bar' })
-            expect(group.properties_last_operation).toEqual({ foo: 'set' })
-            expect(group.properties_last_updated_at).toEqual({ foo: FUTURE_TIMESTAMP.toISO() })
-        })
-
-        it('does nothing if handling equal timestamps', async () => {
+        it('handles updating when processing equal timestamped events', async () => {
             await upsert({ foo: '1' }, PAST_TIMESTAMP)
             await upsert({ foo: '2' }, PAST_TIMESTAMP)
 
             const group = await fetchGroup()
 
-            expect(group.version).toEqual(1)
-            expect(group.group_properties).toEqual({ foo: '1' })
-            expect(group.properties_last_operation).toEqual({ foo: 'set' })
-            expect(group.properties_last_updated_at).toEqual({ foo: PAST_TIMESTAMP.toISO() })
+            expect(group.version).toEqual(2)
+            expect(group.group_properties).toEqual({ foo: '2' })
+            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+            expect(hub.db.updateGroup).toHaveBeenCalledTimes(1)
         })
 
-        it('does nothing if nothing gets updated due to timestamps', async () => {
-            await upsert({ foo: 'new' }, FUTURE_TIMESTAMP)
-            await upsert({ foo: 'old' }, PAST_TIMESTAMP)
+        it('does nothing if newer timestamp but no properties change', async () => {
+            await upsert({ foo: 'bar' }, PAST_TIMESTAMP)
+            await upsert({ foo: 'bar' }, FUTURE_TIMESTAMP)
 
             const group = await fetchGroup()
 
             expect(group.version).toEqual(1)
-            expect(group.group_properties).toEqual({ foo: 'new' })
-            expect(group.properties_last_operation).toEqual({ foo: 'set' })
-            expect(group.properties_last_updated_at).toEqual({ foo: FUTURE_TIMESTAMP.toISO() })
+            expect(group.group_properties).toEqual({ foo: 'bar' })
+            expect(hub.db.insertGroup).toHaveBeenCalledTimes(1)
+            expect(hub.db.updateGroup).not.toHaveBeenCalled()
         })
 
         it('handles race conditions as inserts happen in parallel', async () => {
@@ -153,7 +136,7 @@ describe('properties-updater', () => {
             await firstFetchIsDonePromise.promise
 
             // Second, we do a another (complete) upsert in-between which creates a row in groups table
-            await upsert({ a: 3 }, FUTURE_TIMESTAMP)
+            await upsert({ a: 3, d: 3 }, FUTURE_TIMESTAMP)
 
             // Third, we continue with the original upsert, and wait for the end
             firstInsertShouldStartPromise.resolve()
@@ -162,9 +145,7 @@ describe('properties-updater', () => {
             // Verify the results
             const group = await fetchGroup()
             expect(group.version).toEqual(2)
-            expect(group.group_properties).toEqual({ a: 3, b: 2 })
-            expect(group.properties_last_operation).toEqual({ a: 'set', b: 'set' })
-            expect(group.properties_last_updated_at).toEqual({ a: FUTURE_TIMESTAMP.toISO(), b: PAST_TIMESTAMP.toISO() })
+            expect(group.group_properties).toEqual({ a: 1, b: 2, d: 3 })
         })
     })
 })
