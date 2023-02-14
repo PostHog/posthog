@@ -97,8 +97,11 @@ def synchronously_update_cache(
 
 # returns should_refresh, refresh_frequency
 def should_refresh_insight(insight: Insight, dashboard_tile: Optional[DashboardTile]) -> Tuple[bool, timedelta]:
+    filter_data_with_dashboard_filters = insight.dashboard_filters(
+        dashboard_tile.dashboard if dashboard_tile is not None else None
+    )
     filter = get_filter(
-        data=insight.dashboard_filters(dashboard_tile.dashboard if dashboard_tile is not None else None),
+        data=filter_data_with_dashboard_filters if filter_data_with_dashboard_filters is not None else {},
         team=insight.team,
     )
 
