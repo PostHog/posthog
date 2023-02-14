@@ -133,7 +133,7 @@ export function PieChart({
                                 0
                             ) as number
                             const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
-                            return percentage > 5
+                            return context.dataset.data.length > 1 && percentage > 5
                         },
                         borderRadius: 25,
                         borderWidth: 2,
