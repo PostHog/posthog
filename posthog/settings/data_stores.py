@@ -31,18 +31,9 @@ else:
     DATABASE_URL = os.getenv("DATABASE_URL", "")
 
 if DATABASE_URL:
-    DATABASES = {
-        "default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600),
-        "decide": dj_database_url.config(default=DATABASE_URL, conn_max_age=0),
-    }
+    DATABASES = {"default": dj_database_url.config(default=DATABASE_URL, conn_max_age=600)}
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["default"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
-    DATABASES["decide"]["OPTIONS"] = {
-        "options": "-c statement_timeout=3000",
-    }
-    # DATABASES['decide']['ATOMIC_REQUESTS'] = True
-
 elif os.getenv("POSTHOG_DB_NAME"):
     DATABASES = {
         "default": {

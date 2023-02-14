@@ -403,7 +403,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
@@ -416,7 +416,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db.1
   '
-  SELECT pg_sleep(2);
+  SELECT pg_sleep(4);
   
   SELECT ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0"
@@ -425,47 +425,11 @@
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
          AND "posthog_persondistinctid"."team_id" = 2
          AND "posthog_person"."team_id" = 2)
-  '
----
-# name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db.2
-  '
-  SELECT pg_sleep(2);
-  
-  
-  RESET statement_timeout
-  '
----
-# name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db.3
-  '
-  SELECT pg_sleep(2);
-  
-  show statement_timeout
-  '
----
-# name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db.4
-  '
-  SELECT pg_sleep(2);
-  
-  SELECT ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "flag_X_condition_0",
-         (true) AS "flag_X_condition_0"
-  FROM "posthog_person"
-  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
-  WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
-         AND "posthog_persondistinctid"."team_id" = 2
-         AND "posthog_person"."team_id" = 2)
-  '
----
-# name: TestResiliency.test_feature_flags_v3_with_a_working_slow_db.5
-  '
-  SELECT pg_sleep(2);
-  
-  
-  RESET statement_timeout
   '
 ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
@@ -479,7 +443,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.1
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
@@ -493,7 +457,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.2
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
@@ -507,7 +471,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.3
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
@@ -521,7 +485,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.4
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
@@ -535,7 +499,7 @@
 ---
 # name: TestResiliency.test_feature_flags_v3_with_group_properties_and_slow_db.5
   '
-  SELECT pg_sleep(4);
+  SELECT pg_sleep(1);
   
   SELECT "posthog_grouptypemapping"."id",
          "posthog_grouptypemapping"."team_id",
