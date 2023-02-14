@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, IntervalType, ItemMode } from '~/types'
+import { ChartDisplayType, ItemMode } from '~/types'
 import { insightsTableLogic } from './insightsTableLogic'
-import { DateDisplay } from 'lib/components/DateDisplay'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -12,8 +11,7 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -24,6 +22,7 @@ import { SeriesColumnItem } from './columns/SeriesColumn'
 import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
 import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
 import { TotalColumnItem, TotalColumnTitle } from './columns/TotalColumn'
+import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -230,27 +229,19 @@ function InsightsTableComponent({
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
         const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
             (__, index: number) => ({
                 title: (
-                    <DateDisplay
-                        interval={(filters.interval as IntervalType) || 'day'}
-                        date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-                        secondaryDate={
-                            !!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined
-                        } // previous
-                        hideWeekRange
+                    <ValueColumnTitle
+                        index={index}
+                        indexedResults={indexedResults}
+                        compare={compare}
+                        interval={filters.interval}
                     />
                 ),
-                render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return formatAggregationValue(
-                        item.action?.math_property,
-                        item.data[index],
-                        (value) => formatAggregationAxisValue(filters, value),
-                        formatPropertyValueForDisplay
-                    )
-                },
+                render: (_, item: IndexedTrendResult) => (
+                    <ValueColumnItem index={index} item={item} filters={filters} />
+                ),
                 key: `data-${index}`,
                 sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
                 align: 'right',
