@@ -10,11 +10,9 @@ from rest_framework.exceptions import NotAuthenticated
 
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.organization import OrganizationUsageInfo
-from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -85,19 +83,12 @@ def build_billing_token(license: License, organization: Organization):
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
 
-    distinct_ids = []
-    if is_cloud():
-        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
-    else:
-        distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
-
     encoded_jwt = jwt.encode(
         {
             "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
             "id": license_id,
             "organization_id": str(organization.id),
             "organization_name": organization.name,
-            "distinct_ids": distinct_ids,
             "aud": "posthog:license-key",
         },
         license_secret,
