@@ -725,7 +725,7 @@ describe('eventsTableLogic', () => {
             })
 
             it('writes event filter to the URL', async () => {
-                const eventFilter = randomString()
+                const eventFilter = `random-filter-string-${randomString()}`
                 await expectLogic(logic, () => {
                     logic.actions.setEventFilter(eventFilter)
                 })
