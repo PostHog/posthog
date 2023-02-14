@@ -89,7 +89,14 @@ export function calculateUpdate(currentProperties: Properties, properties: Prope
         properties: { ...currentProperties },
     }
 
-    // We always update properties at ingestion time and ignore the timestamps events sent
+    // Ideally we'd keep track of event timestamps, for when properties were updated
+    // and only update the values if a newer timestamped event set them.
+    // However to do that we would need to keep track of previous set timestamps,
+    // which means that even if the property value didn't change
+    // we would need to trigger an update to update the timestamps.
+    // This can kill Postgres if someone sends us lots of groupidentify events.
+    // So instead we just process properties updates based on ingestion time,
+    // i.e. always update if value has changed.
     Object.entries(properties).forEach(([key, value]) => {
         if (!(key in result.properties) || value != result.properties[key]) {
             ;(result.updated = true), (result.properties[key] = value)
