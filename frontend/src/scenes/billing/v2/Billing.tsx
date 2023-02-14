@@ -312,7 +312,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                         </>
                     ),
                     color: 'success-light',
-                    value: product.tiers?.[0]?.up_to || 0,
+                    value: product.free_allocation || 0,
                     top: true,
                 },
                 {
