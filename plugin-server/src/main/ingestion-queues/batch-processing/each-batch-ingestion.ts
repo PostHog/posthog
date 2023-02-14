@@ -8,6 +8,7 @@ import { status } from '../../../utils/status'
 import { ConfiguredLimiter } from '../../../utils/token-bucket'
 import { IngestionConsumer } from '../kafka-queue'
 import { defaultConfig } from './../../../config/config'
+import { captureIngestionWarning } from './../../../worker/ingestion/utils'
 import { eachBatch } from './each-batch'
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
@@ -33,9 +34,14 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
     ) {
         // Events that have exceeded configured limiter are sent to the OVERFLOW topic for later processing.
         // Unless we are already consuming from the OVERFLOW topic.
+        if (event.team_id) {
+            captureIngestionWarning(queue.pluginsServer.db, event.team_id, 'ingestion_capacity_overflow', {
+                overflowDistinctId: event.distinct_id,
+            })
+        }
+
         // Events going to OVERFLOW topic should always be randomly partitioned.
         message.key = null
-
         await queue.pluginsServer.kafkaProducer.queueMessage({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             messages: [message],
