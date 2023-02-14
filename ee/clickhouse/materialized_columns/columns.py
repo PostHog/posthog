@@ -105,6 +105,27 @@ def materialize(
         {"comment": f"column_materializer::{table_column}::{property}"},
     )
 
+    add_minmax_index(table, column_name)
+
+
+def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
+    # Note: This will be populated on backfill
+    execute_on_cluster = f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if table == "events" else ""
+
+    updated_table = "sharded_events" if table == "events" else table
+    index_name = f"minmax_{column_name}"
+
+    sync_execute(
+        f"""
+        ALTER TABLE {updated_table}
+        {execute_on_cluster}
+        ADD INDEX {index_name} {column_name}
+        TYPE minmax GRANULARITY 1
+        """
+    )
+
+    return index_name
+
 
 def backfill_materialized_columns(
     table: TableWithProperties,
