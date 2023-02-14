@@ -196,7 +196,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         acknowledgedRefreshButtonChanged: [
             false,
-            { persist: true },
+            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
             {
                 acknowledgeRefreshButtonChanged: () => true,
             },
