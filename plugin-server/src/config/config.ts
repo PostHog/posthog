@@ -45,8 +45,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_TOPIC: isOverflowMode()
-            ? KAFKA_EVENTS_PLUGIN_INGESTION
-            : KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+            ? KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
+            : KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
