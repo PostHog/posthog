@@ -135,6 +135,13 @@ export function PieChart({
                             const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
                             return context.dataset.data.length > 1 && percentage > 5
                         },
+                        padding: (context) => {
+                            // in order to make numbers below 10 look circular we need a little padding
+                            const value = context.dataset.data[context.dataIndex] as number
+                            const paddingY = value < 10 ? 2 : 4
+                            const paddingX = value < 10 ? 5 : 4
+                            return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
+                        },
                         borderRadius: 25,
                         borderWidth: 2,
                         borderColor: 'white',
