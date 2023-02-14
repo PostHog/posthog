@@ -1,11 +1,30 @@
 import Piscina from '@posthog/piscina'
 import { CronItem, JobHelpers, TaskList } from 'graphile-worker'
+import { Counter } from 'prom-client'
 
 import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
 import { pauseQueueIfWorkerFull } from '../ingestion-queues/queue'
 import { GraphileWorker } from './graphile-worker'
 import { loadPluginSchedule, runScheduledTasks } from './schedule'
+
+const jobsTriggeredCounter = new Counter({
+    name: 'jobs_triggered_total',
+    help: 'Number of jobs consumed from the Graphile job queue.',
+    labelNames: ['job_type'],
+})
+
+const jobsExecutionSuccessCounter = new Counter({
+    name: 'jobs_execution_success_total',
+    help: 'Number of jobs successfully executed from the Graphile job queue.',
+    labelNames: ['job_type'],
+})
+
+const jobsExecutionFailureCounter = new Counter({
+    name: 'jobs_execution_failure_total',
+    help: 'Number of failures at executing jobs from the Graphile job queue.',
+    labelNames: ['job_type'],
+})
 
 export async function startGraphileWorker(hub: Hub, graphileWorker: GraphileWorker, piscina: Piscina) {
     status.info('🔄', 'Starting Graphile Worker...')
@@ -66,10 +85,18 @@ export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, p
     const pluginJobHandlers: TaskList = {
         pluginJob: async (job) => {
             pauseQueueIfWorkerFull(() => graphileWorker.pause(), hub, piscina)
+            const jobType = (job as EnqueuedPluginJob)?.type
+            jobsTriggeredCounter.labels(jobType).inc()
             hub.statsd?.increment('triggered_job', {
                 instanceId: hub.instanceId.toString(),
             })
-            await piscina.run({ task: 'runPluginJob', args: { job: job as EnqueuedPluginJob } })
+            try {
+                await piscina.run({ task: 'runPluginJob', args: { job: job as EnqueuedPluginJob } })
+                jobsExecutionSuccessCounter.labels(jobType).inc()
+            } catch (e) {
+                jobsExecutionFailureCounter.labels(jobType).inc()
+                throw e
+            }
         },
     }
 
