@@ -42,7 +42,7 @@ def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, in
 
 def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
     redis_client = get_client()
-    redis_client.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", tokens)
+    redis_client.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
 
 
 def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str]) -> None:
@@ -81,20 +81,22 @@ def org_quota_limited_until(organization: Organization, resource: QuotaResource)
     if is_rate_limited and billing_period_end:
         return billing_period_end
 
+    return None
+
 
 def sync_org_quota_limits(organization: Organization):
     if not organization.usage:
         return None
 
-    team_tokens = organization.teams.values_list("api_token", flat=True)
+    team_tokens = list(organization.teams.values_list("api_token", flat=True))
 
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
         rate_limited_until = org_quota_limited_until(organization, resource)
 
         if rate_limited_until:
-            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens})
+            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens if x})
         else:
-            remove_limited_team_tokens(resource, team_tokens)
+            remove_limited_team_tokens(resource, [x for x in team_tokens if x])
 
 
 def set_org_usage_summary(
@@ -106,7 +108,7 @@ def set_org_usage_summary(
     # Also we want to return if anything changed so that the caller can update redis
 
     has_changed = False
-    new_usage = new_usage or cast(OrganizationUsageInfo, organization.usage)
+    new_usage = new_usage or cast(Optional[OrganizationUsageInfo], organization.usage)
 
     if not new_usage:
         # If we are not setting it and it doesn't exist we can't update it
@@ -114,16 +116,17 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    if todays_usage:
-        for field in todays_usage:
-            new_usage[field]["todays_usage"] = todays_usage[field]
-    else:
-        # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
-        for field in ["events", "recordings"]:
-            if (organization.usage or {}).get(field, {}).get("usage") != new_usage.get(field, {}).get("usage"):
-                new_usage[field]["todays_usage"] = 0
+    for field in ["events", "recordings"]:
+        resource_usage = new_usage[field]  # type: ignore
+
+        if todays_usage:
+            resource_usage["todays_usage"] = todays_usage[field]  # type: ignore
+        else:
+            # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
+            if (organization.usage or {}).get(field, {}).get("usage") != resource_usage.get("usage"):
+                resource_usage["todays_usage"] = 0
             else:
-                new_usage[field]["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0
+                resource_usage["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0
 
     has_changed = new_usage != organization.usage
     organization.usage = new_usage

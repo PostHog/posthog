@@ -16,7 +16,6 @@ from ee.billing.quota_limiting import (
     update_all_org_billing_quotas,
 )
 from posthog.api.test.test_team import create_team
-from posthog.models.organization import OrganizationUsageInfo
 from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
 
@@ -98,7 +97,7 @@ class TestQuotaLimiting(BaseTest):
         }
         self.organization.save()
 
-        new_usage = OrganizationUsageInfo(
+        new_usage = dict(
             events={"usage": 100, "limit": 100},
             recordings={"usage": 2, "limit": 100},
             period=[
@@ -123,7 +122,7 @@ class TestQuotaLimiting(BaseTest):
         }
         self.organization.save()
 
-        new_usage = OrganizationUsageInfo(
+        new_usage = dict(
             events={"usage": 99, "limit": 100},
             recordings={"usage": 1, "limit": 100},
             period=[
