@@ -1,4 +1,5 @@
 import posthog, { PostHogConfig } from 'posthog-js'
+import 'posthog-js/dist/recorder'
 import * as Sentry from '@sentry/react'
 import { FEATURE_FLAGS } from 'lib/constants'
 
