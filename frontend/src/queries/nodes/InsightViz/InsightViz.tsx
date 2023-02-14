@@ -12,6 +12,7 @@ import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
+import { ItemMode } from '~/types'
 
 type InsightVizProps = {
     query: InsightVizNode
