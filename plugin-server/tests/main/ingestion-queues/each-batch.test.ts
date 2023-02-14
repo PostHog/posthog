@@ -1,11 +1,15 @@
+import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW } from '../../../src/config/kafka-topics'
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
 import { ClickHouseTimestamp, ISOTimestamp } from '../../../src/types'
 import { PostIngestionEvent, RawClickHouseEvent } from '../../../src/types'
+import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { groupIntoBatches } from '../../../src/utils/utils'
+import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
 
 jest.mock('../../../src/utils/status')
+jest.mock('./../../../src/worker/ingestion/utils')
 
 const event: PostIngestionEvent = {
     eventUuid: 'uuid1',
@@ -66,6 +70,25 @@ describe('eachBatchX', () => {
         }
     }
 
+    function createBatchWithMultipleEventsWithKeys(events: any[], timestamp?: any): any {
+        return {
+            batch: {
+                partition: 0,
+                messages: events.map((event) => ({
+                    value: JSON.stringify(event),
+                    timestamp,
+                    offset: event.offset,
+                    key: event.team_id + ':' + event.distinct_id,
+                })),
+            },
+            resolveOffset: jest.fn(),
+            heartbeat: jest.fn(),
+            commitOffsetsIfNecessary: jest.fn(),
+            isRunning: jest.fn(() => true),
+            isStale: jest.fn(() => false),
+        }
+    }
+
     function createBatch(event: any, timestamp?: any): any {
         return createBatchWithMultipleEvents([event], timestamp)
     }
@@ -73,6 +96,11 @@ describe('eachBatchX', () => {
     beforeEach(() => {
         queue = {
             bufferSleep: jest.fn(),
+            topics: jest.fn(() => {
+                return {
+                    topics: [KAFKA_EVENTS_PLUGIN_INGESTION],
+                }
+            }),
             pluginsServer: {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
@@ -82,6 +110,9 @@ describe('eachBatchX', () => {
                     increment: jest.fn(),
                     histogram: jest.fn(),
                     gauge: jest.fn(),
+                },
+                kafkaProducer: {
+                    queueMessage: jest.fn(),
                 },
             },
             workerMethods: {
@@ -148,6 +179,37 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_ingestion',
                 expect.any(Date)
             )
+        })
+
+        it('re produces events back to OVERFLOW topic', async () => {
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+            await eachBatchIngestion(batch, queue)
+
+            expect(consume).toHaveBeenCalledWith(
+                captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
+                1
+            )
+            expect(captureIngestionWarning).toHaveBeenCalledWith(
+                undefined,
+                captureEndpointEvent['team_id'],
+                'ingestion_capacity_overflow',
+                {
+                    overflowDistinctId: captureEndpointEvent['distinct_id'],
+                }
+            )
+            expect(queue.pluginsServer.kafkaProducer.queueMessage).toHaveBeenCalledWith({
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+                messages: [
+                    {
+                        value: JSON.stringify(captureEndpointEvent),
+                        timestamp: captureEndpointEvent['timestamp'],
+                        offset: captureEndpointEvent['offset'],
+                        key: null,
+                    },
+                ],
+            })
         })
 
         it('breaks up by teamId:distinctId for enabled teams', async () => {
