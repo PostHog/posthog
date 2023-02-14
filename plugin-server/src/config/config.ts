@@ -1,7 +1,7 @@
 import os from 'os'
 
 import { LogLevel, PluginsServerConfig } from '../types'
-import { isDevEnv, isOverflowMode, isTestEnv, stringToBoolean } from '../utils/env-utils'
+import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
 import {
     KAFKA_EVENTS_JSON,
@@ -44,9 +44,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_MECHANISM: null,
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
-        KAFKA_CONSUMPTION_TOPIC: isOverflowMode()
-            ? KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
-            : KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
@@ -224,7 +223,11 @@ export function overrideWithEnv(
         }
     }
 
-    if (!['ingestion', 'async', 'exports', 'scheduler', 'jobs', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+    if (
+        !['ingestion', 'async', 'exports', 'scheduler', 'jobs', 'ingestion-overflow', null].includes(
+            newConfig.PLUGIN_SERVER_MODE
+        )
+    ) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
 
