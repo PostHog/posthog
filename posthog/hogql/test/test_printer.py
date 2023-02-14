@@ -74,7 +74,7 @@ class TestPrinter(TestCase):
         context = HogQLContext()
         self.assertEqual(
             self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -83,7 +83,7 @@ class TestPrinter(TestCase):
                     ["person", "properties", "bla"],
                     "person.properties",
                     "bla",
-                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
@@ -109,14 +109,17 @@ class TestPrinter(TestCase):
         )
 
         context = HogQLContext()
-        self.assertEqual(self._expr("person_id", context), "person_id")
-        self.assertEqual(context.field_access_logs, [HogQLFieldAccess(["person_id"], "person", "id", "person_id")])
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("person.created_at", context), "person_created_at")
+        self.assertEqual(self._expr("person.id", context), "events.person_id")
         self.assertEqual(
             context.field_access_logs,
-            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "person_created_at")],
+            [HogQLFieldAccess(["id"], "person", "id", "events.person_id")],
+        )
+
+        context = HogQLContext()
+        self.assertEqual(self._expr("person.created_at", context), "events.person_created_at")
+        self.assertEqual(
+            context.field_access_logs,
+            [HogQLFieldAccess(["created_at"], "person", "created_at", "events.person_created_at")],
         )
 
     def test_hogql_properties(self):
@@ -207,7 +210,7 @@ class TestPrinter(TestCase):
         self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
-        self._assert_expr_error("person.chipotle", 'Can not access property "chipotle" on compelx field "person".')
+        self._assert_expr_error("person.chipotle", 'Field "chipotle" not found on table EventsPersonSubTable')
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
