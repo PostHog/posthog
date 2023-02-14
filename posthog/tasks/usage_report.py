@@ -220,7 +220,8 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     if not settings.EE_AVAILABLE:
         return
 
-    from ee.billing.billing_manager import BillingManager, BillingStatus, build_billing_token
+    from ee.billing.billing_manager import BillingManager, build_billing_token
+    from ee.billing.billing_types import BillingStatus
     from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
