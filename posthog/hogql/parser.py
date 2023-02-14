@@ -4,7 +4,7 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
-from posthog.hogql.constants import KEYWORDS, RESERVED_KEYWORDS
+from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
@@ -318,7 +318,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             raise NotImplementedError(f"Must specify an alias.")
         expr = self.visit(ctx.columnExpr())
 
-        if alias in RESERVED_KEYWORDS or alias in KEYWORDS:
+        if alias in RESERVED_KEYWORDS:
             raise ValueError(f"Alias '{alias}' is a reserved keyword.")
 
         return ast.Alias(expr=expr, alias=alias)
@@ -542,7 +542,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
         alias = self.visit(ctx.alias() or ctx.identifier())
-        if alias in RESERVED_KEYWORDS or alias in KEYWORDS:
+        if alias in RESERVED_KEYWORDS:
             raise ValueError(f"Alias '{alias}' is a reserved keyword.")
         return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
 

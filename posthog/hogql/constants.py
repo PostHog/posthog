@@ -98,7 +98,7 @@ HOGQL_AGGREGATIONS = {
 KEYWORDS = ["true", "false", "null"]
 
 # Keywords you can't alias to
-RESERVED_KEYWORDS = ["team_id"]
+RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [

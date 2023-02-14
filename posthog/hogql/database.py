@@ -105,10 +105,6 @@ class SessionRecordingEvents(Table):
         return "session_recording_events"
 
 
-# class NumbersTable(Table):
-#     args: [IntegerValue, IntegerValue]
-
-
 class Database(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -118,7 +114,6 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
-    # numbers: NumbersTable = NumbersTable()
 
 
 database = Database()
