@@ -115,5 +115,11 @@ class Database(BaseModel):
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
 
+    def get_table(self, table_name: str):
+        return getattr(self, table_name)
+
+    def has_table(self, table_name: str):
+        return hasattr(self, table_name)
+
 
 database = Database()

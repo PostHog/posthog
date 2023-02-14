@@ -27,26 +27,26 @@ class Resolver(TraversingVisitor):
         if node.symbol is not None:
             return
 
+        # This symbol keeps track of all joined tables and other field aliases that are in scope.
         node.symbol = ast.SelectQuerySymbol()
 
-        # Each SELECT query creates a new scope. Store all of them in a list for variable access.
+        # Each SELECT query is a new scope in field name resolution.
         self.scopes.append(node.symbol)
 
-        # Visit all the FROM and JOIN clauses (JoinExpr nodes), and register the tables into the scope.
+        # Visit all the FROM and JOIN clauses, and register the tables into the scope. See visit_join_expr below.
         if node.select_from:
             self.visit(node.select_from)
 
-        # Visit all the SELECT columns.
-        # Then mark them for export in "columns". This means they will be available outside of this query via:
+        # Visit all the SELECT 1,2,3 columns. Mark each for export in "columns" to make this work:
         # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
         for expr in node.select or []:
             self.visit(expr)
             if isinstance(expr.symbol, ast.FieldAliasSymbol):
                 node.symbol.columns[expr.symbol.name] = expr.symbol
-            elif isinstance(expr, ast.Alias):
-                node.symbol.columns[expr.alias] = expr.symbol
             elif isinstance(expr.symbol, ast.FieldSymbol):
                 node.symbol.columns[expr.symbol.name] = expr.symbol
+            elif isinstance(expr, ast.Alias):
+                node.symbol.columns[expr.alias] = expr.symbol
 
         if node.where:
             self.visit(node.where)
@@ -80,15 +80,14 @@ class Resolver(TraversingVisitor):
             table_name = node.table.chain[0]
             table_alias = node.alias or table_name
             if table_alias in scope.tables:
-                raise ResolverException(f'Already have a joined table called "{table_alias}", can\'t redefine.')
+                raise ResolverException(f'Already have joined a table called "{table_alias}". Can\'t redefine.')
 
-            if table_name in database.__fields__:
-                table = database.__fields__[table_name].default
-                node.table.symbol = ast.TableSymbol(table=table)
-                if table_alias != table_name:
-                    node.symbol = ast.TableAliasSymbol(name=table_alias, table=node.table.symbol)
-                else:
+            if database.has_table(table_name):
+                node.table.symbol = ast.TableSymbol(table=database.get_table(table_name))
+                if table_alias == table_name:
                     node.symbol = node.table.symbol
+                else:
+                    node.symbol = ast.TableAliasSymbol(name=table_alias, table=node.table.symbol)
                 scope.tables[table_alias] = node.symbol
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
@@ -97,7 +96,7 @@ class Resolver(TraversingVisitor):
             node.table.symbol = self.visit(node.table)
             if node.alias is not None:
                 if node.alias in scope.tables:
-                    raise ResolverException(f'Already have a joined table called "{node.alias}", can\'t redefine.')
+                    raise ResolverException(f'Already have joined a table called "{node.alias}". Can\'t redefine.')
                 node.symbol = ast.SelectQueryAliasSymbol(name=node.alias, symbol=node.table.symbol)
                 scope.tables[node.alias] = node.symbol
             else:
@@ -133,9 +132,12 @@ class Resolver(TraversingVisitor):
         """Visit function calls."""
         if node.symbol is not None:
             return
+        arg_symbols: List[ast.Symbol] = []
         for arg in node.args:
             self.visit(arg)
-        node.symbol = ast.CallSymbol(name=node.name, args=[arg.symbol for arg in node.args])
+            if arg.symbol is not None:
+                arg_symbols.append(arg.symbol)
+        node.symbol = ast.CallSymbol(name=node.name, args=arg_symbols)
 
     def visit_field(self, node):
         """Visit a field such as ast.Field(chain=["e", "properties", "$browser"])"""
@@ -144,18 +146,19 @@ class Resolver(TraversingVisitor):
         if len(node.chain) == 0:
             raise Exception("Invalid field access with empty chain")
 
-        # ClickHouse does not support subqueries accessing "x.event" like this:
+        # Only look for fields in the last SELECT scope.
+        scope = self.scopes[-1]
+
+        # ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
-        #
-        # Thus we only look into scopes[-1] to see aliases in the current scope, and don't loop over all the scopes.
+        # Thus we don't have to recursively look into all the past scopes to find a match.
 
-        scope = self.scopes[-1]
         symbol: Optional[ast.Symbol] = None
         name = node.chain[0]
 
-        # Only look for matching tables if field contains at least two parts.
+        # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
             symbol = scope.tables[name]
         if not symbol:
@@ -187,10 +190,10 @@ def lookup_field_by_name(scope: ast.SelectQuerySymbol, name: str) -> Optional[as
     else:
         named_tables = [table for table in scope.tables.values() if table.has_child(name)]
         anonymous_tables = [table for table in scope.anonymous_tables if table.has_child(name)]
-        tables = named_tables + anonymous_tables
+        tables_with_field = named_tables + anonymous_tables
 
-        if len(tables) > 1:
+        if len(tables_with_field) > 1:
             raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
-        elif len(tables) == 1:
-            return tables[0].get_child(name)
+        elif len(tables_with_field) == 1:
+            return tables_with_field[0].get_child(name)
         return None
