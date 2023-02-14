@@ -14,9 +14,11 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.api.insight import DEFAULT_INSIGHT_REFRESH_FREQUENCY, should_refresh_insight
+from posthog.api.insight import should_refresh_insight
 from posthog.api.test.dashboards import DashboardAPI
-from posthog.caching.fetch_from_cache import synchronously_update_cache
+from posthog.caching.calculate_results import calculate_cache_key
+from posthog.caching.fetch_from_cache import DEFAULT_INSIGHT_REFRESH_FREQUENCY, synchronously_update_cache
+from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -2521,7 +2523,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"events": [{"id": "$pageview"}], "interval": "month"}, "name": "insight"}
         )
-        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id))
+        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id), None)
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, DEFAULT_INSIGHT_REFRESH_FREQUENCY)
 
@@ -2529,16 +2531,29 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"events": [{"id": "$pageview"}], "interval": "hour"}, "name": "insight"}
         )
-        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id))
+        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id), None)
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, timedelta(minutes=3))
 
-        # insight recently refreshed should return False for should_refresh_now
+        # insights with hour intervals can be refreshed more often
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "interval": "day", "date_from": "-3d"}, "name": "insight"}
+        )
+        should_refresh_now, refresh_frequency = should_refresh_insight(Insight.objects.get(id=insight_id), None)
+        self.assertEqual(should_refresh_now, True)
+        self.assertEqual(refresh_frequency, timedelta(minutes=3))
+
+        # insight with ranges equal or lower than 7 days can also be refreshed more often
         insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"events": [{"id": "$pageview"}], "interval": "month"}, "name": "insight"}
         )
         insight = Insight.objects.get(id=insight_id)
-        insight.last_refresh = datetime.now(tz=pytz.timezone("UTC"))
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight)
+        caching_state = InsightCachingState.objects.get(
+            team=self.team, cache_key=calculate_cache_key(insight), insight_id=insight_id
+        )
+        caching_state.last_refresh = datetime.now(tz=pytz.timezone("UTC"))
+        caching_state.save()
+
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
         self.assertEqual(should_refresh_now, False)
         self.assertEqual(refresh_frequency, DEFAULT_INSIGHT_REFRESH_FREQUENCY)

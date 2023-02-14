@@ -1,18 +1,7 @@
 import json
-from datetime import datetime, timedelta
 from functools import lru_cache
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Tuple,
-    Type,
-    Union,
-    cast,
-)
+from typing import Any, Dict, List, Optional, Type, Union, cast
 
-import pytz
 import structlog
 from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
@@ -47,7 +36,12 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
+from posthog.caching.fetch_from_cache import (
+    InsightResult,
+    fetch_cached_insight_result,
+    should_refresh_insight,
+    synchronously_update_cache,
+)
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -93,21 +87,6 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
-
-# default minimum wait time for refreshing an insight
-DEFAULT_INSIGHT_REFRESH_FREQUENCY = timedelta(minutes=15)
-
-# returns should_refresh, refresh_frequency
-def should_refresh_insight(insight: Insight) -> Tuple[bool, timedelta]:
-    refresh_frequency = DEFAULT_INSIGHT_REFRESH_FREQUENCY
-
-    if "interval" in insight.filters and insight.filters["interval"] == "hour":
-        refresh_frequency = timedelta(minutes=3)
-
-    if not insight.last_refresh:
-        return True, refresh_frequency
-
-    return insight.last_refresh + refresh_frequency <= datetime.now(tz=pytz.timezone("UTC")), refresh_frequency
 
 
 def log_insight_activity(
@@ -498,13 +477,14 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
         dashboard = self.context.get("dashboard", None)
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        target = insight if dashboard is None else dashboard_tile
 
-        refresh_insight_now, refresh_frequency = should_refresh_insight(insight)
+        refresh_insight_now, refresh_frequency = should_refresh_insight(target, dashboard_tile)
         if insight.filters and refresh_requested_by_client(self.context["request"]):
             if refresh_insight_now:
                 return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
-        target = insight if dashboard is None else self.dashboard_tile_from_context(insight, dashboard)
         # :TODO: Clear up if tile can be null or not
         return fetch_cached_insight_result(target or insight, refresh_frequency)
 
