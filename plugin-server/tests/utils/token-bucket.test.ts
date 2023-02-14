@@ -1,4 +1,4 @@
-import { BucketKeyMissingError, Limiter, Storage } from '../../src/utils/token_bucket'
+import { BucketKeyMissingError, Limiter, Storage } from '../../src/utils/token-bucket'
 
 describe('Storage', () => {
     describe('replenish()', () => {
