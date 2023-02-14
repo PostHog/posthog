@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
-from posthog.hogql.database import ComplexField, DatabaseField, StringJSONDatabaseField, Table
+from posthog.hogql.database import DatabaseField, StringJSONDatabaseField, Table
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -122,30 +122,30 @@ class FieldSymbol(Symbol):
     name: str
     table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
-    def get_child(self, name: str) -> Symbol:
+    def resolve_database_field(self) -> Optional[Union[DatabaseField, Table]]:
         table_symbol = self.table
         while isinstance(table_symbol, TableAliasSymbol):
             table_symbol = table_symbol.table
-
         if isinstance(table_symbol, TableSymbol):
-            db_table = table_symbol.table
-            if isinstance(db_table, Table):
-                if db_table.has_field(self.name) and (
-                    isinstance(db_table.get_field(self.name), StringJSONDatabaseField)
-                    or isinstance(db_table.get_field(self.name), ComplexField)
-                ):
-                    return PropertySymbol(name=name, property=db_table.get_field(self.name), parent=self)
+            return table_symbol.table.get_field(self.name)
+        return None
 
-        raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
+    def get_child(self, name: str) -> Symbol:
+        database_field = self.resolve_database_field()
+        if database_field is None:
+            raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
+        if isinstance(database_field, Table):
+            return FieldSymbol(name=name, table=TableSymbol(table=database_field))
+        if isinstance(database_field, StringJSONDatabaseField):
+            return PropertySymbol(name=name, parent=self)
+        raise ValueError(
+            f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
+        )
 
 
 class PropertySymbol(Symbol):
     name: str
-    property: Union[DatabaseField, ComplexField]
-    parent: Union[FieldSymbol, "PropertySymbol"]
-
-
-PropertySymbol.update_forward_refs(PropertySymbol=PropertySymbol)
+    parent: FieldSymbol
 
 
 class Expr(AST):

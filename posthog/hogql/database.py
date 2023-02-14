@@ -1,5 +1,3 @@
-from typing import Union
-
 from pydantic import BaseModel, Extra
 
 
@@ -11,19 +9,6 @@ class DatabaseField(BaseModel):
 
     name: str
     array: bool = False
-
-
-class ComplexField(BaseModel):
-    """Base class for a complex field with custom properties."""
-
-    class Config:
-        extra = Extra.forbid
-
-    def has_child(self, name: str) -> bool:
-        return hasattr(self, name)
-
-    def get_child(self, name: str) -> DatabaseField:
-        return getattr(self, name)
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -53,7 +38,7 @@ class Table(BaseModel):
     def has_field(self, name: str) -> bool:
         return hasattr(self, name)
 
-    def get_field(self, name: str) -> Union[DatabaseField, ComplexField]:
+    def get_field(self, name: str) -> DatabaseField:
         if self.has_field(name):
             return getattr(self, name)
         raise ValueError(f'Field "{name}" not found on table {self.__class__.__name__}')
@@ -86,10 +71,14 @@ class PersonDistinctIdTable(Table):
         return "person_distinct_id2"
 
 
-class EventsPersonComplexField(ComplexField):
+class EventsPersonSubTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="person_id")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
     properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
+
+    def clickhouse_table(self):
+        # This is a bit of a hack to make sure person.properties.x works
+        return "events"
 
 
 class EventsTable(Table):
@@ -101,7 +90,7 @@ class EventsTable(Table):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
     distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    person: EventsPersonComplexField = EventsPersonComplexField()
+    person: EventsPersonSubTable = EventsPersonSubTable()
 
     def clickhouse_table(self):
         return "events"

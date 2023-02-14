@@ -177,7 +177,6 @@ class TestPrinter(TestCase):
         materialize("events", "$browser%%%#@!@")
         self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "mat_$browser_______")
 
-        # TODO: get person properties working
         materialize("events", "$initial_waffle", table_column="person_properties")
         self.assertEqual(self._expr("person.properties['$initial_waffle']"), "mat_pp_$initial_waffle")
 

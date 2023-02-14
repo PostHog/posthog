@@ -167,14 +167,14 @@ class Resolver(TraversingVisitor):
             raise ResolverException(f"Unable to resolve field: {name}")
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
+        loop_symbol = symbol
         for child_name in node.chain[1:]:
-            symbol = symbol.get_child(child_name)
-            if symbol is None:
+            loop_symbol = loop_symbol.get_child(child_name)
+            if loop_symbol is None:
                 raise ResolverException(
                     f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {child_name} on {name}"
                 )
-
-        node.symbol = symbol
+        node.symbol = loop_symbol
 
     def visit_constant(self, node):
         """Visit a constant"""

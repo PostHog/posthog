@@ -1,10 +1,11 @@
 from dataclasses import dataclass
-from typing import List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union, cast
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
+from posthog.hogql.database import database
 from posthog.hogql.print_string import print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name
 from posthog.hogql.visitor import Visitor
@@ -339,65 +340,100 @@ class SymbolPrinter(Visitor):
         return print_hogql_identifier(symbol.name)
 
     def visit_field_symbol(self, symbol: ast.FieldSymbol):
-        printed_field = print_hogql_identifier(symbol.name)
-
         try:
             symbol_with_name_in_scope = lookup_field_by_name(self.select, symbol.name)
         except ResolverException:
             symbol_with_name_in_scope = None
 
-        if (
-            symbol_with_name_in_scope != symbol
-            or isinstance(symbol.table, ast.TableAliasSymbol)
-            or isinstance(symbol.table, ast.SelectQueryAliasSymbol)
-        ):
-            table_prefix = self.visit(symbol.table)
-            field_sql = f"{table_prefix}.{printed_field}"
-        else:
-            field_sql = printed_field
+        if isinstance(symbol.table, ast.TableSymbol) or isinstance(symbol.table, ast.TableAliasSymbol):
+            resolved_field = symbol.resolve_database_field()
+            if resolved_field is None:
+                raise ValueError(f'Can\'t resolve field "{symbol.name}" on table.')
 
-        # TODO: refactor this property access logging, also add person properties
-        if printed_field != "properties":
-            self.context.field_access_logs.append(
-                HogQLFieldAccess(
-                    [symbol.name],
-                    "event",
-                    symbol.name,
-                    field_sql,
+            field_sql = print_hogql_identifier(resolved_field.name)
+            if (
+                resolved_field.name != symbol.name
+                or isinstance(symbol.table, ast.TableAliasSymbol)
+                or symbol_with_name_in_scope != symbol
+            ):
+                field_sql = f"{self.visit(symbol.table)}.{field_sql}"
+
+            # TODO: refactor this lefacy logging
+            if symbol.name != "properties":
+                real_table = symbol.table
+                while isinstance(real_table, ast.TableAliasSymbol):
+                    real_table = real_table.table
+
+                self.context.field_access_logs.append(
+                    HogQLFieldAccess(
+                        [symbol.name],
+                        "event" if real_table.table == database.events else "person",
+                        symbol.name,
+                        field_sql,
+                    )
                 )
-            )
+
+        elif isinstance(symbol.table, ast.SelectQuerySymbol) or isinstance(symbol.table, ast.SelectQueryAliasSymbol):
+            field_sql = print_hogql_identifier(symbol.name)
+            if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
+                field_sql = f"{self.visit(symbol.table)}.{field_sql}"
+
+        else:
+            raise ValueError(f"Unknown FieldSymbol table type: {type(symbol.table).__name__}")
 
         return field_sql
 
     def visit_property_symbol(self, symbol: ast.PropertySymbol):
-        if isinstance(symbol.parent, ast.PropertySymbol):
-            return self.visit_property_symbol(symbol.parent)
+        field_symbol = symbol.parent
 
         key = f"hogql_val_{len(self.context.values)}"
         self.context.values[key] = symbol.name
 
-        table = symbol.parent.table
+        table = field_symbol.table
         while isinstance(table, ast.TableAliasSymbol):
             table = table.table
 
+        if not isinstance(table, ast.TableSymbol):
+            raise ValueError(f"Unknown PropertySymbol table type: {type(table).__name__}")
+
+        table_name = table.table.clickhouse_table()
+
+        field = field_symbol.resolve_database_field()
+        if field is None:
+            raise ValueError(f"Can't resolve field {field_symbol.name} on table {table_name}")
+
+        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
+
         # TODO: cache this
-        materialized_columns = get_materialized_columns(table.table.clickhouse_table())
-        materialized_column = materialized_columns.get((symbol.name, "properties"), None)
+        materialized_columns = get_materialized_columns(table_name)
+        materialized_column = materialized_columns.get((symbol.name, field_name), None)
 
         if materialized_column:
             property_sql = print_hogql_identifier(materialized_column)
         else:
-            field_sql = self.visit(symbol.parent)
+            field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
-        self.context.field_access_logs.append(
-            HogQLFieldAccess(
-                ["properties", symbol.name],
-                "event.properties",
-                symbol.name,
-                property_sql,
+        if field_name == "properties":
+            # TODO: refactor this lefacy logging
+            self.context.field_access_logs.append(
+                HogQLFieldAccess(
+                    ["properties", symbol.name],
+                    "event.properties",
+                    symbol.name,
+                    property_sql,
+                )
             )
-        )
+        elif field_name == "person_properties":
+            # TODO: refactor this lefacy logging
+            self.context.field_access_logs.append(
+                HogQLFieldAccess(
+                    ["person", "properties", symbol.name],
+                    "person.properties",
+                    symbol.name,
+                    property_sql,
+                )
+            )
 
         return property_sql
 
