@@ -7,7 +7,6 @@ import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { ConfiguredLimiter, WarningLimiter } from '../../../utils/token-bucket'
 import { IngestionConsumer } from '../kafka-queue'
-import { defaultConfig } from './../../../config/config'
 import { captureIngestionWarning } from './../../../worker/ingestion/utils'
 import { eachBatch } from './each-batch'
 
@@ -26,7 +25,7 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
     }
 
     if (
-        defaultConfig.KAFKA_CONSUMPTION_TOPIC != KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW &&
+        !queue.topics().topics.includes(KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW) &&
         // A null key would indicate we are already consuming from the OVERFLOW topic
         // Which the condition before already asserts is not happening, so this is more of a sanity check
         message.key != null &&

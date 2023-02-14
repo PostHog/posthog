@@ -181,7 +181,7 @@ describe('eachBatchX', () => {
             )
         })
 
-        it('re produces events back to OVERFLOW topic', async () => {
+        it('re produces event back to OVERFLOW topic', async () => {
             const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
             const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
@@ -210,6 +210,36 @@ describe('eachBatchX', () => {
                     },
                 ],
             })
+        })
+
+        it('does not reproduce if already consuming from overflow', async () => {
+            queue.topics = jest.fn(() => {
+                return {
+                    topics: [KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW],
+                }
+            })
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+            await eachBatchIngestion(batch, queue)
+
+            expect(consume).not.toHaveBeenCalled()
+            expect(captureIngestionWarning).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
+        })
+
+        it('does not reproduce if not over capacity limit', async () => {
+            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => true)
+
+            await eachBatchIngestion(batch, queue)
+
+            expect(consume).toHaveBeenCalledWith(
+                captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
+                1
+            )
+            expect(captureIngestionWarning).not.toHaveBeenCalled()
+            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
         })
 
         it('breaks up by teamId:distinctId for enabled teams', async () => {
