@@ -76,6 +76,7 @@ specifiers:
   chart.js: ^3.9.1
   chartjs-adapter-dayjs-3: ^1.2.3
   chartjs-plugin-crosshair: ^1.2.0
+  chartjs-plugin-datalabels: ^2.2.0
   chokidar: ^3.5.3
   clsx: ^1.1.1
   concurrently: ^5.3.0
@@ -209,6 +210,7 @@ dependencies:
   chart.js: 3.9.1
   chartjs-adapter-dayjs-3: 1.2.3_ygcept37un3u7jsj2baqr5ze4e
   chartjs-plugin-crosshair: 1.2.0_chart.js@3.9.1
+  chartjs-plugin-datalabels: 2.2.0_chart.js@3.9.1
   chokidar: 3.5.3
   clsx: 1.2.1
   core-js: 3.15.2
@@ -6737,6 +6739,14 @@ packages:
     resolution: {integrity: sha512-yohsbME+wT1ODBdErBzWnC6xUDcn2tLeWmGjGDTykjpiT7+FMgibffajxqaCVmdzselxNPirpt76vx33EewSSQ==}
     peerDependencies:
       chart.js: ^3.4.0
+    dependencies:
+      chart.js: 3.9.1
+    dev: false
+
+  /chartjs-plugin-datalabels/2.2.0_chart.js@3.9.1:
+    resolution: {integrity: sha512-14ZU30lH7n89oq+A4bWaJPnAG8a7ZTk7dKf48YAzMvJjQtjrgg5Dpk9f+LbjCF6bpx3RAGTeL13IXpKQYyRvlw==}
+    peerDependencies:
+      chart.js: '>=3.0.0'
     dependencies:
       chart.js: 3.9.1
     dev: false

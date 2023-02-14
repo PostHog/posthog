@@ -32,6 +32,8 @@ import {
     midEllipsis,
     numericOperatorMap,
     objectDiffShallow,
+    objectClean,
+    objectCleanWithEmpty,
     pluralize,
     range,
     reverseColonDelimitedDuration,
@@ -589,6 +591,32 @@ describe('objectDiffShallow()', () => {
             b: '3',
             a: '2',
             c: undefined,
+        })
+    })
+})
+
+describe('objectClean()', () => {
+    it('removes undefined values', () => {
+        expect(objectClean({ a: 1, b: 'b', c: null, d: {}, e: [], f: undefined })).toStrictEqual({
+            a: 1,
+            b: 'b',
+            c: null,
+            d: {},
+            e: [],
+        })
+    })
+})
+
+describe('objectCleanWithEmpty()', () => {
+    it('removes undefined and empty values', () => {
+        expect(
+            objectCleanWithEmpty({ a: 1, b: 'b', c: null, d: {}, e: [], f: undefined, g: { x: 1 }, h: [1] })
+        ).toStrictEqual({
+            a: 1,
+            b: 'b',
+            c: null,
+            g: { x: 1 },
+            h: [1],
         })
     })
 })
