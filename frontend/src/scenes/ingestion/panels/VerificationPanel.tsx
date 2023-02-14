@@ -13,8 +13,7 @@ import { IngestionInviteMembersButton } from '../IngestionInviteMembersButton'
 export function VerificationPanel(): JSX.Element {
     const { loadCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { next, completeOnboarding } = useActions(ingestionLogic)
-    const { showBillingStep } = useValues(ingestionLogic)
+    const { next } = useActions(ingestionLogic)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
 
     useInterval(() => {
@@ -42,11 +41,7 @@ export function VerificationPanel(): JSX.Element {
                                 center
                                 type="tertiary"
                                 onClick={() => {
-                                    if (showBillingStep) {
-                                        next({ showBilling: true })
-                                    } else {
-                                        completeOnboarding()
-                                    }
+                                    next({ showSuperpowers: true })
                                     reportIngestionContinueWithoutVerifying()
                                 }}
                             >
@@ -61,23 +56,6 @@ export function VerificationPanel(): JSX.Element {
                             You will now be able to explore PostHog and take advantage of all its features to understand
                             your users.
                         </p>
-                        <div className="mb-4">
-                            <LemonButton
-                                data-attr="wizard-complete-button"
-                                type="primary"
-                                onClick={() => {
-                                    if (showBillingStep) {
-                                        next({ showBilling: true })
-                                    } else {
-                                        completeOnboarding()
-                                    }
-                                }}
-                                fullWidth
-                                center
-                            >
-                                {showBillingStep ? 'Next' : 'Complete'}
-                            </LemonButton>
-                        </div>
                     </div>
                 )}
             </div>

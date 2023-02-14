@@ -60,6 +60,7 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { dayjs, now } from 'lib/dayjs'
+import { isInsightVizNode } from '~/queries/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -185,10 +186,15 @@ export const insightLogic = kea<insightLogicType>([
                 ),
             {
                 loadInsight: async ({ shortId }) => {
+                    const load_query_insight_query_params = !!values.featureFlags[
+                        FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
+                    ]
+                        ? '&include_query_insights=true'
+                        : ''
                     const response = await api.get(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/?short_id=${encodeURIComponent(
                             shortId
-                        )}`
+                        )}${load_query_insight_query_params}`
                     )
                     if (response?.results?.[0]) {
                         return response.results[0]
@@ -607,6 +613,12 @@ export const insightLogic = kea<insightLogicType>([
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
+        isFilterBasedInsight: [
+            (s) => [s.insight],
+            (insight) => Object.keys(insight.filters || {}).length > 0 && !insight.query,
+        ],
+        isQueryBasedInsight: [(s) => [s.insight], (insight) => !!insight.query],
+        isInsightVizQuery: [(s) => [s.insight], (insight) => isInsightVizNode(insight.query)],
         canEditInsight: [
             (s) => [s.insight],
             (insight) =>
@@ -842,7 +854,7 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                if (!values.isUsingDataExploration) {
+                if (!values.isUsingDataExploration && !values.insight?.query) {
                     actions.loadResults()
                 }
             }
@@ -1075,7 +1087,7 @@ export const insightLogic = kea<insightLogicType>([
         loadInsightSuccess: async ({ insight }) => {
             actions.reportInsightViewed(insight, insight?.filters || {})
             // loaded `/api/projects/:id/insights`, but it didn't have `results`, so make another query
-            if (!insight.result && values.filters) {
+            if (!insight.result && !insight.query && values.filters) {
                 actions.loadResults()
             }
         },
@@ -1135,14 +1147,14 @@ export const insightLogic = kea<insightLogicType>([
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
                             actions.reportInsightViewed(insight, insight.filters || {})
-                        } else {
+                        } else if (!insight.query) {
                             actions.loadResults()
                         }
                         return
                     }
                 }
                 if (!props.doNotLoad) {
-                    if (props.cachedInsight?.filters) {
+                    if (props.cachedInsight?.filters && !props.cachedInsight?.query) {
                         actions.loadResults()
                     } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)

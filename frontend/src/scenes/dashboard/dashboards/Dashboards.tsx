@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { dashboardsModel } from '~/models/dashboardsModel'
-import { Tabs } from 'antd'
 import { dashboardsLogic, DashboardsTab } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -17,6 +16,7 @@ import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -51,19 +51,32 @@ export function Dashboards(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <Tabs
+            <LemonTabs
                 activeKey={currentTab}
-                style={{ borderColor: '#D9D9D9' }}
-                onChange={(tab) => setCurrentTab(tab as DashboardsTab)}
-            >
-                <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
-                <Tabs.TabPane tab="Your Dashboards" key={DashboardsTab.Yours} />
-                <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
-                <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
-                {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && (
-                    <Tabs.TabPane tab="Templates" key={DashboardsTab.Templates} />
-                )}
-            </Tabs>
+                onChange={(newKey) => setCurrentTab(newKey)}
+                tabs={[
+                    {
+                        key: DashboardsTab.All,
+                        label: 'All dashboards',
+                    },
+                    {
+                        key: DashboardsTab.Yours,
+                        label: 'Your dashboards',
+                    },
+                    {
+                        key: DashboardsTab.Pinned,
+                        label: 'Pinned',
+                    },
+                    {
+                        key: DashboardsTab.Shared,
+                        label: 'Shared',
+                    },
+                    !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && {
+                        key: DashboardsTab.Templates,
+                        label: 'Templates',
+                    },
+                ]}
+            />
             <div className="flex">
                 <LemonInput
                     type="search"
