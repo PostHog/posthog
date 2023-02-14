@@ -22,42 +22,42 @@ export function VerificationPanel(): JSX.Element {
         }
     }, 2000)
 
-    return (
+    return !currentTeam?.ingested_event ? (
         <CardContainer>
             <div className="text-center">
-                {!currentTeam?.ingested_event ? (
-                    <>
-                        <div className="ingestion-listening-for-events">
-                            <Spinner className="text-4xl" />
-                            <h1 className="ingestion-title pt-4">Listening for events...</h1>
-                            <p className="prompt-text">
-                                Once you have integrated the snippet and sent an event, we will verify it was properly
-                                received and continue.
-                            </p>
-                            <EventBufferNotice className="mb-4" />
-                            <IngestionInviteMembersButton />
-                            <LemonButton
-                                fullWidth
-                                center
-                                type="tertiary"
-                                onClick={() => {
-                                    next({ showSuperpowers: true })
-                                    reportIngestionContinueWithoutVerifying()
-                                }}
-                            >
-                                or continue without verifying
-                            </LemonButton>
-                        </div>
-                    </>
-                ) : (
-                    <div>
-                        <h1 className="ingestion-title">Successfully sent events!</h1>
-                        <p className="prompt-text text-muted text-left">
-                            You will now be able to explore PostHog and take advantage of all its features to understand
-                            your users.
-                        </p>
-                    </div>
-                )}
+                <div className="ingestion-listening-for-events">
+                    <Spinner className="text-4xl" />
+                    <h1 className="ingestion-title pt-4">Listening for events...</h1>
+                    <p className="prompt-text">
+                        Once you have integrated the snippet and sent an event, we will verify it was properly received
+                        and continue.
+                    </p>
+                    <EventBufferNotice className="mb-4" />
+                    <IngestionInviteMembersButton />
+                    <LemonButton
+                        fullWidth
+                        center
+                        type="tertiary"
+                        onClick={() => {
+                            next({ showSuperpowers: true })
+                            reportIngestionContinueWithoutVerifying()
+                        }}
+                    >
+                        or continue without verifying
+                    </LemonButton>
+                </div>
+            </div>
+        </CardContainer>
+    ) : (
+        <CardContainer nextProps={{ showSuperpowers: true }} showInviteTeamMembers={false}>
+            <div className="text-center">
+                <div>
+                    <h1 className="ingestion-title">Successfully sent events!</h1>
+                    <p className="prompt-text text-muted text-left">
+                        You will now be able to explore PostHog and take advantage of all its features to understand
+                        your users.
+                    </p>
+                </div>
             </div>
         </CardContainer>
     )
