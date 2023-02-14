@@ -602,7 +602,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
         acknowledgedRefreshButtonChanged: [
             false,
-            { persist: true },
+            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
             {
                 acknowledgeRefreshButtonChanged: () => true,
             },
