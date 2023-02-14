@@ -1,9 +1,9 @@
 .actions-pie-component {
     min-width: 33%;
     height: 100%;
-    // Less padding at the top because usually there's whitespace between "Computed ..." and "Show legend"
+    // No padding at the top because usually there's whitespace between "Computed ..." and "Show legend"
     // More padding at the bottom to give the number some breathing room
-    padding: 0.5rem 1rem 2rem;
+    padding: 0 1rem 2rem;
 
     .pie-chart {
         position: relative;
