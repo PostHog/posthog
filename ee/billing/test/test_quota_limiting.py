@@ -1,7 +1,7 @@
-from django.utils import timezone
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from django.utils.timezone import now
 from freezegun import freeze_time
 
