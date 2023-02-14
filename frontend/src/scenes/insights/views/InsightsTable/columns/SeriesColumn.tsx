@@ -24,12 +24,6 @@ export function SeriesColumnItem({
 }: SeriesColumnItemProps): JSX.Element {
     const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
 
-    const formatCompareLabel = (trendResult: TrendResult): string => {
-        // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
-        const labels = trendResult.label.split(' - ')
-        return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
-    }
-
     return (
         <div className="series-name-wrapper-col">
             <InsightLabel
@@ -57,4 +51,10 @@ export function SeriesColumnItem({
             )}
         </div>
     )
+}
+
+export const formatCompareLabel = (trendResult: TrendResult): string => {
+    // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
+    const labels = trendResult.label.split(' - ')
+    return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
 }
