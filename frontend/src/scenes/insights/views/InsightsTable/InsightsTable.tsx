@@ -1,12 +1,8 @@
-import { Dropdown, Menu } from 'antd'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, IntervalType, ItemMode } from '~/types'
-import { average, median } from 'lib/utils'
-import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined } from '@ant-design/icons'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { insightsTableLogic } from './insightsTableLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -27,6 +23,7 @@ import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesC
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
 import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
+import { TotalColumnItem, TotalColumnTitle } from './columns/TotalColumn'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -40,12 +37,6 @@ interface InsightsTableProps {
     canCheckUncheckSeries?: boolean
     /* whether this table is below another insight or the insight is in table view */
     isMainInsightView?: boolean
-}
-
-const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
-    total: 'Total Sum',
-    average: 'Average',
-    median: 'Median',
 }
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
@@ -109,8 +100,6 @@ function InsightsTableComponent({
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-
-    const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
     const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
     const { calcColumnState, showTotalCount } = useValues(logic)
@@ -217,55 +206,23 @@ function InsightsTableComponent({
     }
 
     if (showTotalCount) {
-        const calcColumnMenu = !isNonTimeSeriesDisplay && (
-            <Menu>
-                {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                    <Menu.Item
-                        key={key}
-                        onClick={(e) => {
-                            setCalcColumnState(key as CalcColumnState)
-                            reportInsightsTableCalcToggled(key)
-                            e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                        }}
-                    >
-                        {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                    </Menu.Item>
-                ))}
-            </Menu>
-        )
         columns.push({
-            title: calcColumnMenu ? (
-                <Dropdown overlay={calcColumnMenu}>
-                    <span className="cursor-pointer">
-                        {CALC_COLUMN_LABELS[calcColumnState]}
-                        <DownOutlined className="ml-1" />
-                    </span>
-                </Dropdown>
-            ) : (
-                CALC_COLUMN_LABELS.total
+            title: (
+                <TotalColumnTitle
+                    isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                    calcColumnState={calcColumnState}
+                    setCalcColumnState={setCalcColumnState}
+                />
             ),
-            render: function RenderCalc(_: any, item: IndexedTrendResult) {
-                let value: number | undefined = undefined
-                if (calcColumnState === 'total' || isNonTimeSeriesDisplay) {
-                    value = item.count ?? item.aggregated_value
-                    if (item.aggregated_value > item.count) {
-                        value = item.aggregated_value
-                    }
-                } else if (calcColumnState === 'average') {
-                    value = average(item.data)
-                } else if (calcColumnState === 'median') {
-                    value = median(item.data)
-                }
+            render: (_: any, item: IndexedTrendResult) => (
+                <TotalColumnItem
+                    item={item}
+                    isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                    calcColumnState={calcColumnState}
+                    filters={filters}
+                />
+            ),
 
-                return value !== undefined
-                    ? formatAggregationValue(
-                          item.action?.math_property,
-                          value,
-                          (value) => formatAggregationAxisValue(filters, value),
-                          formatPropertyValueForDisplay
-                      )
-                    : 'Unknown'
-            },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             align: 'right',
