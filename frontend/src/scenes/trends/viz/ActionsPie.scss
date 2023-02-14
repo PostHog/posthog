@@ -1,28 +1,18 @@
 .actions-pie-component {
     min-width: 33%;
     height: 100%;
+    // Less padding at the top because usually there's whitespace between "Computed ..." and "Show legend"
+    // More padding at the bottom to give the number some breathing room
+    padding: 0.5rem 1rem 2rem;
 
     .pie-chart {
         position: relative;
         width: 100%;
-        height: calc(100% - 100px);
+        height: calc(100% - 4.5rem); // 4.5rem is the height of the number below the chart
         transition: height 0.5s;
     }
 
-    @media (max-width: 700px) {
-        .pie-chart {
-            height: calc(100% - 60px);
-        }
-        h1 {
-            font-size: 48px;
-        }
-    }
-    @media (max-width: 500px) {
-        .pie-chart {
-            height: calc(100% - 50px);
-        }
-        h1 {
-            font-size: 32px;
-        }
+    h3 {
+        letter-spacing: -0.025em;
     }
 }
