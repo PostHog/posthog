@@ -1,4 +1,4 @@
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Extra
 
@@ -6,6 +6,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
 from posthog.hogql.resolver import resolve_symbols
 from posthog.models import Team
@@ -28,13 +29,19 @@ def execute_hogql_query(
     query: Union[str, ast.SelectQuery],
     team: Team,
     query_type: str = "hogql_query",
+    placeholders: Optional[Dict[str, ast.Expr]] = None,
     workload: Workload = Workload.ONLINE,
 ) -> HogQLQueryResponse:
     if isinstance(query, ast.SelectQuery):
         select_query = query
         query = None
     else:
-        select_query = parse_select(str(query), no_placeholders=True)
+        select_query = parse_select(str(query))
+
+    if placeholders:
+        select_query = replace_placeholders(select_query, placeholders)
+    else:
+        assert_no_placeholders(select_query)
 
     if select_query.limit is None:
         select_query.limit = ast.Constant(value=1000)

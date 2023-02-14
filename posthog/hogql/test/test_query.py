@@ -1,5 +1,6 @@
 from freezegun import freeze_time
 
+from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import UUIDT
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
@@ -30,8 +31,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             random_uuid = self._create_random_events()
 
             response = execute_hogql_query(
-                f"select count(), event from events where properties.random_uuid = '{random_uuid}' group by event",
-                self.team,
+                "select count(), event from events where properties.random_uuid = {random_uuid} group by event",
+                placeholders={"random_uuid": ast.Constant(value=random_uuid)},
+                team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
@@ -44,8 +46,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(2, "random event")])
 
             response = execute_hogql_query(
-                f"select count, event from (select count() as count, event from events where properties.random_uuid = '{random_uuid}' group by event) group by count, event",
-                self.team,
+                "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) group by count, event",
+                placeholders={"random_uuid": ast.Constant(value=random_uuid)},
+                team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
@@ -58,8 +61,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(2, "random event")])
 
             response = execute_hogql_query(
-                f"select count, event from (select count() as count, event from events where properties.random_uuid = '{random_uuid}' group by event) as c group by count, event",
-                self.team,
+                "select count, event from (select count() as count, event from events where properties.random_uuid = {random_uuid} group by event) as c group by count, event",
+                placeholders={"random_uuid": ast.Constant(value=random_uuid)},
+                team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
@@ -72,8 +76,9 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results, [(2, "random event")])
 
             response = execute_hogql_query(
-                f"select distinct properties.email from persons where properties.random_uuid = '{random_uuid}'",
-                self.team,
+                "select distinct properties.email from persons where properties.random_uuid = {random_uuid}",
+                placeholders={"random_uuid": ast.Constant(value=random_uuid)},
+                team=self.team,
             )
             self.assertEqual(
                 response.clickhouse,
