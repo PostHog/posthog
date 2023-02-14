@@ -302,6 +302,8 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
         700: 'medium',
     })
 
+    const freeTier = (billing?.has_active_subscription ? product.tiers?.[0]?.up_to : product.free_allocation) || 0
+
     const billingGaugeItems: BillingGaugeProps['items'] = useMemo(
         () =>
             [
@@ -312,7 +314,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                         </>
                     ),
                     color: 'success-light',
-                    value: product.tiers?.[0]?.up_to || 0,
+                    value: freeTier,
                     top: true,
                 },
                 {
