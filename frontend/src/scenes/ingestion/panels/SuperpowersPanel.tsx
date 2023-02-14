@@ -23,7 +23,6 @@ export function SuperpowersPanel(): JSX.Element {
                     capture_performance_opt_in: sessionRecordingsChecked,
                 })
                 if (!showBillingStep) {
-                    console.log('YES HERE')
                     completeOnboarding()
                 }
             }}
