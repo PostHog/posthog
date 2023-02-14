@@ -1,4 +1,5 @@
-from typing import List, Literal, Optional, Tuple, Union
+from dataclasses import dataclass
+from typing import List, Literal, Optional, Union
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns
 from posthog.hogql import ast
@@ -9,7 +10,9 @@ from posthog.hogql.resolver import ResolverException, lookup_field_by_name
 from posthog.hogql.visitor import Visitor
 
 
-def guard_where_team_id(table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbol], context: HogQLContext) -> ast.Expr:
+def team_id_guard_for_table(
+    table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbol], context: HogQLContext
+) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.select_team_id:
         raise ValueError("context.select_team_id not found")
@@ -22,9 +25,15 @@ def guard_where_team_id(table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbo
 
 
 def print_ast(
-    node: ast.AST, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: List[ast.AST] = []
+    node: ast.AST, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: Optional[List[ast.AST]] = None
 ) -> str:
-    return Printer(context=context, dialect=dialect, stack=stack).visit(node)
+    return Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+
+
+@dataclass
+class JoinExprResponse:
+    printed_sql: str
+    where: Optional[ast.Expr] = None
 
 
 class Printer(Visitor):
@@ -33,9 +42,11 @@ class Printer(Visitor):
     ):
         self.context = context
         self.dialect = dialect
+        # Keep track of all traversed nodes.
         self.stack: List[ast.AST] = stack or []
 
     def _last_select(self) -> Optional[ast.SelectQuery]:
+        """Find the last SELECT query in the stack."""
         for node in reversed(self.stack):
             if isinstance(node, ast.SelectQuery):
                 return node
@@ -49,9 +60,9 @@ class Printer(Visitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         if self.dialect == "clickhouse" and not self.context.select_team_id:
-            raise ValueError("Full SELECT queries are disabled if select_team_id is not set")
+            raise ValueError("Full SELECT queries are disabled if context.select_team_id is not set")
 
-        # we will add extra clauses onto this
+        # We will add extra clauses onto this from the joined tables
         where = node.where
 
         select_from = []
@@ -60,16 +71,22 @@ class Printer(Visitor):
             if next_join.symbol is None:
                 raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
 
-            (select_sql, extra_where) = self.visit_join_expr(next_join)
-            select_from.append(select_sql)
+            visited_join = self.visit_join_expr(next_join)
+            select_from.append(visited_join.printed_sql)
 
-            if extra_where is not None:
+            # This is an expression we must add to the SELECT's WHERE clause to limit results.
+            extra_where = visited_join.where
+            if extra_where is None:
+                pass
+            elif isinstance(extra_where, ast.Expr):
                 if where is None:
                     where = extra_where
                 elif isinstance(where, ast.And):
                     where = ast.And(exprs=[extra_where] + where.exprs)
                 else:
                     where = ast.And(exprs=[extra_where, where])
+            else:
+                raise ValueError(f"Invalid where of type {type(extra_where).__name__} returned by join_expr")
 
             next_join = next_join.next_join
 
@@ -80,16 +97,6 @@ class Printer(Visitor):
         group_by = [self.visit(column) for column in node.group_by] if node.group_by else None
         order_by = [self.visit(column) for column in node.order_by] if node.order_by else None
 
-        limit = node.limit
-        if self.context.limit_top_select:
-            if limit is not None:
-                if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
-                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
-                else:
-                    limit = ast.Call(name="min2", args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit])
-            elif len(self.stack) == 1:
-                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
-
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {' '.join(select_from)}" if len(select_from) > 0 else None,
@@ -99,6 +106,17 @@ class Printer(Visitor):
             "PREWHERE " + prewhere if prewhere else None,
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
+
+        limit = node.limit
+        if self.context.limit_top_select and len(self.stack) == 1:
+            if limit is not None:
+                if isinstance(limit, ast.Constant) and isinstance(limit.value, int):
+                    limit.value = min(limit.value, MAX_SELECT_RETURNED_ROWS)
+                else:
+                    limit = ast.Call(name="min2", args=[ast.Constant(value=MAX_SELECT_RETURNED_ROWS), limit])
+            else:
+                limit = ast.Constant(value=MAX_SELECT_RETURNED_ROWS)
+
         if limit is not None:
             clauses.append(f"LIMIT {self.visit(limit)}")
             if node.offset is not None:
@@ -113,9 +131,9 @@ class Printer(Visitor):
             response = f"({response})"
         return response
 
-    def visit_join_expr(self, node: ast.JoinExpr) -> Tuple[str, Optional[ast.Expr]]:
+    def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # return constraints we must place on the select query
-        extra_where = None
+        extra_where: Optional[ast.Expr] = None
 
         select_from = []
         if node.join_type is not None:
@@ -132,13 +150,13 @@ class Printer(Visitor):
                 select_from.append(f"AS {print_hogql_identifier(node.alias)}")
 
             if self.dialect == "clickhouse":
-                extra_where = guard_where_team_id(node.symbol, self.context)
+                extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
             select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
 
             if self.dialect == "clickhouse":
-                extra_where = guard_where_team_id(node.symbol, self.context)
+                extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.SelectQuerySymbol):
             select_from.append(self.visit(node.table))
@@ -155,7 +173,7 @@ class Printer(Visitor):
         if node.constraint is not None:
             select_from.append(f"ON {self.visit(node.constraint)}")
 
-        return (" ".join(select_from), extra_where)
+        return JoinExprResponse(printed_sql=" ".join(select_from), where=extra_where)
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
@@ -244,16 +262,17 @@ class Printer(Visitor):
             raise ValueError(f"Field {original_field} has no symbol")
 
         if self.dialect == "hogql":
-            # When printing HogQL, we print the properties out as a chain instead of converting them to Clickhouse SQL
+            # When printing HogQL, we print the properties out as a chain as they are.
             return ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
-        elif node.chain == ["*"]:
-            raise ValueError("Selecting * not implemented")
+
+        if node.chain == ["*"]:
             # query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
             # return self.visit(parse_expr(query))
+            raise ValueError("Selecting * not yet implemented")
         elif node.chain == ["person"]:
-            raise ValueError("Selecting person not implemented")
             # query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
             # return self.visit(parse_expr(query))
+            raise ValueError("Selecting person not yet implemented")
         elif node.symbol is not None:
             select_query = self._last_select()
             select: Optional[ast.SelectQuerySymbol] = select_query.symbol if select_query else None
@@ -261,7 +280,7 @@ class Printer(Visitor):
                 raise ValueError(f"Can't find SelectQuerySymbol for field: {original_field}")
             return SymbolPrinter(select=select, context=self.context).visit(node.symbol)
         else:
-            raise ValueError(f"Unknown Symbol, can not print {type(node.symbol)}")
+            raise ValueError(f"Unknown Symbol, can not print {type(node.symbol).__name__}")
 
     def visit_call(self, node: ast.Call):
         if node.name in HOGQL_AGGREGATIONS:
@@ -337,8 +356,8 @@ class SymbolPrinter(Visitor):
         else:
             field_sql = printed_field
 
+        # TODO: refactor this property access logging, also add person properties
         if printed_field != "properties":
-            # TODO: refactor this property access logging
             self.context.field_access_logs.append(
                 HogQLFieldAccess(
                     [symbol.name],
@@ -355,7 +374,7 @@ class SymbolPrinter(Visitor):
         self.context.values[key] = symbol.name
 
         table = symbol.field.table
-        if isinstance(table, ast.TableAliasSymbol):
+        while isinstance(table, ast.TableAliasSymbol):
             table = table.table
 
         # TODO: cache this
@@ -382,7 +401,7 @@ class SymbolPrinter(Visitor):
     def visit_select_query_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return print_hogql_identifier(symbol.name)
 
-    def visit_column_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
+    def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return print_hogql_identifier(symbol.name)
 
     def visit_unknown(self, symbol: ast.AST):
