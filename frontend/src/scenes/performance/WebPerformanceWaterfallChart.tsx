@@ -17,7 +17,7 @@ import { IconErrorOutline, IconInfo } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-interface PerfBlockProps {
+export interface PerfBlockProps {
     resourceTiming: ResourceTiming
     max: number | undefined
 }

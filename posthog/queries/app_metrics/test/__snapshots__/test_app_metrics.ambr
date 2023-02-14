@@ -232,10 +232,14 @@
   '
   
   SELECT plugin_config_id,
-         (sum(successes) + sum(successes_on_retry)) / (sum(successes) + sum(successes_on_retry) + sum(failures)) AS rate
-  FROM app_metrics
-  WHERE team_id = 2
-    AND timestamp > '2021-12-04 13:23:00.000000'
-  GROUP BY plugin_config_id
+         if(total > 0, success/total, 1) as rate
+  FROM
+    (SELECT plugin_config_id,
+            sum(successes) + sum(successes_on_retry) AS success,
+            sum(successes) + sum(successes_on_retry) + sum(failures) AS total
+     FROM app_metrics
+     WHERE team_id = 2
+       AND timestamp > '2021-12-04 13:23:00.000000'
+     GROUP BY plugin_config_id)
   '
 ---

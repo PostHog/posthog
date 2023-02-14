@@ -1,4 +1,5 @@
 .JsonEditorInput {
+    position: relative;
     .border {
         border-radius: var(--radius);
         .monaco-editor {
@@ -6,6 +7,24 @@
             .overflow-guard {
                 border-radius: inherit;
             }
+        }
+    }
+    .placeholder {
+        position: absolute;
+        top: 0;
+        left: 0;
+        bottom: 0;
+        height: 100%;
+        width: 100%;
+        pointer-events: none;
+
+        .placeholderLabelContainer {
+            display: flex;
+            align-items: center;
+            pointer-events: none;
+            height: 100%;
+            padding-left: 18px;
+            color: gray;
         }
     }
 }

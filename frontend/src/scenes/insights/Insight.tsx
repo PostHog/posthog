@@ -334,6 +334,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         />
                     </>
                 }
+                tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
