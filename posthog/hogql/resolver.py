@@ -83,9 +83,11 @@ class Resolver(TraversingVisitor):
 
             if table_name in database.__fields__:
                 table = database.__fields__[table_name].default
-                node.symbol = ast.TableSymbol(table=table)
+                node.table.symbol = ast.TableSymbol(table=table)
                 if table_alias != table_name:
-                    node.symbol = ast.TableAliasSymbol(name=table_alias, table=node.symbol)
+                    node.symbol = ast.TableAliasSymbol(name=table_alias, table=node.table.symbol)
+                else:
+                    node.symbol = node.table.symbol
                 scope.tables[table_alias] = node.symbol
             else:
                 raise ResolverException(f'Unknown table "{table_name}".')
