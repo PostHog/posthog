@@ -9,26 +9,16 @@ from posthog.hogql.resolver import ResolverException, lookup_field_by_name
 from posthog.hogql.visitor import Visitor
 
 
-def guard_where_team_id(
-    where: Optional[ast.Expr], table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbol], context: HogQLContext
-) -> ast.Expr:
+def guard_where_team_id(table_symbol: Union[ast.TableSymbol, ast.TableAliasSymbol], context: HogQLContext) -> ast.Expr:
     """Add a mandatory "and(team_id, ...)" filter around the expression."""
     if not context.select_team_id:
         raise ValueError("context.select_team_id not found")
 
-    team_clause = ast.CompareOperation(
+    return ast.CompareOperation(
         op=ast.CompareOperationType.Eq,
         left=ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=table_symbol)),
         right=ast.Constant(value=context.select_team_id),
     )
-
-    if isinstance(where, ast.And):
-        where = ast.And(exprs=[team_clause] + where.exprs)
-    elif where:
-        where = ast.And(exprs=[team_clause, where])
-    else:
-        where = team_clause
-    return where
 
 
 def print_ast(
@@ -142,13 +132,13 @@ class Printer(Visitor):
                 select_from.append(f"AS {print_hogql_identifier(node.alias)}")
 
             if self.dialect == "clickhouse":
-                extra_where = guard_where_team_id(None, node.symbol, self.context)
+                extra_where = guard_where_team_id(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
             select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
 
             if self.dialect == "clickhouse":
-                extra_where = guard_where_team_id(None, node.symbol, self.context)
+                extra_where = guard_where_team_id(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.SelectQuerySymbol):
             select_from.append(self.visit(node.table))
@@ -256,12 +246,14 @@ class Printer(Visitor):
         if self.dialect == "hogql":
             # When printing HogQL, we print the properties out as a chain instead of converting them to Clickhouse SQL
             return ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
-        # elif node.chain == ["*"]:
-        #     query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-        #     return self.visit(parse_expr(query))
-        # elif node.chain == ["person"]:
-        #     query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
-        #     return self.visit(parse_expr(query))
+        elif node.chain == ["*"]:
+            raise ValueError("Selecting * not implemented")
+            # query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+            # return self.visit(parse_expr(query))
+        elif node.chain == ["person"]:
+            raise ValueError("Selecting person not implemented")
+            # query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+            # return self.visit(parse_expr(query))
         elif node.symbol is not None:
             select_query = self._last_select()
             select: Optional[ast.SelectQuerySymbol] = select_query.symbol if select_query else None

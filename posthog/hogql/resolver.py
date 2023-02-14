@@ -19,6 +19,7 @@ class Resolver(TraversingVisitor):
     """The Resolver visits an AST and assigns Symbols to the nodes."""
 
     def __init__(self, scope: Optional[ast.SelectQuerySymbol] = None):
+        # Each SELECT query creates a new scope. Store all of them in a list as we traverse the tree.
         self.scopes: List[ast.SelectQuerySymbol] = [scope] if scope else []
 
     def visit_select_query(self, node):
@@ -26,7 +27,7 @@ class Resolver(TraversingVisitor):
         if node.symbol is not None:
             return
 
-        node.symbol = ast.SelectQuerySymbol(aliases={}, columns={}, tables={}, anonymous_tables=[])
+        node.symbol = ast.SelectQuerySymbol()
 
         # Each SELECT query creates a new scope. Store all of them in a list for variable access.
         self.scopes.append(node.symbol)
@@ -40,7 +41,7 @@ class Resolver(TraversingVisitor):
         # SELECT e.event, e.timestamp from (SELECT event, timestamp FROM events) AS e
         for expr in node.select or []:
             self.visit(expr)
-            if isinstance(expr.symbol, ast.ColumnAliasSymbol):
+            if isinstance(expr.symbol, ast.FieldAliasSymbol):
                 node.symbol.columns[expr.symbol.name] = expr.symbol
             elif isinstance(expr, ast.Alias):
                 node.symbol.columns[expr.alias] = expr.symbol
@@ -125,7 +126,7 @@ class Resolver(TraversingVisitor):
         self.visit(node.expr)
         if not node.expr.symbol:
             raise ResolverException(f"Cannot alias an expression without a symbol: {node.alias}")
-        node.symbol = ast.ColumnAliasSymbol(name=node.alias, symbol=node.expr.symbol)
+        node.symbol = ast.FieldAliasSymbol(name=node.alias, symbol=node.expr.symbol)
         scope.aliases[node.alias] = node.symbol
 
     def visit_call(self, node: ast.Call):
@@ -144,12 +145,12 @@ class Resolver(TraversingVisitor):
             raise Exception("Invalid field access with empty chain")
 
         # ClickHouse does not support subqueries accessing "x.event" like this:
-        # "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
-        #
+        # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
-        # "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
+        # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
         #
-        # Thus only look into the current scope, for columns and aliases.
+        # Thus we only look into scopes[-1] to see aliases in the current scope, and don't loop over all the scopes.
+
         scope = self.scopes[-1]
         symbol: Optional[ast.Symbol] = None
         name = node.chain[0]
@@ -180,6 +181,7 @@ class Resolver(TraversingVisitor):
 
 
 def lookup_field_by_name(scope: ast.SelectQuerySymbol, name: str) -> Optional[ast.Symbol]:
+    """Looks for a field in the scope's list of aliases and children for each joined table."""
     if name in scope.aliases:
         return scope.aliases[name]
     else:
@@ -190,6 +192,5 @@ def lookup_field_by_name(scope: ast.SelectQuerySymbol, name: str) -> Optional[as
         if len(tables) > 1:
             raise ResolverException(f"Ambiguous query. Found multiple sources for field: {name}")
         elif len(tables) == 1:
-            # accessed a field on a joined table by name
             return tables[0].get_child(name)
         return None

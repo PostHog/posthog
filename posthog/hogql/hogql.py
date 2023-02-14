@@ -21,7 +21,7 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
         else:
             node = parse_expr(query, no_placeholders=True)
             symbol = ast.SelectQuerySymbol(
-                aliases={}, columns={}, tables={"events": ast.TableSymbol(table=database.events)}, anonymous_tables=[]
+                tables={"events": ast.TableSymbol(table=database.events)},
             )
             resolve_symbols(node, symbol)
             return print_ast(node, context, dialect, stack=[ast.SelectQuery(select=[], symbol=symbol)])

@@ -14,10 +14,8 @@ class TestResolver(BaseTest):
         event_field_symbol = ast.FieldSymbol(name="event", table=events_table_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_symbol)
         select_query_symbol = ast.SelectQuerySymbol(
-            aliases={},
             columns={"event": event_field_symbol, "timestamp": timestamp_field_symbol},
             tables={"events": events_table_symbol},
-            anonymous_tables=[],
         )
 
         expected = ast.SelectQuery(
@@ -53,10 +51,8 @@ class TestResolver(BaseTest):
         event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
         select_query_symbol = ast.SelectQuerySymbol(
-            aliases={},
             columns={"event": event_field_symbol, "timestamp": timestamp_field_symbol},
             tables={"e": events_table_alias_symbol},
-            anonymous_tables=[],
         )
 
         expected = ast.SelectQuery(
@@ -95,20 +91,15 @@ class TestResolver(BaseTest):
 
         select_query_symbol = ast.SelectQuerySymbol(
             aliases={
-                "ee": ast.ColumnAliasSymbol(name="ee", symbol=event_field_symbol),
-                "e": ast.ColumnAliasSymbol(
-                    name="e", symbol=ast.ColumnAliasSymbol(name="ee", symbol=event_field_symbol)
-                ),
+                "ee": ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol),
+                "e": ast.FieldAliasSymbol(name="e", symbol=ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol)),
             },
             columns={
-                "ee": ast.ColumnAliasSymbol(name="ee", symbol=event_field_symbol),
-                "e": ast.ColumnAliasSymbol(
-                    name="e", symbol=ast.ColumnAliasSymbol(name="ee", symbol=event_field_symbol)
-                ),
+                "ee": ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol),
+                "e": ast.FieldAliasSymbol(name="e", symbol=ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol)),
                 "timestamp": timestamp_field_symbol,
             },
             tables={"e": events_table_alias_symbol},
-            anonymous_tables=[],
         )
 
         expected = ast.SelectQuery(
@@ -149,24 +140,23 @@ class TestResolver(BaseTest):
         expr = parse_select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
         resolve_symbols(expr)
         inner_events_table_symbol = ast.TableSymbol(table=database.events)
-        inner_event_field_symbol = ast.ColumnAliasSymbol(
+        inner_event_field_symbol = ast.FieldAliasSymbol(
             name="b", symbol=ast.FieldSymbol(name="event", table=inner_events_table_symbol)
         )
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=inner_events_table_symbol)
-        timstamp_alias_symbol = ast.ColumnAliasSymbol(name="c", symbol=timestamp_field_symbol)
+        timstamp_alias_symbol = ast.FieldAliasSymbol(name="c", symbol=timestamp_field_symbol)
         inner_select_symbol = ast.SelectQuerySymbol(
             aliases={
                 "b": inner_event_field_symbol,
-                "c": ast.ColumnAliasSymbol(name="c", symbol=timestamp_field_symbol),
+                "c": ast.FieldAliasSymbol(name="c", symbol=timestamp_field_symbol),
             },
             columns={
                 "b": inner_event_field_symbol,
-                "c": ast.ColumnAliasSymbol(name="c", symbol=timestamp_field_symbol),
+                "c": ast.FieldAliasSymbol(name="c", symbol=timestamp_field_symbol),
             },
             tables={
                 "events": inner_events_table_symbol,
             },
-            anonymous_tables=[],
         )
         select_alias_symbol = ast.SelectQueryAliasSymbol(name="e", symbol=inner_select_symbol)
         expected = ast.SelectQuery(
@@ -214,7 +204,6 @@ class TestResolver(BaseTest):
                 aliases={},
                 columns={"b": ast.FieldSymbol(name="b", table=select_alias_symbol)},
                 tables={"e": select_alias_symbol},
-                anonymous_tables=[],
             ),
         )
         # asserting individually to help debug if something is off
