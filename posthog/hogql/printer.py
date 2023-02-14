@@ -370,10 +370,13 @@ class SymbolPrinter(Visitor):
         return field_sql
 
     def visit_property_symbol(self, symbol: ast.PropertySymbol):
+        if isinstance(symbol.parent, ast.PropertySymbol):
+            return self.visit_property_symbol(symbol.parent)
+
         key = f"hogql_val_{len(self.context.values)}"
         self.context.values[key] = symbol.name
 
-        table = symbol.field.table
+        table = symbol.parent.table
         while isinstance(table, ast.TableAliasSymbol):
             table = table.table
 
@@ -384,7 +387,7 @@ class SymbolPrinter(Visitor):
         if materialized_column:
             property_sql = print_hogql_identifier(materialized_column)
         else:
-            field_sql = self.visit(symbol.field)
+            field_sql = self.visit(symbol.parent)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
         self.context.field_access_logs.append(

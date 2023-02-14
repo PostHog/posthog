@@ -1,105 +1,129 @@
+from typing import Union
+
 from pydantic import BaseModel, Extra
 
 
-class Field(BaseModel):
+class DatabaseField(BaseModel):
+    """Base class for a field in a database table."""
+
     class Config:
         extra = Extra.forbid
 
+    name: str
+    array: bool = False
 
-class IntegerValue(Field):
+
+class ComplexField(BaseModel):
+    """Base class for a complex field with custom properties."""
+
+    class Config:
+        extra = Extra.forbid
+
+    def has_child(self, name: str) -> bool:
+        return hasattr(self, name)
+
+    def get_child(self, name: str) -> DatabaseField:
+        return getattr(self, name)
+
+
+class IntegerDatabaseField(DatabaseField):
     pass
 
 
-class StringValue(Field):
+class StringDatabaseField(DatabaseField):
     pass
 
 
-class StringJSONValue(Field):
+class StringJSONDatabaseField(DatabaseField):
     pass
 
 
-class DateTimeValue(Field):
+class DateTimeDatabaseField(DatabaseField):
     pass
 
 
-class BooleanValue(Field):
+class BooleanDatabaseField(DatabaseField):
     pass
-
-
-class ArrayValue(Field):
-    field: Field
 
 
 class Table(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    def has_field(self, name: str) -> bool:
+        return hasattr(self, name)
+
+    def get_field(self, name: str) -> Union[DatabaseField, ComplexField]:
+        if self.has_field(name):
+            return getattr(self, name)
+        raise ValueError(f'Field "{name}" not found on table {self.__class__.__name__}')
+
     def clickhouse_table(self):
-        raise NotImplementedError()
+        raise NotImplementedError("Table.clickhouse_table not overridden")
 
 
 class PersonsTable(Table):
-    id: StringValue = StringValue()
-    created_at: DateTimeValue = DateTimeValue()
-    team_id: IntegerValue = IntegerValue()
-    properties: StringJSONValue = StringJSONValue()
-    is_identified: BooleanValue = BooleanValue()
-    is_deleted: BooleanValue = BooleanValue()
-    version: IntegerValue = IntegerValue()
+    id: StringDatabaseField = StringDatabaseField(name="id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+    is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
+    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
     def clickhouse_table(self):
         return "person"
 
 
 class PersonDistinctIdTable(Table):
-    team_id: IntegerValue = IntegerValue()
-    distinct_id: StringValue = StringValue()
-    person_id: StringValue = StringValue()
-    is_deleted: BooleanValue = BooleanValue()
-    version: IntegerValue = IntegerValue()
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
     def clickhouse_table(self):
         return "person_distinct_id2"
 
 
-class PersonFieldsOnEvents(Table):
-    id: StringValue = StringValue()
-    created_at: DateTimeValue = DateTimeValue()
-    properties: StringJSONValue = StringJSONValue()
+class EventsPersonComplexField(ComplexField):
+    id: StringDatabaseField = StringDatabaseField(name="person_id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
 
 
 class EventsTable(Table):
-    uuid: StringValue = StringValue()
-    event: StringValue = StringValue()
-    timestamp: DateTimeValue = DateTimeValue()
-    properties: StringJSONValue = StringJSONValue()
-    elements_chain: StringValue = StringValue()
-    created_at: DateTimeValue = DateTimeValue()
-    distinct_id: StringValue = StringValue()
-    team_id: IntegerValue = IntegerValue()
-    person: PersonFieldsOnEvents = PersonFieldsOnEvents()
+    uuid: StringDatabaseField = StringDatabaseField(name="uuid")
+    event: StringDatabaseField = StringDatabaseField(name="event")
+    timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="timestamp")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+    elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    person: EventsPersonComplexField = EventsPersonComplexField()
 
     def clickhouse_table(self):
         return "events"
 
 
 class SessionRecordingEvents(Table):
-    uuid: StringValue = StringValue()
-    timestamp: DateTimeValue = DateTimeValue()
-    team_id: IntegerValue = IntegerValue()
-    distinct_id: StringValue = StringValue()
-    session_id: StringValue = StringValue()
-    window_id: StringValue = StringValue()
-    snapshot_data: StringValue = StringValue()
-    created_at: DateTimeValue = DateTimeValue()
-    has_full_snapshot: BooleanValue = BooleanValue()
-    events_summary: ArrayValue = ArrayValue(field=BooleanValue())
-    click_count: IntegerValue = IntegerValue()
-    keypress_count: IntegerValue = IntegerValue()
-    timestamps_summary: ArrayValue = ArrayValue(field=DateTimeValue())
-    first_event_timestamp: DateTimeValue = DateTimeValue()
-    last_event_timestamp: DateTimeValue = DateTimeValue()
-    urls: ArrayValue = ArrayValue(field=StringValue())
+    uuid: StringDatabaseField = StringDatabaseField(name="uuid")
+    timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="timestamp")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
+    session_id: StringDatabaseField = StringDatabaseField(name="session_id")
+    window_id: StringDatabaseField = StringDatabaseField(name="window_id")
+    snapshot_data: StringDatabaseField = StringDatabaseField(name="snapshot_data")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    has_full_snapshot: BooleanDatabaseField = BooleanDatabaseField(name="has_full_snapshot")
+    events_summary: BooleanDatabaseField = BooleanDatabaseField(name="events_summary", array=True)
+    click_count: IntegerDatabaseField = IntegerDatabaseField(name="click_count")
+    keypress_count: IntegerDatabaseField = IntegerDatabaseField(name="keypress_count")
+    timestamps_summary: DateTimeDatabaseField = DateTimeDatabaseField(name="timestamps_summary", array=True)
+    first_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="first_event_timestamp")
+    last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
+    urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
 
     def clickhouse_table(self):
         return "session_recording_events"
@@ -115,11 +139,13 @@ class Database(BaseModel):
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
 
-    def get_table(self, table_name: str):
-        return getattr(self, table_name)
-
-    def has_table(self, table_name: str):
+    def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
+
+    def get_table(self, table_name: str) -> Table:
+        if self.has_table(table_name):
+            return getattr(self, table_name)
+        raise ValueError(f'Table "{table_name}" not found in database')
 
 
 database = Database()

@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
-from posthog.hogql.database import StringJSONValue, Table
+from posthog.hogql.database import ComplexField, DatabaseField, StringJSONDatabaseField, Table
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -29,7 +29,7 @@ class AST(BaseModel):
 
 class Symbol(AST):
     def get_child(self, name: str) -> "Symbol":
-        raise NotImplementedError()
+        raise NotImplementedError("Symbol.get_child not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
@@ -50,7 +50,7 @@ class TableSymbol(Symbol):
     table: Table
 
     def has_child(self, name: str) -> bool:
-        return name in self.table.__fields__
+        return self.table.has_field(name)
 
     def get_child(self, name: str) -> Symbol:
         if self.has_child(name):
@@ -114,6 +114,10 @@ class CallSymbol(Symbol):
     args: List[Symbol]
 
 
+class ConstantSymbol(Symbol):
+    value: Any
+
+
 class FieldSymbol(Symbol):
     name: str
     table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
@@ -126,20 +130,22 @@ class FieldSymbol(Symbol):
         if isinstance(table_symbol, TableSymbol):
             db_table = table_symbol.table
             if isinstance(db_table, Table):
-                if self.name in db_table.__fields__ and isinstance(
-                    db_table.__fields__[self.name].default, StringJSONValue
+                if db_table.has_field(self.name) and (
+                    isinstance(db_table.get_field(self.name), StringJSONDatabaseField)
+                    or isinstance(db_table.get_field(self.name), ComplexField)
                 ):
-                    return PropertySymbol(name=name, field=self)
-        raise ValueError(f"Can not access property {name} on field {self.name}.")
+                    return PropertySymbol(name=name, property=db_table.get_field(self.name), parent=self)
 
-
-class ConstantSymbol(Symbol):
-    value: Any
+        raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
 
 
 class PropertySymbol(Symbol):
     name: str
-    field: FieldSymbol
+    property: Union[DatabaseField, ComplexField]
+    parent: Union[FieldSymbol, "PropertySymbol"]
+
+
+PropertySymbol.update_forward_refs(PropertySymbol=PropertySymbol)
 
 
 class Expr(AST):

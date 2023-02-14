@@ -208,7 +208,7 @@ class TestPrinter(TestCase):
         self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
-        self._assert_expr_error("person.chipotle", "Unknown person field 'chipotle'")
+        self._assert_expr_error("person.chipotle", 'Can not access property "chipotle" on compelx field "person".')
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
