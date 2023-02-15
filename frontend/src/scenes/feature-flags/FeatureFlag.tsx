@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -26,7 +26,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
+import {
+    AnyPropertyFilter,
+    AvailableFeature,
+    EventsTableRowItem,
+    PropertyFilterType,
+    PropertyOperator,
+    Resource,
+} from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -58,9 +65,6 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { NodeKind } from '~/queries/schema'
-import { Query } from '~/queries/Query/Query'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
@@ -456,8 +460,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane tab="Exposures" key="exposure">
-                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
+                                        <Tabs.TabPane tab="Usage" key="usage">
+                                            <UsageTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -492,37 +496,49 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+    const propertyFilter: AnyPropertyFilter[] = [
+        {
+            key: '$feature_flag',
+            type: PropertyFilterType.Event,
+            value: featureFlagKey,
+            operator: PropertyOperator.Exact,
+        },
+    ]
 
-    return featureDataExploration ? (
-        <Query
-            query={{
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                    event: '$feature_flag_called',
-                    properties: defaultPropertyOnFlag(featureFlagKey),
-                },
-                full: true,
-                showEventFilter: false,
-                showPropertyFilter: false,
-            }}
-        />
-    ) : (
-        <EventsTable
-            fixedFilters={{
-                event_filter: '$feature_flag_called',
-                properties: defaultPropertyOnFlag(featureFlagKey),
-            }}
-            sceneUrl={urls.featureFlag(id)}
-            fetchMonths={3}
-            pageKey={`feature-flag-${featureFlagKey}}`}
-            showEventFilter={false}
-            showPropertyFilter={false}
-        />
+    // TODO: reintegrate HogQL Editor
+    return (
+        <div>
+            <div className="mb-4">
+                <b>Log</b>
+                <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+            </div>
+            <EventsTable
+                fixedFilters={{
+                    event_filter: '$feature_flag_called',
+                    properties: propertyFilter,
+                }}
+                fixedColumns={[
+                    {
+                        title: 'Value',
+                        key: '$feature/' + featureFlagKey,
+                        render: function renderTime(_, { event }: EventsTableRowItem) {
+                            return event?.properties['$feature/' + featureFlagKey]?.toString()
+                        },
+                    },
+                ]}
+                startingColumns={['person']}
+                fetchMonths={1}
+                pageKey={`feature-flag-` + featureFlagKey}
+                showEventFilter={false}
+                showPropertyFilter={false}
+                showCustomizeColumns={false}
+                showAutoload={false}
+                showExport={false}
+                showActionsButton={false}
+                emptyPrompt={`No events received`}
+            />
+        </div>
     )
 }
 
