@@ -14,8 +14,6 @@ import clsx from 'clsx'
 import {
     offset,
     useFloating,
-    useTransitionStatus,
-    ReferenceType,
     autoUpdate,
     Middleware,
     Placement,
@@ -25,6 +23,7 @@ import {
     arrow,
     FloatingPortal,
 } from '@floating-ui/react'
+import { CSSTransition } from 'react-transition-group'
 
 export interface PopoverProps {
     ref?: React.MutableRefObject<HTMLDivElement | null> | React.Ref<HTMLDivElement> | null
@@ -32,7 +31,7 @@ export interface PopoverProps {
     onClickOutside?: (event: Event) => void
     onClickInside?: MouseEventHandler<HTMLDivElement>
     /** Popover trigger element. If you pass one <Component/> child, it will get the `ref` prop automatically. */
-    children?: React.ReactChild | ((props: { ref: MutableRefObject<ReferenceType | null> }) => JSX.Element)
+    children?: React.ReactChild | ((props: { ref: MutableRefObject<HTMLElement | null> }) => JSX.Element)
     /** External reference element not passed as a direct child */
     referenceElement?: HTMLElement
     /** Content of the overlay. */
@@ -92,7 +91,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         getPopupContainer,
         showArrow = false,
     },
-    ref
+    contentRef
 ): JSX.Element {
     const popoverId = useMemo(() => uniqueMemoizedIndex++, [])
     const parentPopoverId = useContext(PopoverContext)
@@ -101,7 +100,9 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
     const {
         x,
         y,
-        refs: { reference: referenceRef, setReference, floating: floatingRef },
+        reference,
+        floating,
+        refs: { reference: referenceRef, floating: floatingRef },
         strategy,
         placement: effectivePlacement,
         update,
@@ -129,9 +130,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             ...(middleware ?? []),
         ],
     })
-    const { isMounted, status } = useTransitionStatus(context, {
-        duration: 100,
-    })
 
     const arrowStaticSide = {
         top: 'bottom',
@@ -150,7 +148,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     useLayoutEffect(() => {
         if (referenceElement) {
-            setReference(referenceElement)
+            reference(referenceElement)
         }
     }, [referenceElement])
 
@@ -160,12 +158,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             // Delay by a tick to allow other Popovers to detect inside clicks.
             // If a nested popover has handled the click, don't do anything
             setTimeout(() => {
-                if (visible && !nestedPopoverReceivedClick) {
+                if (context.open && !nestedPopoverReceivedClick) {
                     onClickOutside?.(event)
                 }
             }, 1)
         },
-        [visible]
+        [context.open]
     )
 
     useEffect(() => {
@@ -176,10 +174,8 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
 
     const clonedChildren = children
         ? typeof children === 'function'
-            ? children({ ref: referenceRef })
-            : React.Children.toArray(children).map((child) =>
-                  React.cloneElement(child as ReactElement, { ref: referenceRef })
-              )
+            ? children({ ref: referenceRef as React.MutableRefObject<HTMLElement | null> })
+            : React.cloneElement(children as ReactElement, { ref: referenceRef })
         : null
 
     const isAttached = clonedChildren || referenceElement
@@ -201,7 +197,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         <>
             {clonedChildren}
             <FloatingPortal root={getPopupContainer?.()}>
-                {isMounted && (
+                <CSSTransition in={visible} timeout={10000} classNames="Popover-" mountOnEnter unmountOnExit>
                     <PopoverContext.Provider value={popoverId}>
                         <div
                             className={clsx(
@@ -212,12 +208,11 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                 className
                             )}
                             data-placement={effectivePlacement}
-                            data-status={status}
-                            ref={floatingRef as MutableRefObject<HTMLDivElement>}
+                            ref={floating}
                             style={{ position: strategy, top, left, ...style }}
                             onClick={_onClickInside}
                         >
-                            <div ref={ref} className="Popover__box">
+                            <div className="Popover__box">
                                 {showArrow && isAttached && (
                                     // Arrow is outside of .Popover__content to avoid affecting :nth-child for content
                                     <div
@@ -230,11 +225,13 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
                                         style={arrowStyle}
                                     />
                                 )}
-                                <div className="Popover__content">{overlay}</div>
+                                <div className="Popover__content" ref={contentRef}>
+                                    {overlay}
+                                </div>
                             </div>
                         </div>
                     </PopoverContext.Provider>
-                )}
+                </CSSTransition>
             </FloatingPortal>
         </>
     )

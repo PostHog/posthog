@@ -308,7 +308,7 @@ export function InfiniteList(): JSX.Element {
             {isActiveTab &&
             selectedItemInView &&
             selectedItemHasPopover(selectedItem, listGroupType, group) &&
-            tooltipDesiredState(referenceRef.current) !== ListTooltip.None &&
+            tooltipDesiredState(referenceRef.current as HTMLElement | null) !== ListTooltip.None &&
             showPopover
                 ? ReactDOM.createPortal(
                       selectedItem && group ? (
