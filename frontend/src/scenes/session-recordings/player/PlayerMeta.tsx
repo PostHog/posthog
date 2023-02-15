@@ -66,11 +66,11 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
             >
-                <div className="mr-2 ph-no-capture">
+                <div className="ph-no-capture">
                     {!sessionPerson ? (
-                        <LemonSkeleton.Circle className="w-12 h-12" />
+                        <LemonSkeleton.Circle className="w-10 h-10" />
                     ) : (
-                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xl' : 'md'} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture flex-1">
@@ -139,10 +139,16 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     status="stealth"
                     active={isMetadataExpanded}
                     onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
-                    icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                     tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
-                />
+                    size="small"
+                >
+                    {isMetadataExpanded ? (
+                        <IconUnfoldLess className="text-lg text-muted-alt" />
+                    ) : (
+                        <IconUnfoldMore className="text-lg text-muted-alt" />
+                    )}
+                </LemonButton>
 
                 {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
@@ -167,7 +173,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                 className={clsx(
                     'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
                     {
-                        'p-3': !isFullScreen,
+                        'p-2': !isFullScreen,
                         'p-1 px-3 text-xs h-12': isFullScreen,
                     }
                 )}

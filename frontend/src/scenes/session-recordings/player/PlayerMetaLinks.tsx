@@ -38,14 +38,16 @@ export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.El
     }
 
     return (
-        <div className="flex flex-row gap-2">
+        <div className="flex flex-row gap-1 items-center">
             <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
                 Share
             </LemonButton>
 
             <PlaylistPopover {...props} />
 
-            <LemonButton status="danger" icon={<IconDelete />} onClick={onDelete} />
+            <LemonButton status="danger" onClick={onDelete} size="small">
+                <IconDelete className="text-lg" />
+            </LemonButton>
         </div>
     )
 }

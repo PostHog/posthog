@@ -9,13 +9,11 @@ import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Field } from 'lib/forms/Field'
 import { urls } from 'scenes/urls'
-import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { playlistPopoverLogic } from './playlistPopoverLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { isFullScreen } = useValues(playerSettingsLogic)
     const dataLogic = sessionRecordingDataLogic(props)
     const { sessionPlayerData } = useValues(dataLogic)
     const logic = playlistPopoverLogic(props)
@@ -131,7 +129,7 @@ export function PlaylistPopover(props: SessionRecordingPlayerLogicProps): JSX.El
                 }
                 active={showPlaylistPopover}
                 onClick={() => setShowPlaylistPopover(!showPlaylistPopover)}
-                size={isFullScreen ? 'small' : 'medium'}
+                size={'small'}
             >
                 Pin to list
             </LemonButton>
