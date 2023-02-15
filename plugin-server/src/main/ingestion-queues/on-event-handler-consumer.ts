@@ -25,19 +25,13 @@ export const startOnEventHandlerConsumer = async ({
     */
     status.info('🔁', 'Starting onEvent handler consumer')
 
-    // NOTE: to maintain backwards compatibility with how `IngestionConsumer`
-    // consumer group id selection worked prior to the addition of this file, we
-    // use the ingestion consumer group id if ingestion is enabled. Otherwise we
-    // on updating to this version will end up switching consumer group ids and
-    // therefore offsets, meaning we'd reprocess all events in the
-    // `clickhouse_events_json` topic.
-    // TODO: create and use a new topic for this consumer so we can have a
-    // proper cut over
-    const consumerGroupId = hub.capabilities.ingestion
-        ? `${KAFKA_PREFIX}clickhouse-ingestion`
-        : `${KAFKA_PREFIX}clickhouse-plugin-server-async`
-
-    const queue = new IngestionConsumer(hub, piscina, [KAFKA_EVENTS_JSON], consumerGroupId, eachBatchAsyncHandlers)
+    const queue = new IngestionConsumer(
+        hub,
+        piscina,
+        [KAFKA_EVENTS_JSON],
+        `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
+        eachBatchAsyncHandlers
+    )
 
     await queue.start()
 
