@@ -45,6 +45,11 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
 
+    // We need a way to determine if ingestionOverflow is enabled when using
+    // separate deployments for ingestion consumers in order to scale them
+    // independently. Since ingestionOverflow may be enabled in a separate
+    // deployment, we require an env variable to be set to confirm this before
+    // enabling re-production of events to the OVERFLOW topic.
     const batchHandler = isIngestionOverflowEnabled() ? eachBatchIngestionWithOverflow : eachBatchIngestion
 
     const queue = new IngestionConsumer(
