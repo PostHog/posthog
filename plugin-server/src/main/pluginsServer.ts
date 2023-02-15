@@ -20,10 +20,11 @@ import { makePiscina as defaultMakePiscina } from '../worker/piscina'
 import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
+import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
-import { startQueues } from './ingestion-queues/queue'
+import { startOnEventHandlerConsumer } from './ingestion-queues/on-event-handler-consumer'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
 import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
@@ -77,10 +78,8 @@ export async function startPluginsServer(
     //    has enabled.
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
-    //
-    // The queue also handles async handlers, reading from
-    // clickhouse_events_json topic.
-    let queue: IngestionConsumer | undefined | null
+    let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
+    let onEventHandlerConsumer: IngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
     // to associate. The buffer handles delaying the ingestion of these events
@@ -119,9 +118,10 @@ export async function startPluginsServer(
         cancelAllScheduledJobs()
         stopEventLoopMetrics?.()
         await Promise.allSettled([
-            queue?.stop(),
             pubSub?.stop(),
             graphileWorker?.stop(),
+            analyticsEventsIngestionConsumer?.stop(),
+            onEventHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
             sessionRecordingEventsConsumer?.disconnect(),
@@ -274,6 +274,11 @@ export async function startPluginsServer(
                 statsd: hub.statsd,
             })
 
+            analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
+                hub: hub,
+                piscina: piscina,
+            })
+
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -283,10 +288,12 @@ export async function startPluginsServer(
             })
         }
 
-        const queues = await startQueues(hub, piscina)
-
-        // `queue` refers to the ingestion queue.
-        queue = queues.ingestion
+        if (hub.capabilities.processAsyncHandlers) {
+            onEventHandlerConsumer = await startOnEventHandlerConsumer({
+                hub: hub,
+                piscina: piscina,
+            })
+        }
 
         // use one extra Redis connection for pub-sub
         pubSub = new PubSub(hub, {
@@ -336,13 +343,6 @@ export async function startPluginsServer(
             }
         })
 
-        // every minute log information on kafka consumer
-        if (queue) {
-            schedule.scheduleJob('0 * * * * *', async () => {
-                await queue?.emitConsumerGroupMetrics()
-            })
-        }
-
         if (hub.statsd) {
             stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)
         }
@@ -382,7 +382,6 @@ export async function startPluginsServer(
         }
 
         serverInstance.piscina = piscina
-        serverInstance.queue = queue
         serverInstance.stop = closeJobs
 
         hub.statsd?.timing('total_setup_time', timer)
@@ -394,7 +393,7 @@ export async function startPluginsServer(
         if (hub.capabilities.http) {
             // start http server used for the healthcheck
             // TODO: include bufferConsumer in healthcheck
-            httpServer = createHttpServer(hub!, serverInstance as ServerInstance)
+            httpServer = createHttpServer(analyticsEventsIngestionConsumer)
         }
 
         return serverInstance as ServerInstance
