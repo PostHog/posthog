@@ -9,6 +9,7 @@ import {
     isRecentPerformancePageViewNode,
     isDataTableNode,
     isTimeToSeeDataSessionsNode,
+    isInsightVizNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -94,6 +95,12 @@ export function queryExportContext<N extends DataNode = DataNode>(
         return { path: api.performanceEvents.recentPageViewsURL() }
     } else if (isDataTableNode(query)) {
         return queryExportContext(query.source, methodOptions, refresh)
+    } else if (isInsightVizNode(query)) {
+        return legacyInsightQueryExportContext({
+            filters: queryNodeToFilter(query.source),
+            currentTeamId: getCurrentTeamId(),
+            refresh,
+        })
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }
