@@ -156,7 +156,6 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
-        setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
             shortId,
@@ -569,12 +568,6 @@ export const insightLogic = kea<insightLogicType>([
             {} as Record<string, number>,
             {
                 startQuery: (state, { queryId }) => ({ ...state, [queryId]: performance.now() }),
-            },
-        ],
-        tagLoading: [
-            false,
-            {
-                setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
         insightSaving: [
