@@ -426,7 +426,7 @@ describe('eventsTableLogic', () => {
                         },
                     })
 
-                    const eventName = randomString()
+                    const eventName = `random-event-name-${randomString()}`
                     await expectLogic(logic, () => {
                         logic.actions.setEventFilter(eventName)
                     }).toDispatchActions(['fetchEventsSuccess'])
