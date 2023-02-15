@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.test.base import BaseTest
 
 
@@ -352,5 +352,261 @@ class TestParser(BaseTest):
                 op=ast.CompareOperationType.Lt,
                 left=ast.Field(chain=["timestamp"]),
                 right=ast.Constant(value=123),
+            ),
+        )
+
+    def test_select_columns(self):
+        self.assertEqual(parse_select("select 1"), ast.SelectQuery(select=[ast.Constant(value=1)]))
+        self.assertEqual(
+            parse_select("select 1, 4, 'string'"),
+            ast.SelectQuery(select=[ast.Constant(value=1), ast.Constant(value=4), ast.Constant(value="string")]),
+        )
+
+    def test_select_columns_distinct(self):
+        self.assertEqual(
+            parse_select("select distinct 1"), ast.SelectQuery(select=[ast.Constant(value=1)], distinct=True)
+        )
+
+    def test_select_where(self):
+        self.assertEqual(
+            parse_select("select 1 where true"),
+            ast.SelectQuery(select=[ast.Constant(value=1)], where=ast.Constant(value=True)),
+        )
+        self.assertEqual(
+            parse_select("select 1 where 1 == 2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+            ),
+        )
+
+    def test_select_prewhere(self):
+        self.assertEqual(
+            parse_select("select 1 prewhere true"),
+            ast.SelectQuery(select=[ast.Constant(value=1)], prewhere=ast.Constant(value=True)),
+        )
+        self.assertEqual(
+            parse_select("select 1 prewhere 1 == 2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+            ),
+        )
+
+    def test_select_having(self):
+        self.assertEqual(
+            parse_select("select 1 having true"),
+            ast.SelectQuery(select=[ast.Constant(value=1)], having=ast.Constant(value=True)),
+        )
+        self.assertEqual(
+            parse_select("select 1 having 1 == 2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+            ),
+        )
+
+    def test_select_complex_wheres(self):
+        self.assertEqual(
+            parse_select("select 1 prewhere 2 != 3 where 1 == 2 having 'string' like '%a%'"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq, left=ast.Constant(value=1), right=ast.Constant(value=2)
+                ),
+                prewhere=ast.CompareOperation(
+                    op=ast.CompareOperationType.NotEq, left=ast.Constant(value=2), right=ast.Constant(value=3)
+                ),
+                having=ast.CompareOperation(
+                    op=ast.CompareOperationType.Like, left=ast.Constant(value="string"), right=ast.Constant(value="%a%")
+                ),
+            ),
+        )
+
+    def test_select_from(self):
+        self.assertEqual(
+            parse_select("select 1 from events"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events as e"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from complex.table"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"])),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from complex.table as a"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from (select 1 from events)"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                    )
+                ),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from (select 1 from events) as sq"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(
+                        select=[ast.Constant(value=1)], select_from=ast.JoinExpr(table=ast.Field(chain=["events"]))
+                    ),
+                    alias="sq",
+                ),
+            ),
+        )
+
+    def test_select_from_join(self):
+        self.assertEqual(
+            parse_select("select 1 from events JOIN events2 ON 1"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    join_type="JOIN",
+                    join_constraint=ast.Constant(value=1),
+                    join_expr=ast.JoinExpr(table=ast.Field(chain=["events2"])),
+                ),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select * from events LEFT OUTER JOIN events2 ON 1"),
+            ast.SelectQuery(
+                select=[ast.Field(chain=["*"])],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    join_type="LEFT OUTER JOIN",
+                    join_constraint=ast.Constant(value=1),
+                    join_expr=ast.JoinExpr(table=ast.Field(chain=["events2"])),
+                ),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events LEFT OUTER JOIN events2 ON 1 ANY RIGHT JOIN events3 ON 2"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    join_type="LEFT OUTER JOIN",
+                    join_constraint=ast.Constant(value=1),
+                    join_expr=ast.JoinExpr(
+                        table=ast.Field(chain=["events2"]),
+                        join_type="RIGHT ANY JOIN",
+                        join_constraint=ast.Constant(value=2),
+                        join_expr=ast.JoinExpr(table=ast.Field(chain=["events3"])),
+                    ),
+                ),
+            ),
+        )
+
+    def test_select_group_by(self):
+        self.assertEqual(
+            parse_select("select 1 from events GROUP BY 1, event"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                group_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
+            ),
+        )
+
+    def test_select_order_by(self):
+        self.assertEqual(
+            parse_select("select 1 from events ORDER BY 1 ASC, event, timestamp DESC"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                order_by=[
+                    ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
+                    ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
+                ],
+            ),
+        )
+
+    def test_select_limit_offset(self):
+        self.assertEqual(
+            parse_select("select 1 from events LIMIT 1"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events LIMIT 1 OFFSET 3"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+                offset=ast.Constant(value=3),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events LIMIT 1 OFFSET 3 WITH TIES"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+                limit_with_ties=True,
+                offset=ast.Constant(value=3),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from events LIMIT 1 OFFSET 3 BY 1, event"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+                limit=ast.Constant(value=1),
+                offset=ast.Constant(value=3),
+                limit_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
+            ),
+        )
+
+    def test_select_placeholders(self):
+        self.assertEqual(
+            parse_select("select 1 where 1 == {hogql_val_1}"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq,
+                    left=ast.Constant(value=1),
+                    right=ast.Placeholder(field="hogql_val_1"),
+                ),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 where 1 == {hogql_val_1}", {"hogql_val_1": ast.Constant(value="bar")}),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationType.Eq,
+                    left=ast.Constant(value=1),
+                    right=ast.Constant(value="bar"),
+                ),
             ),
         )

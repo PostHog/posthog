@@ -24,7 +24,7 @@ export function IconWithCount({
     )
 }
 
-interface LemonIconProps {
+export interface LemonIconProps {
     color?: string
     fontSize?: string
     style?: CSSProperties

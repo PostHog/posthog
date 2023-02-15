@@ -176,11 +176,11 @@ class Response(BaseModel):
     results: List[EventType]
 
 
-class Response1(BaseModel):
+class EventsQueryResponse(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    columns: List[str]
+    columns: List
     hasMore: Optional[bool] = None
     results: List[List]
     types: List[str]
@@ -669,7 +669,7 @@ class EventsQuery(BaseModel):
             ]
         ]
     ] = Field(None, description="Properties configurable in the interface")
-    response: Optional[Response1] = Field(None, description="Cached query response")
+    response: Optional[EventsQueryResponse] = Field(None, description="Cached query response")
     select: List[str] = Field(..., description="Return a limited set of data. Required.")
     where: Optional[List[str]] = Field(None, description="HogQL filters to apply on returned data")
 

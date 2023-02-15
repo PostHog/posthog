@@ -12,6 +12,7 @@ import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
+import { ItemMode } from '~/types'
 
 type InsightVizProps = {
     query: InsightVizNode
@@ -67,7 +68,13 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                     'insight-wrapper--singlecolumn': isFunnels,
                 })}
             >
-                {query.showEditorPanel && <EditorFilters query={query.source} setQuery={setQuerySource} />}
+                {query.showEditorPanel && (
+                    <EditorFilters
+                        query={query.source}
+                        setQuery={setQuerySource}
+                        showing={insightMode === ItemMode.Edit}
+                    />
+                )}
 
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer insightMode={insightMode} />

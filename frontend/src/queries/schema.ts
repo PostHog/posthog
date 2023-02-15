@@ -136,6 +136,13 @@ export interface NewEntityNode extends EntityNode {
     event?: string | null
 }
 
+export interface EventsQueryResponse {
+    columns: any[]
+    types: string[]
+    results: any[][]
+    hasMore?: boolean
+}
+
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -172,12 +179,7 @@ export interface EventsQuery extends DataNode {
     /** Columns to order by */
     orderBy?: string[]
 
-    response?: {
-        columns: string[]
-        types: string[]
-        results: any[][]
-        hasMore?: boolean
-    }
+    response?: EventsQueryResponse
 }
 
 export interface PersonsNode extends DataNode {
@@ -247,7 +249,7 @@ export interface InsightVizNode extends Node {
 }
 
 // Base class should not be used directly
-interface InsightsQueryBase extends Node {
+export interface InsightsQueryBase extends Node {
     /** Date range for the query */
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
