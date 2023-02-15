@@ -4,6 +4,7 @@ import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { htmlElementsDisplayLogic } from 'lib/components/HtmlElementsDisplay/htmlElementsDisplayLogic'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -85,8 +86,9 @@ export function HtmlElementsDisplay({
     return (
         <div className="flex flex-col gap-1">
             {editable && !!elements.length && (
-                <div className="px-4">
-                    Selector: <span className={'text-mono'}>{chosenSelector.processedSelector}</span>
+                <div>
+                    Selector:{' '}
+                    <CodeSnippet copyDescription={'chosen selector'}>{chosenSelector.processedSelector}</CodeSnippet>
                 </div>
             )}
             {checkUniqueness && (
