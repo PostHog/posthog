@@ -61,4 +61,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
     [Scene.Query]: () => import('./query/QueryScene'),
+    [Scene.ActivationFinder]: () => import('./activationFinder/ActivationFinderScene'),
 }

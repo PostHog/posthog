@@ -241,6 +241,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Query]: {
         projectBased: true,
     },
+    [Scene.ActivationFinder]: {
+        projectBased: true,
+    },
 }
 
 export const redirects: Record<
@@ -356,4 +359,5 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.query()]: Scene.Query,
+    [urls.activationFinder()]: Scene.ActivationFinder,
 }
