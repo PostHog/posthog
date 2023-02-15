@@ -123,10 +123,9 @@ describe('eachBatchX', () => {
         it('calls eachMessage with the correct arguments', async () => {
             const eachMessage = jest.fn()
             const batch = createBatch(event)
-            batch.batch.topic = 'any_topic'
             await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
 
-            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue, 'any_topic')
+            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
         })
 
         it('tracks metrics based on the key', async () => {

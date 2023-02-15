@@ -7,7 +7,7 @@ import { latestOffsetTimestampGauge } from '../metrics'
 export async function eachBatch(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
     queue: IngestionConsumer,
-    eachMessage: (message: KafkaMessage, queue: IngestionConsumer, batchTopic: string) => Promise<void>,
+    eachMessage: (message: KafkaMessage, queue: IngestionConsumer) => Promise<void>,
     groupIntoBatches: (messages: KafkaMessage[], batchSize: number) => KafkaMessage[][],
     key: string
 ): Promise<void> {
@@ -34,7 +34,7 @@ export async function eachBatch(
             }
 
             const lastBatchMessage = messageBatch[messageBatch.length - 1]
-            await Promise.all(messageBatch.map((message: KafkaMessage) => eachMessage(message, queue, batch.topic)))
+            await Promise.all(messageBatch.map((message: KafkaMessage) => eachMessage(message, queue)))
 
             // this if should never be false, but who can trust computers these days
             if (lastBatchMessage) {
