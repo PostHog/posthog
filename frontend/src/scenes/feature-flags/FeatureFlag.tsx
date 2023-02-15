@@ -460,8 +460,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane tab="Usage" key="exposure">
-                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
+                                        <Tabs.TabPane tab="Usage" key="usage">
+                                            <UsageTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -496,7 +496,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function ExposureTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
