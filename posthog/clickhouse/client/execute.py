@@ -40,33 +40,46 @@ is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORI
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
-    from posthog.version_requirement import ServiceVersionRequirement
-
     # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
     # so we only disable on versions below that.
     # This is calculated once per deploy
-    clickhouse_at_least_228, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=22.8.0"
-    ).is_service_in_accepted_version()
-    if clickhouse_at_least_228:
+    if clickhouse_at_least_228():
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
 
 
-def extra_settings(query_id) -> Dict[str, Any]:
+@lru_cache(maxsize=1)
+def clickhouse_at_least_228() -> bool:
+    from posthog.version_requirement import ServiceVersionRequirement
+
+    is_ch_version_228_or_above, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=22.8.0"
+    ).is_service_in_accepted_version()
+
+    return is_ch_version_228_or_above
+
+
+def extra_settings(query_id: Optional[str]) -> Dict[str, Any]:
+    if not clickhouse_at_least_228():
+        return {}
+
+    # The `default` option for join_algorithm was introduced with CH 22.8
+    default_join_algorithm = "default"
+
     join_algorithm = (
         posthoganalytics.get_feature_flag(
             "join-algorithm",
             str(query_id),
             only_evaluate_locally=True,
+            send_feature_flag_events=False,
         )
-        or "default"
+        or default_join_algorithm
     )
 
     # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
     if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
-        join_algorithm = "default"
+        join_algorithm = default_join_algorithm
 
     return {"join_algorithm": join_algorithm}
 
@@ -89,7 +102,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -140,7 +153,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -162,7 +175,7 @@ def query_with_columns(
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
     """
     Given a string query with placeholders we do one of two things:
 

@@ -81,6 +81,15 @@ def get_interval_func_ch(period: Optional[str]) -> str:
     return ch_function
 
 
+def get_time_in_seconds_for_period(period: Optional[str]) -> str:
+    if period is None:
+        period = "day"
+    seconds_in_period = TIME_IN_SECONDS.get(period.lower())
+    if seconds_in_period is None:
+        raise ValidationError(f"Interval {period} is unsupported.")
+    return seconds_in_period
+
+
 def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     for key in params:
         if isinstance(params[key], dict) or isinstance(params[key], list):

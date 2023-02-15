@@ -135,14 +135,14 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                 fullWidth
                 center
                 disableClientSideRouting
-                disabled={plan.is_free && !billing?.billing_period}
+                disabled={plan.is_free && !billing?.has_active_subscription}
                 onClick={() => {
                     if (!plan.is_free) {
                         reportBillingUpgradeClicked(plan.name)
                     }
                 }}
             >
-                {!billing?.billing_period && plan.is_free ? 'Current plan' : 'Upgrade'}
+                {!billing?.has_active_subscription && plan.is_free ? 'Current plan' : 'Upgrade'}
             </LemonButton>
         </td>
     ))

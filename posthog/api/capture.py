@@ -31,6 +31,7 @@ from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
+from posthog.metrics import LABEL_RESOURCE_TYPE, LABEL_TEAM_ID
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
@@ -54,11 +55,16 @@ LOG_RATE_LIMITER = Limiter(
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
-
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
-    labelnames=["resource_type", "team_id", "token"],
+    labelnames=[LABEL_RESOURCE_TYPE, LABEL_TEAM_ID, "token"],
+)
+
+PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
+    "capture_partition_key_capacity_exceeded_total",
+    "Indicates that automatic partition override is active for a given key. Value incremented once a minute.",
+    labelnames=["partition_key"],
 )
 
 
@@ -253,6 +259,9 @@ def drop_events_over_quota(
 @csrf_exempt
 @timed("posthog_cloud_event_endpoint")
 def get_event(request):
+    # At this point, we don't now which team_id we are working with, so unbind if set.
+    structlog.contextvars.unbind_contextvars("team_id")
+
     # handle cors request
     if request.method == "OPTIONS":
         return cors_response(request, JsonResponse({"status": 1}))
@@ -298,6 +307,9 @@ def get_event(request):
 
             if db_error:
                 send_events_to_dead_letter_queue = True
+
+    team_id = ingestion_context.team_id if ingestion_context else None
+    structlog.contextvars.bind_contextvars(team_id=team_id)
 
     with start_span(op="request.process"):
         if isinstance(data, dict):
@@ -363,7 +375,6 @@ def get_event(request):
                 )
                 continue
 
-            team_id = ingestion_context.team_id if ingestion_context else None
             try:
                 futures.append(
                     capture_internal(
@@ -520,6 +531,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
                 # Return early if we have logged this key already.
                 return True
 
+            PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key).inc()
             statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
             logger.warning(
                 "Partition key %s overridden as bucket capacity of %s tokens exceeded",

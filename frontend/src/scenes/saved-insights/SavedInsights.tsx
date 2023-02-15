@@ -1,4 +1,3 @@
-import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -52,8 +51,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
 import { NodeKind } from '~/queries/schema'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
-
-const { TabPane } = Tabs
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -191,20 +189,32 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataSessionsQuery]: {
-        name: 'Internal PostHog perforamance data',
+        name: 'Internal PostHog performance data',
         description: 'View performance data about a session in PostHog itself',
         icon: IconCoffee,
         inMenu: true,
     },
     [NodeKind.TimeToSeeDataQuery]: {
-        name: 'Internal PostHog perforamance data',
-        description: 'View listings of performance data in PostHog itself',
+        name: 'Internal PostHog performance data',
+        description: 'View listings of sessions holding performance data in PostHog itself',
         icon: IconCoffee,
         inMenu: true,
     },
     [NodeKind.RecentPerformancePageViewNode]: {
-        name: 'PostHog perforamance data',
+        name: 'PostHog performance data',
         description: 'PageViews where we recorded performance data about your site',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataSessionsJSONNode]: {
+        name: 'Internal PostHog performance data',
+        description: 'View performance data about a session in PostHog itself as JSON',
+        icon: IconCoffee,
+        inMenu: true,
+    },
+    [NodeKind.TimeToSeeDataSessionsWaterfallNode]: {
+        name: 'Internal PostHog performance data',
+        description: 'View performance data about a session in PostHog itself in a trace/waterfall view',
         icon: IconCoffee,
         inMenu: true,
     },
@@ -463,16 +473,16 @@ export function SavedInsights(): JSX.Element {
         <div className="saved-insights">
             <PageHeader title="Insights" buttons={<NewInsightButton dataAttr="saved-insights-create-new-insight" />} />
 
-            <Tabs
+            <LemonTabs
                 activeKey={tab}
-                style={{ borderColor: '#D9D9D9' }}
-                onChange={(t) => setSavedInsightsFilters({ tab: t as SavedInsightsTabs })}
-            >
-                <TabPane tab="All Insights" key={SavedInsightsTabs.All} />
-                <TabPane tab="Your Insights" key={SavedInsightsTabs.Yours} />
-                <TabPane tab="Favorites" key={SavedInsightsTabs.Favorites} />
-                <TabPane tab="History" key={SavedInsightsTabs.History} />
-            </Tabs>
+                onChange={(tab) => setSavedInsightsFilters({ tab })}
+                tabs={[
+                    { key: SavedInsightsTabs.All, label: 'All insights' },
+                    { key: SavedInsightsTabs.Yours, label: 'Your insights' },
+                    { key: SavedInsightsTabs.Favorites, label: 'Favorites' },
+                    { key: SavedInsightsTabs.History, label: 'History' },
+                ]}
+            />
 
             {tab === SavedInsightsTabs.History ? (
                 <ActivityLog scope={ActivityScope.INSIGHT} />

@@ -47,6 +47,11 @@ export function EditorFilterGroup({
             {isRowExpanded ? (
                 <div className="EditorFilterGroup__content">
                     {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
+                        if (Component && Component.name === 'component') {
+                            throw new Error(
+                                `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
+                            )
+                        }
                         return (
                             <div key={key}>
                                 <PureField

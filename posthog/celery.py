@@ -13,8 +13,10 @@ from django.dispatch import receiver
 from django.utils import timezone
 from django_structlog.celery import signals
 from django_structlog.celery.steps import DjangoStructLogInitStep
+from prometheus_client import Gauge
 
 from posthog.cloud_utils import is_cloud
+from posthog.metrics import pushed_metrics_registry
 from posthog.redis import get_client
 from posthog.utils import get_crontab
 
@@ -82,6 +84,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Send all instance usage to the Billing service
     sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
+    # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
+    sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
     # PostHog Cloud cron jobs
     if is_cloud():
@@ -98,7 +102,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    # Sync all Organization.available_features every hour
+    # Sync all Organization.available_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
@@ -141,10 +145,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
         sender.add_periodic_task(get_crontab("0 6 * * *"), count_teams_with_no_property_query_count.s())
 
-    clear_clickhouse_crontab = get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)
-    if clear_clickhouse_crontab:
+    if clear_clickhouse_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON):
         sender.add_periodic_task(
             clear_clickhouse_crontab, clickhouse_clear_removed_data.s(), name="clickhouse clear removed data"
+        )
+
+    if clear_clickhouse_deleted_person_crontab := get_crontab(settings.CLEAR_CLICKHOUSE_DELETED_PERSON_SCHEDULE_CRON):
+        sender.add_periodic_task(
+            clear_clickhouse_deleted_person_crontab,
+            clear_clickhouse_deleted_person.s(),
+            name="clickhouse clear deleted person data",
         )
 
     if settings.EE_AVAILABLE:
@@ -189,10 +199,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 def pre_run_signal_handler(task_id, task, **kwargs):
     from statshog.defaults.django import statsd
 
+    from posthog.clickhouse.client.connection import Workload, set_default_clickhouse_workload_type
     from posthog.clickhouse.query_tagging import tag_queries
 
     statsd.incr("celery_tasks_metrics.pre_run", tags={"name": task.name})
     tag_queries(kind="celery", id=task.name)
+    set_default_clickhouse_workload_type(Workload.OFFLINE)
 
 
 @task_postrun.connect
@@ -302,14 +314,24 @@ def clickhouse_lag():
 
     from posthog.client import sync_execute
 
-    for table in CLICKHOUSE_TABLES:
-        try:
-            QUERY = """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
-            query = QUERY.format(table=table)
-            lag = sync_execute(query)[0][2]
-            statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
-        except:
-            pass
+    with pushed_metrics_registry("celery_clickhouse_lag") as registry:
+        lag_gauge = Gauge(
+            "posthog_celery_clickhouse_lag_seconds",
+            "Age of the latest ingested record per ClickHouse table.",
+            labelnames=["table_name"],
+            registry=registry,
+        )
+        for table in CLICKHOUSE_TABLES:
+            try:
+                QUERY = (
+                    """select max(_timestamp) observed_ts, now() now_ts, now() - max(_timestamp) as lag from {table};"""
+                )
+                query = QUERY.format(table=table)
+                lag = sync_execute(query)[0][2]
+                statsd.gauge("posthog_celery_clickhouse__table_lag_seconds", lag, tags={"table": table})
+                lag_gauge.labels(table_name=table).set(lag)
+            except:
+                pass
 
 
 HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC = {
@@ -344,9 +366,17 @@ def ingestion_lag():
                 "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
             },
         )
-        for event, lag in results:
-            metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
-            statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+        with pushed_metrics_registry("celery_ingestion_lag") as registry:
+            lag_gauge = Gauge(
+                "posthog_celery_observed_ingestion_lag_seconds",
+                "End-to-end ingestion lag observed through several scenarios. Can be overestimated by up to 60 seconds.",
+                labelnames=["scenario"],
+                registry=registry,
+            )
+            for event, lag in results:
+                metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
+                statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
+                lag_gauge.labels(scenario=metric).set(lag)
     except:
         pass
 
@@ -450,6 +480,13 @@ def clickhouse_clear_removed_data():
     cohort_runner = AsyncCohortDeletion()
     cohort_runner.mark_deletions_done()
     cohort_runner.run()
+
+
+@app.task(ignore_result=True)
+def clear_clickhouse_deleted_person():
+    from posthog.models.async_deletion.delete_person import remove_deleted_person_data
+
+    remove_deleted_person_data()
 
 
 @app.task(ignore_result=True)
@@ -651,6 +688,16 @@ def send_org_usage_reports():
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
     send_all_org_usage_reports()
+
+
+@app.task(ignore_result=True)
+def update_quota_limiting():
+    try:
+        from ee.billing.quota_limiting import update_all_org_billing_quotas
+    except ImportError:
+        pass
+
+    update_all_org_billing_quotas()
 
 
 @app.task(ignore_result=True)
