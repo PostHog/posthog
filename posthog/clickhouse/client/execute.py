@@ -60,8 +60,8 @@ def clickhouse_at_least_228() -> bool:
     return is_ch_version_228_or_above
 
 
-def extra_settings(query_id: Optional[str], tags: Dict[str, Any]) -> Dict[str, Any]:
-    if tags.get("kind") != "celery" or not clickhouse_at_least_228():
+def extra_settings(query_id: Optional[str]) -> Dict[str, Any]:
+    if not clickhouse_at_least_228():
         return {}
 
     # The `default` option for join_algorithm was introduced with CH 22.8
@@ -118,7 +118,7 @@ def sync_execute(
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id, tags)}
+        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
         tags["query_settings"] = core_settings
         settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
