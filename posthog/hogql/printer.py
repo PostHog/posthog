@@ -373,10 +373,6 @@ class SymbolPrinter(Visitor):
             if resolved_field == database.events.person.properties:
                 if not self.context.using_person_on_events:
                     field_sql = "person_props"
-            elif resolved_field == database.events.person.id:
-                pass
-            elif resolved_field == database.events.person.created_at:
-                pass
 
             # If the field is called on a table that has an alias, prepend the table alias.
             # If there's another field with the same name in the scope that's not this, prepend the full table name.

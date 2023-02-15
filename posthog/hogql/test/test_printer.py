@@ -109,17 +109,17 @@ class TestPrinter(TestCase):
         )
 
         context = HogQLContext()
-        self.assertEqual(self._expr("person.id", context), "person_id")
+        self.assertEqual(self._expr("person.id", context), "events.person_id")
         self.assertEqual(
             context.field_access_logs,
-            [HogQLFieldAccess(["person", "id"], "person", "id", "person_id")],
+            [HogQLFieldAccess(["person", "id"], "person", "id", "events.person_id")],
         )
 
         context = HogQLContext()
-        self.assertEqual(self._expr("person.created_at", context), "person_created_at")
+        self.assertEqual(self._expr("person.created_at", context), "events.person_created_at")
         self.assertEqual(
             context.field_access_logs,
-            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "person_created_at")],
+            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "events.person_created_at")],
         )
 
     def test_hogql_properties(self):
