@@ -125,7 +125,8 @@ jobs:
                 browser: ['chromium', 'firefox', 'webkit']
         env:
             CYPRESS_INSTALL_BINARY: '0'
-            NODE_OPTIONS: --max_old_space_size=4096
+            NODE_OPTIONS: --max-old-space-size=4096
+            JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
         steps:
             - uses: actions/checkout@v3
 
@@ -164,13 +165,36 @@ jobs:
               run: |
                   pnpm test:visual-regression:legacy:ci
 
-            - name: Upload Playwright report and diffs
-              uses: actions/upload-artifact@v3
-              if: failure()
+            - name: Count snapshot changes from git diff
+              id: diff
+              run: |
+                  echo "added=$(git diff --name-status | grep '^A' | wc -l)" >> $GITHUB_OUTPUT
+                  echo "modified=$(git diff --name-status | grep '^M' | wc -l)" >> $GITHUB_OUTPUT
+                  echo "deleted=$(git diff --name-status | grep '^D' | wc -l)" >> $GITHUB_OUTPUT
+                  echo "total=$(git diff --name-status | wc -l)" >> $GITHUB_OUTPUT
+
+            - uses: EndBug/add-and-commit@v9
+              # Skip on forks
+              if: github.event.pull_request.head.repo.full_name == github.repository
+              id: commit
               with:
-                  name: visual-regression-report-${{ matrix.browser }}
-                  path: |
-                      playwright-report/
-                      test-results/
-                      frontend/__snapshots__/__diff_output__/
-                  retention-days: 7
+                  add: '["frontend/__snapshots__/", "playwright/"]'
+                  message: 'Update UI snapshots'
+                  default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Post comment about updated snapshots
+              if: steps.changed-files.outputs.files_found == 'true' && steps.commit.pushed == 'true'
+              run: |
+                  INFO_BODY=$(cat <<-END
+                  ## 📸 UI snapshots have been updated
+
+                  <b>${{ steps.diff.outputs.added }}</b> added, <b>${{ steps.diff.outputs.modified }}</b> modified, <b>${{ steps.diff.outputs.deleted }}</b> deleted.
+                  <b>${{ steps.diff.outputs.total }}</b> changes in total.
+
+                  **Review the changes:**
+                  👉 **[View this update's diff.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ steps.commit.outputs.commit_long_sha }})**
+                  👉 [View this PR's final diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)"
+                  END
+                  )
+                  curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$INFO_BODY\" }" "https://api.github.com/repos/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/comments"

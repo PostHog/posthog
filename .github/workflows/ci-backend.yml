@@ -268,8 +268,9 @@ jobs:
               if: ${{ !matrix.person-on-events && github.event.pull_request.head.repo.full_name == github.repository }}
               with:
                   add: '["ee", "posthog/clickhouse/test/__snapshots__", "posthog/api/test/__snapshots__", "posthog/test/__snapshots__", "posthog/queries/"]'
-                  message: 'Update snapshots'
+                  message: 'Update query snapshots'
                   default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Check if any snapshot changes were left uncomitted
               id: changed-files

@@ -146,7 +146,7 @@ jobs:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  NODE_OPTIONS: --max-old-space-size=4096
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
