@@ -37,7 +37,7 @@ export function WebInstructions(): JSX.Element {
     return (
         <>
             <h1>Connect your web app or product</h1>
-            <div style={{ display: 'flex', alignItems: 'center' }}>
+            <div className="flex items-center">
                 <h2>Option 1. Code snippet</h2>
                 <div
                     style={{
@@ -74,8 +74,10 @@ export function WebInstructions(): JSX.Element {
             </p>
             <h3>Send events </h3>
             <p>Visit your site and click around to generate some initial events.</p>
-            <LemonDivider thick dashed />
-            <h2>Option 2. Javascript Library</h2>
+            <LemonDivider thick dashed className="my-4" />
+            <div className="flex items-center">
+                <h2>Option 2. Javascript Library</h2>
+            </div>
             <p>
                 Use this option if you want more granular control of how PostHog runs in your website and the events you
                 capture. Recommended for teams with more stable products and more defined analytics requirements.{' '}

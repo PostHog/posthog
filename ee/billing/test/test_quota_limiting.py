@@ -1,9 +1,21 @@
 from uuid import uuid4
 
 from dateutil.relativedelta import relativedelta
+from django.utils import timezone
 from django.utils.timezone import now
+from freezegun import freeze_time
 
-from ee.billing.quota_limiting import RATE_LIMITER_CACHE_KEY, update_all_org_billing_quotas
+from ee.billing.quota_limiting import (
+    RATE_LIMITER_CACHE_KEY,
+    QuotaResource,
+    list_limited_team_tokens,
+    org_quota_limited_until,
+    replace_limited_team_tokens,
+    set_org_usage_summary,
+    sync_org_quota_limits,
+    update_all_org_billing_quotas,
+)
+from posthog.api.test.test_team import create_team
 from posthog.redis import get_client
 from posthog.test.base import BaseTest, _create_event
 
@@ -76,3 +88,123 @@ class TestQuotaLimiting(BaseTest):
             "recordings": {"usage": 1, "limit": 100, "todays_usage": 0},
             "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
         }
+
+    def test_set_org_usage_summary_updates_correctly(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        new_usage = dict(
+            events={"usage": 100, "limit": 100},
+            recordings={"usage": 2, "limit": 100},
+            period=[
+                "2021-01-01T00:00:00Z",
+                "2021-01-31T23:59:59Z",
+            ],
+        )
+
+        assert set_org_usage_summary(self.organization, new_usage=new_usage)
+
+        assert self.organization.usage == {
+            "events": {"usage": 100, "limit": 100, "todays_usage": 0},
+            "recordings": {"usage": 2, "limit": 100, "todays_usage": 0},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+    def test_set_org_usage_summary_does_nothing_if_the_same(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 11},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        new_usage = dict(
+            events={"usage": 99, "limit": 100},
+            recordings={"usage": 1, "limit": 100},
+            period=[
+                "2021-01-01T00:00:00Z",
+                "2021-01-31T23:59:59Z",
+            ],
+        )
+
+        assert not set_org_usage_summary(self.organization, new_usage=new_usage)
+
+        assert self.organization.usage == {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 11},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+    def test_set_org_usage_summary_updates_todays_usage(self):
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 10},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 11},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+        self.organization.save()
+
+        assert set_org_usage_summary(self.organization, todays_usage={"events": 20, "recordings": 21})
+
+        assert self.organization.usage == {
+            "events": {"usage": 99, "limit": 100, "todays_usage": 20},
+            "recordings": {"usage": 1, "limit": 100, "todays_usage": 21},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+    def test_org_quota_limited_until(self):
+        self.organization.usage = None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage = {
+            "events": {"usage": 99, "limit": 100},
+            "recordings": {"usage": 1, "limit": 100},
+            "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+        }
+
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage["events"]["usage"] = 120
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
+
+        self.organization.usage["events"]["usage"] = 90
+        self.organization.usage["events"]["todays_usage"] = 10
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) == 1612137599
+
+        self.organization.usage["events"]["limit"] = None
+        assert org_quota_limited_until(self.organization, QuotaResource.EVENTS) is None
+
+        self.organization.usage["recordings"]["usage"] = 1099  # Under limit + buffer
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) is None
+
+        self.organization.usage["recordings"]["usage"] = 1100  # Over limit + buffer
+        assert org_quota_limited_until(self.organization, QuotaResource.RECORDINGS) == 1612137599
+
+    def test_sync_org_quota_limits(self):
+        with freeze_time("2021-01-01T12:59:59Z"):
+            other_team = create_team(organization=self.organization)
+
+            now = timezone.now().timestamp()
+
+            replace_limited_team_tokens(QuotaResource.EVENTS, {"1234": now + 10000})
+            self.organization.usage = {
+                "events": {"usage": 99, "limit": 100},
+                "recordings": {"usage": 1, "limit": 100},
+                "period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"],
+            }
+
+            sync_org_quota_limits(self.organization)
+            assert list_limited_team_tokens(QuotaResource.EVENTS) == ["1234"]
+
+            self.organization.usage["events"]["usage"] = 120
+            sync_org_quota_limits(self.organization)
+            assert sorted(list_limited_team_tokens(QuotaResource.EVENTS)) == sorted(
+                ["1234", self.team.api_token, other_team.api_token]
+            )
+
+            self.organization.usage["events"]["usage"] = 80
+            sync_org_quota_limits(self.organization)
+            assert sorted(list_limited_team_tokens(QuotaResource.EVENTS)) == sorted(["1234"])
