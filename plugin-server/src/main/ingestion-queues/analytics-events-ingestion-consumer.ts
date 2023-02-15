@@ -8,6 +8,7 @@ import {
     prefix as KAFKA_PREFIX,
 } from '../../config/kafka-topics'
 import { Hub } from '../../types'
+import { isIngestionOverflowEnabled } from '../../utils/env-utils'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
 import { ConfiguredLimiter, WarningLimiter } from '../../utils/token-bucket'
@@ -44,7 +45,7 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
 
-    const batchHandler = hub.capabilities.ingestionOverflow ? eachBatchIngestionWithOverflow : eachBatchIngestion
+    const batchHandler = isIngestionOverflowEnabled() ? eachBatchIngestionWithOverflow : eachBatchIngestion
 
     const queue = new IngestionConsumer(
         hub,
