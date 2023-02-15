@@ -50,10 +50,6 @@ Deploy a hobby instance in one line on Linux with Docker (recommended 4GB memory
 
 Good for <100K events ingested monthly. See our [docs for more info and limitations](https://posthog.com/docs/self-host/open-source/deployment).
 
-### Enterprise self-hosted
-
-See our [enterprise self-hosted docs](https://posthog.com/docs/self-host/enterprise/overview) to deploy a scalable, production-ready instance with support from our team.
-
 ## Features
 ![ui-demo](https://user-images.githubusercontent.com/85295485/144591577-fe97e4a5-5631-4a60-a684-45caf421507f.gif)
 
