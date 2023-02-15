@@ -65,9 +65,6 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { NodeKind } from '~/queries/schema'
-import { Query } from '~/queries/Query/Query'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
@@ -463,7 +460,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane tab="Exposures" key="exposure">
+                                        <Tabs.TabPane tab="Usage" key="exposure">
                                             <ExposureTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
                                     )}
@@ -500,9 +497,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function ExposureTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
-
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -511,47 +505,40 @@ function ExposureTab({ featureFlagKey }: { id: string; featureFlagKey: string })
             operator: PropertyOperator.Exact,
         },
     ]
-    return featureDataExploration ? (
-        <Query
-            query={{
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                    event: '$feature_flag_called',
+
+    // TODO: reintegrate HogQL Editor
+    return (
+        <div>
+            <div className="mb-4">
+                <b>Log</b>
+                <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+            </div>
+            <EventsTable
+                fixedFilters={{
+                    event_filter: '$feature_flag_called',
                     properties: propertyFilter,
-                },
-                full: true,
-                showEventFilter: false,
-                showPropertyFilter: false,
-            }}
-        />
-    ) : (
-        <EventsTable
-            fixedFilters={{
-                event_filter: '$feature_flag_called',
-                properties: propertyFilter,
-            }}
-            fixedColumns={[
-                {
-                    title: 'Value',
-                    key: '$feature/' + featureFlagKey,
-                    render: function renderTime(_, { event }: EventsTableRowItem) {
-                        return event?.properties['$feature/' + featureFlagKey]?.toString()
+                }}
+                fixedColumns={[
+                    {
+                        title: 'Value',
+                        key: '$feature/' + featureFlagKey,
+                        render: function renderTime(_, { event }: EventsTableRowItem) {
+                            return event?.properties['$feature/' + featureFlagKey]?.toString()
+                        },
                     },
-                },
-            ]}
-            startingColumns={['person']}
-            fetchMonths={1}
-            pageKey={`feature-flag-` + featureFlagKey}
-            showEventFilter={false}
-            showPropertyFilter={false}
-            showCustomizeColumns={false}
-            showAutoload={false}
-            showExport={false}
-            showActionsButton={false}
-            emptyPrompt={`Feature flag calls for "${featureFlagKey}" will appear here`}
-        />
+                ]}
+                startingColumns={['person']}
+                fetchMonths={1}
+                pageKey={`feature-flag-` + featureFlagKey}
+                showEventFilter={false}
+                showPropertyFilter={false}
+                showCustomizeColumns={false}
+                showAutoload={false}
+                showExport={false}
+                showActionsButton={false}
+                emptyPrompt={`No events received`}
+            />
+        </div>
     )
 }
 
