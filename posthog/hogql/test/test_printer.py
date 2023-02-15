@@ -13,9 +13,22 @@ class TestPrinter(TestCase):
     ) -> str:
         return translate_hogql(query, context or HogQLContext(), dialect)
 
+    # Helper to always translate HogQL with a blank context,
+    def _select(
+        self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
+    ) -> str:
+        return translate_hogql(query, context or HogQLContext(select_team_id=42), dialect)
+
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
         with self.assertRaises(ValueError) as context:
             self._expr(expr, None, dialect)
+        if expected_error not in str(context.exception):
+            raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
+        self.assertTrue(expected_error in str(context.exception))
+
+    def _assert_select_error(self, statement, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
+        with self.assertRaises(ValueError) as context:
+            self._select(statement, None, dialect)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
@@ -330,3 +343,106 @@ class TestPrinter(TestCase):
     def test_no_alias_yet(self):
         self._assert_expr_error("1 as team_id", "Unknown AST node Alias")
         self._assert_expr_error("1 as `-- select team_id`", "Unknown AST node Alias")
+
+    def test_select(self):
+        self.assertEqual(self._select("select 1"), "SELECT 1 LIMIT 65535")
+        self.assertEqual(self._select("select 1 + 2"), "SELECT plus(1, 2) LIMIT 65535")
+        self.assertEqual(self._select("select 1 + 2, 3"), "SELECT plus(1, 2), 3 LIMIT 65535")
+        self.assertEqual(
+            self._select("select 1 + 2, 3 + 4 from events"),
+            "SELECT plus(1, 2), plus(3, 4) FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
+
+    def test_select_alias(self):
+        # currently not supported!
+        self._assert_select_error("select 1 as b", "Unknown AST node Alias")
+        self._assert_select_error("select 1 from events as e", "Table aliases not yet supported")
+
+    def test_select_from(self):
+        self.assertEqual(
+            self._select("select 1 from events"), "SELECT 1 FROM events WHERE equals(team_id, 42) LIMIT 65535"
+        )
+        self._assert_select_error("select 1 from other", 'Only selecting from the "events" table is supported')
+
+    def test_select_where(self):
+        self.assertEqual(
+            self._select("select 1 from events where 1 == 2"),
+            "SELECT 1 FROM events WHERE and(equals(team_id, 42), equals(1, 2)) LIMIT 65535",
+        )
+
+    def test_select_having(self):
+        self.assertEqual(
+            self._select("select 1 from events having 1 == 2"),
+            "SELECT 1 FROM events WHERE equals(team_id, 42) HAVING equals(1, 2) LIMIT 65535",
+        )
+
+    def test_select_prewhere(self):
+        self.assertEqual(
+            self._select("select 1 from events prewhere 1 == 2"),
+            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2) LIMIT 65535",
+        )
+
+    def test_select_order_by(self):
+        self.assertEqual(
+            self._select("select event from events order by event"),
+            "SELECT event FROM events WHERE equals(team_id, 42) ORDER BY event ASC LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("select event from events order by event desc"),
+            "SELECT event FROM events WHERE equals(team_id, 42) ORDER BY event DESC LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("select event from events order by event desc, timestamp"),
+            "SELECT event FROM events WHERE equals(team_id, 42) ORDER BY event DESC, timestamp ASC LIMIT 65535",
+        )
+
+    def test_select_limit(self):
+        self.assertEqual(
+            self._select("select event from events limit 10"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10",
+        )
+        self.assertEqual(
+            self._select("select event from events limit 10000000"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("select event from events limit (select 1000000000)"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT min2(65535, (SELECT 1000000000))",
+        )
+
+        self.assertEqual(
+            self._select("select event from events limit (select 1000000000) with ties"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT min2(65535, (SELECT 1000000000)) WITH TIES",
+        )
+
+    def test_select_offset(self):
+        self.assertEqual(
+            self._select("select event from events limit 10 offset 10"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 10",
+        )
+        self.assertEqual(
+            self._select("select event from events limit 10 offset 0"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0",
+        )
+        self.assertEqual(
+            self._select("select event from events limit 10 offset 0 with ties"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0 WITH TIES",
+        )
+
+    def test_select_limit_by(self):
+        self.assertEqual(
+            self._select("select event from events limit 10 offset 0 by 1,event"),
+            "SELECT event FROM events WHERE equals(team_id, 42) LIMIT 10 OFFSET 0 BY 1, event",
+        )
+
+    def test_select_group_by(self):
+        self.assertEqual(
+            self._select("select event from events group by event, timestamp"),
+            "SELECT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp LIMIT 65535",
+        )
+
+    def test_select_distinct(self):
+        self.assertEqual(
+            self._select("select distinct event from events group by event, timestamp"),
+            "SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp LIMIT 65535",
+        )

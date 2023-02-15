@@ -38,7 +38,6 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -235,11 +234,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             editorFilters: filterFalsy([
                 isPaths && {
                     key: 'paths-advanced',
-                    component: (props) => (
-                        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
-                            <PathsAdvanced {...props} />
-                        </PayGateMini>
-                    ),
+                    component: PathsAdvanced,
                 },
                 isFunnels && {
                     key: 'funnels-advanced',

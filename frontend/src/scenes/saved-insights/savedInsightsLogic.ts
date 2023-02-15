@@ -15,6 +15,8 @@ import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -58,7 +60,7 @@ function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsightFilters
 export const savedInsightsLogic = kea<savedInsightsLogicType>({
     path: ['scenes', 'saved-insights', 'savedInsightsLogic'],
     connect: {
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
         logic: [eventUsageLogic],
     },
     actions: {
@@ -81,15 +83,24 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                     await breakpoint(300)
                 }
                 const { filters } = values
-                const params = values.paramsFromFilters
+                const params = {
+                    ...values.paramsFromFilters,
+                    basic: true,
+                    include_query_insights: !!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS],
+                }
                 const response = await api.get(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams({ ...params, basic: true })}`
+                    `api/projects/${teamLogic.values.currentTeamId}/insights/?${toParams(params)}`
                 )
 
                 if (filters.search && String(filters.search).match(/^[0-9]+$/)) {
                     try {
+                        const include_queries = !!values.featureFlags[
+                            FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS
+                        ]
+                            ? '&include_query_insights=true'
+                            : ''
                         const insight: InsightModel = await api.get(
-                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}`
+                            `api/projects/${teamLogic.values.currentTeamId}/insights/${filters.search}${include_queries}`
                         )
                         return {
                             ...response,

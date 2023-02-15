@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { router } from 'kea-router'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 
-export enum FeatureFlagsTabs {
+export enum FeatureFlagsTabs { // TODO: Rename to singular "FeatureFlagTab" in line with enum convention
     OVERVIEW = 'overview',
     HISTORY = 'history',
     EXPOSURE = 'exposure',

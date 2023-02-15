@@ -1,6 +1,6 @@
 import re
 from enum import Enum
-from typing import Any, List, Literal
+from typing import Any, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Extra
 
@@ -102,3 +102,31 @@ class Placeholder(Expr):
 class Call(Expr):
     name: str
     args: List[Expr]
+
+
+class JoinExpr(Expr):
+    table: Optional[Union["SelectQuery", Field]] = None
+    table_final: Optional[bool] = None
+    alias: Optional[str] = None
+    join_type: Optional[str] = None
+    join_constraint: Optional[Expr] = None
+    join_expr: Optional["JoinExpr"] = None
+
+
+class SelectQuery(Expr):
+    select: List[Expr]
+    distinct: Optional[bool] = None
+    select_from: Optional[JoinExpr] = None
+    where: Optional[Expr] = None
+    prewhere: Optional[Expr] = None
+    having: Optional[Expr] = None
+    group_by: Optional[List[Expr]] = None
+    order_by: Optional[List[OrderExpr]] = None
+    limit: Optional[Expr] = None
+    limit_by: Optional[List[Expr]] = None
+    limit_with_ties: Optional[bool] = None
+    offset: Optional[Expr] = None
+
+
+JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
+JoinExpr.update_forward_refs(JoinExpr=JoinExpr)

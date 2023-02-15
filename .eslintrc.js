@@ -120,6 +120,10 @@ module.exports = {
                         message: 'use <LemonSkeleton> instead',
                     },
                     {
+                        element: 'Tabs',
+                        message: 'use <LemonTabs> instead',
+                    },
+                    {
                         element: 'a',
                         message: 'use <Link> instead',
                     },

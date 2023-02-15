@@ -1,5 +1,6 @@
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka, Producer } from 'kafkajs'
+import { Counter } from 'prom-client'
 
 import { KAFKA_JOBS, KAFKA_JOBS_DLQ } from '../../config/kafka-topics'
 import { EnqueuedPluginJob, JobName } from '../../types'
@@ -7,6 +8,16 @@ import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 import { latestOffsetTimestampGauge } from './metrics'
+
+const jobsConsumerSuccessCounter = new Counter({
+    name: 'jobs_consumer_enqueue_success_total',
+    help: 'Number of jobs successfully enqueued to Graphile from the Kafka buffer.',
+})
+
+const jobsConsumerFailuresCounter = new Counter({
+    name: 'jobs_consumer_enqueue_failures_total',
+    help: 'Number of Graphile errors while enqueuing jobs from the Kafka buffer.',
+})
 
 export const startJobsConsumer = async ({
     kafka,
@@ -65,10 +76,12 @@ export const startJobsConsumer = async ({
 
             try {
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
-                statsd?.increment('jobs_consumer.enqueued') // TODO: migrate to Prometheus
+                jobsConsumerSuccessCounter.inc()
+                statsd?.increment('jobs_consumer.enqueued')
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
-                statsd?.increment('jobs_consumer.enqueue_error') // TODO: migrate to Prometheus
+                jobsConsumerFailuresCounter.inc()
+                statsd?.increment('jobs_consumer.enqueue_error')
 
                 throw error
             }

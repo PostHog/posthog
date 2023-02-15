@@ -476,6 +476,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonOpenedFromNewlySeenPersonsList: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
+        reportIngestionRecordingsTurnedOff: (
+            session_recording_opt_in: boolean,
+            capture_console_log_opt_in: boolean,
+            capture_performance_opt_in: boolean
+        ) => ({ session_recording_opt_in, capture_console_log_opt_in, capture_performance_opt_in }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionTryWithDemoDataClicked: true,
@@ -1151,6 +1156,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSelectFrameworkType: ({ framework }) => {
             posthog.capture('ingestion select framework type', {
                 framework: framework,
+            })
+        },
+        reportIngestionRecordingsTurnedOff: ({
+            session_recording_opt_in,
+            capture_console_log_opt_in,
+            capture_performance_opt_in,
+        }) => {
+            posthog.capture('ingestion recordings turned off', {
+                session_recording_opt_in,
+                capture_console_log_opt_in,
+                capture_performance_opt_in,
             })
         },
         reportIngestionHelpClicked: ({ type }) => {

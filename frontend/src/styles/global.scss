@@ -69,6 +69,9 @@ ul {
     @extend .text-sm;
     max-width: 48rem;
     margin-bottom: 1rem;
+    &.tabbed {
+        margin-bottom: 0.5rem;
+    }
 }
 
 .page-description {
@@ -667,8 +670,8 @@ body {
     }
 }
 
-.dangerously-stop-all-animations {
-    // Only use this class to achieve consistent snapshots by stopping all animations
+.storybook-test-runner {
+    // Only use this class in visual regression tests
     *,
     *::before,
     *::after {
@@ -676,5 +679,8 @@ body {
         animation-fill-mode: forwards !important;
         animation-duration: 0ms !important;
         animation-iteration-count: 1 !important;
+    }
+    ::-webkit-scrollbar {
+        display: none;
     }
 }

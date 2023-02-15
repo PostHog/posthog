@@ -250,11 +250,18 @@ def property_group_to_Q(property_group: PropertyGroup, override_property_values:
                 filters &= group_filter
     else:
         for property in property_group.values:
-            property_filter = property_to_Q(cast(Property, property), override_property_values)
+            property = cast(Property, property)
+            property_filter = property_to_Q(property, override_property_values)
             if property_group.type == PropertyOperatorType.OR:
-                filters |= property_filter
+                if property.negation:
+                    filters |= ~property_filter
+                else:
+                    filters |= property_filter
             else:
-                filters &= property_filter
+                if property.negation:
+                    filters &= ~property_filter
+                else:
+                    filters &= property_filter
 
     return filters
 

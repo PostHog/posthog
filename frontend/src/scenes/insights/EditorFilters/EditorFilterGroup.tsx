@@ -40,6 +40,11 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
             <div className="EditorFilterGroup__content">
                 {editorFilters.map(
                     ({ label: Label, tooltip, showOptional, key, valueSelector, component: Component }) => {
+                        if (Component && Component.name === 'component') {
+                            throw new Error(
+                                `Component for filter ${key} is an anonymous function, which is not a valid React component! Use a named function instead.`
+                            )
+                        }
                         // Don't calculate editorFilterProps if not needed
                         const editorFilterProps: EditorFilterProps | null =
                             typeof Label === 'function' || Component

@@ -84,11 +84,6 @@ class HogQLParserVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
-    # Visit a parse tree produced by HogQLParser#limitByClause.
-    def visitLimitByClause(self, ctx:HogQLParser.LimitByClauseContext):
-        return self.visitChildren(ctx)
-
-
     # Visit a parse tree produced by HogQLParser#limitClause.
     def visitLimitClause(self, ctx:HogQLParser.LimitClauseContext):
         return self.visitChildren(ctx)
