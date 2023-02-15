@@ -405,8 +405,8 @@
   '
   SELECT pg_sleep(1);
   
-  SELECT (true) AS "flag_X_condition_0",
-         ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "flag_X_condition_0"
+  SELECT ("posthog_person"."properties" -> 'email') = '"tim@posthog.com"' AS "flag_X_condition_0",
+         (true) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id'
