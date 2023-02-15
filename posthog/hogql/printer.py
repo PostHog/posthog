@@ -426,7 +426,11 @@ class Printer(Visitor):
 
         field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-        materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
+        if field_name == "person_properties" and not self.context.using_person_on_events:
+            # :KLUDGE: person property materialized columns support when person on events is off
+            materialized_column = self._get_materialized_column("person", symbol.name, "properties")
+        else:
+            materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
 
         if materialized_column:
             property_sql = self._print_identifier(materialized_column)
@@ -493,11 +497,6 @@ class Printer(Visitor):
     def _get_materialized_column(
         self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
-        # :KLUDGE: person property materialised columns support when person on events is off
-        if not self.context.using_person_on_events and table_name == "events" and field_name == "person_properties":
-            materialized_columns = get_materialized_columns("person")
-            return materialized_columns.get(("properties", field_name), None)
-
         materialized_columns = get_materialized_columns(table_name)
         return materialized_columns.get((property_name, field_name), None)
 
