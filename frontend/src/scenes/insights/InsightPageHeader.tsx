@@ -33,9 +33,6 @@ import { InsightSceneProps } from 'scenes/insights/Insight'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 
-/**
- * Assume this is used in a scene that has bound an insightLogic
- */
 export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -273,6 +270,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                         {canEditInsight ? (
                             <ObjectTags
                                 tags={insight.tags ?? []}
+                                saving={insightSaving}
                                 onChange={(_, tags) => setInsightMetadata({ tags: tags ?? [] })}
                                 tagsAvailable={tags}
                                 className="insight-metadata-tags"
@@ -281,6 +279,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                         ) : insight.tags?.length ? (
                             <ObjectTags
                                 tags={insight.tags}
+                                saving={insightSaving}
                                 className="insight-metadata-tags"
                                 data-attr="insight-tags"
                                 staticOnly
