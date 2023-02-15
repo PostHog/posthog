@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import List, Literal, Optional, Union, cast
 
-from ee.clickhouse.materialized_columns.columns import get_materialized_columns
+from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
@@ -9,6 +9,7 @@ from posthog.hogql.database import database
 from posthog.hogql.print_string import print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name
 from posthog.hogql.visitor import Visitor
+from posthog.models.property import PropertyName, TableColumn
 
 
 def team_id_guard_for_table(
@@ -333,6 +334,13 @@ class SymbolPrinter(Visitor):
         self.select = select
         self.context = context
 
+    def _get_materialized_column(
+        self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
+    ) -> Optional[str]:
+        materialized_columns = get_materialized_columns(table_name)
+        materialized_column = materialized_columns.get((property_name, field_name), None)
+        return materialized_column
+
     def visit_table_symbol(self, symbol: ast.TableSymbol):
         return print_hogql_identifier(symbol.table.clickhouse_table())
 
@@ -351,14 +359,20 @@ class SymbolPrinter(Visitor):
                 raise ValueError(f'Can\'t resolve field "{symbol.name}" on table.')
 
             field_sql = print_hogql_identifier(resolved_field.name)
-            if (
-                resolved_field.name != symbol.name
-                or isinstance(symbol.table, ast.TableAliasSymbol)
-                or symbol_with_name_in_scope != symbol
-            ):
+
+            # :KLUDGE: Legacy person properties handling. Assume we're in a context where the tables have been joined,
+            # and this "person_props" alias is accessible to us.
+            if resolved_field == database.events.person.properties:
+                if not self.context.using_person_on_events:
+                    field_sql = "person_props"
+
+            # If the field is called on a table that has an alias, prepend the table alias.
+            # If there's another field with the same name in the scope that's not this, prepend the full table name.
+            # Note: we don't prepend a table name for the special "person_properties" field.
+            elif isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
-            # TODO: refactor this lefacy logging
+            # TODO: refactor this legacy logging
             if symbol.name != "properties":
                 real_table = symbol.table
                 while isinstance(real_table, ast.TableAliasSymbol):
@@ -367,7 +381,9 @@ class SymbolPrinter(Visitor):
                 self.context.field_access_logs.append(
                     HogQLFieldAccess(
                         [symbol.name],
-                        "event" if real_table.table == database.events else "person",
+                        cast(Literal["event"], "event")
+                        if real_table.table == database.events
+                        else cast(Literal["person"], "person"),
                         symbol.name,
                         field_sql,
                     )
@@ -404,9 +420,7 @@ class SymbolPrinter(Visitor):
 
         field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-        # TODO: cache this
-        materialized_columns = get_materialized_columns(table_name)
-        materialized_column = materialized_columns.get((symbol.name, field_name), None)
+        materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
 
         if materialized_column:
             property_sql = print_hogql_identifier(materialized_column)
@@ -415,7 +429,7 @@ class SymbolPrinter(Visitor):
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
         if field_name == "properties":
-            # TODO: refactor this lefacy logging
+            # TODO: refactor this legacy logging
             self.context.field_access_logs.append(
                 HogQLFieldAccess(
                     ["properties", symbol.name],
@@ -425,7 +439,7 @@ class SymbolPrinter(Visitor):
                 )
             )
         elif field_name == "person_properties":
-            # TODO: refactor this lefacy logging
+            # TODO: refactor this legacy logging
             self.context.field_access_logs.append(
                 HogQLFieldAccess(
                     ["person", "properties", symbol.name],

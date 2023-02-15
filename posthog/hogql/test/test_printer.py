@@ -74,7 +74,7 @@ class TestPrinter(TestCase):
         context = HogQLContext()
         self.assertEqual(
             self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -83,7 +83,7 @@ class TestPrinter(TestCase):
                     ["person", "properties", "bla"],
                     "person.properties",
                     "bla",
-                    "replaceRegexpAll(JSONExtractRaw(events.person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
