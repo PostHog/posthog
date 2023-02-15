@@ -17,6 +17,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
             <span className="px-1">•</span>
             <Tooltip title={insightRefreshButtonDisabledReason}>
                 <Button
+                    type="link"
                     size="small"
                     onClick={() => loadResults(true)}
                     disabled={!!insightRefreshButtonDisabledReason}
