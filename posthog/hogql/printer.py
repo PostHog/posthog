@@ -6,7 +6,7 @@ from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
-from posthog.hogql.print_string import print_hogql_identifier
+from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
 from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
@@ -65,13 +65,6 @@ class Printer(Visitor):
         self.dialect = dialect
         # Keep track of all traversed nodes.
         self.stack: List[ast.AST] = stack or []
-
-    def _last_select(self) -> Optional[ast.SelectQuery]:
-        """Find the last SELECT query in the stack."""
-        for node in reversed(self.stack):
-            if isinstance(node, ast.SelectQuery):
-                return node
-        return None
 
     def visit(self, node: ast.AST):
         self.stack.append(node)
@@ -166,16 +159,16 @@ class Printer(Visitor):
                 raise ValueError(f"Table alias {node.symbol.name} does not resolve!")
             if not isinstance(table_symbol, ast.TableSymbol):
                 raise ValueError(f"Table alias {node.symbol.name} does not resolve to a table!")
-            select_from.append(print_hogql_identifier(table_symbol.table.clickhouse_table()))
+            select_from.append(self._print_identifier(table_symbol.table.clickhouse_table()))
             if node.alias is not None:
-                select_from.append(f"AS {print_hogql_identifier(node.alias)}")
+                select_from.append(f"AS {self._print_identifier(node.alias)}")
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
-            select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
+            select_from.append(self._print_identifier(node.symbol.table.clickhouse_table()))
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
@@ -186,7 +179,7 @@ class Printer(Visitor):
 
         elif isinstance(node.symbol, ast.SelectQueryAliasSymbol) and node.alias is not None:
             select_from.append(self.visit(node.table))
-            select_from.append(f"AS {print_hogql_identifier(node.alias)}")
+            select_from.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise ValueError("Only selecting from a table or a subquery is supported")
 
@@ -280,20 +273,20 @@ class Printer(Visitor):
             )
 
     def visit_field(self, node: ast.Field):
-        original_field = ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
+        original_field = ".".join([self._print_identifier(identifier) for identifier in node.chain])
         if node.symbol is None:
             raise ValueError(f"Field {original_field} has no symbol")
 
         if self.dialect == "hogql":
             # When printing HogQL, we print the properties out as a chain as they are.
-            return ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
+            return ".".join([self._print_identifier(identifier) for identifier in node.chain])
 
         if node.symbol is not None:
             select_query = self._last_select()
             select: Optional[ast.SelectQuerySymbol] = select_query.symbol if select_query else None
             if select is None:
                 raise ValueError(f"Can't find SelectQuerySymbol for field: {original_field}")
-            return SymbolPrinter(select=select, context=self.context).visit(node.symbol)
+            return self.visit(node.symbol)
         else:
             raise ValueError(f"Unknown Symbol, can not print {type(node.symbol).__name__}")
 
@@ -336,37 +329,18 @@ class Printer(Visitor):
         raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
 
     def visit_alias(self, node: ast.Alias):
-        return f"{self.visit(node.expr)} AS {print_hogql_identifier(node.alias)}"
-
-    def visit_unknown(self, node: ast.AST):
-        raise ValueError(f"Unknown AST node {type(node).__name__}")
-
-
-class SymbolPrinter(Visitor):
-    def __init__(self, select: ast.SelectQuerySymbol, context: HogQLContext):
-        self.select = select
-        self.context = context
-
-    def _get_materialized_column(
-        self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
-    ) -> Optional[str]:
-        # :KLUDGE: person property materialised columns support when person on events is off
-        if not self.context.using_person_on_events and table_name == "events" and field_name == "person_properties":
-            materialized_columns = get_materialized_columns("person")
-            return materialized_columns.get(("properties", field_name), None)
-
-        materialized_columns = get_materialized_columns(table_name)
-        return materialized_columns.get((property_name, field_name), None)
+        return f"{self.visit(node.expr)} AS {self._print_identifier(node.alias)}"
 
     def visit_table_symbol(self, symbol: ast.TableSymbol):
-        return print_hogql_identifier(symbol.table.clickhouse_table())
+        return self._print_identifier(symbol.table.clickhouse_table())
 
     def visit_table_alias_symbol(self, symbol: ast.TableAliasSymbol):
-        return print_hogql_identifier(symbol.name)
+        return self._print_identifier(symbol.name)
 
     def visit_field_symbol(self, symbol: ast.FieldSymbol):
         try:
-            symbol_with_name_in_scope = lookup_field_by_name(self.select, symbol.name)
+            last_select = self._last_select()
+            symbol_with_name_in_scope = lookup_field_by_name(last_select.symbol, symbol.name) if last_select else None
         except ResolverException:
             symbol_with_name_in_scope = None
 
@@ -387,7 +361,7 @@ class SymbolPrinter(Visitor):
                         )
                     )
 
-            field_sql = print_hogql_identifier(resolved_field.name)
+            field_sql = self._print_identifier(resolved_field.name)
 
             # :KLUDGE: Legacy person properties handling. Assume we're in a context where the tables have been joined,
             # and this "person_props" alias is accessible to us.
@@ -422,7 +396,7 @@ class SymbolPrinter(Visitor):
                 )
 
         elif isinstance(symbol.table, ast.SelectQuerySymbol) or isinstance(symbol.table, ast.SelectQueryAliasSymbol):
-            field_sql = print_hogql_identifier(symbol.name)
+            field_sql = self._print_identifier(symbol.name)
             if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
@@ -455,7 +429,7 @@ class SymbolPrinter(Visitor):
         materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
 
         if materialized_column:
-            property_sql = print_hogql_identifier(materialized_column)
+            property_sql = self._print_identifier(materialized_column)
         else:
             field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
@@ -484,10 +458,10 @@ class SymbolPrinter(Visitor):
         return property_sql
 
     def visit_select_query_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
-        return print_hogql_identifier(symbol.name)
+        return self._print_identifier(symbol.name)
 
     def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
-        return print_hogql_identifier(symbol.name)
+        return self._print_identifier(symbol.name)
 
     def visit_splash_symbol(self, symbol: ast.SplashSymbol):
         table = symbol.table
@@ -497,12 +471,35 @@ class SymbolPrinter(Visitor):
             raise ValueError(f"Unknown SplashSymbol table type: {type(table).__name__}")
         splash_fields = table.table.get_splash()
         prefix = (
-            f"{print_hogql_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
+            f"{self._print_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
         )
-        return f"tuple({', '.join(f'{prefix}{print_hogql_identifier(field)}' for field in splash_fields)})"
+        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field)}' for field in splash_fields)})"
 
-    def visit_unknown(self, symbol: ast.AST):
-        raise ValueError(f"Unknown Symbol {type(symbol).__name__}")
+    def visit_unknown(self, node: ast.AST):
+        raise ValueError(f"Unknown AST node {type(node).__name__}")
+
+    def _last_select(self) -> Optional[ast.SelectQuery]:
+        """Find the last SELECT query in the stack."""
+        for node in reversed(self.stack):
+            if isinstance(node, ast.SelectQuery):
+                return node
+        return None
+
+    def _print_identifier(self, name: str) -> str:
+        if self.dialect == "clickhouse":
+            return print_clickhouse_identifier(name)
+        return print_hogql_identifier(name)
+
+    def _get_materialized_column(
+        self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
+    ) -> Optional[str]:
+        # :KLUDGE: person property materialised columns support when person on events is off
+        if not self.context.using_person_on_events and table_name == "events" and field_name == "person_properties":
+            materialized_columns = get_materialized_columns("person")
+            return materialized_columns.get(("properties", field_name), None)
+
+        materialized_columns = get_materialized_columns(table_name)
+        return materialized_columns.get((property_name, field_name), None)
 
 
 def trim_quotes_expr(expr: str) -> str:

@@ -172,16 +172,19 @@ class TestPrinter(TestCase):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), "mat_$browser")
+        self.assertEqual(self._expr("properties['$browser']"), "`mat_$browser`")
+
+        materialize("events", "withoutdollar")
+        self.assertEqual(self._expr("properties['withoutdollar']"), "mat_withoutdollar")
 
         materialize("events", "$browser and string")
-        self.assertEqual(self._expr("properties['$browser and string']"), "mat_$browser_and_string")
+        self.assertEqual(self._expr("properties['$browser and string']"), "`mat_$browser_and_string`")
 
         materialize("events", "$browser%%%#@!@")
-        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "mat_$browser_______")
+        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "`mat_$browser_______`")
 
         materialize("events", "$initial_waffle", table_column="person_properties")
-        self.assertEqual(self._expr("person.properties['$initial_waffle']"), "mat_pp_$initial_waffle")
+        self.assertEqual(self._expr("person.properties['$initial_waffle']"), "`mat_pp_$initial_waffle`")
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count(*)")
