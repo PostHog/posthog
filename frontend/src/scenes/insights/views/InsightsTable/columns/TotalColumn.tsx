@@ -12,6 +12,7 @@ import { IndexedTrendResult } from 'scenes/trends/types'
 
 import { CalcColumnState } from '../insightsTableLogic'
 import { TrendsFilterType } from '~/types'
+import { TrendsFilter } from '~/queries/schema'
 
 const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     total: 'Total Sum',
@@ -66,14 +67,14 @@ type TotalColumnItemProps = {
     item: IndexedTrendResult
     isNonTimeSeriesDisplay: boolean
     calcColumnState: CalcColumnState
-    filters: Partial<TrendsFilterType> | undefined
+    trendsFilter: TrendsFilter | null | undefined
 }
 
 export function TotalColumnItem({
     item,
     isNonTimeSeriesDisplay,
     calcColumnState,
-    filters,
+    trendsFilter,
 }: TotalColumnItemProps): JSX.Element {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -95,7 +96,7 @@ export function TotalColumnItem({
                 ? formatAggregationValue(
                       item.action?.math_property,
                       value,
-                      (value) => formatAggregationAxisValue(filters, value),
+                      (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
                       formatPropertyValueForDisplay
                   )
                 : 'Unknown'}

@@ -1,10 +1,11 @@
+import { useValues } from 'kea'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { IntervalType, TrendsFilterType } from '~/types'
 import { formatAggregationValue } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { TrendsFilter } from '~/queries/schema'
 
 type ValueColumnTitleProps = {
     index: number
@@ -29,17 +30,17 @@ export function ValueColumnTitle({ index, indexedResults, compare, interval }: V
 type ValueColumnItemProps = {
     index: number
     item: IndexedTrendResult
-    filters: Partial<TrendsFilterType> | undefined
+    trendsFilter: TrendsFilter | null | undefined
 }
 
-export function ValueColumnItem({ index, item, filters }: ValueColumnItemProps): JSX.Element {
+export function ValueColumnItem({ index, item, trendsFilter }: ValueColumnItemProps): JSX.Element {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <span>
             {formatAggregationValue(
                 item.action?.math_property,
                 item.data[index],
-                (value) => formatAggregationAxisValue(filters, value),
+                (value) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
                 formatPropertyValueForDisplay
             )}
         </span>

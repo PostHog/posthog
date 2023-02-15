@@ -23,7 +23,7 @@ import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColum
 import { TotalColumnItem, TotalColumnTitle } from './columns/TotalColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
-import { BreakdownFilter } from '~/queries/schema'
+import { BreakdownFilter, TrendsFilter } from '~/queries/schema'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -41,7 +41,7 @@ interface InsightsTableProps {
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown } = useValues(
+    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } = useValues(
         insightDataLogic(insightProps)
     )
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
@@ -56,6 +56,7 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={!!compare}
             isTrends={isTrends}
+            trendsFilter={trendsFilter}
             display={display}
             interval={interval}
             breakdown={breakdown}
@@ -100,6 +101,11 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={compare}
             isTrends={isTrendsFilter(filters)}
+            trendsFilter={{
+                aggregation_axis_format: (filters as TrendsFilterType).aggregation_axis_format,
+                aggregation_axis_prefix: (filters as TrendsFilterType).aggregation_axis_prefix,
+                aggregation_axis_postfix: (filters as TrendsFilterType).aggregation_axis_postfix,
+            }}
             display={(filters as TrendsFilterType).display}
             interval={(filters as TrendsFilterType).interval}
             breakdown={{
@@ -116,6 +122,7 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 
 type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     isTrends: boolean
+    trendsFilter: TrendsFilter | null | undefined
     display: ChartDisplayType | undefined
     interval: IntervalType | undefined
     breakdown: BreakdownFilter | undefined
@@ -135,6 +142,7 @@ function InsightsTableComponent({
     isMainInsightView = false,
     isNonTimeSeriesDisplay,
     isTrends,
+    trendsFilter,
     display,
     interval,
     breakdown,
@@ -149,7 +157,7 @@ function InsightsTableComponent({
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { indexedResults, hiddenLegendKeys, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility } = useActions(trendsLogic(insightProps))
 
     // Build up columns to include. Order matters.
@@ -254,7 +262,7 @@ function InsightsTableComponent({
                     item={item}
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
                     calcColumnState={calcColumnState}
-                    filters={filters}
+                    trendsFilter={trendsFilter}
                 />
             ),
 
@@ -276,7 +284,7 @@ function InsightsTableComponent({
                     />
                 ),
                 render: (_, item: IndexedTrendResult) => (
-                    <ValueColumnItem index={index} item={item} filters={filters} />
+                    <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
                 ),
                 key: `data-${index}`,
                 sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
