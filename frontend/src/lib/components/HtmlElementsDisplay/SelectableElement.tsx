@@ -199,8 +199,7 @@ export function SelectableElement({
 
         const tagSelector = selectedParts.tag ? selectedParts.tag : ''
         const idSelector = selectedParts.id ? `[id="${selectedParts.id}"]` : ''
-        const textSelector = selectedParts.text ? `[text="${selectedParts.text}"]` : ''
-        const builtSelector = `${tagSelector}${idSelector}${attributeSelectors.join('')}${textSelector}`
+        const builtSelector = `${tagSelector}${idSelector}${attributeSelectors.join('')}`
 
         onChange(builtSelector)
     }, [selectedParts])
