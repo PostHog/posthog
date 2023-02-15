@@ -9,6 +9,7 @@ import {
     isRecentPerformancePageViewNode,
     isDataTableNode,
     isTimeToSeeDataSessionsNode,
+    isInsightVizNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -51,6 +52,12 @@ export function queryExportContext<N extends DataNode = DataNode>(
     } else if (isInsightQueryNode(query)) {
         return legacyInsightQueryExportContext({
             filters: queryNodeToFilter(query),
+            currentTeamId: getCurrentTeamId(),
+            refresh,
+        })
+    } else if (isInsightVizNode(query)) {
+        return legacyInsightQueryExportContext({
+            filters: queryNodeToFilter(query.source),
             currentTeamId: getCurrentTeamId(),
             refresh,
         })
