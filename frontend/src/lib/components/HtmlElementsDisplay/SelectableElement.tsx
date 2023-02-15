@@ -224,20 +224,22 @@ export function SelectableElement({
                 readonly={readonly}
                 onChange={setSelectedParts}
             />
-            {Object.entries(element.attributes ?? {}).map(([key, value]) => {
-                const attrName: string = key.replace('attr__', '')
-                return (
-                    <AttributePart
-                        key={`${indent.length}-${element.tag_name}-${attrName}-${value}`}
-                        attribute={attrName}
-                        values={value.split(' ')}
-                        selectedParts={selectedParts}
-                        onChange={setSelectedParts}
-                        readonly={readonly}
-                        allowMultipleSelections={attrName === 'class'}
-                    />
-                )
-            })}
+            {Object.entries(element.attributes ?? {})
+                .filter(([key]) => key !== 'style')
+                .map(([key, value]) => {
+                    const attrName: string = key.replace('attr__', '')
+                    return (
+                        <AttributePart
+                            key={`${indent.length}-${element.tag_name}-${attrName}-${value}`}
+                            attribute={attrName}
+                            values={value.split(' ')}
+                            selectedParts={selectedParts}
+                            onChange={setSelectedParts}
+                            readonly={readonly}
+                            allowMultipleSelections={attrName === 'class'}
+                        />
+                    )
+                })}
             &gt;
             {element.text}
             {isDeepestChild && <span>&lt;/{element.tag_name}&gt;</span>}

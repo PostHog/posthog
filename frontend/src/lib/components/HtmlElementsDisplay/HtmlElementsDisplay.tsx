@@ -84,7 +84,11 @@ export function HtmlElementsDisplay({
 
     return (
         <div className="flex flex-col gap-1">
-            {editable && !!elements.length && <div className="px-4">Selector: {chosenSelector.processedSelector}</div>}
+            {editable && !!elements.length && (
+                <div className="px-4">
+                    Selector: <span className={'text-mono'}>{chosenSelector.processedSelector}</span>
+                </div>
+            )}
             {checkUniqueness && (
                 // TODO use the SelectorCount element here?
                 <AlertMessage
