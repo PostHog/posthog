@@ -8,7 +8,6 @@ from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.hogql.printer import print_ast
-from posthog.hogql.resolver import resolve_symbols
 from posthog.models import Team
 from posthog.queries.insight import insight_sync_execute
 
@@ -46,8 +45,7 @@ def execute_hogql_query(
     if select_query.limit is None:
         select_query.limit = ast.Constant(value=1000)
 
-    hogql_context = HogQLContext(select_team_id=team.pk)
-    resolve_symbols(select_query)
+    hogql_context = HogQLContext(select_team_id=team.pk, using_person_on_events=team.person_on_events_querying_enabled)
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
     hogql = print_ast(select_query, hogql_context, "hogql")
 

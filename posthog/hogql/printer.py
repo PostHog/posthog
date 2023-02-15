@@ -7,8 +7,8 @@ from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MA
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_hogql_identifier
-from posthog.hogql.resolver import ResolverException, lookup_field_by_name
-from posthog.hogql.visitor import Visitor
+from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
+from posthog.hogql.visitor import Visitor, clone_expr
 from posthog.models.property import PropertyName, TableColumn
 
 
@@ -27,8 +27,25 @@ def team_id_guard_for_table(
 
 
 def print_ast(
-    node: ast.AST, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: Optional[List[ast.AST]] = None
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.Expr]] = None,
 ) -> str:
+    """Print an AST into a string. Does not modify the node."""
+    symbol = stack[-1].symbol if stack else None
+
+    # make a clean copy of the object
+    node = clone_expr(node)
+    # resolve symbols
+    resolve_symbols(node, symbol)
+
+    # modify the cloned tree as needed
+    if dialect == "clickhouse":
+        # TODO: add team_id checks (currently done in the printer)
+        # TODO: add joins to person and group tables
+        pass
+
     return Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
@@ -39,6 +56,8 @@ class JoinExprResponse:
 
 
 class Printer(Visitor):
+    # NOTE: Call "print_ast()", not this class directly.
+
     def __init__(
         self, context: HogQLContext, dialect: Literal["hogql", "clickhouse"], stack: Optional[List[ast.AST]] = None
     ):
@@ -152,12 +171,14 @@ class Printer(Visitor):
                 select_from.append(f"AS {print_hogql_identifier(node.alias)}")
 
             if self.dialect == "clickhouse":
+                # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
             select_from.append(print_hogql_identifier(node.symbol.table.clickhouse_table()))
 
             if self.dialect == "clickhouse":
+                # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.SelectQuerySymbol):

@@ -1,6 +1,11 @@
 from posthog.hogql import ast
 
 
+def clone_expr(self: ast.Expr) -> ast.Expr:
+    """Clone an expression node. Removes all symbols."""
+    return CloningVisitor().visit(self)
+
+
 class Visitor(object):
     def visit(self, node: ast.AST):
         if node is None:
