@@ -3,6 +3,7 @@ import { SelectableElement } from './SelectableElement'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { htmlElementsDisplayLogic } from 'lib/components/HtmlElementsDisplay/htmlElementsDisplayLogic'
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -57,6 +58,8 @@ function Tags({
     )
 }
 
+let uniqueNode = 0
+
 export function HtmlElementsDisplay({
     elements: providedElements,
     onChange,
@@ -70,10 +73,12 @@ export function HtmlElementsDisplay({
     checkUniqueness?: boolean
     onChange?: (selector: string, isUnique?: boolean) => void
 }): JSX.Element {
+    const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
+
     let elements = [...(providedElements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
-    const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange })
+    const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key })
     const { selectors, chosenSelector } = useValues(logic)
     const { setSelectors } = useActions(logic)
 

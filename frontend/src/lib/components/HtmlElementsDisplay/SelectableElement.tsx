@@ -2,7 +2,7 @@ import { ElementType } from '~/types'
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
 import './SelectableElement.scss'
-type SelectedParts = Record<string, string | undefined>
+type SelectedParts = Record<string, string | Set<string> | undefined>
 
 export function TagPart({
     tagName,
@@ -65,24 +65,48 @@ function AttributeValue({
     selectedParts,
     onChange,
     readonly,
+    allowMultipleSelections,
 }: {
     attribute: string
     value: string
     selectedParts: SelectedParts
     onChange: (s: SelectedParts) => void
     readonly: boolean
+    allowMultipleSelections?: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
     const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
-    const selectedPartForAttribute = selectedParts[attribute]
-    const isSelected = selectedPartForAttribute === value
+    const selectionContainer = selectedParts[attribute]
+    const isSelected = allowMultipleSelections
+        ? selectionContainer instanceof Set && selectionContainer.has(value)
+        : selectionContainer === value
+
+    function multipleSelectionsOnChange(): void {
+        if (!selectionContainer) {
+            onChange({ ...selectedParts, [attribute]: new Set([value]) })
+        } else if (selectionContainer instanceof Set) {
+            if (selectionContainer.has(value)) {
+                onChange({
+                    ...selectedParts,
+                    [attribute]: new Set(Array.from(selectionContainer).filter((p) => p !== value)),
+                })
+            } else {
+                onChange({
+                    ...selectedParts,
+                    [attribute]: new Set([...Array.from(selectionContainer), value]),
+                })
+            }
+        }
+    }
 
     return (
         <>
             <span
                 onClick={(e) => {
                     e.stopPropagation()
-                    onChange({ ...selectedParts, [attribute]: isSelected ? undefined : value })
+                    allowMultipleSelections
+                        ? multipleSelectionsOnChange()
+                        : onChange({ ...selectedParts, [attribute]: isSelected ? undefined : value })
                 }}
                 className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
             >
@@ -98,12 +122,14 @@ function AttributePart({
     selectedParts,
     onChange,
     readonly,
+    allowMultipleSelections,
 }: {
     attribute: string
     values: string[]
     selectedParts: SelectedParts
     onChange: (s: SelectedParts) => void
     readonly: boolean
+    allowMultipleSelections?: boolean
 }): JSX.Element {
     const parts = values.map((part) => {
         return (
@@ -114,6 +140,7 @@ function AttributePart({
                 selectedParts={selectedParts}
                 onChange={onChange}
                 readonly={readonly}
+                allowMultipleSelections={allowMultipleSelections}
             />
         )
     })
@@ -145,15 +172,23 @@ export function SelectableElement({
 
     useEffect(() => {
         const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
-            /**
-             * TODO support matching on multiple values for the same class attribute
-             * e.g. ".TopBar .w-full.universal-search-button"
-             */
             if (!!value && key !== 'tag' && key !== 'text') {
                 if (key === 'class') {
-                    acc.push(`.${value}`)
+                    if (value instanceof Set) {
+                        acc.push(`.${Array.from(value).join('.')}`)
+                    } else {
+                        throw new Error(`Was expecting a set here. Attribute: ${key} has a string value: ${value}`)
+                    }
                 } else {
-                    acc.push(`[${key}="${value}"]`)
+                    if (value instanceof Set) {
+                        throw new Error(
+                            `Not expecting a set here. Attribute: ${key} has a set value: ${Array.from(value).join(
+                                ', '
+                            )}`
+                        )
+                    } else {
+                        acc.push(`[${key}="${value}"]`)
+                    }
                 }
             }
             return acc
@@ -199,6 +234,7 @@ export function SelectableElement({
                         selectedParts={selectedParts}
                         onChange={setSelectedParts}
                         readonly={readonly}
+                        allowMultipleSelections={attrName === 'class'}
                     />
                 )
             })}

@@ -1,10 +1,11 @@
-import { actions, kea, reducers, path, props, listeners } from 'kea'
+import { actions, kea, reducers, path, props, listeners, key } from 'kea'
 
 import type { htmlElementsDisplayLogicType } from './htmlElementsDisplayLogicType'
 
 export interface HtmlElementDisplayLogicProps {
     checkUniqueness: boolean
     onChange?: (selector: string, isUnique?: boolean) => void
+    key: string
 }
 
 export interface ChosenSelector {
@@ -15,6 +16,7 @@ export interface ChosenSelector {
 export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     path(['lib', 'components', 'HtmlElementsDisplay', 'htmlElementsDisplayLogic']),
     props({ checkUniqueness: true } as HtmlElementDisplayLogicProps),
+    key((props) => props.key),
     actions({
         setSelectors: (selectors: Record<number, string>) => ({ selectors }),
         chooseSelector: (chosenSelector: { processedSelector: string; selectorMatchCount: number | null }) => ({
@@ -70,6 +72,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
             actions.chooseSelector({ processedSelector: builtSelector, selectorMatchCount })
         },
         chooseSelector: ({ chosenSelector }) => {
+            console.log('calling onChange with ', chosenSelector)
             props.onChange?.(
                 chosenSelector.processedSelector,
                 props.checkUniqueness ? chosenSelector.selectorMatchCount === 1 : undefined
