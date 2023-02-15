@@ -1068,7 +1068,7 @@ export interface BillingProductV2Type {
     image_url?: string
     free_allocation?: number
     tiers?: BillingV2TierType[]
-    tiered?: boolean
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number

@@ -7,11 +7,13 @@ export function CardContainer({
     nextProps,
     onContinue,
     finalStep = false,
+    showInviteTeamMembers = true,
 }: {
     children: React.ReactNode
     nextProps?: Partial<IngestionState>
     onContinue?: () => void
     finalStep?: boolean
+    showInviteTeamMembers?: boolean
 }): JSX.Element {
     return (
         // We want a forced width for this view only
@@ -19,7 +21,14 @@ export function CardContainer({
         <div style={{ maxWidth: 800 }}>
             {children}
             <div>
-                {nextProps && <PanelFooter nextProps={nextProps} onContinue={onContinue} finalStep={finalStep} />}
+                {nextProps && (
+                    <PanelFooter
+                        nextProps={nextProps}
+                        onContinue={onContinue}
+                        finalStep={finalStep}
+                        showInviteTeamMembers={showInviteTeamMembers}
+                    />
+                )}
             </div>
         </div>
     )
