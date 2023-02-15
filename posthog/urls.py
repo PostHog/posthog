@@ -15,6 +15,7 @@ from posthog.api import (
     authentication,
     capture,
     decide,
+    email_verification,
     organizations_router,
     project_dashboards_router,
     project_feature_flags_router,
@@ -142,7 +143,7 @@ urlpatterns = [
     ),
     path(
         "api/verify/<str:user_uuid>/",
-        authentication.VerifyEmailViewSet.as_view({"get": "retrieve", "post": "create"}),
+        email_verification.VerifyEmailViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),

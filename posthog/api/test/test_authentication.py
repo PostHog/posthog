@@ -608,7 +608,7 @@ class TestPersonalAPIKeyAuthentication(APIBaseTest):
 class TestEmailVerificationAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
-    # Password reset request
+    # Email verification request
 
     @patch("posthoganalytics.capture")
     def test_user_can_request_verification_email(self, mock_capture):
