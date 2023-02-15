@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
-import { LemonButton } from '@posthog/lemon-ui'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Button } from 'antd'
 
 export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh, insightRefreshButtonDisabledReason, isTestGroupForNewRefreshUX } = useValues(dataNodeLogic)
@@ -16,14 +17,17 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
             {isTestGroupForNewRefreshUX ? null : (
                 <>
                     <span className="px-1">•</span>
-                    <LemonButton
-                        size="small"
-                        onClick={() => loadData(true)}
-                        disabledReason={insightRefreshButtonDisabledReason}
-                        className="p-0"
-                    >
-                        <span className="text-sm">Refresh</span>
-                    </LemonButton>
+                    <Tooltip title={insightRefreshButtonDisabledReason}>
+                        <Button
+                            type="link"
+                            size="small"
+                            onClick={() => loadData(true)}
+                            disabled={!!insightRefreshButtonDisabledReason}
+                            className="p-0"
+                        >
+                            <span className="text-sm">Refresh</span>
+                        </Button>
+                    </Tooltip>
                 </>
             )}
         </div>
