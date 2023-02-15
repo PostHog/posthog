@@ -40,7 +40,7 @@ interface InsightsTableProps {
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isNonTimeSeriesDisplay, compare } = useValues(insightDataLogic(insightProps))
+    const { isNonTimeSeriesDisplay, compare, isTrends, display } = useValues(insightDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -52,6 +52,8 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
         <InsightsTableComponent
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={!!compare}
+            isTrends={isTrends}
+            display={display}
             showTotalCount={allowAggregation}
             calcColumnState={aggregation}
             setCalcColumnState={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
@@ -92,6 +94,8 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
         <InsightsTableComponent
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={compare}
+            isTrends={isTrendsFilter(filters)}
+            display={filters.display}
             showTotalCount={!!showTotalCount}
             calcColumnState={calcColumnState}
             setCalcColumnState={setCalcColumnState}
@@ -102,6 +106,8 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 }
 
 type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
+    isTrends: boolean
+    display: ChartDisplayType | undefined
     isNonTimeSeriesDisplay: boolean
     compare: boolean
     showTotalCount: boolean
@@ -117,6 +123,8 @@ function InsightsTableComponent({
     canCheckUncheckSeries = true,
     isMainInsightView = false,
     isNonTimeSeriesDisplay,
+    isTrends,
+    display,
     compare,
     showTotalCount,
     calcColumnState,
@@ -205,7 +213,7 @@ function InsightsTableComponent({
                 return labelA.localeCompare(labelB)
             },
         })
-        if (isTrendsFilter(filters) && filters.display === ChartDisplayType.WorldMap) {
+        if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
                 title: <WorldMapColumnTitle />,
                 render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
