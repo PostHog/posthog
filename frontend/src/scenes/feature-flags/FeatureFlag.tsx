@@ -527,8 +527,8 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
                 fixedColumns={[
                     {
                         title: 'Value',
-                        key: '$feature/' + featureFlagKey,
-                        render: function renderTime(_, { event }: EventsTableRowItem) {
+                        key: 'value',
+                        render: function renderEventProperty(_, { event }: EventsTableRowItem) {
                             return event?.properties['$feature_flag_response']?.toString()
                         },
                     },
