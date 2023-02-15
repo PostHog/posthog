@@ -373,10 +373,14 @@ class SymbolPrinter(Visitor):
             if resolved_field == database.events.person.properties:
                 if not self.context.using_person_on_events:
                     field_sql = "person_props"
+            elif resolved_field == database.events.person.id:
+                pass
+            elif resolved_field == database.events.person.created_at:
+                pass
 
             # If the field is called on a table that has an alias, prepend the table alias.
             # If there's another field with the same name in the scope that's not this, prepend the full table name.
-            # Note: we don't prepend a table name for the special "person_properties" field.
+            # Note: we don't prepend a table name for the special "person" fields.
             elif isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
@@ -386,12 +390,15 @@ class SymbolPrinter(Visitor):
                 while isinstance(real_table, ast.TableAliasSymbol):
                     real_table = real_table.table
 
+                access_table = (
+                    cast(Literal["event"], "event")
+                    if real_table.table == database.events
+                    else cast(Literal["person"], "person")
+                )
                 self.context.field_access_logs.append(
                     HogQLFieldAccess(
-                        [symbol.name],
-                        cast(Literal["event"], "event")
-                        if real_table.table == database.events
-                        else cast(Literal["person"], "person"),
+                        ["person", symbol.name] if access_table == "person" else [symbol.name],
+                        access_table,
                         symbol.name,
                         field_sql,
                     )
