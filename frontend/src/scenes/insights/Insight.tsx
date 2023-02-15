@@ -21,8 +21,6 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { EditorFilters } from './EditorFilters/EditorFilters'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -40,6 +38,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { isInsightVizNode } from '~/queries/utils'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -61,6 +60,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         exporterResourceParams,
         isUsingDataExploration,
         erroredQueryId,
+        isFilterBasedInsight,
+        isQueryBasedInsight,
+        isInsightVizQuery,
     } = useValues(logic)
     const {
         saveInsight,
@@ -75,8 +77,18 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query } = useValues(insightDataLogic(insightProps))
-    const { setQuery } = useActions(insightDataLogic(insightProps))
+    const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
+    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+
+    // TODO - separate presentation of insight with viz query from insight with query
+    let query = insightVizQuery
+    let setQuery = insighVizSetQuery
+    if (!!insight.query && isQueryBasedInsight) {
+        query = insight.query
+        setQuery = () => {
+            // don't support editing non-insight viz queries _yet_
+        }
+    }
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -84,7 +96,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -104,9 +115,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
             abortAnyRunningQuery()
         }
     }, [])
-
-    // feature flag insight-editor-panels
-    const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
+    // if this is a non-viz query-based insight e.g. an events table then don't show the insight editing chrome
+    const showFilterEditing = isFilterBasedInsight
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -139,14 +149,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         name="name"
                         value={insight.name || ''}
                         placeholder={
-                            isUsingDataExploration
+                            isUsingDataExploration && isInsightVizQuery
                                 ? summarizeInsightQuery(
                                       (query as InsightVizNode).source,
                                       aggregationLabel,
                                       cohortsById,
                                       mathDefinitions
                                   )
-                                : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+                                : isFilterBasedInsight
+                                ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+                                : // TODO placeholder for non insight viz queries
+                                  ''
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
@@ -256,7 +269,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
-                            canEditInsight && (
+                            canEditInsight &&
+                            (isFilterBasedInsight || isInsightVizNode(query)) && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
@@ -320,21 +334,23 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         />
                     </>
                 }
+                tabbedPage={insightMode === ItemMode.Edit} // Insight type tabs are only shown in edit mode
             />
+
+            {insightMode === ItemMode.Edit && <InsightsNav />}
 
             {isUsingDataExploration ? (
                 <Query query={query} setQuery={setQuery} />
             ) : (
                 <>
-                    {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
                     <div
                         className={clsx('insight-wrapper', {
-                            'insight-wrapper--editorpanels': usingEditorPanels,
-                            'insight-wrapper--singlecolumn':
-                                !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                            'insight-wrapper--singlecolumn': filters.insight === InsightType.FUNNELS,
                         })}
                     >
-                        <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        {showFilterEditing && (
+                            <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        )}
                         <div className="insights-container" data-attr="insight-view">
                             <InsightContainer insightMode={insightMode} />
                         </div>

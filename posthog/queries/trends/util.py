@@ -201,5 +201,5 @@ def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, t
     else:  # "day" is the default interval
         date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
     if date.tzinfo is None:
-        date = date.replace(tzinfo=pytz.timezone(team.timezone))
+        date = pytz.timezone(team.timezone).localize(date)
     return date

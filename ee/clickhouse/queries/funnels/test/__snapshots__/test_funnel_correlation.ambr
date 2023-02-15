@@ -56,8 +56,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up', 'user signed up', 'paid']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -153,8 +153,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -257,8 +257,8 @@
                        AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -345,8 +345,8 @@
                        AND (has(['Positive'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -433,8 +433,8 @@
                        AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -521,8 +521,8 @@
                        AND (has(['Negative'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -597,8 +597,8 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -701,8 +701,8 @@
                        AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -789,8 +789,8 @@
                        AND (has(['Positive'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -877,8 +877,8 @@
                        AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -965,8 +965,8 @@
                        AND (has(['Negative'], argMax(person."pmat_$browser", version)))) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1033,8 +1033,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1054,9 +1054,7 @@
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
             events.event as event_name,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-            arrayMap(x -> replaceRegexpAll(JSONExtractRaw(properties, x), '^"|"$', ''), prop_keys) as prop_values,
-            arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+            arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
      WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
@@ -1124,8 +1122,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1145,9 +1143,7 @@
     (SELECT actors.actor_id as actor_id,
             actors.steps as steps,
             events.event as event_name,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(properties)) as prop_keys,
-            arrayMap(x -> replaceRegexpAll(JSONExtractRaw(properties, x), '^"|"$', ''), prop_keys) as prop_values,
-            arrayJoin(arrayZip(prop_keys, prop_values)) as prop
+            arrayJoin(JSONExtractKeysAndValues(properties, 'String')) as prop
      FROM events AS event
      JOIN funnel_actors AS actors ON actors.actor_id = events.$group_1
      WHERE toTimeZone(toDateTime(event.timestamp), 'UTC') >= date_from
@@ -1215,8 +1211,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1297,8 +1293,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1376,8 +1372,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1455,8 +1451,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1534,8 +1530,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1620,8 +1616,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -1710,8 +1706,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -1797,8 +1793,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -1877,8 +1873,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -1968,8 +1964,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2044,8 +2040,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2120,8 +2116,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2196,8 +2192,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2265,8 +2261,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -2282,8 +2278,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
@@ -2350,8 +2345,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -2441,8 +2436,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2517,8 +2512,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2593,8 +2588,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2669,8 +2664,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2738,8 +2733,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -2755,8 +2750,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
@@ -2823,8 +2817,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -2914,8 +2908,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -2990,8 +2984,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3066,8 +3060,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3142,8 +3136,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3211,8 +3205,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3228,8 +3222,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,
@@ -3296,8 +3289,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3387,8 +3380,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3463,8 +3456,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['positive'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3539,8 +3532,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3615,8 +3608,8 @@
                        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (has(['negative'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                       AND (step_0 = 1
                            OR step_1 = 1) ))
@@ -3684,8 +3677,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (step_0 = 1
                            OR step_1 = 1) ))
               WHERE step_0 = 1 ))
@@ -3701,8 +3694,7 @@
   FROM
     (SELECT actor_id,
             funnel_actors.steps as steps,
-            arrayMap(x -> x.1, JSONExtractKeysAndValuesRaw(groups_0.group_properties_0)) as person_prop_keys,
-            arrayJoin(arrayZip(person_prop_keys, arrayMap(x -> replaceRegexpAll(JSONExtractRaw(groups_0.group_properties_0, x), '^"|"$', ''), person_prop_keys))) as prop
+            arrayJoin(JSONExtractKeysAndValues(groups_0.group_properties_0, 'String')) as prop
      FROM funnel_actors
      INNER JOIN
        (SELECT group_key,

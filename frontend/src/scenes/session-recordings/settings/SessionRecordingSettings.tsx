@@ -21,7 +21,11 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                 <LemonSwitch
                     data-attr="opt-in-session-recording-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({ session_recording_opt_in: checked })
+                        updateCurrentTeam({
+                            session_recording_opt_in: checked,
+                            capture_console_log_opt_in: checked,
+                            capture_performance_opt_in: checked,
+                        })
                     }}
                     label="Record user sessions"
                     bordered={!inModal}

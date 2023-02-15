@@ -4,8 +4,8 @@ import { isEventsQuery } from '~/queries/utils'
 export const defaultDataTableEventColumns: HogQLExpression[] = [
     '*',
     'event',
-    'person',
-    'coalesce(properties.$current_url, properties.$screen_name) # Url / Screen',
+    'distinct_id',
+    'coalesce(properties.$current_url, properties.$screen_name) -- Url / Screen',
     'properties.$lib',
     'timestamp',
 ]
@@ -34,15 +34,15 @@ export function getColumnsForQuery(query: DataTableNode): HogQLExpression[] {
 }
 
 export function extractExpressionComment(query: string): string {
-    if (query.includes('#')) {
-        return query.split('#').pop()?.trim() || query
+    if (query.includes('--')) {
+        return query.split('--').pop()?.trim() || query
     }
     return query
 }
 
 export function removeExpressionComment(query: string): string {
-    if (query.includes('#')) {
-        return query.split('#').slice(0, -1).join('#').trim()
+    if (query.includes('--')) {
+        return query.split('--').slice(0, -1).join('--').trim()
     }
     return query.trim()
 }

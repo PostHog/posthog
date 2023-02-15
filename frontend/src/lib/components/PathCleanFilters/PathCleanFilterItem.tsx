@@ -2,10 +2,10 @@ import { useState } from 'react'
 
 import { PathCleaningFilter } from '~/types'
 import { LemonSnack } from '@posthog/lemon-ui'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { midEllipsis } from 'lib/utils'
 
-import { PathRegexPopup } from './PathRegexPopup'
+import { PathRegexPopover } from './PathRegexPopover'
 
 interface PathCleanFilterItem {
     filter: PathCleaningFilter
@@ -18,11 +18,11 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
     const label = `${filter.alias}::${filter.regex}`
 
     return (
-        <Popup
+        <Popover
             visible={visible}
             onClickOutside={() => setVisible(false)}
             overlay={
-                <PathRegexPopup
+                <PathRegexPopover
                     filter={filter}
                     onSave={(filter: PathCleaningFilter) => {
                         onChange(filter)
@@ -32,7 +32,7 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                 />
             }
         >
-            {/* required for popup placement */}
+            {/* required for popover placement */}
             <div className="relative">
                 <LemonSnack
                     type="pill"
@@ -44,6 +44,6 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                     <span title={label}>{midEllipsis(label, 32)}</span>
                 </LemonSnack>
             </div>
-        </Popup>
+        </Popover>
     )
 }

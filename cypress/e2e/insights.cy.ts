@@ -133,7 +133,7 @@ describe('Insights', () => {
     })
 
     it('Stickiness graph', () => {
-        cy.get('.ant-tabs-tab').contains('Stickiness').click()
+        cy.get('[role=tab]').contains('Stickiness').click()
         cy.get('[data-attr=add-action-event-button]').click()
         cy.get('[data-attr=trend-element-subject-1]').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
@@ -142,7 +142,7 @@ describe('Insights', () => {
 
     it('Lifecycle graph', () => {
         cy.get('[data-attr=trend-line-graph]').should('exist') // Wait until components are loaded
-        cy.get('.ant-tabs-tab').contains('Lifecycle').click()
+        cy.get('[role=tab]').contains('Lifecycle').click()
         cy.get('div').contains('Lifecycle Toggles').should('exist')
         cy.get('[data-attr=trend-line-graph]').should('exist')
         cy.get('[data-attr=add-breakdown-button]').should('not.exist') // Can't do breakdown on this graph
@@ -178,7 +178,7 @@ describe('Insights', () => {
             cy.get('[data-attr=date-filter]').click()
             cy.get('[data-attr=rolling-date-range-input]').type('{selectall}5{enter}')
             cy.get('[data-attr=rolling-date-range-date-options-selector]').click()
-            cy.get('.RollingDateRangeFilter__popup > div').contains('days').should('exist').click()
+            cy.get('.RollingDateRangeFilter__popover > div').contains('days').should('exist').click()
             cy.get('.RollingDateRangeFilter__label').should('contain', 'In the last').click()
 
             // Test that the button shows the correct formatted range
@@ -204,7 +204,7 @@ describe('Insights', () => {
 
         it('can duplicate insights from the insights card view', () => {
             cy.visit(urls.savedInsights())
-            cy.contains('.saved-insights .ant-radio-button-wrapper', 'Cards').click()
+            cy.contains('.saved-insights .LemonSegmentedButton', 'Cards').click()
             cy.contains('.CardMeta', insightName).within(() => {
                 cy.get('[data-attr="more-button"]').click()
             })

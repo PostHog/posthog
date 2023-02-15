@@ -11,8 +11,10 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        testOptions: {
+            excludeNavigationFromSnapshot: true,
+        },
         viewMode: 'story',
-
         mockDate: '2023-01-28', // To stabilize relative dates
     },
     decorators: [

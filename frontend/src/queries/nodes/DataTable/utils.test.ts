@@ -10,15 +10,15 @@ import { NodeKind } from '~/queries/schema'
 describe('DataTable utils', () => {
     it('extractExpressionComment', () => {
         expect(extractExpressionComment('')).toBe('')
-        expect(extractExpressionComment('asd # bla')).toBe('bla')
-        expect(extractExpressionComment('asd # asd #   bla  ')).toBe('bla')
+        expect(extractExpressionComment('asd -- bla')).toBe('bla')
+        expect(extractExpressionComment('asd -- asd --   bla  ')).toBe('bla')
     })
 
     it('removeExpressionComment', () => {
         expect(removeExpressionComment('')).toBe('')
-        expect(removeExpressionComment('asd # bla')).toBe('asd')
-        expect(removeExpressionComment('asd # asd #   bla  ')).toBe('asd # asd')
-        expect(removeExpressionComment(' hoho trim  # trim')).toBe('hoho trim')
+        expect(removeExpressionComment('asd -- bla')).toBe('asd')
+        expect(removeExpressionComment('asd -- asd --   bla  ')).toBe('asd -- asd')
+        expect(removeExpressionComment(' hoho trim  -- trim')).toBe('hoho trim')
     })
 
     it('getColumnsForQuery', () => {

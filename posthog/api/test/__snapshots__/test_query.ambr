@@ -118,7 +118,7 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals('a%sd', 'foo'))
+    AND equals('a%sd', 'foo')
   ORDER BY event ASC
   LIMIT 101
   '
@@ -134,7 +134,7 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals('a%sd', 'a%sd'))
+    AND equals('a%sd', 'a%sd')
   ORDER BY event ASC
   LIMIT 101
   '
@@ -150,7 +150,7 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), 'test_val2'))
+    AND equals(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), 'test_val2')
   ORDER BY event ASC
   LIMIT 101
   '
@@ -181,7 +181,7 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals('a%sd', 'foo'))
+    AND equals('a%sd', 'foo')
   ORDER BY event ASC
   LIMIT 101
   '
@@ -197,7 +197,7 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals('a%sd', 'a%sd'))
+    AND equals('a%sd', 'a%sd')
   ORDER BY event ASC
   LIMIT 101
   '
@@ -213,7 +213,7 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals("mat_key", 'test_val2'))
+    AND equals("mat_key", 'test_val2')
   ORDER BY event ASC
   LIMIT 101
   '
@@ -250,6 +250,60 @@
                     HAVING is_deleted = 0)
                  WHERE has(['tom@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) ))
   ORDER BY event ASC
+  LIMIT 101
+  '
+---
+# name: TestQuery.test_property_filter_aggregations
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         count(*)
+  FROM events
+  WHERE team_id = 2
+    AND timestamp < '2020-01-10 12:14:05.000000'
+  GROUP BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
+  ORDER BY count() DESC
+  LIMIT 101
+  '
+---
+# name: TestQuery.test_property_filter_aggregations.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         count(*)
+  FROM events
+  WHERE team_id = 2
+    AND timestamp < '2020-01-10 12:14:05.000000'
+  GROUP BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
+  HAVING greater(count(*), 1)
+  ORDER BY count() DESC
+  LIMIT 101
+  '
+---
+# name: TestQuery.test_property_filter_aggregations_materialized
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT "mat_key",
+         count(*)
+  FROM events
+  WHERE team_id = 2
+    AND timestamp < '2020-01-10 12:14:05.000000'
+  GROUP BY "mat_key"
+  ORDER BY count() DESC
+  LIMIT 101
+  '
+---
+# name: TestQuery.test_property_filter_aggregations_materialized.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT "mat_key",
+         count(*)
+  FROM events
+  WHERE team_id = 2
+    AND timestamp < '2020-01-10 12:14:05.000000'
+  GROUP BY "mat_key"
+  HAVING greater(count(*), 1)
+  ORDER BY count() DESC
   LIMIT 101
   '
 ---

@@ -146,7 +146,7 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
     if (flag.filters?.multivariate) {
         const newPayloads = {}
         flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-            const payload = flag.filters?.payloads[index]
+            const payload = flag.filters?.payloads?.[index]
             if (payload) {
                 newPayloads[key] = payload
             }
@@ -159,7 +159,19 @@ const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): P
             },
         }
     }
-
+    if (flag.filters && !flag.filters.multivariate) {
+        let cleanedPayloadValue = {}
+        if (flag.filters.payloads?.['true']) {
+            cleanedPayloadValue = { true: flag.filters.payloads['true'] }
+        }
+        return {
+            ...flag,
+            filters: {
+                ...flag.filters,
+                payloads: cleanedPayloadValue,
+            },
+        }
+    }
     return flag
 }
 

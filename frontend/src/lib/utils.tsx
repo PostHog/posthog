@@ -17,6 +17,7 @@ import {
     EmptyPropertyFilter,
     EventType,
     FilterLogicalOperator,
+    FunnelVizType,
     GroupActorType,
     InsightType,
     IntervalType,
@@ -46,6 +47,7 @@ import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { urls } from 'scenes/urls'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -413,6 +415,33 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
         if (response[key] === undefined) {
+            delete response[key]
+        }
+    })
+    return response
+}
+export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+    const response = { ...obj }
+    Object.keys(response).forEach((key) => {
+        // remove undefined values
+        if (response[key] === undefined) {
+            delete response[key]
+        }
+        // remove empty arrays i.e. []
+        if (
+            typeof response[key] === 'object' &&
+            Array.isArray(response[key]) &&
+            (response[key] as unknown[]).length === 0
+        ) {
+            delete response[key]
+        }
+        // remove empty objects i.e. {}
+        if (
+            typeof response[key] === 'object' &&
+            !Array.isArray(response[key]) &&
+            response[key] !== null &&
+            Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
+        ) {
             delete response[key]
         }
     })
@@ -1171,6 +1200,10 @@ export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalTy
         // Non-time-series insights should not have an interval
         return undefined
     }
+    if (isFunnelsFilter(filters) && filters.funnel_viz_type !== FunnelVizType.Trends) {
+        // Only trend funnels support intervals
+        return undefined
+    }
     if (!filters.interval) {
         return 'day'
     }
@@ -1251,10 +1284,11 @@ export function endWithPunctation(text?: string | null): string {
 export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
     try {
-        const localeTimeString = date
+        const localeTimeStringParts = date
             .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
             .replace('GMT', 'UTC')
-        return localeTimeString.split(' ')[2]
+            .split(' ')
+        return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         Sentry.captureException(e)
         return null

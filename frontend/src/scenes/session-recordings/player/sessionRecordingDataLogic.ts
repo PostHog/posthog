@@ -9,6 +9,7 @@ import {
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
+    RecordingReportLoadTimes,
     RecordingSegment,
     RecordingStartAndEndTime,
     SessionPlayerData,
@@ -22,7 +23,7 @@ import {
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { eventWithTime } from 'rrweb/typings/types'
-import { dayjs } from 'lib/dayjs'
+import { Dayjs, dayjs } from 'lib/dayjs'
 import {
     getPlayerPositionFromEpochTime,
     getPlayerTimeFromPlayerPosition,
@@ -33,6 +34,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
+const BUFFER_MS = 60000 // +- before and after start and end of a recording to query for.
 
 export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
     const segments: RecordingSegment[] =
@@ -71,6 +73,31 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
+    }
+}
+
+const generateRecordingReportDurations = (
+    cache: Record<string, any>,
+    values: Record<string, any>
+): RecordingReportLoadTimes => {
+    return {
+        metadata: {
+            size: values.sessionPlayerMetaData.metadata.segments.length,
+            duration: Math.round(performance.now() - cache.metaStartTime),
+        },
+        snapshots: {
+            size: Object.keys(values.sessionPlayerSnapshotData?.snapshotsByWindowId ?? {}).length,
+            duration: Math.round(performance.now() - cache.snapshotsStartTime),
+        },
+        events: {
+            size: values.sessionEventsData?.events?.length ?? 0,
+            duration: Math.round(performance.now() - cache.eventsStartTime),
+        },
+        performanceEvents: {
+            size: values.performanceEvents?.length ?? 0,
+            duration: Math.round(performance.now() - cache.performanceEventsStartTime),
+        },
+        firstPaint: cache.firstPaintDurationRow,
     }
 }
 
@@ -140,7 +167,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
-        reportUsage: (type: SessionRecordingUsageType) => ({ type }),
+        reportViewed: true,
         reportUsageIfFullyLoaded: true,
     }),
     reducers(() => ({
@@ -198,7 +225,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
-                actions.reportUsage(SessionRecordingUsageType.VIEWED)
+                actions.reportViewed()
             }
         },
         loadEventsSuccess: () => {
@@ -221,35 +248,9 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     ? values.performanceEventsLoading
                     : false)
             if (!partsOfRecordingAreStillLoading) {
-                actions.reportUsage(SessionRecordingUsageType.LOADED)
-            }
-        },
-        reportUsage: async ({ type }, breakpoint) => {
-            const durations = {
-                metadata: {
-                    size: values.sessionPlayerMetaData.metadata.segments.length,
-                    duration: Math.round(performance.now() - cache.metaStartTime),
-                },
-                snapshots: {
-                    size: Object.keys(values.sessionPlayerSnapshotData?.snapshotsByWindowId ?? {}).length,
-                    duration: Math.round(performance.now() - cache.snapshotsStartTime),
-                },
-                events: {
-                    size: values.sessionEventsData?.events?.length ?? 0,
-                    duration: Math.round(performance.now() - cache.eventsStartTime),
-                },
-                performanceEvents: {
-                    size: values.performanceEvents?.length ?? 0,
-                    duration: Math.round(performance.now() - cache.performanceEventsStartTime),
-                },
-                firstPaint: cache.firstPaintDurationRow,
-            }
-            await breakpoint()
-
-            if (type === SessionRecordingUsageType.LOADED) {
                 eventUsageLogic.actions.reportRecording(
                     values.sessionPlayerData,
-                    durations,
+                    generateRecordingReportDurations(cache, values),
                     SessionRecordingUsageType.LOADED,
                     0
                 )
@@ -259,22 +260,26 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 cache.eventsStartTime = null
                 cache.performanceEventsStartTime = null
                 cache.firstPaintDurationRow = null
-            } else {
-                // Triggered on first paint
-                eventUsageLogic.actions.reportRecording(
-                    values.sessionPlayerData,
-                    durations,
-                    SessionRecordingUsageType.VIEWED,
-                    0
-                )
-                await breakpoint(IS_TEST_MODE ? 1 : 10000)
-                eventUsageLogic.actions.reportRecording(
-                    values.sessionPlayerData,
-                    durations,
-                    SessionRecordingUsageType.ANALYZED,
-                    10
-                )
             }
+        },
+        reportViewed: async (_, breakpoint) => {
+            const durations = generateRecordingReportDurations(cache, values)
+
+            await breakpoint()
+            // Triggered on first paint
+            eventUsageLogic.actions.reportRecording(
+                values.sessionPlayerData,
+                durations,
+                SessionRecordingUsageType.VIEWED,
+                0
+            )
+            await breakpoint(IS_TEST_MODE ? 1 : 10000)
+            eventUsageLogic.actions.reportRecording(
+                values.sessionPlayerData,
+                durations,
+                SessionRecordingUsageType.ANALYZED,
+                10
+            )
         },
     })),
     loaders(({ values, props, cache, actions }) => ({
@@ -342,8 +347,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     const incomingSnapshotByWindowId: {
                         [key: string]: eventWithTime[]
                     } = response.snapshot_data_by_window_id
+
+                    // We merge the new snapshots with the existing ones and sort by timestamp to ensure they are in order
                     Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
-                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots]
+                        snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots].sort(
+                            (a, b) => a.timestamp - b.timestamp
+                        )
                     })
                     return {
                         ...values.sessionPlayerSnapshotData,
@@ -408,10 +417,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
                                     capturedInWindow: !!event.properties.$window_id,
-                                    percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
-                                        ? (100 * eventPlayerTime) /
-                                          values.sessionPlayerData.metadata.recordingDurationMs
-                                        : 0,
                                 })
                             }
                         }
@@ -438,16 +443,20 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             {
                 loadPerformanceEvents: async ({}, breakpoint) => {
                     cache.performanceEventsStartTime = performance.now()
-                    if (!values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)) {
-                        return null
+                    if (
+                        !values.recordingTimeWindow ||
+                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+                    ) {
+                        return []
                     }
 
                     await breakpoint(1)
+
                     // Use `nextUrl` if there is a `next` url to fetch
                     const response = await api.performanceEvents.list({
                         session_id: props.sessionRecordingId,
-                        date_from: values.eventsApiParams?.after,
-                        date_to: values.eventsApiParams?.before,
+                        date_from: values.recordingTimeWindow.start.subtract(BUFFER_MS, 'ms').format(),
+                        date_to: values.recordingTimeWindow.end.add(BUFFER_MS, 'ms').format(),
                     })
 
                     breakpoint()
@@ -473,21 +482,34 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             }),
         ],
 
-        eventsApiParams: [
-            (selectors) => [selectors.sessionPlayerData, (_, props) => props.sessionRecordingId],
-            (sessionPlayerData, sessionRecordingId) => {
+        recordingTimeWindow: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData): { start: Dayjs; end: Dayjs } | undefined => {
                 const recordingStartTime = sessionPlayerData.metadata.segments.slice(0, 1).pop()?.startTimeEpochMs
                 const recordingEndTime = sessionPlayerData.metadata.segments.slice(-1).pop()?.endTimeEpochMs
-                if (!sessionPlayerData.person?.id || !recordingStartTime || !recordingEndTime) {
+
+                if (!recordingStartTime || !recordingEndTime) {
+                    return undefined
+                }
+
+                return {
+                    start: dayjs.utc(recordingStartTime),
+                    end: dayjs.utc(recordingEndTime),
+                }
+            },
+        ],
+
+        eventsApiParams: [
+            (s) => [s.sessionPlayerData, s.recordingTimeWindow, (_, props) => props.sessionRecordingId],
+            (sessionPlayerData, recordingTimeWindow, sessionRecordingId) => {
+                if (!sessionPlayerData.person?.id || !recordingTimeWindow) {
                     return null
                 }
 
-                const buffer_ms = 60000 // +- before and after start and end of a recording to query for.
-
                 return {
                     person_id: sessionPlayerData.person.id,
-                    after: dayjs.utc(recordingStartTime).subtract(buffer_ms, 'ms').format(),
-                    before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
+                    after: recordingTimeWindow.start.subtract(BUFFER_MS, 'ms').format(),
+                    before: recordingTimeWindow.end.add(BUFFER_MS, 'ms').format(),
                     orderBy: ['timestamp'],
                     properties: {
                         type: 'OR',

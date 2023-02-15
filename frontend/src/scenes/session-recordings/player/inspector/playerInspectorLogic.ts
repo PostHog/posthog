@@ -1,4 +1,4 @@
-import { actions, kea, reducers, path, listeners, connect, props, key, selectors } from 'kea'
+import { actions, kea, reducers, path, connect, props, key, selectors, listeners } from 'kea'
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
@@ -9,7 +9,6 @@ import {
     SessionRecordingPlayerTab,
 } from '~/types'
 import type { playerInspectorLogicType } from './playerInspectorLogicType'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
@@ -19,8 +18,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
-import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
-import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+
+const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export const IMAGE_WEB_EXTENSIONS = [
     'png',
@@ -71,8 +71,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
-        logic: [eventUsageLogic],
-        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter', 'setSyncScroll']],
+        actions: [
+            playerSettingsLogic,
+            ['setTab', 'setMiniFilter', 'setSyncScroll'],
+            eventUsageLogic,
+            ['reportRecordingInspectorItemExpanded'],
+        ],
         values: [
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
@@ -135,18 +139,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
     })),
-    listeners(() => ({
-        setTab: ({ tab }) => {
-            if (tab === SessionRecordingPlayerTab.CONSOLE) {
-                eventUsageLogic
-                    .findMounted()
-                    ?.actions?.reportRecordingConsoleViewed(
-                        consoleLogsListLogic.findMounted()?.values?.consoleListData?.length ?? 0
-                    )
-            }
-        },
-    })),
-
     selectors(({}) => ({
         recordingTimeInfo: [
             (s) => [s.sessionPlayerMetaData],
@@ -621,5 +613,12 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 return items
             },
         ],
+    })),
+    listeners(({ values }) => ({
+        setItemExpanded: ({ index, expanded }) => {
+            if (expanded) {
+                eventUsageLogic.actions.reportRecordingInspectorItemExpanded(values.tab, index)
+            }
+        },
     })),
 ])

@@ -1,6 +1,7 @@
 import '../../../src/styles/global.scss'
 export * from 'lib/lemon-ui/LemonBadge/LemonBadge'
 export * from 'lib/lemon-ui/LemonButton/LemonButton'
+export * from 'lib/lemon-ui/LemonSegmentedButton'
 export * from 'lib/lemon-ui/LemonCheckbox/LemonCheckbox'
 export * from 'lib/lemon-ui/LemonDivider/LemonDivider'
 export * from 'lib/lemon-ui/LemonInput/LemonInput'

@@ -22,18 +22,18 @@ import {
     FilterLogicalOperator,
     PropertyFilterValue,
     InsightShortId,
-    YesOrNoResponse,
     SessionPlayerData,
     AnyPartialFilterType,
     Resource,
     AccessLevel,
     RecordingReportLoadTimes,
+    SessionRecordingPlayerTab,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { convertPropertyGroupToProperties } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
+import { PlatformType, Framework } from 'scenes/ingestion/types'
 import { now } from 'lib/dayjs'
 import {
     isFilterWithDisplay,
@@ -385,14 +385,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSeekbarEventHovered: true,
         reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
         reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
-        reportRecordingConsoleFeedback: (logCount: number, response: YesOrNoResponse, question: string) => ({
-            logCount,
-            response,
-            question,
-        }),
-        reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
         reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
             recordingViewedSummary,
+        }),
+        reportRecordingInspectorTabViewed: (tab: SessionRecordingPlayerTab) => ({ tab }),
+        reportRecordingInspectorItemExpanded: (tab: SessionRecordingPlayerTab, index: number) => ({ tab, index }),
+        reportRecordingInspectorMiniFilterViewed: (tab: SessionRecordingPlayerTab, minifilterKey: string) => ({
+            tab,
+            minifilterKey,
         }),
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
@@ -429,7 +429,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }),
         reportPrimaryDashboardModalOpened: true,
         reportPrimaryDashboardChanged: true,
-        // Definition Popup
+        // Definition Popover
         reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
         reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
@@ -476,6 +476,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonOpenedFromNewlySeenPersonsList: true,
         reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
+        reportIngestionRecordingsTurnedOff: (
+            session_recording_opt_in: boolean,
+            capture_console_log_opt_in: boolean,
+            capture_performance_opt_in: boolean
+        ) => ({ session_recording_opt_in, capture_console_log_opt_in, capture_performance_opt_in }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
         reportIngestionTryWithDemoDataClicked: true,
@@ -935,9 +940,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             }
             posthog.capture(`recording ${type}`, payload)
         },
-        reportRecordingScrollTo: ({ rowIndex }) => {
-            posthog.capture(`recording event list scrolled`, { rowIndex })
-        },
         reportPersonMerged: (props) => {
             posthog.capture('merge person completed', props)
         },
@@ -987,14 +989,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
             posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
         },
-        reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
-            posthog.capture('recording console feedback', { question, response, log_count: logCount })
-        },
-        reportRecordingConsoleViewed: ({ logCount }) => {
-            posthog.capture('recording console logs viewed', { log_count: logCount })
-        },
         reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
             posthog.capture('recording viewed summary', { ...recordingViewedSummary })
+        },
+        reportRecordingInspectorTabViewed: ({ tab }) => {
+            posthog.capture('recording inspector tab viewed', { tab })
+        },
+        reportRecordingInspectorItemExpanded: ({ tab, index }) => {
+            posthog.capture('recording inspector item expanded', { tab, index })
+        },
+        reportRecordingInspectorMiniFilterViewed: ({ tab, minifilterKey }) => {
+            posthog.capture('recording inspector minifilter selected', { tab, minifilterKey })
         },
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
@@ -1151,6 +1156,17 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSelectFrameworkType: ({ framework }) => {
             posthog.capture('ingestion select framework type', {
                 framework: framework,
+            })
+        },
+        reportIngestionRecordingsTurnedOff: ({
+            session_recording_opt_in,
+            capture_console_log_opt_in,
+            capture_performance_opt_in,
+        }) => {
+            posthog.capture('ingestion recordings turned off', {
+                session_recording_opt_in,
+                capture_console_log_opt_in,
+                capture_performance_opt_in,
             })
         },
         reportIngestionHelpClicked: ({ type }) => {

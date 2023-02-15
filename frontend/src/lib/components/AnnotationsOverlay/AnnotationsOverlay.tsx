@@ -19,7 +19,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { annotationsModel } from '~/models/annotationsModel'
 import { Chart } from 'chart.js'
 import { useAnnotationsPositioning } from './useAnnotationsPositioning'
-import { Popup } from 'lib/lemon-ui/Popup/Popup'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 
 /** User-facing format for annotation groups. */
 const INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
@@ -180,7 +180,7 @@ function AnnotationsPopover({
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     return (
-        <Popup
+        <Popover
             additionalRefs={overlayRefs}
             className="AnnotationsPopover"
             placement="top"
@@ -253,10 +253,11 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
             <div className="mt-1">{annotation.content}</div>
             <div className="leading-6 mt-2">
                 <ProfilePicture
-                    name={annotation.created_by?.first_name}
-                    email={annotation.created_by?.email}
+                    name={annotation.creation_type === 'GIT' ? 'GitHub automation' : annotation.created_by?.first_name}
+                    email={annotation.creation_type === 'GIT' ? undefined : annotation.created_by?.email}
                     showName
                     size="md"
+                    type={annotation.creation_type === 'GIT' ? 'bot' : 'person'}
                 />{' '}
                 • {humanFriendlyDetailedTime(annotation.created_at, 'MMMM DD, YYYY', 'h:mm A')}
             </div>

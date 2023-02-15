@@ -39,6 +39,7 @@ import {
     TrendsQuery,
     PathsQuery,
     FunnelsQuery,
+    RetentionQuery,
 } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 
@@ -848,6 +849,57 @@ describe('summarizeInsightQuery()', () => {
         const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
 
         expect(result).toEqual("Pageview → random_event organization conversion rate by person's some_prop")
+    })
+
+    it('summarizes a user first-time Retention insight with the same event for cohortizing and returning', () => {
+        const query: RetentionQuery = {
+            kind: NodeKind.RetentionQuery,
+            retentionFilter: {
+                target_entity: {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: 'event',
+                },
+                returning_entity: {
+                    id: '$autocapture',
+                    name: '$autocapture',
+                    type: 'event',
+                },
+                retention_type: RETENTION_FIRST_TIME,
+            },
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual(
+            'Retention of users based on doing Autocapture for the first time and returning with the same event'
+        )
+    })
+
+    it('summarizes an organization recurring Retention insight with the different events for cohortizing and returning', () => {
+        const query: RetentionQuery = {
+            kind: NodeKind.RetentionQuery,
+            retentionFilter: {
+                target_entity: {
+                    id: 'purchase',
+                    name: 'purchase',
+                    type: 'event',
+                },
+                returning_entity: {
+                    id: '$pageview',
+                    name: '$pageview',
+                    type: 'event',
+                },
+                retention_type: RETENTION_RECURRING,
+            },
+            aggregation_group_type_index: 0,
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel, cohortIdsMapped, mathDefinitions)
+
+        expect(result).toEqual(
+            'Retention of organizations based on doing purchase recurringly and returning with Pageview'
+        )
     })
 
     it('summarizes a Paths insight based on all events', () => {

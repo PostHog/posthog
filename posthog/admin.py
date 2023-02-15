@@ -27,8 +27,25 @@ admin.site.register(Element)
 admin.site.register(FeatureFlag)
 admin.site.register(Action)
 admin.site.register(ActionStep)
-admin.site.register(Insight)
 admin.site.register(InstanceSetting)
+
+
+@admin.register(Insight)
+class InsightAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "name",
+        "short_id",
+        "team",
+        "organization",
+        "created_at",
+        "created_by",
+    )
+    search_fields = ("id", "name", "short_id", "team__name", "team__organization__name")
+    ordering = ("-created_at",)
+
+    def organization(self, insight: Insight):
+        return insight.team.organization.name
 
 
 @admin.register(Plugin)
@@ -42,7 +59,7 @@ class PluginAdmin(admin.ModelAdmin):
 @admin.register(Team)
 class TeamAdmin(admin.ModelAdmin):
     list_display = ("id", "name", "organization_link", "organization_id")
-    search_fields = ("name", "organization__id", "organization__name")
+    search_fields = ("id", "name", "organization__id", "organization__name")
     readonly_fields = ["primary_dashboard", "test_account_filters"]
     exclude = [
         "event_names",
@@ -165,6 +182,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
+        "usage",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = [
@@ -174,6 +192,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
+        "usage",
     ]
     search_fields = ("name", "members__email")
     list_display = (

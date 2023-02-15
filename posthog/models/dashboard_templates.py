@@ -31,7 +31,7 @@ class DashboardTemplate(UUIDModel):
     @staticmethod
     def original_template() -> "DashboardTemplate":
         """
-        Must match the JSON at https://github.com/PostHog/templates-repository/blob/0b148dd021648d1ce4f0eeca5804cab5eae4253b/dashboards/posthog-product-analytics.json
+        This OG template is not stored in https://github.com/PostHog/templates-repository
         The system assumes this template is always present and doesn't wait to import it from the template repository
         """
         return DashboardTemplate(
@@ -64,12 +64,14 @@ class DashboardTemplate(UUIDModel):
                         "events": [
                             {
                                 "id": "$pageview",
-                                "math": "weekly_active",
+                                "math": "dau",
                                 "type": "events",
                             }
                         ],
+                        "display": "ActionsLineGraph",
                         "insight": "TRENDS",
                         "interval": "week",
+                        "date_from": "-90d",
                     },
                     "layouts": {
                         "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},

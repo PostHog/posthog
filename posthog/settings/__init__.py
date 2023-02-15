@@ -94,6 +94,7 @@ AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
 CONTAINER_HOSTNAME = os.getenv("HOSTNAME", "unknown")
 
+PROM_PUSHGATEWAY_ADDRESS = os.getenv("PROM_PUSHGATEWAY_ADDRESS", None)
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

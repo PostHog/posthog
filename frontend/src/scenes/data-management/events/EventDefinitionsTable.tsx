@@ -15,7 +15,10 @@ import { EventDefinitionProperties } from 'scenes/data-management/events/EventDe
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { UsageDisabledWarning } from 'scenes/events/UsageDisabledWarning'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { ThirtyDayQueryCountTitle, ThirtyDayVolumeTitle } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
+import {
+    ThirtyDayQueryCountTitle,
+    ThirtyDayVolumeTitle,
+} from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonButton, LemonInput, LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'

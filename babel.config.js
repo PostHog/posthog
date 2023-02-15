@@ -12,6 +12,7 @@ module.exports = {
             {
                 useBuiltIns: 'usage',
                 corejs: 3,
+                targets: 'defaults', // browserlist's defaults - https://github.com/browserslist/browserslist#full-list
             },
         ],
         [

@@ -56,7 +56,7 @@ def report_user_signed_up(
 
 
 def alias_invite_id(user: User, invite_id: str) -> None:
-    posthoganalytics.alias(f"invite_{invite_id}", user.distinct_id)
+    posthoganalytics.alias(user.distinct_id, f"invite_{invite_id}")
 
 
 def report_user_joined_organization(organization: Organization, current_user: User) -> None:

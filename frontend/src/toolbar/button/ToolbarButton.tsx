@@ -7,7 +7,7 @@ import { Circle } from '~/toolbar/button/Circle'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
-import { getShadowRoot, getShadowRootPopupContainer } from '~/toolbar/utils'
+import { getShadowRoot, getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { useLongPress } from 'lib/hooks/useLongPress'
 import { Flag } from '~/toolbar/button/icons/Flag'
@@ -232,7 +232,7 @@ export function ToolbarButton(): JSX.Element {
                                         visible={showHeatmapTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
-                                        getPopupContainer={getShadowRootPopupContainer}
+                                        getPopupContainer={getShadowRootPopoverContainer}
                                     >
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{elementCount}</div>
                                     </Tooltip>
@@ -293,7 +293,7 @@ export function ToolbarButton(): JSX.Element {
                                         visible={showActionsTooltip}
                                         title="Click for details"
                                         placement={side === 'left' ? 'right' : 'left'}
-                                        getPopupContainer={getShadowRootPopupContainer}
+                                        getPopupContainer={getShadowRootPopoverContainer}
                                     >
                                         <div style={{ whiteSpace: 'nowrap', textAlign: 'center' }}>{actionCount}</div>
                                     </Tooltip>
