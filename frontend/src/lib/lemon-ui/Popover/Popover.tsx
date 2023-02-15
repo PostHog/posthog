@@ -197,7 +197,7 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         <>
             {clonedChildren}
             <FloatingPortal root={getPopupContainer?.()}>
-                <CSSTransition in={visible} timeout={10000} classNames="Popover-" mountOnEnter unmountOnExit>
+                <CSSTransition in={visible} timeout={100} classNames="Popover-" appear mountOnEnter unmountOnExit>
                     <PopoverContext.Provider value={popoverId}>
                         <div
                             className={clsx(

@@ -29,8 +29,7 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    opacity: 1;
-    transform: none;
+    opacity: 0;
 
     .Popover--actionable & {
         border-color: var(--primary);
@@ -52,29 +51,25 @@
         transform-origin: left;
     }
 
-    .Popover--enter:not(.Popover--enter-active) &,
-    .Popover--exit.Popover--exit-active & {
-        opacity: 0;
-    }
-
-    .Popover--enter:not(.Popover--enter-active)[data-placement^='bottom'] &,
-    .Popover--exit.Popover--exit-active[data-placement^='bottom'] & {
+    .Popover[data-placement^='bottom'] & {
         transform: rotateX(-12deg);
     }
 
-    .Popover--enter:not(.Popover--enter-active)[data-placement^='top'] &,
-    .Popover--exit.Popover--exit-active[data-placement^='top'] & {
+    .Popover[data-placement^='top'] & {
         transform: rotateX(12deg);
     }
 
-    .Popover--enter:not(.Popover--enter-active)[data-placement^='left'] &,
-    .Popover--exit.Popover--exit-active[data-placement^='left'] & {
+    .Popover[data-placement^='left'] & {
         transform: rotateY(-12deg);
     }
 
-    .Popover--enter:not(.Popover--enter-active)[data-placement^='right'] &,
-    .Popover--exit.Popover--exit-active[data-placement^='right'] & {
+    .Popover[data-placement^='right'] & {
         transform: rotateY(12deg);
+    }
+
+    .Popover.Popover--enter-done & {
+        opacity: 1;
+        transform: none;
     }
 
     .Popover--max-content-width & {
