@@ -30,7 +30,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { getBreakdown, getDisplay, getCompare, getSeries } from '~/queries/nodes/InsightViz/utils'
+import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
@@ -98,6 +98,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         display: [(s) => [s.querySource], (q) => getDisplay(q)],
         compare: [(s) => [s.querySource], (q) => getCompare(q)],
         series: [(s) => [s.querySource], (q) => getSeries(q)],
+        interval: [(s) => [s.querySource], (q) => getInterval(q)],
 
         insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],

@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, ItemMode } from '~/types'
+import { ChartDisplayType, IntervalType, ItemMode, TrendsFilterType } from '~/types'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -40,7 +40,7 @@ interface InsightsTableProps {
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isNonTimeSeriesDisplay, compare, isTrends, display } = useValues(insightDataLogic(insightProps))
+    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval } = useValues(insightDataLogic(insightProps))
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -54,6 +54,7 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
             compare={!!compare}
             isTrends={isTrends}
             display={display}
+            interval={interval}
             showTotalCount={allowAggregation}
             calcColumnState={aggregation}
             setCalcColumnState={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
@@ -95,7 +96,8 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={compare}
             isTrends={isTrendsFilter(filters)}
-            display={filters.display}
+            display={(filters as TrendsFilterType).display}
+            interval={(filters as TrendsFilterType).interval}
             showTotalCount={!!showTotalCount}
             calcColumnState={calcColumnState}
             setCalcColumnState={setCalcColumnState}
@@ -108,6 +110,7 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     isTrends: boolean
     display: ChartDisplayType | undefined
+    interval: IntervalType | undefined
     isNonTimeSeriesDisplay: boolean
     compare: boolean
     showTotalCount: boolean
@@ -125,6 +128,7 @@ function InsightsTableComponent({
     isNonTimeSeriesDisplay,
     isTrends,
     display,
+    interval,
     compare,
     showTotalCount,
     calcColumnState,
@@ -259,7 +263,7 @@ function InsightsTableComponent({
                         index={index}
                         indexedResults={indexedResults}
                         compare={compare}
-                        interval={filters.interval}
+                        interval={interval}
                     />
                 ),
                 render: (_, item: IndexedTrendResult) => (

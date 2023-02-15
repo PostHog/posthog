@@ -1,5 +1,5 @@
 import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, TrendsQuery } from '~/queries/schema'
-import { ActionType, ChartDisplayType } from '~/types'
+import { ActionType, ChartDisplayType, IntervalType } from '~/types'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
 import { getEventNamesForAction } from 'lib/utils'
 import {
@@ -44,6 +44,14 @@ export const getCompare = (query: InsightQueryNode): boolean | undefined => {
 export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
+    } else {
+        return undefined
+    }
+}
+
+export const getInterval = (query: InsightQueryNode): IntervalType | undefined => {
+    if (isInsightQueryWithSeries(query)) {
+        return query.interval
     } else {
         return undefined
     }
