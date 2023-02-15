@@ -1446,7 +1446,10 @@ export interface FilterType {
     insight?: InsightType
     date_from?: string | null
     date_to?: string | null
-    /** Strings are cast to bools, e.g. "true" -> true. */
+    /**
+     * Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period.
+     * Strings are cast to bools, e.g. "true" -> true.
+     */
     explicit_date?: boolean | string | null
 
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
