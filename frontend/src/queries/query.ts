@@ -56,11 +56,7 @@ export function queryExportContext<N extends DataNode = DataNode>(
             refresh,
         })
     } else if (isInsightVizNode(query)) {
-        return legacyInsightQueryExportContext({
-            filters: queryNodeToFilter(query.source),
-            currentTeamId: getCurrentTeamId(),
-            refresh,
-        })
+        return queryExportContext(query.source, methodOptions, refresh)
     } else if (isLegacyQuery(query)) {
         return legacyInsightQueryExportContext({
             filters: query.filters,
