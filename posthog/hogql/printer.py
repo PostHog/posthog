@@ -329,9 +329,13 @@ class SymbolPrinter(Visitor):
     def _get_materialized_column(
         self, table_name: TablesWithMaterializedColumns, property_name: PropertyName, field_name: TableColumn
     ) -> Optional[str]:
+        # :KLUDGE: person property materialised columns support when person on events is off
+        if not self.context.using_person_on_events and table_name == "events" and field_name == "person_properties":
+            materialized_columns = get_materialized_columns("person")
+            return materialized_columns.get(("properties", field_name), None)
+
         materialized_columns = get_materialized_columns(table_name)
-        materialized_column = materialized_columns.get((property_name, field_name), None)
-        return materialized_column
+        return materialized_columns.get((property_name, field_name), None)
 
     def visit_table_symbol(self, symbol: ast.TableSymbol):
         return print_hogql_identifier(symbol.table.clickhouse_table())
