@@ -426,7 +426,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (and(like("mat_$current_url", '%example%'), notEquals('bla', 'a%sd')))
+             AND (and(like(mat_$current_url, '%example%'), notEquals('bla', 'a%sd')))
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
@@ -576,7 +576,7 @@
              AND event = '$pageview'
              AND timestamp >= toDateTime(dateTrunc('day', toDateTime('2021-04-28 00:00:00', 'UTC'))) - INTERVAL 1 day
              AND timestamp < toDateTime(dateTrunc('day', toDateTime('2021-05-05 23:59:59', 'UTC'))) + INTERVAL 1 day
-             AND (like("pmat_email", '%test.com'))
+             AND (like(mat_pp_email, '%test.com'))
            GROUP BY pdi.person_id)
         GROUP BY start_of_period,
                  status)
