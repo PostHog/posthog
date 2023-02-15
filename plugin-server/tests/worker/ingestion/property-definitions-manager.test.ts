@@ -348,6 +348,23 @@ describe('PropertyDefinitionsManager()', () => {
             ])
         })
 
+        it('regression tests: handles group set properties being empty', async () => {
+            // See details of the regression
+            // [here](https://posthog.slack.com/archives/C0460J93NBU/p1676384802876269)
+            //
+            // We were essentially failing and throwing a Sentry error if the
+            // group properties was no an object. This test would throw before
+            // the fix.
+            await hub.db.insertGroupType(teamId, 'project', 0)
+            await hub.db.insertGroupType(teamId, 'organization', 1)
+
+            await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
+                $group_type: 'organization',
+                $group_key: 'org::5',
+                $group_set: null,
+            })
+        })
+
         describe('first event has not yet been ingested', () => {
             it('calls posthog.identify and posthog.capture', async () => {
                 // NOTE: that this functionality is dependent on users being a
