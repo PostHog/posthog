@@ -2458,8 +2458,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertTrue(errors)
 
             # # now db is down, but decide was sent correct group property overrides
-            with self.assertNumQueries(2):
-                # these 2 queries are "None", not executed
+            with self.assertNumQueries(1):
+                # this query is "None", not executed
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -2472,8 +2472,8 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(2):
-                # these 2 queries are "None", not executed
+            with self.assertNumQueries(1):
+                # this query is "None", not executed
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -2715,8 +2715,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
             self.assertTrue(errors)
 
             # # now db is slow, but decide was sent correct group property overrides
-            with self.assertNumQueries(4):
-                # these 2 queries are it trying to get group mappings again & again
+            with self.assertNumQueries(2):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
@@ -2729,8 +2728,7 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue(errors)
 
             # # now db is down, but decide was sent different group property overrides
-            with self.assertNumQueries(4):
-                # these 2 queries are it trying to get group mappings again & again
+            with self.assertNumQueries(2):
                 all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -2742,6 +2740,76 @@ class TestResiliency(TransactionTestCase, QueryMatchingTest):
                 self.assertTrue("default-flag" not in all_flags)
                 self.assertTrue(errors)
 
-    # TODO: Add test for experience continuity
-    # TODO: Add protection for groups, such that we don't hit timeout for every flag, but only once. Otherwise we'll hit
-    # overall timeouts way too fast!
+    def test_feature_flags_v3_with_experience_continuity_working_slow_db(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random12@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["example_id", "random"], properties={"email": "tim@posthog.com"}
+        )
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "property-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                            ],
+                            "rollout_percentage": 91,
+                        }
+                    ],
+                },
+                "ensure_experience_continuity": True,
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with snapshot_postgres_queries_context(self), self.assertNumQueries(10):
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
+
+            self.assertTrue(all_flags["property-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            self.assertFalse(errors)
+
+        # db is slow and times out
+        with snapshot_postgres_queries_context(self), connection.execute_wrapper(slow_query), patch(
+            "posthog.models.feature_flag.flag_matching.FLAG_MATCHING_QUERY_TIMEOUT_MS", 500
+        ):
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", hash_key_override="random")
+
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            self.assertTrue(errors)
+
+            # # now db is slow, but decide was sent email parameter with correct email
+            # still need to get hash key override from db, so should time out
+            with self.assertNumQueries(2):
+                all_flags, _, _, errors = get_all_feature_flags(
+                    team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
+                )
+                self.assertTrue("property-flag" not in all_flags)
+                self.assertTrue(all_flags["default-flag"])
+                self.assertTrue(errors)

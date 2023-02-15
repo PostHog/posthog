@@ -68,12 +68,17 @@ class FeatureFlagMatch:
 class FlagsMatcherCache:
     def __init__(self, team_id: int):
         self.team_id = team_id
+        self.failed_to_fetch_flags = False
 
     @cached_property
     def group_types_to_indexes(self) -> Dict[GroupTypeName, GroupTypeIndex]:
-        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
-            group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
-            return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+        try:
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+                group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
+                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+        except DatabaseError:
+            self.failed_to_fetch_flags = True
+            return {}
 
     @cached_property
     def group_type_index_to_name(self) -> Dict[GroupTypeIndex, GroupTypeName]:
@@ -104,6 +109,9 @@ class FeatureFlagMatcher:
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
         if self.hashed_identifier(feature_flag) is None:
+            if self.cache.failed_to_fetch_flags:
+                raise DatabaseError("Failed to get group type mapping for team")
+
             return FeatureFlagMatch(match=False, reason=FeatureFlagMatchReason.NO_GROUP_TYPE)
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
@@ -376,10 +384,11 @@ class FeatureFlagMatcher:
 
 def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
-    for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
-        person_id=person_id, team=team_id
-    ).values_list("feature_flag_key", "hash_key"):
-        feature_flag_to_key_overrides[feature_flag] = override
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+        for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
+            person_id=person_id, team=team_id
+        ).values_list("feature_flag_key", "hash_key"):
+            feature_flag_to_key_overrides[feature_flag] = override
 
     return feature_flag_to_key_overrides
 
@@ -446,11 +455,12 @@ def get_all_feature_flags(
         )
 
     try:
-        person_id = (
-            PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
-            .values_list("person_id", flat=True)
-            .first()
-        )
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            person_id = (
+                PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
+                .values_list("person_id", flat=True)
+                .first()
+            )
     except DatabaseError:
         # database is down, we can't handle experience continuity flags.
         # Treat this same as if there are no experience continuity flags.
@@ -475,11 +485,12 @@ def get_all_feature_flags(
             # existing person. If, because of race conditions, a person merge is called for later,
             # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
             # will take care of it^.
-            person_id = (
-                PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
-                .values_list("person_id", flat=True)
-                .first()
-            )
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+                person_id = (
+                    PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
+                    .values_list("person_id", flat=True)
+                    .first()
+                )
             # If even this old person doesn't exist yet, we're facing severe ingestion delays
             # and there's not much we can do, since all person properties based feature flags
             # would fail server side anyway.
@@ -511,11 +522,12 @@ def set_feature_flag_hash_key_overrides(
     feature_flags: List[FeatureFlag], team_id: int, person_id: int, hash_key_override: str
 ) -> None:
 
-    existing_flag_overrides = set(
-        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
-            "feature_flag_key", flat=True
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+        existing_flag_overrides = set(
+            FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
+                "feature_flag_key", flat=True
+            )
         )
-    )
     new_overrides = []
     for feature_flag in feature_flags:
         if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
@@ -531,4 +543,5 @@ def set_feature_flag_hash_key_overrides(
         # / we got multiple requests for the same person
         # at the same time. In this case, we can safely ignore the error.
         # We don't want to return an error response for `/decide` just because of this.
-        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
