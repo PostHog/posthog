@@ -55,10 +55,10 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
     )
 }
 
-export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
+export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
-
+    const { setFilters } = useActions(trendsLogic(insightProps))
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
@@ -66,18 +66,30 @@ export function InsightsTable({ ...rest }: InsightsTableProps): JSX.Element {
         isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
     const compare = isTrendsFilter(filters) && !!filters.compare
 
+    const handleSeriesEditClick = (item: IndexedTrendResult): void => {
+        const entityFilter = entityFilterLogic.findMounted({
+            setFilters,
+            filters,
+            typeKey: filterKey,
+        })
+        if (entityFilter) {
+            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.showModal()
+        }
+    }
+
     return (
         <InsightsTableComponent
             hasMathUniqueFilter={hasMathUniqueFilter}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={compare}
+            handleSeriesEditClick={handleSeriesEditClick}
             {...rest}
         />
     )
 }
 
 type InsightsTableComponentProps = InsightsTableProps & {
-    hasMathUniqueFilter: boolean
     isNonTimeSeriesDisplay: boolean
     compare: boolean
 }
@@ -85,13 +97,12 @@ type InsightsTableComponentProps = InsightsTableProps & {
 function InsightsTableComponent({
     isLegend = false,
     embedded = false,
-    filterKey,
     canEditSeriesNameInline = false,
     canCheckUncheckSeries = true,
     isMainInsightView = false,
-    hasMathUniqueFilter,
     isNonTimeSeriesDisplay,
     compare,
+    handleSeriesEditClick,
 }: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
@@ -106,18 +117,6 @@ function InsightsTableComponent({
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
-
-    const handleSeriesEditClick = (item: IndexedTrendResult): void => {
-        const entityFilter = entityFilterLogic.findMounted({
-            setFilters,
-            filters,
-            typeKey: filterKey,
-        })
-        if (entityFilter) {
-            entityFilter.actions.selectFilter(item.action)
-            entityFilter.actions.showModal()
-        }
-    }
 
     const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
         formatBreakdownLabel(
