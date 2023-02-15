@@ -1,7 +1,8 @@
 import { ElementType } from '~/types'
-import { useEffect, useState } from 'react'
 import { SelectableElement } from './SelectableElement'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import { htmlElementsDisplayLogic } from 'lib/components/HtmlElementsDisplay/htmlElementsDisplayLogic'
+import { useActions, useValues } from 'kea'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -72,61 +73,29 @@ export function HtmlElementsDisplay({
     let elements = [...(providedElements || [])].reverse()
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
-    const [selectors, setSelectors] = useState({} as Record<number, string>)
-    const [chosenSelector, setChosenSelector] = useState('')
-
-    const [selectorMatches, setSelectorMatches] = useState([] as HTMLElement[])
-
-    useEffect(() => {
-        let lastKey = -2
-        let builtSelector = ''
-
-        Object.keys(selectors)
-            .map((k) => Number.parseInt(k))
-            .sort()
-            .forEach((key) => {
-                const selector = selectors[key]
-                if (!!selector.trim().length) {
-                    if (lastKey === key - 1 && !!builtSelector.trim().length) {
-                        builtSelector += ` > ${selector}`
-                    } else {
-                        builtSelector += ` ${selector}`
-                    }
-                }
-                lastKey = key
-            })
-
-        builtSelector = !!builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
-        let selectorMatchCount = -1
-        if (builtSelector !== chosenSelector) {
-            if (checkUniqueness && !!builtSelector) {
-                try {
-                    const newSelectorMatches: HTMLElement[] = Array.from(document.querySelectorAll(builtSelector))
-                    selectorMatchCount = newSelectorMatches.length
-                    setSelectorMatches(newSelectorMatches)
-                } catch (e) {
-                    console.error(e)
-                    setSelectorMatches([])
-                }
-            }
-
-            setChosenSelector(builtSelector)
-            onChange?.(builtSelector, checkUniqueness ? selectorMatchCount === 1 : undefined)
-        }
-    }, [selectors, selectorMatches, checkUniqueness])
+    const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange })
+    const { selectors, chosenSelector } = useValues(logic)
+    const { setSelectors } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-1">
-            {editable && !!elements.length && <div className="px-4">Selector: {chosenSelector}</div>}
+            {editable && !!elements.length && <div className="px-4">Selector: {chosenSelector.processedSelector}</div>}
             {checkUniqueness && (
                 // TODO use the SelectorCount element here?
                 <AlertMessage
-                    type={selectorMatches.length === 0 ? 'info' : selectorMatches.length === 1 ? 'success' : 'warning'}
+                    type={
+                        chosenSelector.selectorMatchCount === 0
+                            ? 'info'
+                            : chosenSelector.selectorMatchCount === 1
+                            ? 'success'
+                            : 'warning'
+                    }
                 >
-                    {selectorMatches.length === 0 && chosenSelector === 'no selectors chosen' ? (
+                    {chosenSelector.selectorMatchCount === 0 &&
+                    chosenSelector.processedSelector === 'no selectors chosen' ? (
                         <>Choose parts of the HTML below to build a selector</>
                     ) : (
-                        <>Matches: {selectorMatches.length} elements in the page</>
+                        <>Matches: {chosenSelector.selectorMatchCount} elements in the page</>
                     )}
                 </AlertMessage>
             )}
