@@ -506,10 +506,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 event_filter: '$feature_flag_called',
                                 properties: [
                                     {
-                                        key: '$feature/' + featureFlag.key,
+                                        key: '$feature_flag',
                                         type: PropertyFilterType.Event,
-                                        value: 'is_set',
-                                        operator: PropertyOperator.IsSet,
+                                        value: featureFlag.key,
+                                        operator: PropertyOperator.Exact,
                                     },
                                 ],
                             }}
@@ -524,7 +524,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                             ]}
                             startingColumns={['person']}
                             fetchMonths={1}
-                            pageKey={`feature-flag`}
+                            pageKey={`feature-flag-` + featureFlag.key}
                             showEventFilter={false}
                             showPropertyFilter={false}
                             showCustomizeColumns={false}
