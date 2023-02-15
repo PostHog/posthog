@@ -836,7 +836,7 @@ export const insightLogic = kea<insightLogicType>([
             // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
             // right now
             if (values.insight.id) {
-                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+                return api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
