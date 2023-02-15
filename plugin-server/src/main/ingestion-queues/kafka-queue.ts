@@ -21,11 +21,11 @@ export class IngestionConsumer {
     public consumerReady: boolean
     public topic: string
     public consumerGroupId: string
+    public eachBatch: EachBatchFunction
     private kafka: Kafka
     private consumer: Consumer
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
-    private eachBatch: EachBatchFunction
 
     constructor(
         pluginsServer: Hub,

@@ -25,13 +25,7 @@ export const startOnEventHandlerConsumer = async ({
     */
     status.info('🔁', 'Starting onEvent handler consumer')
 
-    const queue = new IngestionConsumer(
-        hub,
-        piscina,
-        KAFKA_EVENTS_JSON,
-        `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
-        eachBatchAsyncHandlers
-    )
+    const queue = buildOnEventIngestionConsumer({ hub, piscina })
 
     await queue.start()
 
@@ -40,4 +34,14 @@ export const startOnEventHandlerConsumer = async ({
     })
 
     return queue
+}
+
+export const buildOnEventIngestionConsumer = ({ hub, piscina }: { hub: Hub; piscina: Piscina }) => {
+    return new IngestionConsumer(
+        hub,
+        piscina,
+        KAFKA_EVENTS_JSON,
+        `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
+        eachBatchAsyncHandlers
+    )
 }

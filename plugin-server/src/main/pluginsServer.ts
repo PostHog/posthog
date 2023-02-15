@@ -382,6 +382,7 @@ export async function startPluginsServer(
         }
 
         serverInstance.piscina = piscina
+        serverInstance.queue = analyticsEventsIngestionConsumer
         serverInstance.stop = closeJobs
 
         hub.statsd?.timing('total_setup_time', timer)
