@@ -1,32 +1,18 @@
-from datetime import datetime, timedelta
-from typing import Any, Dict, Tuple
+from datetime import timedelta
 
-import pytz
 from django.utils.timezone import now
 from freezegun import freeze_time
 
 from posthog.caching.fetch_from_cache import (
-    DEFAULT_INSIGHT_REFRESH_FREQUENCY,
     InsightResult,
     NothingInCacheResult,
     fetch_cached_insight_result,
-    should_refresh_insight,
     synchronously_update_cache,
 )
-from posthog.caching.insight_caching_state import InsightCachingState
 from posthog.decorators import CacheType
-from posthog.models import Dashboard, DashboardTile, Insight, Team
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.models import Insight
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_insight, flush_persons_and_events
 from posthog.utils import get_safe_cache
-
-
-def _create_insight(
-    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
-) -> Tuple[Insight, Dashboard, DashboardTile]:
-    dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
-    insight = Insight.objects.create(team=team, filters=insight_filters)
-    dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
-    return insight, dashboard, dashboard_tile
 
 
 @freeze_time("2012-01-14T03:21:34.000Z")
@@ -63,7 +49,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
             "result": result.result,
             "type": CacheType.TRENDS,
             "last_refresh": result.last_refresh,
-            "next_allowed_refresh": None,
+            "next_allowed_client_refresh": None,
         }
 
     def test_synchronously_update_cache_dashboard_tile(self):
@@ -83,7 +69,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
             "result": result.result,
             "type": CacheType.TRENDS,
             "last_refresh": result.last_refresh,
-            "next_allowed_refresh": None,
+            "next_allowed_client_refresh": None,
         }
 
     def test_fetch_cached_insight_result_from_cache(self):
@@ -96,7 +82,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
             cache_key=cached_result.cache_key,
             is_cached=True,
             timezone=None,
-            next_allowed_refresh=cached_result.next_allowed_refresh,
+            next_allowed_client_refresh=cached_result.next_allowed_client_refresh,
         )
 
     def test_fetch_nothing_yet_cached(self):
@@ -115,45 +101,3 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
         assert isinstance(from_cache_result, NothingInCacheResult)
         assert from_cache_result.result is None
         assert from_cache_result.cache_key is None
-
-    @freeze_time("2012-01-14T03:21:34.000Z")
-    def test_should_refresh_insight(self) -> None:
-        # should_refresh_now should always be true if the insight doesn't have last_refresh
-        insight, _, _ = _create_insight(self.team, {"events": [{"id": "$pageview"}], "interval": "month"}, {})
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
-        self.assertEqual(should_refresh_now, True)
-        self.assertEqual(refresh_frequency, DEFAULT_INSIGHT_REFRESH_FREQUENCY)
-
-        # dashboard filters override insight filters when deciding on refresh time
-        insight, _, dashboard_tile = _create_insight(
-            self.team, {"events": [{"id": "$pageview"}], "interval": "month"}, {"interval": "hour"}
-        )
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight, dashboard_tile)
-        self.assertEqual(should_refresh_now, True)
-        self.assertEqual(refresh_frequency, timedelta(minutes=3))
-
-        # insights with hour intervals can be refreshed more often
-        insight, _, _ = _create_insight(self.team, {"events": [{"id": "$pageview"}], "interval": "hour"}, {})
-
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
-        self.assertEqual(should_refresh_now, True)
-        self.assertEqual(refresh_frequency, timedelta(minutes=3))
-
-        # insight with ranges equal or lower than 7 days can also be refreshed more often
-        insight, _, _ = _create_insight(
-            self.team, {"events": [{"id": "$pageview"}], "interval": "day", "date_from": "-3d"}, {}
-        )
-
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
-        self.assertEqual(should_refresh_now, True)
-        self.assertEqual(refresh_frequency, timedelta(minutes=3))
-
-        # insights recently refreshed should return False for should_refresh_now
-        insight, _, _ = _create_insight(self.team, {"events": [{"id": "$autocapture"}], "interval": "month"}, {})
-        InsightCachingState.objects.filter(team=self.team, insight_id=insight.pk).update(
-            last_refresh=datetime.now(tz=pytz.timezone("UTC"))
-        )
-
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
-        self.assertEqual(should_refresh_now, False)
-        self.assertEqual(refresh_frequency, DEFAULT_INSIGHT_REFRESH_FREQUENCY)

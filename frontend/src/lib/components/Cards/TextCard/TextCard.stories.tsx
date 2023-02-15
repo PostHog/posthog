@@ -26,7 +26,7 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
         layouts: {},
         color,
         last_refresh: null,
-        next_allowed_refresh: null,
+        next_allowed_client_refresh: null,
     }
 }
 

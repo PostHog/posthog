@@ -36,12 +36,8 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
-from posthog.caching.fetch_from_cache import (
-    InsightResult,
-    fetch_cached_insight_result,
-    should_refresh_insight,
-    synchronously_update_cache,
-)
+from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
+from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -201,7 +197,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
-    next_allowed_refresh = serializers.SerializerMethodField(
+    next_allowed_client_refresh = serializers.SerializerMethodField(
         read_only=True,
         help_text="""
     The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
@@ -246,7 +242,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "dashboards",
             "dashboard_tiles",
             "last_refresh",
-            "next_allowed_refresh",
+            "next_allowed_client_refresh",
             "result",
             "created_at",
             "created_by",
@@ -434,8 +430,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
 
-    def get_next_allowed_refresh(self, insight: Insight):
-        return self.insight_result(insight).next_allowed_refresh
+    def get_next_allowed_client_refresh(self, insight: Insight):
+        return self.insight_result(insight).next_allowed_client_refresh
 
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached

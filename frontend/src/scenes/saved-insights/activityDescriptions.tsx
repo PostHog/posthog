@@ -207,7 +207,7 @@ const insightActionsMapping: Record<
     order: () => null,
     result: () => null,
     last_refresh: () => null,
-    next_allowed_refresh: () => null,
+    next_allowed_client_refresh: () => null,
     last_modified_by: () => null,
     next: () => null, // only used by frontend
     saved: () => null,

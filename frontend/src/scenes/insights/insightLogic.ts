@@ -393,7 +393,7 @@ export const insightLogic = kea<insightLogicType>([
                         view: (values.filters.insight as InsightType) || InsightType.TRENDS,
                         scene: scene,
                         lastRefresh: response.last_refresh,
-                        nextAllowedRefresh: response.next_allowed_refresh,
+                        nextAllowedRefresh: response.next_allowed_client_refresh,
                         response: {
                             cached: response?.is_cached,
                             apiResponseBytes: getResponseBytes(fetchResponse),
@@ -551,7 +551,7 @@ export const insightLogic = kea<insightLogicType>([
             null as string | null,
             {
                 setNextAllowedRefresh: (_, { nextAllowedRefresh }) => nextAllowedRefresh,
-                loadInsightSuccess: (_, { insight }) => insight.next_allowed_refresh || null,
+                loadInsightSuccess: (_, { insight }) => insight.next_allowed_client_refresh || null,
                 setActiveView: () => null,
             },
         ],
