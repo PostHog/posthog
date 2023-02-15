@@ -28,7 +28,7 @@ export const startOnEventHandlerConsumer = async ({
     const queue = new IngestionConsumer(
         hub,
         piscina,
-        [KAFKA_EVENTS_JSON],
+        KAFKA_EVENTS_JSON,
         `${KAFKA_PREFIX}clickhouse-plugin-server-async`,
         eachBatchAsyncHandlers
     )

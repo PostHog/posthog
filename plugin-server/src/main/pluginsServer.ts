@@ -277,11 +277,6 @@ export async function startPluginsServer(
             analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
                 piscina: piscina,
-                // NOTE: to maintain backwards compatibility with the old plugin
-                // server, we need to consume from the `clickhouse_events_json`
-                // topic from the same consumer.
-                // TODO: remove this constraint
-                alsoProcessExportEvents: hub.capabilities.processAsyncHandlers === true,
             })
 
             bufferConsumer = await startAnonymousEventBufferConsumer({
@@ -293,15 +288,7 @@ export async function startPluginsServer(
             })
         }
 
-        if (
-            hub.capabilities.processAsyncHandlers &&
-            // NOTE: we do not start a separate `onEvent` consumer if we also
-            // have ingestion consuming in the same processes. The ingestion
-            // consumer should handle both, for reasons of backwards
-            // compatibility.
-            // TODO: remove this constraint
-            !hub.capabilities.ingestion
-        ) {
+        if (hub.capabilities.processAsyncHandlers) {
             onEventHandlerConsumer = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
