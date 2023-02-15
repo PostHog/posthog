@@ -292,7 +292,9 @@ export async function startPluginsServer(
             })
         }
 
-        if (hub.capabilities.ingestionOverflow) {
+        if (hub.capabilities.ingestionOverflow && !hub.capabilities.ingestion) {
+            // ingestionOverflow may be enabled with ingestion to signal we are producing ingestion events
+            // to the OVERFLOW topic. But we don't want to start an additional consumer.
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
                 piscina: piscina,

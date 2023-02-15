@@ -13,7 +13,7 @@ import { status } from '../../utils/status'
 import { ConfiguredLimiter, WarningLimiter } from '../../utils/token-bucket'
 import { captureIngestionWarning } from './../../worker/ingestion/utils'
 import { eachBatch } from './batch-processing/each-batch'
-import { eachMessageIngestion } from './batch-processing/each-batch-ingestion'
+import { eachBatchIngestion, eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
 export const startAnalyticsEventsIngestionConsumer = async ({
@@ -44,12 +44,14 @@ export const startAnalyticsEventsIngestionConsumer = async ({
     // group id. In these cases, updating to this version will result in the
     // re-exporting of events still in Kafka `clickhouse_events_json` topic.
 
+    const batchHandler = hub.capabilities.ingestionOverflow ? eachBatchIngestionWithOverflow : eachBatchIngestion
+
     const queue = new IngestionConsumer(
         hub,
         piscina,
         KAFKA_EVENTS_PLUGIN_INGESTION,
         `${KAFKA_PREFIX}clickhouse-ingestion`,
-        eachBatchIngestionWithOverflow
+        batchHandler
     )
 
     await queue.start()
