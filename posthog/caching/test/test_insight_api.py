@@ -14,7 +14,7 @@ class TestInsightAPI(ClickhouseTestMixin, BaseTest):
     def test_should_refresh_insight(self) -> None:
         # should_refresh_now should always be true if the insight doesn't have last_refresh
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$pageview"}], "interval": "month"}, {})
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight)
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, DEFAULT_CLIENT_INSIGHT_ALLOWED_REFRESH_FREQUENCY)
 
@@ -22,14 +22,14 @@ class TestInsightAPI(ClickhouseTestMixin, BaseTest):
         insight, _, dashboard_tile = _create_insight(
             self.team, {"events": [{"id": "$pageview"}], "interval": "month"}, {"interval": "hour"}
         )
-        should_refresh_now, refresh_frequency = should_refresh_insight(dashboard_tile)
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight, dashboard_tile)
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, timedelta(minutes=3))
 
         # insights with hour intervals can be refreshed more often
         insight, _, _ = _create_insight(self.team, {"events": [{"id": "$pageview"}], "interval": "hour"}, {})
 
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight)
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, timedelta(minutes=3))
 
@@ -38,7 +38,7 @@ class TestInsightAPI(ClickhouseTestMixin, BaseTest):
             self.team, {"events": [{"id": "$pageview"}], "interval": "day", "date_from": "-3d"}, {}
         )
 
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight)
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
         self.assertEqual(should_refresh_now, True)
         self.assertEqual(refresh_frequency, timedelta(minutes=3))
 
@@ -48,6 +48,6 @@ class TestInsightAPI(ClickhouseTestMixin, BaseTest):
             last_refresh=datetime.now(tz=pytz.timezone("UTC"))
         )
 
-        should_refresh_now, refresh_frequency = should_refresh_insight(insight)
+        should_refresh_now, refresh_frequency = should_refresh_insight(insight, None)
         self.assertEqual(should_refresh_now, False)
         self.assertEqual(refresh_frequency, DEFAULT_CLIENT_INSIGHT_ALLOWED_REFRESH_FREQUENCY)

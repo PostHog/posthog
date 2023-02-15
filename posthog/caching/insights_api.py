@@ -17,21 +17,15 @@ or not to refresh an insight upon a client request to do so
 # default minimum wait time for refreshing an insight
 DEFAULT_CLIENT_INSIGHT_ALLOWED_REFRESH_FREQUENCY = timedelta(minutes=15)
 
+
 # returns should_refresh, refresh_frequency
-def should_refresh_insight(target: Union[Insight, DashboardTile]) -> Tuple[bool, timedelta]:
-    dashboard = None
-    insight = target
-
-    if isinstance(target, DashboardTile):
-        insight = target.insight
-        dashboard = target.dashboard
-
-    filter_data_with_dashboard_filters = insight.dashboard_filters(dashboard)
+def should_refresh_insight(insight: Insight, dashboard_tile: Optional[DashboardTile]) -> Tuple[bool, timedelta]:
     filter = get_filter(
-        data=filter_data_with_dashboard_filters if filter_data_with_dashboard_filters is not None else {},
+        data=insight.dashboard_filters(dashboard_tile.dashboard if dashboard_tile is not None else None),
         team=insight.team,
     )
 
+    target: Union[Insight, DashboardTile] = insight if dashboard_tile is None else dashboard_tile
     cache_key = calculate_cache_key(target)
     caching_state = InsightCachingState.objects.filter(team_id=insight.team.pk, cache_key=cache_key, insight=insight)
 
