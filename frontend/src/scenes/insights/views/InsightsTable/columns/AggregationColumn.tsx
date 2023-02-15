@@ -20,17 +20,17 @@ const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
     median: 'Median',
 }
 
-type TotalColumnTitleProps = {
+type AggregationColumnTitleProps = {
     isNonTimeSeriesDisplay: boolean
-    calcColumnState: CalcColumnState
-    setCalcColumnState: (state: CalcColumnState) => void
+    aggregation: CalcColumnState
+    setAggregationType: (state: CalcColumnState) => void
 }
 
-export function TotalColumnTitle({
+export function AggregationColumnTitle({
     isNonTimeSeriesDisplay,
-    calcColumnState,
-    setCalcColumnState,
-}: TotalColumnTitleProps): JSX.Element {
+    aggregation,
+    setAggregationType,
+}: AggregationColumnTitleProps): JSX.Element {
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
     if (isNonTimeSeriesDisplay) {
@@ -43,7 +43,7 @@ export function TotalColumnTitle({
                 <Menu.Item
                     key={key}
                     onClick={(e) => {
-                        setCalcColumnState(key as CalcColumnState)
+                        setAggregationType(key as CalcColumnState)
                         reportInsightsTableCalcToggled(key)
                         e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
                     }}
@@ -56,37 +56,37 @@ export function TotalColumnTitle({
     return (
         <Dropdown overlay={calcColumnMenu}>
             <span className="cursor-pointer">
-                {CALC_COLUMN_LABELS[calcColumnState]}
+                {CALC_COLUMN_LABELS[aggregation]}
                 <DownOutlined className="ml-1" />
             </span>
         </Dropdown>
     )
 }
 
-type TotalColumnItemProps = {
+type AggregationColumnItemProps = {
     item: IndexedTrendResult
     isNonTimeSeriesDisplay: boolean
-    calcColumnState: CalcColumnState
+    aggregation: CalcColumnState
     trendsFilter: TrendsFilter | null | undefined
 }
 
-export function TotalColumnItem({
+export function AggregationColumnItem({
     item,
     isNonTimeSeriesDisplay,
-    calcColumnState,
+    aggregation,
     trendsFilter,
-}: TotalColumnItemProps): JSX.Element {
+}: AggregationColumnItemProps): JSX.Element {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     let value: number | undefined = undefined
-    if (calcColumnState === 'total' || isNonTimeSeriesDisplay) {
+    if (aggregation === 'total' || isNonTimeSeriesDisplay) {
         value = item.count ?? item.aggregated_value
         if (item.aggregated_value > item.count) {
             value = item.aggregated_value
         }
-    } else if (calcColumnState === 'average') {
+    } else if (aggregation === 'average') {
         value = average(item.data)
-    } else if (calcColumnState === 'median') {
+    } else if (aggregation === 'median') {
         value = median(item.data)
     }
 

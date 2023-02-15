@@ -20,7 +20,7 @@ import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesC
 import { SeriesColumnItem } from './columns/SeriesColumn'
 import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
 import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
-import { TotalColumnItem, TotalColumnTitle } from './columns/TotalColumn'
+import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 import { BreakdownFilter, TrendsFilter } from '~/queries/schema'
@@ -60,9 +60,9 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
             display={display}
             interval={interval}
             breakdown={breakdown}
-            showTotalCount={allowAggregation}
-            calcColumnState={aggregation}
-            setCalcColumnState={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
+            allowAggregation={allowAggregation}
+            aggregation={aggregation}
+            setAggregationType={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
             handleSeriesEditClick={handleSeriesEditClick}
             {...rest}
         />
@@ -82,7 +82,6 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 
     const isNonTimeSeriesDisplay =
         isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
-    const compare = isTrendsFilter(filters) && !!filters.compare
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
         const entityFilter = entityFilterLogic.findMounted({
@@ -99,7 +98,7 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
     return (
         <InsightsTableComponent
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-            compare={compare}
+            compare={isTrendsFilter(filters) && !!filters.compare}
             isTrends={isTrendsFilter(filters)}
             trendsFilter={{
                 aggregation_axis_format: (filters as TrendsFilterType).aggregation_axis_format,
@@ -111,9 +110,9 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
             breakdown={{
                 breakdown: filters.breakdown,
             }}
-            showTotalCount={!!showTotalCount}
-            calcColumnState={calcColumnState}
-            setCalcColumnState={setCalcColumnState}
+            allowAggregation={!!showTotalCount}
+            aggregation={calcColumnState}
+            setAggregationType={setCalcColumnState}
             handleSeriesEditClick={handleSeriesEditClick}
             {...rest}
         />
@@ -128,9 +127,9 @@ type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     breakdown: BreakdownFilter | undefined
     isNonTimeSeriesDisplay: boolean
     compare: boolean
-    showTotalCount: boolean
-    calcColumnState: CalcColumnState
-    setCalcColumnState: (state: CalcColumnState) => void
+    allowAggregation: boolean
+    aggregation: CalcColumnState
+    setAggregationType: (state: CalcColumnState) => void
     handleSeriesEditClick: (item: IndexedTrendResult) => void
 }
 
@@ -147,9 +146,9 @@ function InsightsTableComponent({
     interval,
     breakdown,
     compare,
-    showTotalCount,
-    calcColumnState,
-    setCalcColumnState,
+    allowAggregation,
+    aggregation,
+    setAggregationType,
     handleSeriesEditClick,
 }: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
@@ -248,20 +247,20 @@ function InsightsTableComponent({
         }
     }
 
-    if (showTotalCount) {
+    if (allowAggregation) {
         columns.push({
             title: (
-                <TotalColumnTitle
+                <AggregationColumnTitle
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-                    calcColumnState={calcColumnState}
-                    setCalcColumnState={setCalcColumnState}
+                    aggregation={aggregation}
+                    setAggregationType={setAggregationType}
                 />
             ),
             render: (_: any, item: IndexedTrendResult) => (
-                <TotalColumnItem
+                <AggregationColumnItem
                     item={item}
                     isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-                    calcColumnState={calcColumnState}
+                    aggregation={aggregation}
                     trendsFilter={trendsFilter}
                 />
             ),
