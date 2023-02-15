@@ -26,7 +26,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
+import {
+    AnyPropertyFilter,
+    AvailableFeature,
+    EventsTableRowItem,
+    PropertyFilterType,
+    PropertyOperator,
+    Resource,
+} from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -485,6 +492,47 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Tabs>
                             </>
                         )}
+                    </>
+                )}
+                <Divider />
+
+                {!isEditingFlag && (
+                    <>
+                        <div className="mb-2">
+                            <b>Exposures</b>
+                        </div>
+                        <EventsTable
+                            fixedFilters={{
+                                event_filter: '$feature_flag_called',
+                                properties: [
+                                    {
+                                        key: '$feature/' + featureFlag.key,
+                                        type: PropertyFilterType.Event,
+                                        value: 'is_set',
+                                        operator: PropertyOperator.IsSet,
+                                    },
+                                ],
+                            }}
+                            fixedColumns={[
+                                {
+                                    title: 'Value',
+                                    key: '$feature/' + featureFlag.key,
+                                    render: function renderTime(_, { event }: EventsTableRowItem) {
+                                        return event?.properties['$feature/' + featureFlag.key].toString()
+                                    },
+                                },
+                            ]}
+                            startingColumns={['person']}
+                            fetchMonths={1}
+                            pageKey={`feature-flag`}
+                            showEventFilter={false}
+                            showPropertyFilter={false}
+                            showCustomizeColumns={false}
+                            showAutoload={false}
+                            showExport={false}
+                            showActionsButton={false}
+                            emptyPrompt={`Feature flag calls for "${featureFlag.key}" will appear here`}
+                        />
                     </>
                 )}
             </div>
