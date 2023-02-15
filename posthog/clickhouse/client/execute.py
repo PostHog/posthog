@@ -6,7 +6,6 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
-import posthoganalytics
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
@@ -64,24 +63,7 @@ def extra_settings(query_id: Optional[str]) -> Dict[str, Any]:
     if not clickhouse_at_least_228():
         return {}
 
-    # The `default` option for join_algorithm was introduced with CH 22.8
-    default_join_algorithm = "default"
-
-    join_algorithm = (
-        posthoganalytics.get_feature_flag(
-            "join-algorithm",
-            str(query_id),
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        or default_join_algorithm
-    )
-
-    # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
-    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
-        join_algorithm = default_join_algorithm
-
-    return {"join_algorithm": join_algorithm}
+    return {"join_algorithm": "direct,parallel_hash"}
 
 
 def validated_client_query_id() -> Optional[str]:
