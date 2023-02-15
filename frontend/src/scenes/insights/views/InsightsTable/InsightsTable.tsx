@@ -23,6 +23,7 @@ import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColum
 import { TotalColumnItem, TotalColumnTitle } from './columns/TotalColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
 import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { BreakdownFilter } from '~/queries/schema'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -40,7 +41,9 @@ interface InsightsTableProps {
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval } = useValues(insightDataLogic(insightProps))
+    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown } = useValues(
+        insightDataLogic(insightProps)
+    )
     const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
@@ -55,6 +58,7 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
             isTrends={isTrends}
             display={display}
             interval={interval}
+            breakdown={breakdown}
             showTotalCount={allowAggregation}
             calcColumnState={aggregation}
             setCalcColumnState={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
@@ -98,6 +102,9 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
             isTrends={isTrendsFilter(filters)}
             display={(filters as TrendsFilterType).display}
             interval={(filters as TrendsFilterType).interval}
+            breakdown={{
+                breakdown: filters.breakdown,
+            }}
             showTotalCount={!!showTotalCount}
             calcColumnState={calcColumnState}
             setCalcColumnState={setCalcColumnState}
@@ -111,6 +118,7 @@ type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     isTrends: boolean
     display: ChartDisplayType | undefined
     interval: IntervalType | undefined
+    breakdown: BreakdownFilter | undefined
     isNonTimeSeriesDisplay: boolean
     compare: boolean
     showTotalCount: boolean
@@ -129,6 +137,7 @@ function InsightsTableComponent({
     isTrends,
     display,
     interval,
+    breakdown,
     compare,
     showTotalCount,
     calcColumnState,
@@ -188,7 +197,7 @@ function InsightsTableComponent({
         },
     })
 
-    if (filters.breakdown) {
+    if (breakdown?.breakdown) {
         const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
             formatBreakdownLabel(
                 cohorts,
@@ -200,7 +209,7 @@ function InsightsTableComponent({
             )
 
         columns.push({
-            title: <BreakdownColumnTitle breakdown={filters.breakdown} />,
+            title: <BreakdownColumnTitle breakdown={breakdown?.breakdown} />,
             render: (_, item) => (
                 <BreakdownColumnItem
                     item={item}
