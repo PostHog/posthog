@@ -1,5 +1,5 @@
 import ReactDOM from 'react-dom'
-import { Placement } from '@floating-ui/react-dom-interactions'
+import { Placement } from '@floating-ui/react'
 import { kea, path, actions, reducers, listeners, selectors, connect, afterMount, beforeUnmount } from 'kea'
 import type { inAppPromptLogicType } from './inAppPromptLogicType'
 import { router, urlToAction } from 'kea-router'

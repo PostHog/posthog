@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ControlledDefinitionPopoverContents } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { pluralize } from 'lib/utils'
-import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
+import { flip, offset, shift, size, useFloating } from '@floating-ui/react'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 enum ListTooltip {

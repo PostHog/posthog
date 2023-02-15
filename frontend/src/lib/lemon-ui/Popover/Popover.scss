@@ -29,31 +29,35 @@
     padding: 0.5rem;
     border-radius: var(--radius);
     border: 1px solid var(--border);
-    overflow: auto;
-
-    [data-floating-placement^='top'] & {
-        transform-origin: bottom;
-    }
+    opacity: 0;
 
     .Popover--actionable & {
         border-color: var(--primary);
     }
 
-    .Popover--enter &,
-    .Popover--exit.Popover--exit-active & {
-        opacity: 0;
+    .Popover[data-placement^='bottom'] & {
+        transform-origin: top;
         transform: rotateX(-12deg);
     }
 
-    .Popover--enter[data-floating-placement^='top'] &,
-    .Popover--exit.Popover--exit-active[data-floating-placement^='top'] & {
+    .Popover[data-placement^='top'] & {
+        transform-origin: bottom;
         transform: rotateX(12deg);
     }
 
-    .Popover--enter.Popover--enter-active &,
-    .Popover--exit & {
+    .Popover[data-placement^='left'] & {
+        transform-origin: right;
+        transform: rotateY(-12deg);
+    }
+
+    .Popover[data-placement^='right'] & {
+        transform-origin: left;
+        transform: rotateY(12deg);
+    }
+
+    .Popover[data-status='open'] & {
         opacity: 1;
-        transform: rotateX(0);
+        transform: none;
     }
 
     .Popover--max-content-width & {
@@ -91,4 +95,8 @@
     .Popover--actionable & {
         border-color: var(--primary);
     }
+}
+
+.Popover__content {
+    overflow: auto;
 }

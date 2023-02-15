@@ -62,7 +62,7 @@
     },
     "dependencies": {
         "@ant-design/icons": "^4.7.0",
-        "@floating-ui/react-dom-interactions": "^0.6.6",
+        "@floating-ui/react": "^0.16.0",
         "@lottiefiles/react-lottie-player": "^3.4.7",
         "@medv/finder": "^2.1.0",
         "@monaco-editor/react": "^4.1.3",

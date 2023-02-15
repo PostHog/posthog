@@ -17,7 +17,7 @@ import {
     IconTrendingUp,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
-import { Placement } from '@floating-ui/react-dom-interactions'
+import { Placement } from '@floating-ui/react'
 import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'

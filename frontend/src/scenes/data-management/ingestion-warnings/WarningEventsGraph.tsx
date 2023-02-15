@@ -6,7 +6,7 @@ import { dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { teamLogic } from '../../teamLogic'
 import { IngestionWarningSummary } from './ingestionWarningsLogic'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
-import { offset } from '@floating-ui/react-dom-interactions'
+import { offset } from '@floating-ui/react'
 
 import './WarningEventsGraph.scss'
 

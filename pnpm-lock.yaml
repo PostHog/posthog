@@ -13,7 +13,7 @@ specifiers:
   '@babel/preset-typescript': ^7.16.7
   '@babel/runtime': ^7.17.9
   '@cypress/webpack-preprocessor': ^5.15.4
-  '@floating-ui/react-dom-interactions': ^0.6.6
+  '@floating-ui/react': ^0.16.0
   '@hot-loader/react-dom': ^16.14.0
   '@lottiefiles/react-lottie-player': ^3.4.7
   '@medv/finder': ^2.1.0
@@ -190,7 +190,7 @@ specifiers:
 
 dependencies:
   '@ant-design/icons': 4.7.0_wcqkhtmu7mswc6yz4uyexck3ty
-  '@floating-ui/react-dom-interactions': 0.6.6_aim5hlwjfste3kpjq4dvdszx7u
+  '@floating-ui/react': 0.16.0_aim5hlwjfste3kpjq4dvdszx7u
   '@lottiefiles/react-lottie-player': 3.4.7_react@16.14.0
   '@medv/finder': 2.1.0
   '@monaco-editor/react': 4.4.6_vtctfwvicljpcdx2mjoqbo4tly
@@ -1995,41 +1995,38 @@ packages:
       - supports-color
     dev: true
 
-  /@floating-ui/core/0.7.3:
-    resolution: {integrity: sha512-buc8BXHmG9l82+OQXOFU3Kr2XQx9ys01U/Q9HMIrZ300iLc8HLMgh7dcCqgYzAzf4BkoQvDcXf5Y+CuEZ5JBYg==}
+  /@floating-ui/core/1.2.1:
+    resolution: {integrity: sha512-LSqwPZkK3rYfD7GKoIeExXOyYx6Q1O4iqZWwIehDNuv3Dv425FIAE8PRwtAx1imEolFTHgBEcoFHm9MDnYgPCg==}
     dev: false
 
-  /@floating-ui/dom/0.5.4:
-    resolution: {integrity: sha512-419BMceRLq0RrmTSDxn8hf9R3VCJv2K9PUfugh5JyEFmdjzDo+e8U5EdR8nzKq8Yj1htzLm3b6eQEEam3/rrtg==}
+  /@floating-ui/dom/1.2.1:
+    resolution: {integrity: sha512-Rt45SmRiV8eU+xXSB9t0uMYiQ/ZWGE/jumse2o3i5RGlyvcbqOF4q+1qBnzLE2kZ5JGhq0iMkcGXUKbFe7MpTA==}
     dependencies:
-      '@floating-ui/core': 0.7.3
+      '@floating-ui/core': 1.2.1
     dev: false
 
-  /@floating-ui/react-dom-interactions/0.6.6_aim5hlwjfste3kpjq4dvdszx7u:
-    resolution: {integrity: sha512-qnao6UPjSZNHnXrF+u4/n92qVroQkx0Umlhy3Avk1oIebm/5ee6yvDm4xbHob0OjY7ya8WmUnV3rQlPwX3Atwg==}
+  /@floating-ui/react-dom/1.3.0_wcqkhtmu7mswc6yz4uyexck3ty:
+    resolution: {integrity: sha512-htwHm67Ji5E/pROEAr7f8IKFShuiCKHwUC/UY4vC3I5jiSvGFAYnSYiZO5MlGmads+QqvUkR9ANHEguGrDv72g==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
     dependencies:
-      '@floating-ui/react-dom': 0.7.2_aim5hlwjfste3kpjq4dvdszx7u
+      '@floating-ui/dom': 1.2.1
+      react: 16.14.0
+      react-dom: 16.14.0_react@16.14.0
+    dev: false
+
+  /@floating-ui/react/0.16.0_aim5hlwjfste3kpjq4dvdszx7u:
+    resolution: {integrity: sha512-h+69TJSAY2R/k5rw+az56RzzDFc/Tg7EHn/qEgwkIVz56Zg9LlaRMMUvxkcvd+iN3CNFDLtEnDlsXnpshjsRsQ==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+    dependencies:
+      '@floating-ui/react-dom': 1.3.0_wcqkhtmu7mswc6yz4uyexck3ty
       aria-hidden: 1.2.1_edij4neeagymnxmr7qklvezyj4
       react: 16.14.0
       react-dom: 16.14.0_react@16.14.0
-      use-isomorphic-layout-effect: 1.1.2_edij4neeagymnxmr7qklvezyj4
-    transitivePeerDependencies:
-      - '@types/react'
-    dev: false
-
-  /@floating-ui/react-dom/0.7.2_aim5hlwjfste3kpjq4dvdszx7u:
-    resolution: {integrity: sha512-1T0sJcpHgX/u4I1OzIEhlcrvkUN8ln39nz7fMoE/2HDHrPiMFoOGR7++GYyfUmIQHkkrTinaeQsO3XWubjSvGg==}
-    peerDependencies:
-      react: '>=16.8.0'
-      react-dom: '>=16.8.0'
-    dependencies:
-      '@floating-ui/dom': 0.5.4
-      react: 16.14.0
-      react-dom: 16.14.0_react@16.14.0
-      use-isomorphic-layout-effect: 1.1.2_edij4neeagymnxmr7qklvezyj4
+      tabbable: 6.0.1
     transitivePeerDependencies:
       - '@types/react'
     dev: false
@@ -17309,6 +17306,10 @@ packages:
   /synchronous-promise/2.0.16:
     resolution: {integrity: sha512-qImOD23aDfnIDNqlG1NOehdB9IYsn1V9oByPjKY1nakv2MQYCEMyX033/q+aEtYCpmYK1cv2+NTmlH+ra6GA5A==}
     dev: true
+
+  /tabbable/6.0.1:
+    resolution: {integrity: sha512-SYJSIgeyXW7EuX1ytdneO5e8jip42oHWg9xl/o3oTYhmXusZVgiA+VlPvjIN+kHii9v90AmzTZEBcsEvuAY+TA==}
+    dev: false
 
   /table/6.8.1:
     resolution: {integrity: sha512-Y4X9zqrCftUhMeH2EptSSERdVKt/nEdijTOacGD/97EKjhQ/Qs8RTlEGABSJNNN8lac9kheH+af7yAkEWlgneA==}
