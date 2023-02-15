@@ -16,8 +16,8 @@ export function TagPart({
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
-    const isSelected = !!selectedParts.tag
+    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const isSelected = !readonly && !!selectedParts.tag
 
     return (
         <span
@@ -44,8 +44,8 @@ function IdPart({
     readonly: boolean
 }): JSX.Element | null {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
-    const isSelected = !!selectedParts.id
+    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
+    const isSelected = !readonly && !!selectedParts.id
 
     return !!id ? (
         <span
@@ -76,11 +76,13 @@ function AttributeValue({
     allowMultipleSelections?: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
+    const htmlElementsSelector = clsx('decoration-primary-highlight', !readonly && 'cursor-pointer SelectableElement')
     const selectionContainer = selectedParts[attribute]
-    const isSelected = allowMultipleSelections
-        ? selectionContainer instanceof Set && selectionContainer.has(value)
-        : selectionContainer === value
+    const isSelected =
+        !readonly &&
+        (allowMultipleSelections
+            ? selectionContainer instanceof Set && selectionContainer.has(value)
+            : selectionContainer === value)
 
     function multipleSelectionsOnChange(): void {
         if (!selectionContainer) {
