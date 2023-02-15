@@ -74,6 +74,7 @@ describe('eachBatchX', () => {
         return {
             batch: {
                 partition: 0,
+                topic: KAFKA_EVENTS_PLUGIN_INGESTION,
                 messages: events.map((event) => ({
                     value: JSON.stringify(event),
                     timestamp,
@@ -96,11 +97,6 @@ describe('eachBatchX', () => {
     beforeEach(() => {
         queue = {
             bufferSleep: jest.fn(),
-            topics: jest.fn(() => {
-                return {
-                    topics: [KAFKA_EVENTS_PLUGIN_INGESTION],
-                }
-            }),
             pluginsServer: {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
@@ -126,9 +122,11 @@ describe('eachBatchX', () => {
     describe('eachBatch', () => {
         it('calls eachMessage with the correct arguments', async () => {
             const eachMessage = jest.fn()
-            await eachBatch(createBatch(event), queue, eachMessage, groupIntoBatches, 'key')
+            const batch = createBatch(event)
+            batch.batch.topic = 'any_topic'
+            await eachBatch(batch, queue, eachMessage, groupIntoBatches, 'key')
 
-            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue)
+            expect(eachMessage).toHaveBeenCalledWith({ value: JSON.stringify(event) }, queue, 'any_topic')
         })
 
         it('tracks metrics based on the key', async () => {
@@ -213,12 +211,8 @@ describe('eachBatchX', () => {
         })
 
         it('does not reproduce if already consuming from overflow', async () => {
-            queue.topics = jest.fn(() => {
-                return {
-                    topics: [KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW],
-                }
-            })
             const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+            batch.batch.topic = KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
             const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
 
             await eachBatchIngestion(batch, queue)

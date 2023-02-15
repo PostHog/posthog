@@ -10,7 +10,11 @@ import { IngestionConsumer } from '../kafka-queue'
 import { captureIngestionWarning } from './../../../worker/ingestion/utils'
 import { eachBatch } from './each-batch'
 
-export async function eachMessageIngestion(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
+export async function eachMessageIngestion(
+    message: KafkaMessage,
+    queue: IngestionConsumer,
+    batchTopic: string
+): Promise<void> {
     const event = formPipelineEvent(message)
 
     if (['$snapshot', '$performance_event'].includes(event.event)) {
@@ -25,7 +29,9 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
     }
 
     if (
-        !queue.topics().topics.includes(KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW) &&
+        // We shouldn't re-produce events that are already in the OVERFLOW topic.
+        // We detect these by looking at the batch topic.
+        batchTopic != KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW &&
         // A null key would indicate we are already consuming from the OVERFLOW topic
         // Which the condition before already asserts is not happening, so this is more of a sanity check
         message.key != null &&
