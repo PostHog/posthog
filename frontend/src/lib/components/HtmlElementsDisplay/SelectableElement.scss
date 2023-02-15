@@ -1,4 +1,4 @@
-.HtmlElements {
+.SelectableElement {
     transition: background-color 200ms ease, color 200ms ease, border 200ms ease;
     border: 1px solid transparent;
     border-radius: 4px;
@@ -7,7 +7,7 @@
         background: var(--blue-lightest);
     }
 
-    &.HtmlElements__selected {
+    &--selected {
         background: var(--blue-lightest);
         color: black;
         border-color: var(--blue-light);

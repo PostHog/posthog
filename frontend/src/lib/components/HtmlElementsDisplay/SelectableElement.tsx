@@ -1,7 +1,7 @@
 import { ElementType } from '~/types'
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
-
+import './SelectableElement.scss'
 type SelectedParts = Record<string, string | undefined>
 
 export function TagPart({
@@ -16,7 +16,7 @@ export function TagPart({
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('HtmlElements decoration-primary-highlight', !readonly && 'cursor-pointer')
+    const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
     const isSelected = !!selectedParts.tag
     return (
         <span
@@ -24,7 +24,7 @@ export function TagPart({
                 e.stopPropagation()
                 return onChange({ ...selectedParts, tag: isSelected ? undefined : tagName })
             }}
-            className={clsx(htmlElementsSelector, isSelected ? 'HtmlElements__selected' : hoverSelector)}
+            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement__selected' : hoverSelector)}
         >
             {tagName}
         </span>
@@ -43,7 +43,7 @@ function IdPart({
     readonly: boolean
 }): JSX.Element | null {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('HtmlElements decoration-primary-highlight', !readonly && 'cursor-pointer')
+    const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
     const isSelected = !!selectedParts.id
 
     return !!id ? (
@@ -52,7 +52,7 @@ function IdPart({
                 e.stopPropagation()
                 return onChange({ ...selectedParts, id: isSelected ? undefined : id })
             }}
-            className={clsx(htmlElementsSelector, isSelected ? 'HtmlElements__selected' : hoverSelector)}
+            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement__selected' : hoverSelector)}
         >
             {`id="${id}"`}
         </span>
@@ -73,7 +73,7 @@ function AttributeValue({
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
-    const htmlElementsSelector = clsx('HtmlElements decoration-primary-highlight', !readonly && 'cursor-pointer')
+    const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
     const selectedPartForAttribute = selectedParts[attribute]
     const isSelected = selectedPartForAttribute === value
 
@@ -84,7 +84,7 @@ function AttributeValue({
                     e.stopPropagation()
                     onChange({ ...selectedParts, [attribute]: isSelected ? undefined : value })
                 }}
-                className={clsx(htmlElementsSelector, isSelected ? 'HtmlElements__selected' : hoverSelector)}
+                className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
             >
                 {value}
             </span>

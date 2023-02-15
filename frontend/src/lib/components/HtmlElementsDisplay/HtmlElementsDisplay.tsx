@@ -1,6 +1,5 @@
 import { ElementType } from '~/types'
 import { useEffect, useState } from 'react'
-import './HtmlElementsDisplay.scss'
 import { SelectableElement } from './SelectableElement'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 
