@@ -505,7 +505,7 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
             operator: PropertyOperator.Exact,
         },
         {
-            key: '$feature/' + featureFlagKey,
+            key: '$feature_flag_response',
             type: PropertyFilterType.Event,
             value: 'is_set',
             operator: PropertyOperator.IsSet,
@@ -529,7 +529,7 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
                         title: 'Value',
                         key: '$feature/' + featureFlagKey,
                         render: function renderTime(_, { event }: EventsTableRowItem) {
-                            return event?.properties['$feature/' + featureFlagKey]?.toString()
+                            return event?.properties['$feature_flag_response']?.toString()
                         },
                     },
                 ]}
