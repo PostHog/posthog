@@ -15,7 +15,6 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { TrendsQuery } from '~/queries/schema'
 
 import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
 import { SeriesColumnItem } from './columns/SeriesColumn'
@@ -23,6 +22,7 @@ import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownCo
 import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
 import { TotalColumnItem, TotalColumnTitle } from './columns/TotalColumn'
 import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
+import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -40,10 +40,25 @@ interface InsightsTableProps {
 
 export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { query, isNonTimeSeriesDisplay, compare } = useValues(insightDataLogic(insightProps))
-    const { series } = query as TrendsQuery
+    const { isNonTimeSeriesDisplay, compare } = useValues(insightDataLogic(insightProps))
+    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
+    const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
-    return <InsightsTableComponent isNonTimeSeriesDisplay={isNonTimeSeriesDisplay} compare={!!compare} {...rest} />
+    const handleSeriesEditClick = (item: IndexedTrendResult): void => {
+        // TODO: implement
+        console.log('handleSeriesEditClick: ', item)
+    }
+    return (
+        <InsightsTableComponent
+            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            compare={!!compare}
+            showTotalCount={allowAggregation}
+            calcColumnState={aggregation}
+            setCalcColumnState={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
+            handleSeriesEditClick={handleSeriesEditClick}
+            {...rest}
+        />
+    )
 }
 
 export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
@@ -86,7 +101,7 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
     )
 }
 
-type InsightsTableComponentProps = InsightsTableProps & {
+type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     isNonTimeSeriesDisplay: boolean
     compare: boolean
     showTotalCount: boolean

@@ -1,8 +1,13 @@
-import { BreakdownFilter, InsightQueryNode, TrendsQuery } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, TrendsQuery } from '~/queries/schema'
 import { ActionType, ChartDisplayType } from '~/types'
 import { seriesToActionsAndEvents } from '../InsightQuery/utils/queryNodeToFilter'
 import { getEventNamesForAction } from 'lib/utils'
-import { isInsightQueryWithBreakdown, isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import {
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isStickinessQuery,
+    isTrendsQuery,
+} from '~/queries/utils'
 
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     const { actions, events } = seriesToActionsAndEvents((query as TrendsQuery).series || [])
@@ -31,6 +36,14 @@ export const getCompare = (query: InsightQueryNode): boolean | undefined => {
         return query.stickinessFilter?.compare
     } else if (isTrendsQuery(query)) {
         return query.trendsFilter?.compare
+    } else {
+        return undefined
+    }
+}
+
+export const getSeries = (query: InsightQueryNode): (EventsNode | ActionsNode)[] | undefined => {
+    if (isInsightQueryWithSeries(query)) {
+        return query.series
     } else {
         return undefined
     }

@@ -94,6 +94,12 @@ export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
+export function isInsightQueryWithSeries(
+    node?: Node
+): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
+}
+
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
