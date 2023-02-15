@@ -227,7 +227,9 @@ export function overrideWithEnv(
     }
 
     if (!newConfig.DATABASE_URL) {
-        newConfig.DATABASE_URL = `postgres://${newConfig.POSTHOG_DB_USER}:${newConfig.POSTHOG_DB_PASSWORD}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
+        const encodedUser = encodeURIComponent(newConfig.POSTHOG_DB_USER)
+        const encodedPassword = encodeURIComponent(newConfig.POSTHOG_DB_PASSWORD)
+        newConfig.DATABASE_URL = `postgres://${encodedUser}:${encodedPassword}@${newConfig.POSTHOG_POSTGRES_HOST}:${newConfig.POSTHOG_POSTGRES_PORT}/${newConfig.POSTHOG_DB_NAME}`
     }
 
     if (!newConfig.JOB_QUEUE_GRAPHILE_URL) {

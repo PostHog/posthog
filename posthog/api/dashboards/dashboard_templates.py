@@ -39,7 +39,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
             )
 
         return DashboardTemplate.objects.update_or_create(
-            team_id=validated_data["team_id"], template_name=template.get("template_name"), defaults=template
+            team_id=None, template_name=template.get("template_name"), defaults=template
         )[0]
 
 
@@ -51,9 +51,12 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     serializer_class = DashboardTemplateSerializer
 
     def create(self, request: request.Request, **kwargs) -> response.Response:
+        if not request.user.is_staff:
+            return response.Response(status=status.HTTP_403_FORBIDDEN)
+
         serializer = DashboardTemplateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        serializer.save(team_id=self.team_id)
+        serializer.save()
         return response.Response(data="", status=status.HTTP_200_OK)
 
     @timed("dashboard_templates.api_repository_load")
@@ -81,7 +84,18 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def _load_repository_listing() -> List[Dict]:
         url = "https://raw.githubusercontent.com/PostHog/templates-repository/main/dashboards/dashboards.json"
         loaded_templates: List[Dict] = json.loads(requests.get(url).text)
-        return loaded_templates
+        return [
+            # The OG template is hard-coded, not served by the repository,
+            # because it is used in tests and in team setup, so we need to make sure it's always there.
+            # It is added in to the template listing here
+            {
+                "name": "Product analytics",
+                "url": None,
+                "description": "The OG PostHog product analytics dashboard template",
+                "verified": True,
+                "maintainer": "official",
+            }
+        ] + loaded_templates
 
     @staticmethod
     def _current_installed_templates() -> Dict[str, str]:

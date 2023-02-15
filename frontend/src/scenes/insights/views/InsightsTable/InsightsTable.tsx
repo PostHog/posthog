@@ -57,7 +57,11 @@ export function DashboardInsightsTable(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     return (
         <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable filterKey={`dashboard_${insightProps.dashboardItemId}`} embedded />
+            <InsightsTable
+                filterKey={`dashboard_${insightProps.dashboardItemId}`}
+                embedded
+                canCheckUncheckSeries={false}
+            />
         </BindLogic>
     )
 }
@@ -217,7 +221,7 @@ export function InsightsTable({
                 return (
                     <SeriesToggleWrapper
                         id={item.id}
-                        toggleVisibility={isMainInsightView ? undefined : toggleVisibility}
+                        toggleVisibility={!isMainInsightView && canCheckUncheckSeries ? toggleVisibility : undefined}
                     >
                         {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
                     </SeriesToggleWrapper>

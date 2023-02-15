@@ -7,11 +7,13 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CommunityTag } from 'lib/CommunityTag'
 import { IconCloudUpload } from 'lib/lemon-ui/icons'
+import { userLogic } from 'scenes/userLogic'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
     const { repository, repositoryLoading, templateLoading, templateBeingSaved } = useValues(dashboardTemplatesLogic)
     const { installTemplate } = useActions(dashboardTemplatesLogic)
+    const { user } = useValues(userLogic)
 
     return (
         <LemonTable
@@ -49,18 +51,25 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                             installed: boolean | undefined,
                             record: DashboardTemplatesRepositoryEntry
                         ) {
+                            const recordUrl = record.url
                             return (
                                 <div className="template-installed">
-                                    {installed && !record.has_new_version ? (
+                                    {recordUrl === undefined || (installed && !record.has_new_version) ? (
                                         <LemonSnack>INSTALLED</LemonSnack>
                                     ) : (
                                         <LemonButton
                                             status={'primary'}
                                             type={'primary'}
                                             icon={<IconCloudUpload />}
-                                            onClick={() => installTemplate({ name: record.name, url: record.url })}
+                                            onClick={() => installTemplate({ name: record.name, url: recordUrl })}
                                             loading={templateLoading && templateBeingSaved === record.name}
-                                            disabledReason={templateLoading ? 'Installing template...' : undefined}
+                                            disabledReason={
+                                                templateLoading
+                                                    ? 'Installing template...'
+                                                    : !user?.is_staff
+                                                    ? 'Only staff users can install templates'
+                                                    : undefined
+                                            }
                                         >
                                             {record.has_new_version ? 'Update' : 'Install'}
                                         </LemonButton>

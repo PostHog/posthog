@@ -285,7 +285,6 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
-
     capture_performance_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -1069,7 +1068,7 @@ export interface BillingProductV2Type {
     image_url?: string
     free_allocation?: number
     tiers?: BillingV2TierType[]
-    tiered?: boolean
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
@@ -1375,7 +1374,7 @@ export interface RawAnnotationType {
     insight_short_id?: InsightModel['short_id'] | null
     insight_name?: InsightModel['name'] | null
     deleted?: boolean
-    creation_type?: string
+    creation_type?: 'USR' | 'GIT'
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'date_marker'> {
@@ -1633,6 +1632,7 @@ export interface InsightEditorFilter<T = EditorFilterProps> {
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
+    /** Editor filter component. Cannot be an anonymous function or the key would not work! */
     component?: (props: T) => JSX.Element | null
 }
 
