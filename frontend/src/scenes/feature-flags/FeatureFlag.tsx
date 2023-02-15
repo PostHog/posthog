@@ -496,7 +496,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                 )}
                 <Divider />
 
-                {!isEditingFlag && (
+                {!isNewFeatureFlag && !isEditingFlag && (
                     <>
                         <div className="mb-2">
                             <b>Exposures</b>
