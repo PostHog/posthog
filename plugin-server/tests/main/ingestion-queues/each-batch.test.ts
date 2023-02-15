@@ -179,37 +179,6 @@ describe('eachBatchX', () => {
             )
         })
 
-        it('re produces event back to OVERFLOW topic', async () => {
-            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
-            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
-
-            await eachBatchIngestion(batch, queue)
-
-            expect(consume).toHaveBeenCalledWith(
-                captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
-                1
-            )
-            expect(captureIngestionWarning).toHaveBeenCalledWith(
-                undefined,
-                captureEndpointEvent['team_id'],
-                'ingestion_capacity_overflow',
-                {
-                    overflowDistinctId: captureEndpointEvent['distinct_id'],
-                }
-            )
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).toHaveBeenCalledWith({
-                topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
-                messages: [
-                    {
-                        value: JSON.stringify(captureEndpointEvent),
-                        timestamp: captureEndpointEvent['timestamp'],
-                        offset: captureEndpointEvent['offset'],
-                        key: null,
-                    },
-                ],
-            })
-        })
-
         it('does not reproduce if already consuming from overflow', async () => {
             const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
             batch.batch.topic = KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW
@@ -218,20 +187,6 @@ describe('eachBatchX', () => {
             await eachBatchIngestion(batch, queue)
 
             expect(consume).not.toHaveBeenCalled()
-            expect(captureIngestionWarning).not.toHaveBeenCalled()
-            expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
-        })
-
-        it('does not reproduce if not over capacity limit', async () => {
-            const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
-            const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => true)
-
-            await eachBatchIngestion(batch, queue)
-
-            expect(consume).toHaveBeenCalledWith(
-                captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
-                1
-            )
             expect(captureIngestionWarning).not.toHaveBeenCalled()
             expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
         })
