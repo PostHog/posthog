@@ -336,9 +336,8 @@ class TestPrinter(TestCase):
         context = HogQLContext()
         self.assertEqual(
             self._expr("person", context),
-            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_1)s), '^\"|\"$', ''))",
+            "tuple(person_id, person_created_at, person_properties)",
         )
-        self.assertEqual(context.values, {"hogql_val_0": "name", "hogql_val_1": "email"})
 
     def test_values(self):
         context = HogQLContext()

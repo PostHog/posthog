@@ -146,14 +146,12 @@ class Resolver(TraversingVisitor):
         if len(node.chain) == 0:
             raise Exception("Invalid field access with empty chain")
 
-        # Only look for fields in the last SELECT scope.
-        scope = self.scopes[-1]
-
-        # ClickHouse does not support subqueries accessing "x.event". This is forbidden:
+        # Only look for fields in the last SELECT scope, instead of all previous scopes.
+        # That's because ClickHouse does not support subqueries accessing "x.event". This is forbidden:
         # - "SELECT event, (select count() from events where event = x.event) as c FROM events x where event = '$pageview'",
         # But this is supported:
         # - "SELECT t.big_count FROM (select count() + 100 as big_count from events) as t JOIN events e ON (e.event = t.event)",
-        # Thus we don't have to recursively look into all the past scopes to find a match.
+        scope = self.scopes[-1]
 
         symbol: Optional[ast.Symbol] = None
         name = node.chain[0]
@@ -161,6 +159,16 @@ class Resolver(TraversingVisitor):
         # If the field contains at least two parts, the first might be a table.
         if len(node.chain) > 1 and name in scope.tables:
             symbol = scope.tables[name]
+
+        if name == "*" and len(node.chain) == 1:
+            table_count = len(scope.anonymous_tables) + len(scope.tables)
+            if table_count == 0:
+                raise ResolverException("Cannot use '*' when there are no tables in the query")
+            if table_count > 1:
+                raise ResolverException("Cannot use '*' when there are multiple tables in the query")
+            table = scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
+            symbol = ast.SplashSymbol(table=table)
+
         if not symbol:
             symbol = lookup_field_by_name(scope, name)
         if not symbol:

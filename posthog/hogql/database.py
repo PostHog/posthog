@@ -1,3 +1,5 @@
+from typing import List
+
 from pydantic import BaseModel, Extra
 
 
@@ -46,6 +48,18 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
+    def get_splash(self) -> List[str]:
+        list: List[str] = []
+        for field in self.__fields__.values():
+            database_field = field.default
+            if isinstance(database_field, DatabaseField):
+                list.append(database_field.name)
+            elif isinstance(database_field, Table):
+                list.extend(database_field.get_splash())
+            else:
+                raise ValueError(f"Unknown field type {type(database_field).__name__} for splash")
+        return list
+
 
 class PersonsTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="id")
@@ -84,12 +98,12 @@ class EventsPersonSubTable(Table):
 class EventsTable(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
     event: StringDatabaseField = StringDatabaseField(name="event")
-    timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="timestamp")
     properties: StringJSONDatabaseField = StringJSONDatabaseField(name="properties")
+    timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="timestamp")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
     person: EventsPersonSubTable = EventsPersonSubTable()
 
     def clickhouse_table(self):

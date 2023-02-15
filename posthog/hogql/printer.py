@@ -5,7 +5,7 @@ from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedCol
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
-from posthog.hogql.database import database
+from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name
 from posthog.hogql.visitor import Visitor
@@ -267,15 +267,7 @@ class Printer(Visitor):
             # When printing HogQL, we print the properties out as a chain as they are.
             return ".".join([print_hogql_identifier(identifier) for identifier in node.chain])
 
-        if node.chain == ["*"]:
-            # query = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-            # return self.visit(parse_expr(query))
-            raise ValueError("Selecting * not yet implemented")
-        elif node.chain == ["person"]:
-            # query = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
-            # return self.visit(parse_expr(query))
-            raise ValueError("Selecting person not yet implemented")
-        elif node.symbol is not None:
+        if node.symbol is not None:
             select_query = self._last_select()
             select: Optional[ast.SelectQuerySymbol] = select_query.symbol if select_query else None
             if select is None:
@@ -357,6 +349,18 @@ class SymbolPrinter(Visitor):
             resolved_field = symbol.resolve_database_field()
             if resolved_field is None:
                 raise ValueError(f'Can\'t resolve field "{symbol.name}" on table.')
+            if isinstance(resolved_field, Table):
+                # :KLUDGE: only works for events.person.* printing now
+                if isinstance(symbol.table, ast.TableSymbol):
+                    return self.visit(ast.SplashSymbol(table=ast.TableSymbol(table=resolved_field)))
+                else:
+                    return self.visit(
+                        ast.SplashSymbol(
+                            table=ast.TableAliasSymbol(
+                                table=ast.TableSymbol(table=resolved_field), name=symbol.table.name
+                            )
+                        )
+                    )
 
             field_sql = print_hogql_identifier(resolved_field.name)
 
@@ -456,6 +460,18 @@ class SymbolPrinter(Visitor):
 
     def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return print_hogql_identifier(symbol.name)
+
+    def visit_splash_symbol(self, symbol: ast.SplashSymbol):
+        table = symbol.table
+        while isinstance(table, ast.TableAliasSymbol):
+            table = table.table
+        if not isinstance(table, ast.TableSymbol):
+            raise ValueError(f"Unknown SplashSymbol table type: {type(table).__name__}")
+        splash_fields = table.table.get_splash()
+        prefix = (
+            f"{print_hogql_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
+        )
+        return f"tuple({', '.join(f'{prefix}{print_hogql_identifier(field)}' for field in splash_fields)})"
 
     def visit_unknown(self, symbol: ast.AST):
         raise ValueError(f"Unknown Symbol {type(symbol).__name__}")

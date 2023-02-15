@@ -118,6 +118,10 @@ class ConstantSymbol(Symbol):
     value: Any
 
 
+class SplashSymbol(Symbol):
+    table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+
+
 class FieldSymbol(Symbol):
     name: str
     table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
