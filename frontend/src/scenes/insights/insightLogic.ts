@@ -884,13 +884,17 @@ export const insightLogic = kea<insightLogicType>([
             const view = values.activeView
             actions.setTimeout(
                 window.setTimeout(() => {
-                    if (values && view == values.activeView) {
-                        actions.markInsightTimedOut(queryId)
-                        const tags = {
-                            insight: values.activeView,
-                            scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    try {
+                        if (values && view == values.activeView) {
+                            actions.markInsightTimedOut(queryId)
+                            const tags = {
+                                insight: values.activeView,
+                                scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                            }
+                            posthog.capture('insight timeout message shown', tags)
                         }
-                        posthog.capture('insight timeout message shown', tags)
+                    } catch (e) {
+                        console.warn('Error setting insight timeout', e)
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
