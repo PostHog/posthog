@@ -1306,24 +1306,48 @@ export class DB {
 
     // EventDefinition
 
-    public async fetchEventDefinitions(): Promise<EventDefinitionType[]> {
-        return (await this.postgresQuery('SELECT * FROM posthog_eventdefinition', undefined, 'fetchEventDefinitions'))
-            .rows as EventDefinitionType[]
+    public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
+        return (
+            await this.postgresQuery(
+                `
+                SELECT * FROM posthog_eventdefinition
+                ${teamId ? 'WHERE team_id = $1' : ''}
+                `,
+                [teamId],
+                'fetchEventDefinitions'
+            )
+        ).rows as EventDefinitionType[]
     }
 
     // PropertyDefinition
 
-    public async fetchPropertyDefinitions(): Promise<PropertyDefinitionType[]> {
+    public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
         return (
-            await this.postgresQuery('SELECT * FROM posthog_propertydefinition', undefined, 'fetchPropertyDefinitions')
+            await this.postgresQuery(
+                `
+                SELECT * FROM posthog_propertydefinition
+                ${teamId ? 'WHERE team_id = $1' : ''}
+                ORDER BY id
+                `,
+                [teamId],
+                'fetchPropertyDefinitions'
+            )
         ).rows as PropertyDefinitionType[]
     }
 
     // EventProperty
 
-    public async fetchEventProperties(): Promise<EventPropertyType[]> {
-        return (await this.postgresQuery('SELECT * FROM posthog_eventproperty', undefined, 'fetchEventProperties'))
-            .rows as EventPropertyType[]
+    public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
+        return (
+            await this.postgresQuery(
+                `
+                    SELECT * FROM posthog_eventproperty
+                    ${teamId ? 'WHERE team_id = $1' : ''}
+                `,
+                [teamId],
+                'fetchEventProperties'
+            )
+        ).rows as EventPropertyType[]
     }
 
     // Action & ActionStep & Action<>Event

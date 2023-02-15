@@ -257,7 +257,11 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
             const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
 
-            yield* this.extract(groupPropertiesToSet, PropertyDefinitionTypeEnum.Group, groupTypeIndex)
+            if (groupPropertiesToSet != null) {
+                // TODO: add further validation that group properties are of the
+                // expected type
+                yield* this.extract(groupPropertiesToSet, PropertyDefinitionTypeEnum.Group, groupTypeIndex)
+            }
         } else {
             yield* this.extract(properties, PropertyDefinitionTypeEnum.Event)
 
