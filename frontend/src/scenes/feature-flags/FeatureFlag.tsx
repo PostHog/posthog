@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -494,56 +494,23 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         )}
                     </>
                 )}
-                <Divider />
-
-                {!isNewFeatureFlag && !isEditingFlag && (
-                    <>
-                        <div className="mb-2">
-                            <b>Exposures</b>
-                        </div>
-                        <EventsTable
-                            fixedFilters={{
-                                event_filter: '$feature_flag_called',
-                                properties: [
-                                    {
-                                        key: '$feature_flag',
-                                        type: PropertyFilterType.Event,
-                                        value: featureFlag.key,
-                                        operator: PropertyOperator.Exact,
-                                    },
-                                ],
-                            }}
-                            fixedColumns={[
-                                {
-                                    title: 'Value',
-                                    key: '$feature/' + featureFlag.key,
-                                    render: function renderTime(_, { event }: EventsTableRowItem) {
-                                        return event?.properties['$feature/' + featureFlag.key].toString()
-                                    },
-                                },
-                            ]}
-                            startingColumns={['person']}
-                            fetchMonths={1}
-                            pageKey={`feature-flag-` + featureFlag.key}
-                            showEventFilter={false}
-                            showPropertyFilter={false}
-                            showCustomizeColumns={false}
-                            showAutoload={false}
-                            showExport={false}
-                            showActionsButton={false}
-                            emptyPrompt={`Feature flag calls for "${featureFlag.key}" will appear here`}
-                        />
-                    </>
-                )}
             </div>
         </>
     )
 }
 
-function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+function ExposureTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
+    const propertyFilter: AnyPropertyFilter[] = [
+        {
+            key: '$feature_flag',
+            type: PropertyFilterType.Event,
+            value: featureFlagKey,
+            operator: PropertyOperator.Exact,
+        },
+    ]
     return featureDataExploration ? (
         <Query
             query={{
@@ -552,7 +519,7 @@ function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: strin
                     kind: NodeKind.EventsQuery,
                     select: defaultDataTableColumns(NodeKind.EventsQuery),
                     event: '$feature_flag_called',
-                    properties: defaultPropertyOnFlag(featureFlagKey),
+                    properties: propertyFilter,
                 },
                 full: true,
                 showEventFilter: false,
@@ -563,13 +530,27 @@ function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: strin
         <EventsTable
             fixedFilters={{
                 event_filter: '$feature_flag_called',
-                properties: defaultPropertyOnFlag(featureFlagKey),
+                properties: propertyFilter,
             }}
-            sceneUrl={urls.featureFlag(id)}
-            fetchMonths={3}
-            pageKey={`feature-flag-${featureFlagKey}}`}
+            fixedColumns={[
+                {
+                    title: 'Value',
+                    key: '$feature/' + featureFlagKey,
+                    render: function renderTime(_, { event }: EventsTableRowItem) {
+                        return event?.properties['$feature/' + featureFlagKey]?.toString()
+                    },
+                },
+            ]}
+            startingColumns={['person']}
+            fetchMonths={1}
+            pageKey={`feature-flag-` + featureFlagKey}
             showEventFilter={false}
             showPropertyFilter={false}
+            showCustomizeColumns={false}
+            showAutoload={false}
+            showExport={false}
+            showActionsButton={false}
+            emptyPrompt={`Feature flag calls for "${featureFlagKey}" will appear here`}
         />
     )
 }
