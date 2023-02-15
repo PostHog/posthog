@@ -177,10 +177,10 @@ export function SelectableElement({
         const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
             if (!!value && key !== 'tag' && key !== 'text') {
                 if (key === 'class') {
-                    if (value instanceof Set) {
-                        acc.push(`.${Array.from(value).join('.')}`)
-                    } else {
+                    if (!(value instanceof Set)) {
                         throw new Error(`Was expecting a set here. Attribute: ${key} has a string value: ${value}`)
+                    } else if (value.size > 0) {
+                        acc.push(`.${Array.from(value).join('.')}`)
                     }
                 } else {
                     if (value instanceof Set) {
@@ -227,7 +227,7 @@ export function SelectableElement({
                 onChange={setSelectedParts}
             />
             {Object.entries(element.attributes ?? {})
-                .filter(([key]) => key !== 'style')
+                .filter(([key]) => key !== 'style' && key !== 'value')
                 .map(([key, value]) => {
                     const attrName: string = key.replace('attr__', '')
                     return (

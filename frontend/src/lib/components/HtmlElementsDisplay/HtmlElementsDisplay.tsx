@@ -102,8 +102,7 @@ export function HtmlElementsDisplay({
                             : 'warning'
                     }
                 >
-                    {chosenSelector.selectorMatchCount === 0 &&
-                    chosenSelector.processedSelector === 'no selectors chosen' ? (
+                    {chosenSelector.selectorMatchCount === null ? (
                         <>Choose parts of the HTML below to build a selector</>
                     ) : (
                         <>Matches: {chosenSelector.selectorMatchCount} elements in the page</>

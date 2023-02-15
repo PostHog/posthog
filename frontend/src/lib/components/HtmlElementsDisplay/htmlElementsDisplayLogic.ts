@@ -31,7 +31,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
             },
         ],
         chosenSelector: [
-            { processedSelector: 'no selectors chosen', selectorMatchCount: null } as ChosenSelector,
+            { processedSelector: 'No selectors chosen.', selectorMatchCount: null } as ChosenSelector,
             {
                 chooseSelector: (_, { chosenSelector }) => chosenSelector,
             },
