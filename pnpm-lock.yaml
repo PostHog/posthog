@@ -59,7 +59,7 @@ specifiers:
   '@types/react-resizable': ^1.7.2
   '@types/react-syntax-highlighter': ^11.0.4
   '@types/react-textfit': ^1.1.0
-  '@types/react-transition-group': ^4.4.4
+  '@types/react-transition-group': ^4.4.5
   '@types/react-virtualized': ^9.21.14
   '@types/testing-library__jest-dom': ^5.14.5
   '@types/zxcvbn': ^4.4.0
@@ -166,7 +166,7 @@ specifiers:
   react-textarea-autosize: ^8.3.3
   react-textfit: ^1.1.1
   react-toastify: ^8.2.0
-  react-transition-group: ^4.4.2
+  react-transition-group: ^4.4.5
   react-virtualized: ^9.22.3
   require-from-string: ^2.0.2
   resize-observer-polyfill: ^1.5.1
@@ -4813,7 +4813,7 @@ packages:
   /@types/react-transition-group/4.4.5:
     resolution: {integrity: sha512-juKD/eiSM3/xZYzjuzH6ZwpP+/lejltmiS3QEzV/vmb/Q8+HfDmxu+Baga8UEMGBqV88Nbg4l2hY/K2DkyaLLA==}
     dependencies:
-      '@types/react': 16.14.34
+      '@types/react': 17.0.52
     dev: false
 
   /@types/react-virtualized/9.21.21:
