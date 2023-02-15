@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ChartDisplayType, ItemMode } from '~/types'
-import { insightsTableLogic } from './insightsTableLogic'
+import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
@@ -43,16 +43,7 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
     const { query, isNonTimeSeriesDisplay, compare } = useValues(insightDataLogic(insightProps))
     const { series } = query as TrendsQuery
 
-    const hasMathUniqueFilter = !!series?.find(({ math }) => math === 'dau')
-
-    return (
-        <InsightsTableComponent
-            hasMathUniqueFilter={hasMathUniqueFilter}
-            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
-            compare={!!compare}
-            {...rest}
-        />
-    )
+    return <InsightsTableComponent isNonTimeSeriesDisplay={isNonTimeSeriesDisplay} compare={!!compare} {...rest} />
 }
 
 export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
@@ -62,6 +53,10 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
+    const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
+    const { calcColumnState, showTotalCount } = useValues(logic)
+    const { setCalcColumnState } = useActions(logic)
+
     const isNonTimeSeriesDisplay =
         isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
     const compare = isTrendsFilter(filters) && !!filters.compare
@@ -80,9 +75,11 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 
     return (
         <InsightsTableComponent
-            hasMathUniqueFilter={hasMathUniqueFilter}
             isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
             compare={compare}
+            showTotalCount={!!showTotalCount}
+            calcColumnState={calcColumnState}
+            setCalcColumnState={setCalcColumnState}
             handleSeriesEditClick={handleSeriesEditClick}
             {...rest}
         />
@@ -92,6 +89,10 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 type InsightsTableComponentProps = InsightsTableProps & {
     isNonTimeSeriesDisplay: boolean
     compare: boolean
+    showTotalCount: boolean
+    calcColumnState: CalcColumnState
+    setCalcColumnState: (state: CalcColumnState) => void
+    handleSeriesEditClick: (item: IndexedTrendResult) => void
 }
 
 function InsightsTableComponent({
@@ -102,31 +103,21 @@ function InsightsTableComponent({
     isMainInsightView = false,
     isNonTimeSeriesDisplay,
     compare,
+    showTotalCount,
+    calcColumnState,
+    setCalcColumnState,
     handleSeriesEditClick,
 }: InsightsTableComponentProps): JSX.Element | null {
     const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
     const { insightMode } = useValues(insightSceneLogic)
-    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
-    const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    const logic = insightsTableLogic({ hasMathUniqueFilter, filters })
-    const { calcColumnState, showTotalCount } = useValues(logic)
-    const { setCalcColumnState } = useActions(logic)
+    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { toggleVisibility } = useActions(trendsLogic(insightProps))
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
-
-    const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
-        formatBreakdownLabel(
-            cohorts,
-            formatPropertyValueForDisplay,
-            item.breakdown_value,
-            item.filter?.breakdown,
-            item.filter?.breakdown_type,
-            item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
-        )
 
     if (isLegend) {
         columns.push({
@@ -171,6 +162,16 @@ function InsightsTableComponent({
     })
 
     if (filters.breakdown) {
+        const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
+            formatBreakdownLabel(
+                cohorts,
+                formatPropertyValueForDisplay,
+                item.breakdown_value,
+                item.filter?.breakdown,
+                item.filter?.breakdown_type,
+                item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
+            )
+
         columns.push({
             title: <BreakdownColumnTitle breakdown={filters.breakdown} />,
             render: (_, item) => (
