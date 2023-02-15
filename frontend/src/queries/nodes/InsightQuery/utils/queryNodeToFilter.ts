@@ -7,7 +7,15 @@ import {
     NewEntityNode,
     InsightNodeKind,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
+import {
+    FilterType,
+    InsightType,
+    ActionFilter,
+    EntityTypes,
+    TrendsFilterType,
+    StickinessFilterType,
+    FunnelsFilterType,
+} from '~/types'
 import {
     isEventsNode,
     isTrendsQuery,
@@ -119,6 +127,11 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isTrendsQuery(query)) {
         ;(filters as TrendsFilterType).display = query.trendsFilter?.display
+        ;(filters as TrendsFilterType).show_values_on_series = query.trendsFilter?.show_values_on_series
+    }
+
+    if (isFunnelsQuery(query)) {
+        ;(filters as FunnelsFilterType).show_values_on_series = query.funnelsFilter?.show_values_on_series
     }
 
     if (isStickinessQuery(query)) {

@@ -26,6 +26,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
+import { ShowValuesFilter } from 'lib/components/ShowValueFilter'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -71,6 +72,10 @@ const showCompareFilter = function (filters: Partial<FilterType>): boolean {
     }
 
     return false
+}
+
+const showValuesOnSeriesFilter = function (filters: Partial<FilterType>): boolean {
+    return isTrendsFilter(filters) || isFunnelsFilter(filters)
 }
 
 const isFunnelEmpty = (filters: FilterType): boolean => {
@@ -130,6 +135,12 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 {showCompareFilter(filters) && (
                     <ConfigFilter>
                         <CompareFilter />
+                    </ConfigFilter>
+                )}
+
+                {showValuesOnSeriesFilter(filters) && (
+                    <ConfigFilter>
+                        <ShowValuesFilter />
                     </ConfigFilter>
                 )}
             </div>

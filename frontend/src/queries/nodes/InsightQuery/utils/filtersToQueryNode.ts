@@ -130,6 +130,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             formula: filters.formula,
             shown_as: filters.shown_as,
             display: filters.display,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 
@@ -157,6 +158,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             entrance_period_start: filters.entrance_period_start,
             drop_off: filters.drop_off,
             hidden_legend_keys: filters.hidden_legend_keys,
+            show_values_on_series: filters.show_values_on_series,
         })
     }
 

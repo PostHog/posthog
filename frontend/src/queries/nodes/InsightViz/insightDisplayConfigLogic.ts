@@ -69,5 +69,6 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         showPaths: [(s) => [s.isPaths], (isPaths) => !!isPaths],
         showFunnelDisplayLayout: [(s) => [s.isStepsFunnel], (isStepsFunnel) => !!isStepsFunnel],
         showFunnelBins: [(s) => [s.isTimeToConvertFunnel], (isTimeToConvertFunnel) => !!isTimeToConvertFunnel],
+        showValuesOnSeries: [(s) => [s.isTrends, s.isFunnels], (isTrends, isFunnels) => isTrends || isFunnels],
     }),
 ])

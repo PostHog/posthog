@@ -14,6 +14,8 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
+import { ShowValuesFilter } from 'lib/components/ShowValueFilter'
+
 // import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 
 interface InsightDisplayConfigProps {
@@ -34,6 +36,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
         showRetention,
         showPaths,
         showFunnelDisplayLayout,
+        showValuesOnSeries,
         // showFunnelBins,
     } = useValues(insightDisplayConfigLogic(insightProps))
 
@@ -74,6 +77,12 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                 {showCompare && (
                     <ConfigFilter>
                         <CompareFilter />
+                    </ConfigFilter>
+                )}
+
+                {showValuesOnSeries && (
+                    <ConfigFilter>
+                        <ShowValuesFilter />
                     </ConfigFilter>
                 )}
             </div>

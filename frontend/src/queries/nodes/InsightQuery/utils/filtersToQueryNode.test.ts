@@ -147,6 +147,23 @@ describe('filtersToQueryNode', () => {
             }
             expect(result).toEqual(query)
         })
+
+        it('converts show values on series', () => {
+            const filters: Partial<TrendsFilterType> = {
+                insight: InsightType.TRENDS,
+                show_values_on_series: true,
+            }
+
+            const result = filtersToQueryNode(filters)
+
+            const query = {
+                kind: NodeKind.TrendsQuery,
+                trendsFilter: {
+                    show_values_on_series: true,
+                },
+            } as unknown as TrendsQuery
+            expect(result).toEqual(query)
+        })
     })
 
     describe('filter with series', () => {

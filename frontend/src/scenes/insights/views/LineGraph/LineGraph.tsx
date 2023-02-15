@@ -31,6 +31,7 @@ import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisForma
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
 
 import './chartjsSetup'
 
@@ -362,6 +363,20 @@ export function LineGraph_({
                 },
             },
             plugins: {
+                datalabels: {
+                    color: 'white',
+                    anchor: 'end',
+                    backgroundColor: (context) => {
+                        return (context.dataset.borderColor as string) || 'black'
+                    },
+                    display: (context) => {
+                        const datum = context.dataset.data[context.dataIndex]
+                        return !!filters?.show_values_on_series && typeof datum === 'number' && datum > 0
+                    },
+                    formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                    borderWidth: 2,
+                    borderColor: 'white',
+                },
                 legend: {
                     display: false,
                 },
@@ -576,6 +591,7 @@ export function LineGraph_({
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
+            plugins: [ChartDataLabels],
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()

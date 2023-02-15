@@ -1501,6 +1501,8 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+    // whether to label values on the graph series
+    show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1532,6 +1534,8 @@ export interface FunnelsFilterType extends FilterType {
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
+    // whether to label values on the graph series
+    show_values_on_series?: boolean
 }
 export interface PathsFilterType extends FilterType {
     path_type?: PathType

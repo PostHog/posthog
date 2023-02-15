@@ -78,11 +78,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     // insightDataLogic
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+    const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
 
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
-    let setQuery = insighVizSetQuery
+    let setQuery = insightVizSetQuery
     if (!!insight.query && isQueryBasedInsight) {
         query = insight.query
         setQuery = () => {
@@ -90,6 +90,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         }
     }
 
+    setQuery = (query: any) => {
+        if (isInsightVizQuery) {
+            console.log('wat is query being set in insight', query)
+            insightVizSetQuery(query)
+        }
+    }
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)

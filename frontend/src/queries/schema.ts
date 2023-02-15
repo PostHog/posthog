@@ -259,7 +259,8 @@ export interface InsightsQueryBase extends Node {
     aggregation_group_type_index?: number
 }
 
-export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+// using everything except what it inherits from FilterType
+export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType>
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
