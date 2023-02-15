@@ -18,13 +18,14 @@ export function TagPart({
     const hoverSelector = readonly ? '' : 'hover:underline'
     const htmlElementsSelector = clsx('SelectableElement decoration-primary-highlight', !readonly && 'cursor-pointer')
     const isSelected = !!selectedParts.tag
+
     return (
         <span
             onClick={(e) => {
                 e.stopPropagation()
                 return onChange({ ...selectedParts, tag: isSelected ? undefined : tagName })
             }}
-            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement__selected' : hoverSelector)}
+            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
         >
             {tagName}
         </span>
@@ -52,7 +53,7 @@ function IdPart({
                 e.stopPropagation()
                 return onChange({ ...selectedParts, id: isSelected ? undefined : id })
             }}
-            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement__selected' : hoverSelector)}
+            className={clsx(htmlElementsSelector, isSelected ? 'SelectableElement--selected' : hoverSelector)}
         >
             {`id="${id}"`}
         </span>
