@@ -107,7 +107,6 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
         placement: effectivePlacement,
         update,
         middlewareData,
-        context,
     } = useFloating<HTMLElement>({
         open: visible,
         placement,
@@ -158,12 +157,12 @@ export const Popover = React.forwardRef<HTMLDivElement, PopoverProps>(function P
             // Delay by a tick to allow other Popovers to detect inside clicks.
             // If a nested popover has handled the click, don't do anything
             setTimeout(() => {
-                if (context.open && !nestedPopoverReceivedClick) {
+                if (visible && !nestedPopoverReceivedClick) {
                     onClickOutside?.(event)
                 }
             }, 1)
         },
-        [context.open]
+        [visible]
     )
 
     useEffect(() => {
