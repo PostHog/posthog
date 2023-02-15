@@ -89,8 +89,7 @@ def sync_org_quota_limits(organization: Organization):
     if not organization.usage:
         return None
 
-    team_tokens = list(organization.teams.values_list("api_token", flat=True))
-    team_tokens = [x for x in team_tokens if x]
+    team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
 
     if not team_tokens:
         capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
@@ -100,9 +99,9 @@ def sync_org_quota_limits(organization: Organization):
         rate_limited_until = org_quota_limited_until(organization, resource)
 
         if rate_limited_until:
-            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens if x})
+            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens})
         else:
-            remove_limited_team_tokens(resource, [x for x in team_tokens if x])
+            remove_limited_team_tokens(resource, team_tokens)
 
 
 def set_org_usage_summary(
