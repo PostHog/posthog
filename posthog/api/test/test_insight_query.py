@@ -177,11 +177,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "kind": "DataTableNode",
                     "source": {
                         "kind": "PersonsNode",
-                        "properties": [{"type": "person", "key": "$browser", "operator": "exact", "value": "Chrome"}],
+                        "properties": ["potato"],
                     },
                 },
             },
-            expected_status=status.HTTP_201_CREATED,
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
 
     def test_listing_insights_by_default_does_not_include_those_with_only_queries(self) -> None:
