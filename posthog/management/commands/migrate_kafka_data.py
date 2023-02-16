@@ -18,13 +18,13 @@
 # Django settings.
 
 from typing import List
+
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
-from kafka.structs import TopicPartition
 from kafka.producer.future import FutureRecordMetadata
-
-from django.conf import settings
+from kafka.structs import TopicPartition
 
 
 class Command(BaseCommand):

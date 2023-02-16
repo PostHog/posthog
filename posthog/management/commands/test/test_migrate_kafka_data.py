@@ -1,8 +1,8 @@
 from unittest import mock
 from uuid import uuid4
+
 from django.core.management import call_command
 from kafka import KafkaConsumer, KafkaProducer
-
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
