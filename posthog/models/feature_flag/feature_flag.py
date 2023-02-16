@@ -213,15 +213,6 @@ class FeatureFlag(models.Model):
                         cohort_ids.append(cohort_id)
         return cohort_ids
 
-    def update_cohorts(self) -> None:
-        from posthog.tasks.calculate_cohort import update_cohort
-        from posthog.tasks.cohorts_in_feature_flag import COHORT_ID_IN_FF_KEY
-
-        if self.cohort_ids:
-            cache.delete(COHORT_ID_IN_FF_KEY)
-            for cohort in Cohort.objects.filter(pk__in=self.cohort_ids):
-                update_cohort(cohort)
-
     def __str__(self):
         return f"{self.key} ({self.pk})"
 

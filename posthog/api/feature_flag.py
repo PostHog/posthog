@@ -201,7 +201,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
         instance: FeatureFlag = super().create(validated_data)
-        instance.update_cohorts()
 
         self._attempt_set_tags(tags, instance)
 
@@ -216,7 +215,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             FeatureFlag.objects.filter(key=validated_key, team=instance.team, deleted=True).delete()
         self._update_filters(validated_data)
         instance = super().update(instance, validated_data)
-        instance.update_cohorts()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
 

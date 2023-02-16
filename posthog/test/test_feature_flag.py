@@ -1364,8 +1364,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
         )
 
-        feature_flag.update_cohorts()
-
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
@@ -1412,8 +1410,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        feature_flag.update_cohorts()
-
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id_4").get_match(feature_flag),
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 0),
@@ -1458,7 +1454,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             filters={"groups": [{"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}]}
         )
 
-        feature_flag.update_cohorts()
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id_1").get_match(feature_flag),
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
@@ -1556,8 +1551,6 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         feature_flag: FeatureFlag = self.create_feature_flag(
             filters={"properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}]}
         )
-
-        feature_flag.update_cohorts()
 
         self.assertEqual(
             FeatureFlagMatcher([feature_flag], "example_id_2").get_match(feature_flag),

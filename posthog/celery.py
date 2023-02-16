@@ -132,8 +132,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     )
     sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
 
-    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
-
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
     if settings.ASYNC_EVENT_PROPERTY_USAGE:
@@ -558,13 +556,6 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
     from posthog.caching.insight_caching_state import sync_insight_caching_state
 
     sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
-
-
-@app.task(ignore_result=True)
-def calculate_cohort_ids_in_feature_flags_task():
-    from posthog.tasks.cohorts_in_feature_flag import calculate_cohort_ids_in_feature_flags
-
-    calculate_cohort_ids_in_feature_flags()
 
 
 @app.task(ignore_result=True, bind=True)

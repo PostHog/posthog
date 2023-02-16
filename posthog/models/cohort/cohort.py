@@ -332,9 +332,3 @@ class CohortPeople(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["cohort_id", "person_id"])]
-
-
-def batch_delete_cohort_people(cohort_id: int, version: int, batch_size: int = 1000):
-    while batch := CohortPeople.objects.filter(cohort_id=cohort_id, version=version).values("id")[:batch_size]:
-        CohortPeople.objects.filter(id__in=batch)._raw_delete(batch.db)  # type: ignore
-        time.sleep(1)
