@@ -94,6 +94,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (logicInsightId !== insightId) {
                 const oldCache = values.insightCache // free old logic after mounting new one
                 if (insightId) {
+                    // when this line runs we get `Error: [KEA] Logic "scenes.insights.insightLogic.new" can not connect to undefined to request action "setActiveView"`
                     const logic = insightLogic.build({ dashboardItemId: insightId })
                     const unmount = logic.mount()
                     actions.setInsightLogic(logic, unmount)
