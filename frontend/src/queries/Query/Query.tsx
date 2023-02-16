@@ -3,8 +3,8 @@ import {
     isDataTableNode,
     isLegacyQuery,
     isInsightQueryNode,
-    isTimeToSeeDataQuery,
     isInsightVizNode,
+    isTimeToSeeDataSessionsNode,
 } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
@@ -58,7 +58,7 @@ export function Query(props: QueryProps): JSX.Element {
         component = <InsightViz query={query} setQuery={setQuery} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
-    } else if (isTimeToSeeDataQuery(query)) {
+    } else if (isTimeToSeeDataSessionsNode(query)) {
         component = <TimeToSeeData query={query} />
     }
 

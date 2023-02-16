@@ -1,14 +1,12 @@
+import Piscina from '@posthog/piscina'
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Consumer, ConsumerSubscribeTopics, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
 
-import { Hub, WorkerMethods } from '../../types'
+import { Hub, PipelineEvent, PostIngestionEvent, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
-import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
-import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -21,64 +19,63 @@ export class IngestionConsumer {
     public pluginsServer: Hub
     public workerMethods: WorkerMethods
     public consumerReady: boolean
+    public topic: string
+    public consumerGroupId: string
+    public eachBatch: EachBatchFunction
     private kafka: Kafka
     private consumer: Consumer
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
-    private ingestionTopic: string
-    private eventsTopic: string
-    private eachBatch: Record<string, EachBatchFunction>
 
-    constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
+    constructor(
+        pluginsServer: Hub,
+        piscina: Piscina,
+        topic: string,
+        consumerGroupId: string,
+        batchHandler: EachBatchFunction
+    ) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = IngestionConsumer.buildConsumer(this.kafka, this.consumerGroupId())
+        this.topic = topic
+        this.consumerGroupId = consumerGroupId
+        this.consumer = IngestionConsumer.buildConsumer(this.kafka, consumerGroupId)
         this.wasConsumerRan = false
-        this.workerMethods = workerMethods
+
+        // TODO: remove `this.workerMethods` and just rely on
+        // `this.batchHandler`. At the time of writing however, there are some
+        // references to queue.workerMethods buried deep in the codebase
+        // #onestepatatime
+        this.workerMethods = {
+            runAsyncHandlersEventPipeline: (event: PostIngestionEvent) => {
+                this.pluginsServer.lastActivity = new Date().valueOf()
+                this.pluginsServer.lastActivityType = 'runAsyncHandlersEventPipeline'
+                return piscina.run({ task: 'runAsyncHandlersEventPipeline', args: { event } })
+            },
+            runEventPipeline: (event: PipelineEvent) => {
+                this.pluginsServer.lastActivity = new Date().valueOf()
+                this.pluginsServer.lastActivityType = 'runEventPipeline'
+                return piscina.run({ task: 'runEventPipeline', args: { event } })
+            },
+            runLightweightCaptureEndpointEventPipeline: (event: PipelineEvent) => {
+                this.pluginsServer.lastActivity = new Date().valueOf()
+                this.pluginsServer.lastActivityType = 'runLightweightCaptureEndpointEventPipeline'
+                return piscina.run({
+                    task: 'runLightweightCaptureEndpointEventPipeline',
+                    args: { event },
+                })
+            },
+        }
         this.consumerGroupMemberId = null
         this.consumerReady = false
 
-        this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-        this.eventsTopic = KAFKA_EVENTS_JSON
-        this.eachBatch = {
-            [this.ingestionTopic]: eachBatchIngestion,
-            [this.eventsTopic]: eachBatchAsyncHandlers,
-        }
-    }
-
-    topics(): ConsumerSubscribeTopics {
-        const topics = []
-
-        if (this.pluginsServer.capabilities.ingestion) {
-            topics.push(this.ingestionTopic)
-        }
-
-        if (this.pluginsServer.capabilities.processAsyncHandlers) {
-            topics.push(this.eventsTopic)
-        }
-
-        if (topics.length === 0) {
-            throw Error('No topics to consume, IngestionConsumer should not be started')
-        }
-
-        return { topics }
-    }
-
-    consumerGroupId(): string {
-        if (this.pluginsServer.capabilities.ingestion) {
-            return `${KAFKA_PREFIX}clickhouse-ingestion`
-        } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
-            return `${KAFKA_PREFIX}clickhouse-plugin-server-async`
-        } else {
-            throw Error('No topics to consume, IngestionConsumer should not be started')
-        }
+        this.eachBatch = batchHandler
     }
 
     async start(): Promise<void> {
         const timeout = timeoutGuard(
             `Kafka queue is slow to start. Waiting over 1 minute to join the consumer group`,
             {
-                topics: this.topics(),
+                topics: [this.topic],
             },
             60000
         )
@@ -98,7 +95,7 @@ export class IngestionConsumer {
             this.wasConsumerRan = true
 
             await this.consumer.connect()
-            await this.consumer.subscribe(this.topics())
+            await this.consumer.subscribe({ topics: [this.topic] })
 
             // KafkaJS batching: https://kafka.js.org/docs/consuming#a-name-each-batch-a-eachbatch
             await this.consumer.run({
@@ -114,8 +111,7 @@ export class IngestionConsumer {
 
     async eachBatchConsumer(payload: EachBatchPayload): Promise<void> {
         const topic = payload.batch.topic
-        const eachBatch = this.eachBatch[topic]
-        await instrumentEachBatch(topic, (payload) => eachBatch(payload, this), payload, this.pluginsServer.statsd)
+        await instrumentEachBatch(topic, (payload) => this.eachBatch(payload, this), payload, this.pluginsServer.statsd)
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {

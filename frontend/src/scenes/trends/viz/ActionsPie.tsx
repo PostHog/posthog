@@ -36,6 +36,7 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                 personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
+                borderColor: colorList, // For colors to display in the tooltip
             },
         ])
         setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
@@ -90,7 +91,9 @@ export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }
                             }
                         />
                     </div>
-                    <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
+                    <h3 className="text-7xl text-center font-bold m-0">
+                        {formatAggregationAxisValue(insight.filters, total)}
+                    </h3>
                 </div>
                 {inCardView && isTrendsFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
             </div>
