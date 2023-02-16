@@ -53,7 +53,12 @@ class TableSymbol(Symbol):
         return self.table.has_field(name)
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return SplashSymbol(table=self)
         if self.has_child(name):
+            field = self.table.get_field(name)
+            if isinstance(field, Table):
+                return SplashSymbol(table=TableSymbol(table=field))
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 

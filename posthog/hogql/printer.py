@@ -8,6 +8,7 @@ from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
+from posthog.hogql.transforms import expand_splashes
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
@@ -40,6 +41,8 @@ def print_ast(
 
     # modify the cloned tree as needed
     if dialect == "clickhouse":
+        expand_splashes(node)
+
         # TODO: add team_id checks (currently done in the printer)
         # TODO: add joins to person and group tables
         pass
@@ -475,7 +478,7 @@ class Printer(Visitor):
         prefix = (
             f"{self._print_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
         )
-        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field)}' for field in splash_fields)})"
+        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field.name)}' for chain, field in splash_fields.items())})"
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

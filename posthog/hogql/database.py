@@ -1,4 +1,4 @@
-from typing import List
+from typing import Dict
 
 from pydantic import BaseModel, Extra
 
@@ -48,17 +48,17 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
-    def get_splash(self) -> List[str]:
-        list: List[str] = []
-        for field in self.__fields__.values():
+    def get_splash(self) -> Dict[str, DatabaseField]:
+        splash: Dict[str, DatabaseField] = {}
+        for key, field in self.__fields__.items():
             database_field = field.default
             if isinstance(database_field, DatabaseField):
-                list.append(database_field.name)
+                splash[key] = database_field
             elif isinstance(database_field, Table):
-                list.extend(database_field.get_splash())
+                pass  # ignore virtual tables for now
             else:
                 raise ValueError(f"Unknown field type {type(database_field).__name__} for splash")
-        return list
+        return splash
 
 
 class PersonsTable(Table):

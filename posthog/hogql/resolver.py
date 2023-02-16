@@ -165,7 +165,7 @@ class Resolver(TraversingVisitor):
             if table_count == 0:
                 raise ResolverException("Cannot use '*' when there are no tables in the query")
             if table_count > 1:
-                raise ResolverException("Cannot use '*' when there are multiple tables in the query")
+                raise ResolverException("Cannot use '*' without table name when there are multiple tables in the query")
             table = scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
             symbol = ast.SplashSymbol(table=table)
 
