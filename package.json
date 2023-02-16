@@ -26,7 +26,7 @@
         "test:visual-regression:legacy:ci": "playwright test -u",
         "test:visual-regression:stories": "docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual-regression:stories:docker",
         "test:visual-regression:stories:docker": "NODE_OPTIONS=--max-old-space-size=4096 test-storybook -u --no-index-json --browsers chromium firefox webkit --url http://host.docker.internal:6006",
-        "test:visual-regression:stories:ci": "test-storybook -u --no-index-json --maxWorkers=8 --url $STORYBOOK_URL --browsers",
+        "test:visual-regression:stories:ci": "test-storybook -u --no-index-json --maxWorkers=8 --browsers",
         "start": "concurrently -n ESBUILD,TYPEGEN -c yellow,green \"pnpm start-http\" \"pnpm run typegen:watch\"",
         "start-http": "pnpm clean && pnpm copy-scripts && node frontend/build.mjs --dev",
         "start-docker": "pnpm start-http --host 0.0.0.0",
