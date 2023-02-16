@@ -144,6 +144,12 @@ describe('PropertyDefinitionsManager()', () => {
                     {
                         id: expect.any(Number),
                         event: 'new-event',
+                        property: 'number',
+                        team_id: teamId,
+                    },
+                    {
+                        id: expect.any(Number),
+                        event: 'new-event',
                         property: 'numeric_prop',
                         team_id: teamId,
                     },
@@ -151,12 +157,6 @@ describe('PropertyDefinitionsManager()', () => {
                         id: expect.any(Number),
                         event: 'new-event',
                         property: 'property_name',
-                        team_id: teamId,
-                    },
-                    {
-                        id: expect.any(Number),
-                        event: 'new-event',
-                        property: 'number',
                         team_id: teamId,
                     },
                 ])

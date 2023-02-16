@@ -1312,6 +1312,9 @@ export class DB {
                 `
                 SELECT * FROM posthog_eventdefinition
                 ${teamId ? 'WHERE team_id = $1' : ''}
+                -- Order by something that gives a deterministic order. Note
+                -- that this is a unique index.
+                ORDER BY (team_id, name)
                 `,
                 teamId ? [teamId] : undefined,
                 'fetchEventDefinitions'
@@ -1345,6 +1348,9 @@ export class DB {
                 `
                     SELECT * FROM posthog_eventproperty
                     ${teamId ? 'WHERE team_id = $1' : ''}
+                    -- Order by something that gives a deterministic order. Note
+                    -- that this is a unique index.
+                    ORDER BY (team_id, event, property)
                 `,
                 teamId ? [teamId] : undefined,
                 'fetchEventProperties'

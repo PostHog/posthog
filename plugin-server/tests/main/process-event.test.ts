@@ -1985,7 +1985,7 @@ test('team event_properties', async () => {
         {
             id: expect.any(Number),
             event: 'purchase',
-            property: 'price',
+            property: '$ip',
             team_id: 2,
         },
         {
@@ -1997,7 +1997,7 @@ test('team event_properties', async () => {
         {
             id: expect.any(Number),
             event: 'purchase',
-            property: '$ip',
+            property: 'price',
             team_id: 2,
         },
     ])
