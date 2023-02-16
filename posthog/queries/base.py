@@ -228,7 +228,9 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
         return Q(**{f"{column}__{property.key}__{effective_operator}": value})
 
     if property.operator == "exact" or property.operator is None:
-        return Q(lookup_q(f"{column}__{property.key}", value)) & Q(**{f"{column}__has_key": property.key})
+        return Q(lookup_q(f"{column}__{property.key}", value)) & Q(
+            **{f"{column}__has_key": property.key}
+        )  # NOTE: existence clause necessary when overall clause is negated
     else:
         return Q(**{f"{column}__{property.key}__{property.operator}": property.value})
 
