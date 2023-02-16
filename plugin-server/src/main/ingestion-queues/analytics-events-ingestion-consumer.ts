@@ -94,7 +94,7 @@ export async function eachBatchIngestionWithOverflow(
                 message.key = null
             }
 
-            if (currentBatch.length === batchSize || (message.key != null && seenIds.has(seenKey))) {
+            if (currentBatch.length >= batchSize || (message.key != null && seenIds.has(seenKey))) {
                 seenIds.clear()
                 batches.push(currentBatch)
                 currentBatch = []
