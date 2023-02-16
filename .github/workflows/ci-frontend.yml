@@ -186,10 +186,10 @@ jobs:
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
             - name: Post comment about updated snapshots
-              if: steps.changed-files.outputs.files_found == 'true' && steps.commit.pushed == 'true'
+              if: steps.commit.outputs.pushed == 'true'
               run: |
                   INFO_BODY=$(cat <<-END
-                  ## 📸 UI snapshots have been updated
+                  ## 📸 UI snapshots have been updated for `${{ matrix.browser }}`
 
                   <b>${{ steps.diff.outputs.added }}</b> added, <b>${{ steps.diff.outputs.modified }}</b> modified, <b>${{ steps.diff.outputs.deleted }}</b> deleted.
                   <b>${{ steps.diff.outputs.total }}</b> changes in total.
