@@ -45,13 +45,13 @@ class TraversingVisitor(Visitor):
         self.visit(node.expr)
 
     def visit_constant(self, node: ast.Constant):
-        pass
+        self.visit(node.symbol)
 
     def visit_field(self, node: ast.Field):
-        pass
+        self.visit(node.symbol)
 
     def visit_placeholder(self, node: ast.Placeholder):
-        pass
+        self.visit(node.symbol)
 
     def visit_call(self, node: ast.Call):
         for expr in node.args:
@@ -78,9 +78,50 @@ class TraversingVisitor(Visitor):
         self.visit(node.limit),
         self.visit(node.offset),
 
+    def visit_field_alias_symbol(self, node: ast.FieldAliasSymbol):
+        self.visit(node.symbol)
+
+    def visit_field_symbol(self, node: ast.FieldSymbol):
+        self.visit(node.table)
+
+    def visit_select_query_symbol(self, node: ast.SelectQuerySymbol):
+        for expr in node.tables.values():
+            self.visit(expr)
+        for expr in node.anonymous_tables:
+            self.visit(expr)
+        for expr in node.aliases.values():
+            self.visit(expr)
+        for expr in node.columns.values():
+            self.visit(expr)
+
+    def visit_table_symbol(self, node: ast.TableSymbol):
+        pass
+
+    def visit_lazy_table_symbol(self, node: ast.LazyTableSymbol):
+        self.visit(node.table)
+
+    def visit_table_alias_symbol(self, node: ast.TableAliasSymbol):
+        self.visit(node.table)
+
+    def visit_select_query_alias_symbol(self, node: ast.SelectQueryAliasSymbol):
+        self.visit(node.symbol)
+
+    def visit_splash_symbol(self, node: ast.SplashSymbol):
+        self.visit(node.table)
+
+    def visit_call_symbol(self, node: ast.CallSymbol):
+        for expr in node.args:
+            self.visit(expr)
+
+    def visit_constant_symbol(self, node: ast.ConstantSymbol):
+        pass
+
+    def visit_property_symbol(self, node: ast.PropertySymbol):
+        self.visit(node.parent)
+
 
 class CloningVisitor(Visitor):
-    """Visitor that traverses and clones the AST tree"""
+    """Visitor that traverses and clones the AST tree. Clears symbols."""
 
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")

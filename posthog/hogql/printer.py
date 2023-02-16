@@ -8,7 +8,7 @@ from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
-from posthog.hogql.transforms import expand_splashes
+from posthog.hogql.transforms import expand_splashes, resolve_lazy_tables
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
@@ -31,7 +31,7 @@ def print_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.Expr]] = None,
+    stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
     """Print an AST into a string. Does not modify the node."""
     symbol = stack[-1].symbol if stack else None
@@ -42,10 +42,8 @@ def print_ast(
     # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_splashes(node)
-
+        resolve_lazy_tables(node)
         # TODO: add team_id checks (currently done in the printer)
-        # TODO: add joins to person and group tables
-        pass
 
     return Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
@@ -469,7 +467,10 @@ class Printer(Visitor):
         return self._print_identifier(symbol.name)
 
     def visit_splash_symbol(self, symbol: ast.SplashSymbol):
-        raise ValueError("Unexpected splash (*). It's only allowed in a SELECT column.")
+        raise ValueError("Unexpected ast.SplashSymbol. Make sure SplashExpander has run on the AST.")
+
+    def visit_lazy_table_symbol(self, symbol: ast.LazyTableSymbol):
+        raise ValueError("Unexpected ast.LazyTableSymbol. Make sure LazyTableResolver has run on the AST.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

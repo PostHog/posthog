@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Any, Callable, Dict, List
 
 from pydantic import BaseModel, Extra
 
@@ -52,9 +52,11 @@ class Table(BaseModel):
         splash: Dict[str, DatabaseField] = {}
         for key, field in self.__fields__.items():
             database_field = field.default
-            if isinstance(database_field, DatabaseField):
+            if key == "team_id":
+                pass  # skip team_id
+            elif isinstance(database_field, DatabaseField):
                 splash[key] = database_field
-            elif isinstance(database_field, Table):
+            elif isinstance(database_field, Table) or isinstance(database_field, JoinedTable):
                 pass  # ignore virtual tables for now
             else:
                 raise ValueError(f"Unknown field type {type(database_field).__name__} for splash")
@@ -81,6 +83,13 @@ class PersonDistinctIdTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
+    def get_splash(self) -> Dict[str, DatabaseField]:
+        splash: Dict[str, DatabaseField] = {}
+        for key, value in super().get_splash().items():
+            if key != "is_deleted" and key != "version":
+                splash[key] = value
+        return splash
+
     def clickhouse_table(self):
         return "person_distinct_id2"
 
@@ -95,6 +104,53 @@ class EventsPersonSubTable(Table):
         return "events"
 
 
+class JoinedTable(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    join_function: Callable[[str, str, List[str]], Any]
+    table: Table
+
+
+def join_events_to_max_person_distinct_id(events_alias: str, pdi_alias: str, requested_fields: List[str]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        requested_fields = ["person_id"]
+
+    # contains the list of fields we will select from this table
+    fields_to_select: List[ast.Expr] = []
+
+    max_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+        name="argMax", args=[field, ast.Field(chain=["version"])]
+    )
+    for field in requested_fields:
+        if field != "distinct_id":
+            fields_to_select.append(ast.Alias(alias=field, expr=max_version(ast.Field(chain=[field]))))
+
+    distinct_id = ast.Field(chain=["distinct_id"])
+
+    return ast.JoinExpr(
+        join_type="INNER JOIN",
+        table=ast.SelectQuery(
+            select=fields_to_select + [distinct_id],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["person_distinct_ids"])),
+            group_by=[distinct_id],
+            having=ast.CompareOperation(
+                op=ast.CompareOperationType.Eq,
+                left=max_version(ast.Field(chain=["is_deleted"])),
+                right=ast.Constant(value=0),
+            ),
+        ),
+        alias=pdi_alias,
+        constraint=ast.CompareOperation(
+            op=ast.CompareOperationType.Eq,
+            left=ast.Field(chain=[events_alias, "distinct_id"]),
+            right=ast.Field(chain=[pdi_alias, "distinct_id"]),
+        ),
+    )
+
+
 class EventsTable(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
     event: StringDatabaseField = StringDatabaseField(name="event")
@@ -105,6 +161,8 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
     person: EventsPersonSubTable = EventsPersonSubTable()
+
+    pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_events_to_max_person_distinct_id)
 
     def clickhouse_table(self):
         return "events"

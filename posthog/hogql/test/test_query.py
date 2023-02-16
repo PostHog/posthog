@@ -131,19 +131,88 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][4], "tim@posthog.com")
 
-    def test_query_joins(self):
+    def test_query_joins_pdi(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
 
             response = execute_hogql_query(
-                """select event, timestamp, pdi.person_id from events e INNER JOIN (
+                """
+                    SELECT event, timestamp, pdi.person_id from events e
+                    INNER JOIN (
                         SELECT distinct_id,
                                argMax(person_id, version) as person_id
                           FROM person_distinct_ids
                          GROUP BY distinct_id
                         HAVING argMax(is_deleted, version) = 0
                        ) AS pdi
-                    ON e.distinct_id = pdi.distinct_id""",
+                    ON e.distinct_id = pdi.distinct_id
+                    """,
+                self.team,
+            )
+
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, e.timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_distinct_id2.person_id, version) AS person_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.id}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) WHERE equals(e.team_id, {self.team.id}) LIMIT 1000",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_id2 GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 1000",
+            )
+            self.assertTrue(len(response.results) > 0)
+
+    def test_query_joins_pdi_automatic(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                """
+                SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10
+                """,
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT event, timestamp, events_pdi.distinct_id, events_pdi.person_id FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 1) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events_pdi ON equals(events.distinct_id, events_pdi.distinct_id) WHERE equals(team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events INNER JOIN (SELECT argMax(person_id, version) AS person_id, distinct_id FROM person_distinct_id2 GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events_pdi ON equals(events.distinct_id, events_pdi.distinct_id) LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "random event")
+            self.assertEqual(response.results[0][2], "bla")
+            self.assertEqual(response.results[0][4], "00000000-0000-4000-8000-000000000001")
+
+    def test_query_joins_person(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                """
+                    SELECT event, timestamp, pdi.person_id from events e
+                    INNER JOIN (
+                        SELECT distinct_id,
+                               argMax(person_id, version) as person_id
+                          FROM person_distinct_ids
+                         GROUP BY distinct_id
+                        HAVING argMax(is_deleted, version) = 0
+                       ) AS pdi
+                    ON e.distinct_id = pdi.distinct_id
+                    INNER JOIN (
+                        SELECT id
+                          FROM person
+                         WHERE team_id = 1
+                           AND id IN (
+                                SELECT id
+                                  FROM person
+                                 WHERE team_id = 1
+                                   AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
+                               )
+                         GROUP BY id
+                        HAVING max(is_deleted) = 0
+                           AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))
+                       ) person
+                    ON person.id = pdi.person_id
+                    """,
                 self.team,
             )
 

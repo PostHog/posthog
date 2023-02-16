@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
-from posthog.hogql.database import DatabaseField, StringJSONDatabaseField, Table
+from posthog.hogql.database import DatabaseField, JoinedTable, StringJSONDatabaseField, Table
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -59,6 +59,32 @@ class TableSymbol(Symbol):
             field = self.table.get_field(name)
             if isinstance(field, Table):
                 return SplashSymbol(table=TableSymbol(table=field))
+            if isinstance(field, JoinedTable):
+                return LazyTableSymbol(table=self, field=name, joined_table=field)
+            return FieldSymbol(name=name, table=self)
+        raise ValueError(f"Field not found: {name}")
+
+
+class LazyTableSymbol(Symbol):
+    table: TableSymbol
+    field: str
+    joined_table: JoinedTable
+
+    def __init__(self, **data):
+        super().__init__(**data)
+
+    def has_child(self, name: str) -> bool:
+        return self.joined_table.table.has_field(name)
+
+    def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return SplashSymbol(table=self)
+        if self.has_child(name):
+            field = self.joined_table.table.get_field(name)
+            if isinstance(field, Table):
+                return SplashSymbol(table=TableSymbol(table=field))
+            if isinstance(field, JoinedTable):
+                return LazyTableSymbol(table=self, field=name, joined_table=field)
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 
@@ -83,10 +109,19 @@ class SelectQuerySymbol(Symbol):
     columns: Dict[str, Symbol] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
     tables: Dict[
-        str, Union[TableSymbol, TableAliasSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]
+        str, Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]
     ] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
+
+    def key_for_table(
+        self,
+        table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"],
+    ) -> Optional[str]:
+        for key, value in self.tables.items():
+            if value == table:
+                return key
+        return None
 
     def get_child(self, name: str) -> Symbol:
         if name in self.columns:
@@ -124,12 +159,12 @@ class ConstantSymbol(Symbol):
 
 
 class SplashSymbol(Symbol):
-    table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 
 class FieldSymbol(Symbol):
     name: str
-    table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
     def resolve_database_field(self) -> Optional[Union[DatabaseField, Table]]:
         table_symbol = self.table
