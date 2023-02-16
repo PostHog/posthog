@@ -20,6 +20,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
     event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
+    ingestion_capacity_overflow: 'Event ingestion has overflowed capacity',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -91,6 +92,17 @@ const WARNING_TYPE_RENDERER = {
                     {details.offset ? <li>Client provided time offset: {details.offset}</li> : ''}
                     <li>PostHog server capture time: {details.now}</li>
                 </ul>
+            </>
+        )
+    },
+    ingestion_capacity_overflow: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            overflowDistinctId: string
+        }
+        return (
+            <>
+                Event ingestion has overflowed capacity for distinct_id{' '}
+                <Link to={urls.person(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>
             </>
         )
     },

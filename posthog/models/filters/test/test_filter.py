@@ -367,13 +367,36 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
 
 def _filter_persons(filter: Filter, team: Team):
     flush_persons_and_events()
-    # Postgres only supports ANDing all properties :shrug:
     persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]
 
 
-class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _create_person)):  # type: ignore
+class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _create_person), QueryMatchingTest):  # type: ignore
+    @snapshot_postgres_queries
+    def test_array_property_as_string_on_persons(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["person1"],
+            properties={"urls": ["https://whatever.com", '["abcd"]', "efg"]},
+        )
+        Person.objects.create(team=self.team, distinct_ids=["person2"], properties={"urls": ['["abcd"]']})
+        Person.objects.create(team=self.team, distinct_ids=["person3"], properties={"urls": '["abcd"]'})
+        Person.objects.create(team=self.team, distinct_ids=["person4"], properties={"urls": "['abcd']"})
+        Person.objects.create(team=self.team, distinct_ids=["person5"])
+
+        # some idiosyncracies on how this works, but we shouldn't error out on this
+        filter = Filter(
+            data={"properties": [{"type": "person", "key": "urls", "operator": "icontains", "value": '["abcd"]'}]}
+        )
+
+        persons = Person.objects.filter(property_group_to_Q(filter.property_groups))
+        persons = persons.filter(team_id=self.team.pk)
+        results = sorted([person.distinct_ids[0] for person in persons])
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0], "person3")
+
     def test_person_cohort_properties(self):
         person1_distinct_id = "person1"
         person1 = Person.objects.create(
