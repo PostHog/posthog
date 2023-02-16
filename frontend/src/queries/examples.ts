@@ -293,16 +293,13 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
 
 const HogQL: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: 'select 1, 2',
+    query: 'select event, count() as event_count from events group by event order by event_count desc',
 }
 
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
-    source: {
-        kind: NodeKind.HogQLQuery,
-        query: 'select 1, 2',
-    },
+    source: HogQL,
 }
 
 export const examples: Record<string, Node> = {

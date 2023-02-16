@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsNode, EventsQuery, HogQLQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -34,6 +34,7 @@ import { extractExpressionComment, removeExpressionComment } from '~/queries/nod
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 
 interface DataTableProps {
     query: DataTableNode
@@ -79,6 +80,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showSearch,
         showEventFilter,
         showPropertyFilter,
+        showHogQLEditor,
         showReload,
         showExport,
         showElapsedTime,
@@ -293,7 +295,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
         [setQuery]
     )
 
@@ -338,7 +340,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full h-full">
+                <div className="relative w-full h-full space-y-4">
+                    {showHogQLEditor && isHogQLQuery(query.source) ? (
+                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+                    ) : null}
                     {showFirstRow && (
                         <div className="flex gap-4 items-center">
                             {firstRowLeft}

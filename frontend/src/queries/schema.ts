@@ -229,6 +229,8 @@ export interface DataTableNode extends Node {
     showSearch?: boolean
     /** Include a property filter above the table */
     showPropertyFilter?: boolean
+    /** Include a HogQL query editor above HogQL tables */
+    showHogQLEditor?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
     /** Show date range selector */
