@@ -1,11 +1,23 @@
-name: 'Storybook Chromatic'
+name: Storybook
 
-on: pull_request
+on:
+    pull_request:
+        paths: # Only run if the frontend has changed
+            - 'frontend/**'
+            - '.storybook/**'
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # Allow snapshot updates to finish, so that we don't need to wait for Storybook to build again
+    cancel-in-progress: false
 
 jobs:
     storybook-chromatic:
+        name: Publish to Chromatic
         runs-on: ubuntu-latest
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
+        outputs:
+            storybook-url: ${{ steps.publish.outputs.storybookUrl }}
         steps:
             - uses: actions/checkout@v3
               with:
@@ -22,24 +34,90 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
-            # there's no need to run chromatic on every commit,
-            # so we only run it if the frontend has changed
-            - uses: dorny/paths-filter@v2
-              id: changes
-              with:
-                  filters: |
-                      frontend:
-                        - 'frontend/**'
-                        - '.storybook/**'
-
             - name: Install dependencies and chromatic
-              if: steps.changes.outputs.frontend == 'true'
               run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
-              if: steps.changes.outputs.frontend == 'true'
               uses: chromaui/action@v1
+              id: publish
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
                   # 👇 Chromatic projectToken, refer to the manage page to obtain it.
                   projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+
+    visual-regression:
+        name: Visual regression tests
+        runs-on: ubuntu-20.04
+        container:
+            image: mcr.microsoft.com/playwright:v1.29.2-focal
+        needs: storybook-chromatic
+        strategy:
+            fail-fast: false
+            matrix:
+                browser: ['chromium', 'firefox', 'webkit']
+        env:
+            CYPRESS_INSTALL_BINARY: '0'
+            NODE_OPTIONS: --max-old-space-size=4096
+            JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
+            STORYBOOK_URL: ${{ needs.storybook-chromatic.outputs.storybook-url }}
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
+
+            - name: Run @storybook/test-runner
+              env:
+                  HOME: /root # Solves https://github.com/microsoft/playwright/issues/6500
+              run: |
+                  pnpm test:visual-regression:stories:ci ${{ matrix.browser }}
+
+            - name: Run @playwright/test (legacy, Chromium-only)
+              if: ${{ matrix.browser == 'chromium' }}
+              run: |
+                  pnpm test:visual-regression:legacy:ci
+
+            - name: Count snapshot changes from git diff
+              id: diff
+              run: |
+                  # Prevent git from being worried about ownership of the snapshots
+                  git config --global --add safe.directory '*'
+                  echo "added=$(git diff --name-status | grep '^A' | wc -l)" >> $GITHUB_OUTPUT
+                  echo "modified=$(git diff --name-status | grep '^M' | wc -l)" >> $GITHUB_OUTPUT
+                  echo "deleted=$(git diff --name-status | grep '^D' | wc -l)" >> $GITHUB_OUTPUT
+                  echo "total=$(git diff --name-status | wc -l)" >> $GITHUB_OUTPUT
+
+            - name: Commit updated snapshots
+              uses: EndBug/add-and-commit@v9
+              # Skip on forks
+              if: github.event.pull_request.head.repo.full_name == github.repository
+              id: commit
+              with:
+                  add: '["frontend/__snapshots__/", "playwright/"]'
+                  message: 'Update `${{ matrix.browser }}` UI snapshots'
+                  pull: --rebase --autostash # Make sure we're up to date with other browsers' updates
+                  default_author: github_actions
+                  github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
+
+            - name: Post comment about updated snapshots
+              if: steps.commit.outputs.pushed == 'true'
+              run: |
+                  INFO_BODY="## 📸 UI snapshots have been updated for \`${{ matrix.browser }}\`\n\n**${{ steps.diff.outputs.total }}** changes in total.\n**${{ steps.diff.outputs.added }}** added, **${{ steps.diff.outputs.modified }}** modified, **${{ steps.diff.outputs.deleted }}** deleted.\n\n**Review the changes:**\n👉 **[View this update's diff.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ steps.commit.outputs.commit_long_sha }})**\n👉 [View this PR's final diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)"
+                  curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$INFO_BODY\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
