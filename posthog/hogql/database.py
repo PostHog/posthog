@@ -112,7 +112,7 @@ class EventsPersonSubTable(Table):
         return "events"
 
 
-def join_events_to_max_person_distinct_id(events_alias: str, pdi_alias: str, requested_fields: List[str]):
+def join_with_max_person_distinct_id_table(base_table_alias: str, pdi_alias: str, requested_fields: List[str]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -145,7 +145,7 @@ def join_events_to_max_person_distinct_id(events_alias: str, pdi_alias: str, req
         alias=pdi_alias,
         constraint=ast.CompareOperation(
             op=ast.CompareOperationType.Eq,
-            left=ast.Field(chain=[events_alias, "distinct_id"]),
+            left=ast.Field(chain=[base_table_alias, "distinct_id"]),
             right=ast.Field(chain=[pdi_alias, "distinct_id"]),
         ),
     )
@@ -162,7 +162,7 @@ class EventsTable(Table):
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
     person: EventsPersonSubTable = EventsPersonSubTable()
 
-    pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_events_to_max_person_distinct_id)
+    pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table)
 
     def clickhouse_table(self):
         return "events"
@@ -185,6 +185,8 @@ class SessionRecordingEvents(Table):
     first_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="first_event_timestamp")
     last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
     urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
+
+    pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table)
 
     def clickhouse_table(self):
         return "session_recording_events"
