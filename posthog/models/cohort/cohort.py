@@ -187,61 +187,21 @@ class Cohort(models.Model):
         return {
             "filters": self.properties.to_dict(),
             "name_length": len(self.name) if self.name else 0,
-            "person_count_precalc": self.people.count(),
             "groups_count": len(self.groups),
             "action_groups_count": action_groups_count,
             "properties_groups_count": properties_groups_count,
             "deleted": self.deleted,
         }
 
-    def calculate_people(self, new_version: int, batch_size=10000, pg_batch_size=1000):
-        if self.is_static:
-            return
-        try:
-
-            # Paginate fetch batch_size from clickhouse and paginate insert pg_batch_size into postgres
-            cursor = 0
-            persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
-            while persons:
-                # TODO: Insert from a subquery instead of pulling retrieving
-                # then sending large lists of data backwards and forwards.
-                to_insert = [
-                    CohortPeople(person_id=person_id, cohort_id=self.pk, version=new_version)
-                    #  Just pull out the person id as we don't need anything
-                    #  else.
-                    for person_id in persons.values_list("id", flat=True)
-                ]
-                #  TODO: make sure this bulk_create doesn't actually return anything
-                CohortPeople.objects.bulk_create(to_insert, batch_size=pg_batch_size)
-
-                cursor += batch_size
-                persons = self._clickhouse_persons_query(batch_size=batch_size, offset=cursor)
-                if persons.exists() and not TEST:
-                    time.sleep(5)
-
-        except Exception as err:
-            # Clear the pending version people if there's an error
-            batch_delete_cohort_people(self.pk, new_version)
-
-            raise err
-
     def calculate_people_ch(self, pending_version):
         from posthog.models.cohort.util import recalculate_cohortpeople
-        from posthog.tasks.cohorts_in_feature_flag import get_cohort_ids_in_feature_flags
 
         logger.info("cohort_calculation_started", id=self.pk, current_version=self.version, new_version=pending_version)
         start_time = time.monotonic()
 
         try:
             count = recalculate_cohortpeople(self, pending_version)
-
-            # only precalculate if used in feature flag
-            ids = get_cohort_ids_in_feature_flags()
-
-            if self.pk in ids:
-                self.calculate_people(new_version=pending_version)
-            else:
-                self.count = count
+            self.count = count
 
             self.last_calculation = timezone.now()
             self.errors_calculating = 0
