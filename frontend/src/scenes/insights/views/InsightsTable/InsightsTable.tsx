@@ -125,12 +125,12 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
 
 export type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     isTrends: boolean
-    trendsFilter: TrendsFilter | null | undefined
-    display: ChartDisplayType | undefined
-    interval: IntervalType | undefined
-    breakdown: BreakdownFilter | undefined
+    trendsFilter?: TrendsFilter | null
+    display?: ChartDisplayType
+    interval?: IntervalType
+    breakdown?: BreakdownFilter
     isNonTimeSeriesDisplay: boolean
-    compare: boolean
+    compare?: boolean
     allowAggregation: boolean
     aggregation: CalcColumnState
     setAggregationType: (state: CalcColumnState) => void

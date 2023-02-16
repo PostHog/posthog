@@ -39,7 +39,7 @@ type SeriesCheckColumnItemProps = {
     item: IndexedTrendResult
     canCheckUncheckSeries: boolean
     hiddenLegendKeys: Record<string, boolean | undefined>
-    compare: boolean
+    compare?: boolean
     toggleVisibility: (id: number) => void
 }
 

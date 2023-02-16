@@ -1,8 +1,9 @@
+import { useState } from 'react'
+import { BindLogic } from 'kea'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
-import { BindLogic, useMountedLogic } from 'kea'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useStorybookMocks } from '~/mocks/browser'
-import { InsightShortId } from '~/types'
 import { InsightsTableComponent, InsightsTableComponentProps } from './InsightsTable'
 
 export default {
@@ -10,31 +11,23 @@ export default {
     component: InsightsTableComponent,
 } as ComponentMeta<typeof InsightsTableComponent>
 
-// const Insight123 = '123' as InsightShortId
-
-// import insight from 'src/scenes/insights/__mocks__/trendsLine.json'
-import insight from '../../__mocks__/trendsLineBreakdown.json'
 import { AggregationType } from './insightsTableDataLogic'
-import { useState } from 'react'
+import { CalcColumnState } from './insightsTableLogic'
 
-// const insight = require('src/scenes/insights/__mocks__/trendsLine.json')
-const count = 0
-
-const Template: ComponentStory<typeof InsightsTableComponent> = (props) => {
-    const insightProps = { dashboardItemId: `${insight.short_id}${count}` }
+const Template: ComponentStory<typeof InsightsTableComponent> = (props: Partial<InsightsTableComponentProps>) => {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const insight = require('../../__mocks__/trendsLineBreakdown.json')
+    const insightProps = { dashboardItemId: `${insight.short_id}` }
 
     const [aggregation, setAggregation] = useState(AggregationType.Total)
 
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/insights/': (_, __, ctx) => [
-                // ctx.delay(100),
                 ctx.status(200),
                 ctx.json({
                     count: 1,
-                    results: [
-                        { ...insight, short_id: `${insight.short_id}${count}`, id: (insight.id ?? 0) + 1 + count },
-                    ],
+                    results: [{ ...insight, short_id: insight.short_id, id: insight.id }],
                 }),
             ],
         },
@@ -42,7 +35,15 @@ const Template: ComponentStory<typeof InsightsTableComponent> = (props) => {
 
     return (
         <BindLogic logic={insightLogic} props={insightProps}>
-            <InsightsTableComponent aggregation={aggregation} setAggregationType={setAggregation} {...props} />
+            <InsightsTableComponent
+                aggregation={aggregation}
+                setAggregationType={(state: CalcColumnState) => setAggregation(AggregationType[state])}
+                isTrends
+                isNonTimeSeriesDisplay={false}
+                allowAggregation
+                handleSeriesEditClick={() => {}}
+                {...props}
+            />
         </BindLogic>
     )
 }
@@ -68,4 +69,9 @@ Hourly.args = {
 export const Aggregation = Template.bind({})
 Aggregation.args = {
     allowAggregation: true,
+}
+
+export const CanEditSeriesName = Template.bind({})
+CanEditSeriesName.args = {
+    canEditSeriesNameInline: true,
 }
