@@ -291,7 +291,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             api_response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             query.response = HogQLQueryResponse.parse_obj(api_response)
 
-            self.assertEqual(len(query.response.results), 4)
+            self.assertEqual(query.response.results and len(query.response.results), 4)
             self.assertEqual(
                 query.response.results,
                 [

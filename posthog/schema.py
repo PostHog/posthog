@@ -845,6 +845,7 @@ class DataTableNode(BaseModel):
         None, description="Show warning about live events being buffered max 60 sec (default: false)"
     )
     showExport: Optional[bool] = Field(None, description="Show the export button")
+    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
