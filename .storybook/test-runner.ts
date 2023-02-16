@@ -55,6 +55,16 @@ module.exports = {
         if (!storyContext.parameters?.testOptions?.skip) {
             const currentBrowser = page.context().browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
             const snapshotBrowsers = storyContext.parameters?.testOptions?.snapshotBrowsers ?? ['chromium']
+
+            let customSnapshotIdentifier = context.id
+            if (currentBrowser !== 'chromium') {
+                customSnapshotIdentifier += `--${currentBrowser}`
+            }
+            await page.screenshot({
+                path: `${process.cwd()}/test-results/${customSnapshotIdentifier}-full.png`,
+                fullPage: true,
+            })
+
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
