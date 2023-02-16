@@ -2,6 +2,7 @@ import re
 from datetime import timedelta
 from typing import Dict, List, Literal, Tuple, Union, cast
 
+from clickhouse_driver.errors import ServerException
 from django.utils.timezone import now
 
 from posthog.cache_utils import cache_for
@@ -119,15 +120,19 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
     updated_table = "sharded_events" if table == "events" else table
     index_name = f"minmax_{column_name}"
 
-    sync_execute(
-        f"""
-        ALTER TABLE {updated_table}
-        {execute_on_cluster}
-        ADD INDEX {index_name} {column_name}
-        TYPE minmax GRANULARITY 1
-        """,
-        settings={"alter_sync": 1},
-    )
+    try:
+        sync_execute(
+            f"""
+            ALTER TABLE {updated_table}
+            {execute_on_cluster}
+            ADD INDEX {index_name} {column_name}
+            TYPE minmax GRANULARITY 1
+            """,
+            settings={"alter_sync": 1},
+        )
+    except ServerException as err:
+        if "index with this name already exists" not in str(err):
+            raise err
 
     return index_name
 

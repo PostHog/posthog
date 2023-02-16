@@ -243,23 +243,12 @@ def cleanup_materialized_columns():
     default_columns = default_materialised_columns()
     for column_name in get_materialized_columns("events").values():
         if column_name not in default_columns:
-            try:
-                sync_execute(f"ALTER TABLE sharded_events DROP INDEX minmax_{column_name}")
-            except:
-                pass
             sync_execute(f"ALTER TABLE events DROP COLUMN {column_name}")
-            sync_execute(f"ALTER TABLE sharded_events DROP COLUMN {column_name}")
     for column_name in get_materialized_columns("person").values():
-        try:
-            sync_execute(f"ALTER TABLE person DROP INDEX minmax_{column_name}")
-        except:
-            pass
+        sync_execute(f"ALTER TABLE person DROP INDEX minmax_{column_name}")
         sync_execute(f"ALTER TABLE person DROP COLUMN {column_name}")
     for column_name in get_materialized_columns("groups").values():
-        try:
-            sync_execute(f"ALTER TABLE groups DROP INDEX minmax_{column_name}")
-        except:
-            pass
+        sync_execute(f"ALTER TABLE groups DROP INDEX minmax_{column_name}")
         sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
 
 
