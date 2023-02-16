@@ -17,9 +17,7 @@
     },
     "packageManager": "pnpm@7.14.2",
     "scripts": {
-        "copy-scripts": "mkdir -p frontend/dist/ && pnpm copy-scripts:array && pnpm copy-scripts:recorder",
-        "copy-scripts:array": "cp node_modules/posthog-js/dist/array.js* frontend/dist/",
-        "copy-scripts:recorder": "./bin/copy-scripts-recorder",
+        "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual-regression",
         "test:unit": "jest --testPathPattern=frontend/",
         "test:visual-regression": "docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual-regression:legacy:docker && pnpm test:visual-regression:stories:docker",

@@ -230,8 +230,7 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
     if property.operator == "exact" or property.operator is None:
         return lookup_q(f"{column}__{property.key}", value)
     else:
-        assert not isinstance(value, list)
-        return Q(**{f"{column}__{property.key}__{property.operator}": value})
+        return Q(**{f"{column}__{property.key}__{property.operator}": property.value})
 
 
 def property_group_to_Q(property_group: PropertyGroup, override_property_values: Dict[str, Any] = {}) -> Q:

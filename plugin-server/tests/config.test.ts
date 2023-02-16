@@ -39,16 +39,16 @@ describe('config', () => {
             )
         })
 
-        test('Set DATABASE_URL to a string composed of connection options if DATABASE_URL is not explictly set', () => {
+        test('Set DATABASE_URL to a string composed of URL-encoded connection options if DATABASE_URL is not explictly set', () => {
             const env = {
                 DATABASE_URL: '',
                 POSTHOG_DB_NAME: 'mydb',
-                POSTHOG_DB_USER: 'user1',
-                POSTHOG_DB_PASSWORD: 'strongpassword',
+                POSTHOG_DB_USER: 'user1@domain',
+                POSTHOG_DB_PASSWORD: 'strong?password',
                 POSTHOG_POSTGRES_HOST: 'my.host',
             }
             const config = overrideWithEnv(getDefaultConfig(), env)
-            expect(config.DATABASE_URL).toEqual('postgres://user1:strongpassword@my.host:5432/mydb')
+            expect(config.DATABASE_URL).toEqual('postgres://user1%40domain:strong%3Fpassword@my.host:5432/mydb')
         })
 
         test('DATABASE_URL takes precedence to individual config options', () => {

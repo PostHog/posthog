@@ -1285,15 +1285,14 @@ describe('insightLogic', () => {
             logic.mount()
         })
 
-        it('has a default view', async () => {
+        it('has a default of trends', async () => {
             await expectLogic(logic).toMatchValues({
-                // TODO can we make the default TRENDS so there's no change
-                activeView: InsightType.QUERY, // which is a change to the default
+                activeView: InsightType.TRENDS,
             })
         })
 
-        it('can set the active view to TRENDS which sets the filters', () => {
-            expectLogic(logic, () => {
+        it('can set the active view to TRENDS which sets the filters', async () => {
+            await expectLogic(logic, () => {
                 logic.actions.setActiveView(InsightType.TRENDS)
             }).toMatchValues({
                 filters: {
@@ -1315,8 +1314,8 @@ describe('insightLogic', () => {
             })
         })
 
-        it('can set the active view to FUNNEL which sets the filters differently', () => {
-            expectLogic(logic, () => {
+        it('can set the active view to FUNNEL which sets the filters differently', async () => {
+            await expectLogic(logic, () => {
                 logic.actions.setActiveView(InsightType.FUNNELS)
             }).toMatchValues({
                 filters: {
@@ -1336,11 +1335,100 @@ describe('insightLogic', () => {
             })
         })
 
-        it('can set the active view to QUERY which sets the filters to empty', () => {
-            expectLogic(logic, () => {
-                logic.actions.setActiveView(InsightType.QUERY)
-            }).toMatchValues({
-                filters: {},
+        it('clears maybeShowTimeoutMessage when setting active view', async () => {
+            logic.actions.markInsightTimedOut('a query id')
+            await expectLogic(logic).toMatchValues({ maybeShowTimeoutMessage: true })
+            logic.actions.setActiveView(InsightType.FUNNELS)
+            await expectLogic(logic).toMatchValues({ maybeShowTimeoutMessage: false })
+        })
+
+        it('clears maybeShowErrorMessage when setting active view', async () => {
+            logic.actions.loadInsightFailure('error', { status: 0 })
+            await expectLogic(logic).toMatchValues({ maybeShowErrorMessage: true })
+            logic.actions.setActiveView(InsightType.FUNNELS)
+            await expectLogic(logic).toMatchValues({ maybeShowErrorMessage: false })
+        })
+
+        it('clears lastRefresh when setting active view', async () => {
+            logic.actions.setLastRefresh('123')
+            await expectLogic(logic).toMatchValues({ lastRefresh: '123' })
+            logic.actions.setActiveView(InsightType.FUNNELS)
+            await expectLogic(logic).toMatchValues({ lastRefresh: null })
+        })
+
+        it('clears erroredQueryId when setting active view', async () => {
+            logic.actions.markInsightErrored('123')
+            await expectLogic(logic).toMatchValues({ erroredQueryId: '123' })
+            logic.actions.setActiveView(InsightType.FUNNELS)
+            await expectLogic(logic).toMatchValues({ erroredQueryId: null })
+        })
+
+        describe('filters changing changes active view', () => {
+            it('takes view from cached insight filters', async () => {
+                const logicWithCachedInsight = insightLogic({
+                    dashboardItemId: 'insight' as InsightShortId,
+                    cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+                })
+                logicWithCachedInsight.mount()
+                expect(logicWithCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
+            })
+
+            it('sets view from setFilters', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ insight: InsightType.FUNNELS })
+                }).toMatchValues({
+                    activeView: InsightType.FUNNELS,
+                })
+            })
+
+            it('does not set view from setInsight if filters not overriding', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, {})
+                }).toMatchValues({
+                    activeView: InsightType.TRENDS,
+                })
+            })
+
+            it('does set view from setInsight if filters are overriding', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, { overrideFilter: true })
+                }).toMatchValues({
+                    activeView: InsightType.FUNNELS,
+                })
+            })
+
+            it('sets view from loadInsightSuccess', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.loadInsightSuccess({ filters: { insight: InsightType.FUNNELS } })
+                }).toMatchValues({
+                    activeView: InsightType.FUNNELS,
+                })
+            })
+
+            it('does not set view from loadInsightSuccess if there is already a filter in state', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ insight: InsightType.FUNNELS })
+                    logic.actions.loadInsightSuccess({ filters: { insight: InsightType.PATHS } })
+                }).toMatchValues({
+                    activeView: InsightType.FUNNELS,
+                })
+            })
+
+            it('sets view from loadResultsSuccess', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
+                }).toMatchValues({
+                    activeView: InsightType.FUNNELS,
+                })
+            })
+
+            it('does not set view from loadResultsSuccess if there is already a filter in state', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.setFilters({ insight: InsightType.FUNNELS })
+                    logic.actions.loadResultsSuccess({ filters: { insight: InsightType.PATHS } })
+                }).toMatchValues({
+                    activeView: InsightType.FUNNELS,
+                })
             })
         })
     })
