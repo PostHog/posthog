@@ -21,7 +21,7 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsQuery, isHogQlAggregation, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
+import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -89,8 +89,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = queryWithDefaults
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+    const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
-        ...columnsInQuery.map((key, index) => ({
+        ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
             render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow) {
@@ -98,13 +99,13 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     if (index === (expandable ? 1 : 0)) {
                         return {
                             children: label,
-                            props: { colSpan: columnsInQuery.length + (actionsColumnShown ? 1 : 0) },
+                            props: { colSpan: columnsInLemonTable.length + (actionsColumnShown ? 1 : 0) },
                         }
                     } else {
                         return { props: { colSpan: 0 } }
                     }
                 } else if (result) {
-                    if (isEventsQuery(query.source)) {
+                    if (isEventsQuery(query.source) || isHogQLQuery(query.source)) {
                         return renderColumn(key, result[index], result, query, setQuery, context)
                     }
                     return renderColumn(key, result[key], result, query, setQuery, context)
@@ -398,7 +399,22 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         }}
                         sorting={null}
                         useURLForSorting={false}
-                        emptyState={responseError ? <InsightErrorState /> : <InsightEmptyState />}
+                        emptyState={
+                            responseError ? (
+                                isHogQLQuery(query.source) ? (
+                                    <InsightErrorState
+                                        excludeDetail
+                                        title={
+                                            response && 'error' in response ? (response as any).error : responseError
+                                        }
+                                    />
+                                ) : (
+                                    <InsightErrorState />
+                                )
+                            ) : (
+                                <InsightEmptyState />
+                            )
+                        }
                         expandable={
                             expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
                                 ? {

@@ -18,7 +18,7 @@ let uniqueNode = 0
 export function DataNode(props: DataNodeProps): JSX.Element {
     const [key] = useState(() => `DataNode.${uniqueNode++}`)
     const logic = dataNodeLogic({ ...props, key })
-    const { response, responseLoading } = useValues(logic)
+    const { response, responseLoading, responseErrorObject } = useValues(logic)
 
     return (
         <div className="relative">
@@ -36,7 +36,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
                             theme="vs-light"
                             className="border"
                             language={'json'}
-                            value={JSON.stringify(response, null, 2)}
+                            value={JSON.stringify(response ?? responseErrorObject, null, 2)}
                             height={Math.max(height, 300)}
                         />
                     )}

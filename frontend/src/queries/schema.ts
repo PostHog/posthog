@@ -40,6 +40,7 @@ export enum NodeKind {
     NewEntityNode = 'NewEntityNode',
     EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
+    HogQLQuery = 'HogQLQuery',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -64,7 +65,7 @@ export enum NodeKind {
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
 }
 
-export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -101,6 +102,20 @@ export interface DataNode extends Node {
     response?: Record<string, any>
 }
 
+export interface HogQLQueryResponse {
+    query?: string
+    hogql?: string
+    clickhouse?: string
+    results?: any[]
+    types?: any[]
+    columns?: any[]
+}
+
+export interface HogQLQuery extends DataNode {
+    kind: NodeKind.HogQLQuery
+    query: string
+    response?: HogQLQueryResponse
+}
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
@@ -201,7 +216,7 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode
+    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode | HogQLQuery
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */

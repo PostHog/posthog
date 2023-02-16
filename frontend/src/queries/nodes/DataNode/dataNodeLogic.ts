@@ -166,11 +166,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // Clear the response if a failure to avoid showing inconsistencies in the UI
             loadDataFailure: () => null,
         },
+        responseErrorObject: [
+            null as Record<string, any> | null,
+            {
+                loadData: () => null,
+                loadDataFailure: (_, { errorObject }) => errorObject,
+                loadDataSuccess: () => null,
+            },
+        ],
         responseError: [
             null as string | null,
             {
                 loadData: () => null,
-                loadDataFailure: () => 'Error loading data',
+                loadDataFailure: (_, { error, errorObject }) => {
+                    if (errorObject && 'error' in errorObject) {
+                        return errorObject.error
+                    }
+                    return error ?? 'Error loading data'
+                },
                 loadDataSuccess: () => null,
             },
         ],

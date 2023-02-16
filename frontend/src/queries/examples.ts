@@ -5,6 +5,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    HogQLQuery,
     LegacyQuery,
     LifecycleQuery,
     Node,
@@ -290,6 +291,20 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
     },
 }
 
+const HogQL: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query: 'select 1, 2',
+}
+
+const HogQLTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: 'select 1, 2',
+    },
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
@@ -310,6 +325,8 @@ export const examples: Record<string, Node> = {
     TimeToSeeDataSessions,
     TimeToSeeDataWaterfall,
     TimeToSeeDataJSON,
+    HogQL,
+    HogQLTable,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

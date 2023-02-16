@@ -59,12 +59,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         columnsInResponse: [
             (s) => [s.response],
             (response: AnyDataNode['response']): string[] | null =>
-                response &&
-                'columns' in response &&
-                Array.isArray(response.columns) &&
-                !response.columns.find((c) => typeof c !== 'string')
-                    ? (response?.columns as string[])
-                    : null,
+                response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],

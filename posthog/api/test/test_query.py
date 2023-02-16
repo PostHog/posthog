@@ -1,7 +1,15 @@
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.schema import EventPropertyFilter, EventsQuery, HogQLPropertyFilter, PersonPropertyFilter, PropertyOperator
+from posthog.schema import (
+    EventPropertyFilter,
+    EventsQuery,
+    HogQLPropertyFilter,
+    HogQLQuery,
+    HogQLQueryResponse,
+    PersonPropertyFilter,
+    PropertyOperator,
+)
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -256,3 +264,40 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             query.where = ["count() > 1"]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 1)
+
+    @also_test_with_materialized_columns(event_properties=["key"])
+    @snapshot_clickhouse_queries
+    def test_full_hogql_query(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(
+                team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3", "path": "a/b/c"}
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            query = HogQLQuery(query="select event, distinct_id, properties.key from events order by timestamp")
+            api_response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
+            query.response = HogQLQueryResponse.parse_obj(api_response)
+
+            self.assertEqual(len(query.response.results), 4)
+            self.assertEqual(
+                query.response.results,
+                [
+                    ["sign up", "2", "test_val1"],
+                    ["sign out", "2", "test_val2"],
+                    ["sign out", "3", "test_val2"],
+                    ["sign out", "4", "test_val3"],
+                ],
+            )

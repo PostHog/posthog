@@ -4,6 +4,7 @@ from typing import Dict
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
+from pydantic import BaseModel
 from rest_framework import viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -11,11 +12,12 @@ from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.event.query_event_list import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.schema import EventsQuery
+from posthog.schema import EventsQuery, HogQLQuery
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -33,13 +35,27 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     )
     def list(self, request: Request, **kw) -> HttpResponse:
         query_json = self._query_json_from_request(request)
-        query_result = process_query(self.team, query_json)
-        return JsonResponse(query_result)
+        return self._process_query(self.team, query_json)
 
     def post(self, request, *args, **kwargs):
         query_json = request.data
-        query_result = process_query(self.team, query_json)
-        return JsonResponse(query_result)
+        return self._process_query(self.team, query_json)
+
+    def _process_query(self, team: Team, query_json: Dict) -> JsonResponse:
+        # try:
+        query_kind = query_json.get("kind")
+        if query_kind == "EventsQuery":
+            query = EventsQuery.parse_obj(query_json)
+            response = run_events_query(query=query, team=team)
+            return self._response_to_json_response(response)
+        elif query_kind == "HogQLQuery":
+            query = HogQLQuery.parse_obj(query_json)
+            response = execute_hogql_query(query=query.query, team=team)
+            return self._response_to_json_response(response)
+        else:
+            raise ValidationError("Unsupported query kind: %s" % query_kind)
+        # except Exception as e:
+        #     return JsonResponse({"error": str(e)}, status=400)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":
@@ -65,21 +81,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             raise ValidationError("Invalid JSON: %s" % (str(error_main)))
         return query
 
-
-def process_query(team: Team, query_json: Dict) -> Dict:
-    query_kind = query_json.get("kind")
-    if query_kind == "EventsQuery":
-        query = EventsQuery.parse_obj(query_json)
-        query_result = run_events_query(
-            team=team,
-            query=query,
-        )
-        # :KLUDGE: Calling `query_result.dict()` without the following deconstruction fails with a cryptic error
-        return {
-            "columns": query_result.columns,
-            "types": query_result.types,
-            "results": query_result.results,
-            "hasMore": query_result.hasMore,
-        }
-    else:
-        raise ValidationError("Unsupported query kind: %s" % query_kind)
+    def _response_to_json_response(self, response: BaseModel) -> JsonResponse:
+        dict = {}
+        for key in response.__fields__.keys():
+            dict[key] = getattr(response, key)
+        return JsonResponse(dict)

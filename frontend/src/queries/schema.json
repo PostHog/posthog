@@ -80,6 +80,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
                 }
             ]
         },
@@ -1273,6 +1276,9 @@
                         },
                         {
                             "$ref": "#/definitions/RecentPerformancePageViewNode"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -1942,6 +1948,51 @@
                 }
             },
             "required": ["key", "type"],
+            "type": "object"
+        },
+        "HogQLQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse",
+                    "description": "Cached query response"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "HogQLQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "clickhouse": {
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
             "type": "object"
         },
         "InsightQueryNode": {
