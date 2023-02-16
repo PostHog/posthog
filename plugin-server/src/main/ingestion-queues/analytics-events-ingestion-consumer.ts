@@ -78,20 +78,51 @@ export async function eachBatchIngestionWithOverflow(
         const batches = []
         const seenIds: Set<string> = new Set()
         let currentBatch: KafkaMessage[] = []
+
         for (const message of kafkaMessages) {
             const pluginEvent = formPipelineEvent(message)
             const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+
+            // Events with a null key should have been produced to the the
+            // KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOWtopic, so we shouldn't see them here as this consumer's
+            // topic is set to KAFKA_EVENTS_PLUGIN_INGESTION. However, there could be some lingering events
+            // from before the new *_OVERFLOW topic was initialized. Any events with a null key or that
+            // exceed capacity are redirected to the *_OVERFLOW topic.
+            if (message.key == null || ConfiguredLimiter.consume(seenKey, 1) === false) {
+                // Set message key to be null so we know to send it to overflow topic.
+                // We don't want to do it here to preserve the kafka offset handling
+                message.key = null
+                currentBatch.push(message)
+
+                // Warnings are limited to 1/key/hour to avoid spamming.
+                if (pluginEvent.team_id && WarningLimiter.consume(seenKey, 1)) {
+                    captureIngestionWarning(
+                        queue.pluginsServer.hub.db,
+                        pluginEvent.team_id,
+                        'ingestion_capacity_overflow',
+                        {
+                            overflowDistinctId: pluginEvent.distinct_id,
+                        }
+                    )
+                }
+
+                continue
+            }
+
             if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
                 seenIds.clear()
                 batches.push(currentBatch)
                 currentBatch = []
             }
+
             seenIds.add(seenKey)
             currentBatch.push(message)
         }
+
         if (currentBatch) {
             batches.push(currentBatch)
         }
+
         return batches
     }
 
@@ -99,29 +130,15 @@ export async function eachBatchIngestionWithOverflow(
 }
 
 export async function eachMessageIngestionWithOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
-    const event = formPipelineEvent(message)
-
-    if (
-        // Events with a null key are produced to the the KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW topic, so we would
-        // never see them here, as this consumer's topic is set to KAFKA_EVENTS_PLUGIN_INGESTION.
-        // However, there could be some lingering events from before the new *_OVERFLOW topic was initialized.
-        // As we cannot accurately estimate capacity usage for those events, we will process them normally.
-        // Once lingering events are cleared up, this check is not be needed anymore except for type-checking.
-        message.key != null &&
-        ConfiguredLimiter.consume(message.key.toString(), 1) === false
-    ) {
-        if (event.team_id && WarningLimiter.consume(message.key.toString(), 1)) {
-            captureIngestionWarning(queue.pluginsServer.hub.db, event.team_id, 'ingestion_capacity_overflow', {
-                overflowDistinctId: event.distinct_id,
-            })
-        }
-        // Events going to OVERFLOW topic should always be randomly partitioned.
-        message.key = null
-
+    // Events are marked to have a null key during batch break-up if they should go to the *_OVERFLOW topic.
+    // So we do not ingest them here.
+    if (message.key == null) {
         await queue.pluginsServer.kafkaProducer.queueMessage({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             messages: [message],
         })
+
+        return
     }
 
     await eachMessageIngestion(message, queue)
