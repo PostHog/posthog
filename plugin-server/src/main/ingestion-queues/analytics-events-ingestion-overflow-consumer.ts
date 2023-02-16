@@ -7,6 +7,7 @@ import { Hub } from '../../types'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
 import { WarningLimiter } from '../../utils/token-bucket'
+import { groupIntoBatches } from '../../utils/utils'
 import { captureIngestionWarning } from './../../worker/ingestion/utils'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachMessageIngestion } from './batch-processing/each-batch-ingestion'
@@ -59,30 +60,7 @@ export async function eachBatchIngestionFromOverflow(
     payload: EachBatchPayload,
     queue: IngestionConsumer
 ): Promise<void> {
-    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
-        // Once we see a distinct ID we've already seen break up the batch
-        const batches = []
-        const seenIds: Set<string> = new Set()
-        let currentBatch: KafkaMessage[] = []
-
-        for (const message of kafkaMessages) {
-            if (currentBatch.length >= batchSize) {
-                seenIds.clear()
-                batches.push(currentBatch)
-                currentBatch = []
-            }
-
-            currentBatch.push(message)
-        }
-
-        if (currentBatch) {
-            batches.push(currentBatch)
-        }
-
-        return batches
-    }
-
-    await eachBatch(payload, queue, eachMessageIngestionFromOverflow, groupIntoBatchesIngestion, 'ingestion')
+    await eachBatch(payload, queue, eachMessageIngestionFromOverflow, groupIntoBatches, 'ingestion')
 }
 
 export async function eachMessageIngestionFromOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
