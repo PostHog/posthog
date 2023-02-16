@@ -84,7 +84,7 @@ export async function eachBatchIngestionWithOverflow(
             const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
 
             // Events with a null key should have been produced to the the
-            // KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOWtopic, so we shouldn't see them here as this consumer's
+            // KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW topic, so we shouldn't see them here as this consumer's
             // topic is set to KAFKA_EVENTS_PLUGIN_INGESTION. However, there could be some lingering events
             // from before the new *_OVERFLOW topic was initialized. Any events with a null key or that
             // exceed capacity are redirected to the *_OVERFLOW topic.
