@@ -51,7 +51,6 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--consumer-group-id",
-            default="posthog",
             help="The consumer group ID to use when consuming from the old cluster",
         )
 
