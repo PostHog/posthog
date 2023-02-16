@@ -66,7 +66,7 @@ if TEST:
     except:
         pass
 
-    def bulk_create_persons(persons_list: List[Dict], skip_clickhouse: bool = False):
+    def bulk_create_persons(persons_list: List[Dict]):
         persons = []
         person_mapping = {}
         for _person in persons_list:
@@ -95,9 +95,8 @@ if TEST:
             )
 
         PersonDistinctId.objects.bulk_create(distinct_ids)
-        if not skip_clickhouse:
-            sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
-            sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
+        sync_execute(INSERT_PERSON_BULK_SQL + ", ".join(person_inserts), flush=False)
+        sync_execute(BULK_INSERT_PERSON_DISTINCT_ID2 + ", ".join(distinct_id_inserts), flush=False)
 
         return person_mapping
 

@@ -469,10 +469,10 @@ class NonAtomicTestMigrations(BaseTestMigrations, NonAtomicBaseTest):
     """
 
 
-def flush_persons_and_events(skip_clickhouse: bool = False):
+def flush_persons_and_events():
     person_mapping = {}
     if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests, skip_clickhouse=skip_clickhouse)
+        person_mapping = bulk_create_persons(persons_cache_tests)
         persons_cache_tests.clear()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
