@@ -1313,7 +1313,7 @@ export class DB {
                 SELECT * FROM posthog_eventdefinition
                 ${teamId ? 'WHERE team_id = $1' : ''}
                 `,
-                [teamId],
+                teamId ? [teamId] : undefined,
                 'fetchEventDefinitions'
             )
         ).rows as EventDefinitionType[]
@@ -1331,7 +1331,7 @@ export class DB {
                 -- that this is a unique index.
                 ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
                 `,
-                [teamId],
+                teamId ? [teamId] : undefined,
                 'fetchPropertyDefinitions'
             )
         ).rows as PropertyDefinitionType[]
@@ -1346,7 +1346,7 @@ export class DB {
                     SELECT * FROM posthog_eventproperty
                     ${teamId ? 'WHERE team_id = $1' : ''}
                 `,
-                [teamId],
+                teamId ? [teamId] : undefined,
                 'fetchEventProperties'
             )
         ).rows as EventPropertyType[]
