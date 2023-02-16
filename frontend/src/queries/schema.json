@@ -1247,6 +1247,10 @@
                     "description": "Show the export button",
                     "type": "boolean"
                 },
+                "showHogQLEditor": {
+                    "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table",
                     "type": "boolean"

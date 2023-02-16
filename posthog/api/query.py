@@ -45,12 +45,12 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         try:
             query_kind = query_json.get("kind")
             if query_kind == "EventsQuery":
-                query = EventsQuery.parse_obj(query_json)
-                response = run_events_query(query=query, team=team)
+                events_query = EventsQuery.parse_obj(query_json)
+                response = run_events_query(query=events_query, team=team)
                 return self._response_to_json_response(response)
             elif query_kind == "HogQLQuery":
-                query = HogQLQuery.parse_obj(query_json)
-                response = execute_hogql_query(query=query.query, team=team)
+                hogql_query = HogQLQuery.parse_obj(query_json)
+                response = execute_hogql_query(query=hogql_query.query, team=team)
                 return self._response_to_json_response(response)
             else:
                 raise ValidationError("Unsupported query kind: %s" % query_kind)
