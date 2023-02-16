@@ -15,9 +15,9 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { userLogic } from 'scenes/userLogic'
-import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { ExperimentsPayGate } from './ExperimentsPayGate'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -142,18 +142,20 @@ export function Experiments(): JSX.Element {
                     ) : undefined
                 }
                 caption={
-                    <>
-                        Check out our
-                        <Link
-                            data-attr="experiment-help"
-                            to="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
-                            target="_blank"
-                        >
-                            {' '}
-                            Experimentation user guide
-                        </Link>{' '}
-                        to learn more.
-                    </>
+                    hasAvailableFeature(AvailableFeature.EXPERIMENTATION) && (
+                        <>
+                            Check out our
+                            <Link
+                                data-attr="experiment-help"
+                                to="https://posthog.com/docs/user-guides/experimentation?utm_medium=in-product&utm_campaign=new-experiment"
+                                target="_blank"
+                            >
+                                {' '}
+                                Experimentation user guide
+                            </Link>{' '}
+                            to learn more.
+                        </>
+                    )
                 }
                 tabbedPage={hasAvailableFeature(AvailableFeature.EXPERIMENTATION)}
             />
@@ -212,16 +214,7 @@ export function Experiments(): JSX.Element {
                     />
                 </>
             ) : (
-                <PayGatePage
-                    featureKey={AvailableFeature.EXPERIMENTATION}
-                    header={
-                        <>
-                            Introducing <span className="highlight">Experimentation</span>!
-                        </>
-                    }
-                    caption="Improve your product by A/B testing new features to discover what works best for your users."
-                    docsLink="https://posthog.com/docs/user-guides/experimentation"
-                />
+                <ExperimentsPayGate />
             )}
         </div>
     )

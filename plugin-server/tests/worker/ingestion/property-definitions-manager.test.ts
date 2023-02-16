@@ -144,6 +144,12 @@ describe('PropertyDefinitionsManager()', () => {
                     {
                         id: expect.any(Number),
                         event: 'new-event',
+                        property: 'number',
+                        team_id: teamId,
+                    },
+                    {
+                        id: expect.any(Number),
+                        event: 'new-event',
                         property: 'numeric_prop',
                         team_id: teamId,
                     },
@@ -151,12 +157,6 @@ describe('PropertyDefinitionsManager()', () => {
                         id: expect.any(Number),
                         event: 'new-event',
                         property: 'property_name',
-                        team_id: teamId,
-                    },
-                    {
-                        id: expect.any(Number),
-                        event: 'new-event',
-                        property: 'number',
                         team_id: teamId,
                     },
                 ])
@@ -176,9 +176,9 @@ describe('PropertyDefinitionsManager()', () => {
                     },
                     {
                         id: expect.any(String),
-                        is_numerical: false,
-                        name: 'property_name',
-                        property_type: 'String',
+                        is_numerical: true,
+                        name: 'numeric_prop',
+                        property_type: 'Numeric',
                         property_type_format: null,
                         query_usage_30_day: null,
                         team_id: teamId,
@@ -188,9 +188,9 @@ describe('PropertyDefinitionsManager()', () => {
                     },
                     {
                         id: expect.any(String),
-                        is_numerical: true,
-                        name: 'numeric_prop',
-                        property_type: 'Numeric',
+                        is_numerical: false,
+                        name: 'property_name',
+                        property_type: 'String',
                         property_type_format: null,
                         query_usage_30_day: null,
                         team_id: teamId,

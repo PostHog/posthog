@@ -21,6 +21,7 @@ import { GraphileWorker } from './graphile-worker/graphile-worker'
 import { loadPluginSchedule } from './graphile-worker/schedule'
 import { startGraphileWorker } from './graphile-worker/worker-setup'
 import { startAnalyticsEventsIngestionConsumer } from './ingestion-queues/analytics-events-ingestion-consumer'
+import { startAnalyticsEventsIngestionOverflowConsumer } from './ingestion-queues/analytics-events-ingestion-overflow-consumer'
 import { startAnonymousEventBufferConsumer } from './ingestion-queues/anonymous-event-buffer-consumer'
 import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
@@ -79,6 +80,8 @@ export async function startPluginsServer(
     // 5. publishes the resulting event to a Kafka topic on which ClickHouse is
     //    listening.
     let analyticsEventsIngestionConsumer: IngestionConsumer | undefined
+    let analyticsEventsIngestionOverflowConsumer: IngestionConsumer | undefined
+
     let onEventHandlerConsumer: IngestionConsumer | undefined
 
     // Kafka consumer. Handles events that we couldn't find an existing person
@@ -121,6 +124,7 @@ export async function startPluginsServer(
             pubSub?.stop(),
             graphileWorker?.stop(),
             analyticsEventsIngestionConsumer?.stop(),
+            analyticsEventsIngestionOverflowConsumer?.stop(),
             onEventHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
@@ -285,6 +289,13 @@ export async function startPluginsServer(
                 kafka: hub.kafka,
                 producer: hub.kafkaProducer,
                 statsd: hub.statsd,
+            })
+        }
+
+        if (hub.capabilities.ingestionOverflow) {
+            analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
+                hub: hub,
+                piscina: piscina,
             })
         }
 

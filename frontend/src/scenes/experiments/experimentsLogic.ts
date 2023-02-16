@@ -2,14 +2,14 @@ import { kea } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, ExperimentsTabs, AvailableFeature, ExperimentStatus } from '~/types'
-import { userLogic } from 'scenes/userLogic'
+import { Experiment, ExperimentsTabs, ExperimentStatus } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
+import { userLogic } from 'scenes/userLogic'
 
 export const experimentsLogic = kea<experimentsLogicType>({
     path: ['scenes', 'experiments', 'experimentsLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature', 'user']] },
+    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['user']] },
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
@@ -34,9 +34,6 @@ export const experimentsLogic = kea<experimentsLogicType>({
             [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-                        return []
-                    }
                     const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
                     return response.results as Experiment[]
                 },

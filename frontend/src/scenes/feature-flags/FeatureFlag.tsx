@@ -504,6 +504,12 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
             value: featureFlagKey,
             operator: PropertyOperator.Exact,
         },
+        {
+            key: '$feature_flag_response',
+            type: PropertyFilterType.Event,
+            value: 'is_set',
+            operator: PropertyOperator.IsSet,
+        },
     ]
 
     // TODO: reintegrate HogQL Editor
@@ -521,15 +527,16 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
                 fixedColumns={[
                     {
                         title: 'Value',
-                        key: '$feature/' + featureFlagKey,
-                        render: function renderTime(_, { event }: EventsTableRowItem) {
-                            return event?.properties['$feature/' + featureFlagKey]?.toString()
+                        key: 'value',
+                        render: function renderEventProperty(_, { event }: EventsTableRowItem) {
+                            return event?.properties['$feature_flag_response']?.toString()
                         },
                     },
                 ]}
                 startingColumns={['person']}
                 fetchMonths={1}
                 pageKey={`feature-flag-` + featureFlagKey}
+                showPersonColumn={true}
                 showEventFilter={false}
                 showPropertyFilter={false}
                 showCustomizeColumns={false}
