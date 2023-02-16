@@ -1,4 +1,4 @@
-import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/lemon-ui/icons'
+import { IconArrowDropDown, IconInfo, IconNotification, IconRefresh, IconWithCount } from 'lib/lemon-ui/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
@@ -9,11 +9,20 @@ import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function NotificationBell(): JSX.Element {
-    const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
-        useValues(notificationsLogic)
-    const { toggleNotificationsPopover, togglePolling } = useActions(notificationsLogic)
+    const {
+        unreadCount,
+        hasImportantChanges,
+        importantChanges,
+        isNotificationPopoverOpen,
+        hasUnread,
+        importantChangesLoading,
+    } = useValues(notificationsLogic)
+    const { toggleNotificationsPopover, togglePolling, loadImportantChanges } = useActions(notificationsLogic)
 
     usePageVisibility((pageIsVisible) => {
         togglePolling(pageIsVisible)
@@ -25,15 +34,34 @@ export function NotificationBell(): JSX.Element {
             onClickOutside={toggleNotificationsPopover}
             overlay={
                 <div className="activity-log notifications-menu">
-                    <h5>
-                        Notifications{' '}
-                        <LemonTag type="warning" className="ml-1">
-                            Beta
-                        </LemonTag>
+                    <h5 className={'flex flex-row justify-between items-center'}>
+                        <div>
+                            Notifications{' '}
+                            <LemonTag type="warning" className="ml-1">
+                                Beta
+                            </LemonTag>
+                        </div>
+                        <LemonButton
+                            size={'small'}
+                            type={'secondary'}
+                            onClick={loadImportantChanges}
+                            icon={importantChangesLoading ? <Spinner monocolor={true} /> : <IconRefresh />}
+                            disabledReason={
+                                hasUnread
+                                    ? 'No need to check, you have unread changes.'
+                                    : importantChangesLoading
+                                    ? 'Checking for changes'
+                                    : false
+                            }
+                            data-attr="check-for-important-changes-button"
+                        >
+                            Check for changes
+                        </LemonButton>
                     </h5>
-                    <p className={'mx-2 text-muted'}>
-                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to
-                        Insights and Feature Flags that you created. Come join{' '}
+                    <p className={'mx-2 text-muted mt-2'}>
+                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to{' '}
+                        <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
+                        <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
                         <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what else should
                         be here!
                     </p>
