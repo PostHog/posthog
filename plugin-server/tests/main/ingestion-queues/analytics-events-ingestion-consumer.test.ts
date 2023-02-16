@@ -81,14 +81,7 @@ describe('eachBatchIngestionWithOverflow', () => {
             captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
             1
         )
-        expect(captureIngestionWarning).toHaveBeenCalledWith(
-            queue.pluginsServer.hub.db,
-            captureEndpointEvent['team_id'],
-            'ingestion_capacity_overflow',
-            {
-                overflowDistinctId: captureEndpointEvent['distinct_id'],
-            }
-        )
+        expect(captureIngestionWarning).not.toHaveBeenCalled()
         expect(queue.pluginsServer.kafkaProducer.queueMessage).toHaveBeenCalledWith({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             messages: [

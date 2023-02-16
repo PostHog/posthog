@@ -1,10 +1,15 @@
 import Piscina from '@posthog/piscina'
+import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import * as schedule from 'node-schedule'
 
 import { KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, prefix as KAFKA_PREFIX } from '../../config/kafka-topics'
 import { Hub } from '../../types'
+import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
-import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
+import { WarningLimiter } from '../../utils/token-bucket'
+import { captureIngestionWarning } from './../../worker/ingestion/utils'
+import { eachBatch } from './batch-processing/each-batch'
+import { eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
 
 export const startAnalyticsEventsIngestionOverflowConsumer = async ({
@@ -38,7 +43,7 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
         piscina,
         KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         `${KAFKA_PREFIX}clickhouse-ingestion-overflow`,
-        eachBatchIngestion
+        eachBatchIngestionFromOverflow
     )
 
     await queue.start()
@@ -48,4 +53,46 @@ export const startAnalyticsEventsIngestionOverflowConsumer = async ({
     })
 
     return queue
+}
+
+export async function eachBatchIngestionFromOverflow(
+    payload: EachBatchPayload,
+    queue: IngestionConsumer
+): Promise<void> {
+    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
+        // Once we see a distinct ID we've already seen break up the batch
+        const batches = []
+        const seenIds: Set<string> = new Set()
+        let currentBatch: KafkaMessage[] = []
+
+        for (const message of kafkaMessages) {
+            if (currentBatch.length >= batchSize) {
+                seenIds.clear()
+                batches.push(currentBatch)
+                currentBatch = []
+            }
+
+            currentBatch.push(message)
+        }
+
+        if (currentBatch) {
+            batches.push(currentBatch)
+        }
+
+        return batches
+    }
+
+    await eachBatch(payload, queue, eachMessageIngestionFromOverflow, groupIntoBatchesIngestion, 'ingestion')
+}
+
+export async function eachMessageIngestionFromOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
+    const pluginEvent = formPipelineEvent(message)
+    // Warnings are limited to 1/key/hour to avoid spamming.
+    if (pluginEvent.team_id && WarningLimiter.consume(`${pluginEvent.team_id}:${pluginEvent.distinct_id}`, 1)) {
+        captureIngestionWarning(queue.pluginsServer.hub.db, pluginEvent.team_id, 'ingestion_capacity_overflow', {
+            overflowDistinctId: pluginEvent.distinct_id,
+        })
+    }
+
+    await eachMessageIngestion(message, queue)
 }

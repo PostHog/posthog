@@ -11,8 +11,7 @@ import { Hub } from '../../types'
 import { isIngestionOverflowEnabled } from '../../utils/env-utils'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
-import { ConfiguredLimiter, WarningLimiter } from '../../utils/token-bucket'
-import { captureIngestionWarning } from './../../worker/ingestion/utils'
+import { ConfiguredLimiter } from '../../utils/token-bucket'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachBatchIngestion, eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
@@ -121,14 +120,6 @@ export async function eachMessageIngestionWithOverflow(message: KafkaMessage, qu
     // Events are marked to have a null key during batch break-up if they should go to the *_OVERFLOW topic.
     // So we do not ingest them here.
     if (message.key == null) {
-        const { team_id: teamId, distinct_id: distinctId } = JSON.parse(message.value!.toString())
-        // Warnings are limited to 1/key/hour to avoid spamming.
-        if (teamId && WarningLimiter.consume(`${teamId}:${distinctId}`, 1)) {
-            captureIngestionWarning(queue.pluginsServer.hub.db, teamId, 'ingestion_capacity_overflow', {
-                overflowDistinctId: distinctId,
-            })
-        }
-
         await queue.pluginsServer.kafkaProducer.queueMessage({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             messages: [message],
