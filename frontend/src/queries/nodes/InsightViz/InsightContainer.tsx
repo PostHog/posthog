@@ -3,7 +3,7 @@ import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import {
     ChartDisplayType,
-    // ExporterFormat,
+    ExporterFormat,
     // FunnelVizType,
     InsightType,
     ItemMode,
@@ -25,12 +25,12 @@ import {
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-// import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
-// import { ExportButton } from 'lib/components/ExportButton/ExportButton'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 // import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import {
     isFilterWithDisplay,
@@ -76,7 +76,7 @@ export function InsightContainer({
         filters,
         timedOutQueryId,
         erroredQueryId,
-        // exporterResourceParams,
+        exporterResourceParams,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
     // const {
@@ -156,23 +156,23 @@ export function InsightContainer({
         ) {
             return (
                 <>
-                    {/* {exporterResourceParams && (
-                                 <div className="flex items-center justify-between my-4 mx-0">
-                                     <h2 className="m-0">Detailed results</h2>
-                                     <Tooltip title="Export this table in CSV format" placement="left">
-                                         <ExportButton
-                                             type="secondary"
-                                             status="primary"
-                                             items={[
-                                                 {
-                                                     export_format: ExporterFormat.CSV,
-                                                     export_context: exporterResourceParams,
-                                                 },
-                                             ]}
-                                         />
-                                     </Tooltip>
-                                 </div>
-                             )} */}
+                    {exporterResourceParams && (
+                        <div className="flex items-center justify-between my-4 mx-0">
+                            <h2 className="m-0">Detailed results</h2>
+                            <Tooltip title="Export this table in CSV format" placement="left">
+                                <ExportButton
+                                    type="secondary"
+                                    status="primary"
+                                    items={[
+                                        {
+                                            export_format: ExporterFormat.CSV,
+                                            export_context: exporterResourceParams,
+                                        },
+                                    ]}
+                                />
+                            </Tooltip>
+                        </div>
+                    )}
 
                     <InsightsTableDataExploration
                         isLegend
