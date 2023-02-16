@@ -17,10 +17,12 @@
 # By default the target Kafka cluster is the currently configured cluster in
 # Django settings.
 
+from typing import List
 from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 from kafka.structs import TopicPartition
+from kafka.producer.future import FutureRecordMetadata
 
 from django.conf import settings
 
@@ -51,6 +53,7 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--consumer-group-id",
+            required=True,
             help="The consumer group ID to use when consuming from the old cluster",
         )
         parser.add_argument(
@@ -77,6 +80,13 @@ class Command(BaseCommand):
         # topic.
         if from_cluster == to_cluster and from_topic == to_topic:
             raise ValueError("You must specify a different topic and cluster to migrate data to")
+
+        # Fail if the to_topic doesn't exist
+        admin_client = KafkaAdminClient(bootstrap_servers=to_cluster)
+        topics_response = admin_client.describe_topics([to_topic])
+        print(list(topics_response))
+        if not list(topics_response):
+            raise ValueError(f"Failed to describe topic {to_topic}")
 
         # Using the Kafka Admin API, make sure the specified consumer group
         # already has offsets committed for the topic we're migrating data from.
@@ -123,6 +133,8 @@ class Command(BaseCommand):
             self.stdout.write("Polling for messages")
             messages_by_topic = consumer.poll(timeout_ms=10)
 
+            futures: List[FutureRecordMetadata] = []
+
             if not messages_by_topic:
                 break
 
@@ -132,14 +144,19 @@ class Command(BaseCommand):
             for topic, messages in messages_by_topic.items():
                 self.stdout.write(f"Sending {len(messages)} messages to topic {topic}")
                 for message in messages:
-                    producer.send(
-                        to_topic,
-                        message.value,
-                        key=message.key,
-                        headers=message.headers,
+                    futures.append(
+                        producer.send(
+                            to_topic,
+                            message.value,
+                            key=message.key,
+                            headers=message.headers,
+                        )
                     )
 
+            # Flush the producer to ensure that all messages are sent.
             producer.flush()
+            for future in futures:
+                future.get()
 
             # Commit the offsets for the messages we just consumed.
             self.stdout.write("Committing offsets")

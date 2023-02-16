@@ -1,6 +1,11 @@
+from unittest import mock
 from uuid import uuid4
 from django.core.management import call_command
 from kafka import KafkaConsumer, KafkaProducer
+
+from kafka.errors import KafkaError
+from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
+from kafka.structs import TopicPartition
 
 
 def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
@@ -22,15 +27,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     # The command will fail if we don't have a consumer group ID that has
     # already committed offsets to the old topic, so we need to commit some
     # offsets first.
-    old_kafka_consumer = KafkaConsumer(
-        old_events_topic,
-        bootstrap_servers="localhost:9092",
-        auto_offset_reset="latest",
-        group_id=consumer_group_id,
-    )
-    old_kafka_consumer.poll(timeout_ms=1000)
-    old_kafka_consumer.commit()
-    old_kafka_consumer.close()
+    _commit_offsets_for_topic(old_events_topic, consumer_group_id)
 
     old_kafka = KafkaProducer(bootstrap_servers="localhost:9092")
 
@@ -95,14 +92,8 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     consumer_group_id = "events-ingestion-consumer"
     kafka = KafkaProducer(bootstrap_servers="localhost:9092")
     message_key = str(uuid4())
-    old_kafka_consumer = KafkaConsumer(
-        topic,
-        bootstrap_servers="localhost:9092",
-        auto_offset_reset="latest",
-        group_id=consumer_group_id,
-    )
-    old_kafka_consumer.poll(timeout_ms=1000)
-    old_kafka_consumer.commit()
+
+    _commit_offsets_for_topic(topic, consumer_group_id)
 
     # Put some data to the topic
     kafka.send(topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
@@ -160,3 +151,103 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
         assert str(e) == "Consumer group nonexistent-consumer-group has no committed offsets"
     else:
         assert False, "Expected ValueError to be raised"
+
+
+def test_that_we_error_if_the_target_topic_doesnt_exist():
+    """
+    We want to make sure that the command fails if the target topic does not
+    exist.
+    """
+    old_topic = "events_topic"
+    new_topic = str(uuid4())
+    consumer_group_id = "events-ingestion-consumer"
+    kafka = KafkaProducer(bootstrap_servers="localhost:9092")
+    message_key = str(uuid4())
+
+    _commit_offsets_for_topic(old_topic, consumer_group_id)
+
+    # Put some data to the topic
+    kafka.send(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
+    kafka.flush()
+
+    try:
+        call_command(
+            "migrate_kafka_data",
+            "--from-topic",
+            old_topic,
+            "--to-topic",
+            new_topic,
+            "--from-cluster",
+            "localhost:9092",
+            "--to-cluster",
+            "localhost:9092",
+            "--consumer-group-id",
+            consumer_group_id,
+        )
+    except ValueError as e:
+        assert str(e) == "Topic new_events_topic does not exist"
+    else:
+        assert False, "Expected ValueError to be raised"
+
+
+def test_we_fail_on_send_errors_to_new_topic():
+    """
+    We want to make sure that we fail if we get an error when sending data to
+    the new topic.
+    """
+    old_topic = "events_topic"
+    new_topic = "new_events_topic"
+    consumer_group_id = "events-ingestion-consumer"
+    kafka = KafkaProducer(bootstrap_servers="localhost:9092")
+    message_key = str(uuid4())
+
+    _commit_offsets_for_topic(old_topic, consumer_group_id)
+
+    # Put some data to the topic
+    kafka.send(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
+    kafka.flush()
+
+    with mock.patch("kafka.KafkaProducer.send") as mock_send:
+        produce_future = FutureProduceResult(topic_partition=TopicPartition(new_topic, 1))
+        future = FutureRecordMetadata(
+            produce_future=produce_future,
+            relative_offset=0,
+            timestamp_ms=0,
+            checksum=0,
+            serialized_key_size=0,
+            serialized_value_size=0,
+            serialized_header_size=0,
+        )
+        future.failure(KafkaError("Failed to produce"))
+        mock_send.return_value = future
+
+        try:
+            call_command(
+                "migrate_kafka_data",
+                "--from-topic",
+                old_topic,
+                "--to-topic",
+                new_topic,
+                "--from-cluster",
+                "localhost:9092",
+                "--to-cluster",
+                "localhost:9092",
+                "--consumer-group-id",
+                consumer_group_id,
+            )
+        except KafkaError as e:
+            assert str(e) == "Error sending message to new topic"
+        else:
+            assert False, "Expected KafkaError to be raised"
+
+
+def _commit_offsets_for_topic(topic, consumer_group_id):
+    kafka_consumer = KafkaConsumer(
+        topic,
+        bootstrap_servers="localhost:9092",
+        auto_offset_reset="latest",
+        group_id=consumer_group_id,
+    )
+    kafka_consumer.poll(timeout_ms=1000)
+    kafka_consumer.commit()
+    kafka_consumer.close()
