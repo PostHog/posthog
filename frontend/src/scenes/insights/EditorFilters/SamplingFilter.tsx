@@ -3,12 +3,16 @@ import './LifecycleToggles.scss'
 import { LemonSwitch } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function SamplingFilter({ filters: editorFilters }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(insightLogic)
     const { filters } = useValues(insightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    if (editorFilters.insight !== InsightType.LIFECYCLE) {
+    // Sampling is currently behind a feature flag and only available on lifecycle queries
+    if (!featureFlags[FEATURE_FLAGS.SAMPLING] || editorFilters.insight !== InsightType.LIFECYCLE) {
         return <></>
     }
     return (
