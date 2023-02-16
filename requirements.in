@@ -73,3 +73,4 @@ whitenoise==5.2.0
 mimesis==5.2.1
 more-itertools==9.0.0
 django-two-factor-auth==1.15.0
+dj-2fa-social-auth==0.1.0

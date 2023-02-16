@@ -82,6 +82,8 @@ defusedxml==0.6.0
     #   social-auth-core
 deprecated==1.2.13
     # via redis
+dj-2fa-social-auth==0.1.0
+    # via -r requirements.in
 dj-database-url==0.5.0
     # via -r requirements.in
 django==3.2.16
@@ -93,6 +95,7 @@ django==3.2.16
     #   django-extensions
     #   django-filter
     #   django-formtools
+    #   django-model-utils
     #   django-otp
     #   django-phonenumber-field
     #   django-picklefield
@@ -120,6 +123,8 @@ django-ipware==3.0.2
     #   django-structlog
 django-loginas==0.3.9
     # via -r requirements.in
+django-model-utils==4.3.1
+    # via dj-2fa-social-auth
 django-otp==1.1.4
     # via django-two-factor-auth
 django-phonenumber-field==6.4.0
@@ -135,7 +140,9 @@ django-statsd==2.5.2
 django-structlog==2.1.3
     # via -r requirements.in
 django-two-factor-auth==1.15.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   dj-2fa-social-auth
 djangorestframework==3.12.2
     # via
     #   -r requirements.in
@@ -338,7 +345,9 @@ slack-sdk==3.17.1
 sniffio==1.2.0
     # via trio
 social-auth-app-django==5.0.0
-    # via -r requirements.in
+    # via
+    #   -r requirements.in
+    #   dj-2fa-social-auth
 social-auth-core==4.3.0
     # via
     #   -r requirements.in
