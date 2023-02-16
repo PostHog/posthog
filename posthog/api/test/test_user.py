@@ -785,3 +785,10 @@ class TestStaffUserAPI(APIBaseTest):
 
         user.refresh_from_db()
         self.assertEqual(user.is_staff, False)
+
+    def test_add_2fa(self):
+        self._create_user("newuser@posthog.com", password="12345678")
+        self.client.logout()
+        response = self.client.get(f"/api/users/@me/start_2fa_setup/")
+        response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

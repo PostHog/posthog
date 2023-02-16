@@ -188,6 +188,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Login]: {
         onlyUnauthenticated: true,
     },
+    [Scene.Login2FA]: {
+        onlyUnauthenticated: true,
+    },
     [Scene.Signup]: {
         onlyUnauthenticated: true,
     },
@@ -346,6 +349,7 @@ export const routes: Record<string, Scene> = {
     [urls.toolbarLaunch()]: Scene.ToolbarLaunch,
     // Onboarding / setup routes
     [urls.login()]: Scene.Login,
+    [urls.login2FA()]: Scene.Login2FA,
     [urls.preflight()]: Scene.PreflightCheck,
     [urls.signup()]: Scene.Signup,
     [urls.inviteSignup(':id')]: Scene.InviteSignup,

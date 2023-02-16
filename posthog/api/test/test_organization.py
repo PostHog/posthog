@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from rest_framework import status
 
 from posthog.models import Organization, OrganizationMembership, Team
@@ -120,6 +122,22 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.plugins_access_level, 3)
+
+    @patch("posthog.api.organization.default_device")
+    def test_enforce_2fa_for_everyone(self, patch_default_device):
+        # Only admins should be able to enforce 2fa
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        patch_default_device.return_value = True
+        response = self.client.patch(f"/api/organizations/{self.organization.id}/", {"enforce_2fa": True})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.enforce_2fa, True)
 
 
 def create_organization(name: str) -> Organization:

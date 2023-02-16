@@ -6,6 +6,7 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
+from two_factor.utils import default_device
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -37,6 +38,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
+    is_2fa_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = OrganizationMembership
@@ -46,8 +48,12 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             "level",
             "joined_at",
             "updated_at",
+            "is_2fa_enabled",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
+
+    def get_is_2fa_enabled(self, instance: OrganizationMembership) -> bool:
+        return default_device(instance.user) is not None
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)

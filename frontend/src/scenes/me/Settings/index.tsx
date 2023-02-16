@@ -9,6 +9,7 @@ import { OptOutCapture } from './OptOutCapture'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UserDetails } from './UserDetails'
+import { TwoFactorAuthentication } from './TwoFactorAuthentication'
 
 export const scene: SceneExport = {
     component: MySettings,
@@ -35,6 +36,11 @@ export function MySettings(): JSX.Element {
                     Personal API Keys
                 </h2>
                 <PersonalAPIKeys />
+                <Divider />
+                <h2 id="2fa" className="subtitle">
+                    Two-Factor Authentication
+                </h2>
+                <TwoFactorAuthentication />
                 <Divider />
                 <div id="notifications">
                     <h2 className="subtitle">Notifications</h2>

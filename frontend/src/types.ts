@@ -204,6 +204,7 @@ export interface BaseMemberType {
     user: UserBasicType
     joined_at: string
     updated_at: string
+    is_2fa_enabled: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {

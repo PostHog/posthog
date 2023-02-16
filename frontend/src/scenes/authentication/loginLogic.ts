@@ -9,6 +9,7 @@ import { SSOProviders } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 export interface AuthenticateResponseType {
     success: boolean
@@ -38,6 +39,10 @@ export function handleLoginRedirect(): void {
 export interface LoginForm {
     email: string
     password: string
+}
+
+export interface TwoFactorForm {
+    token: number | null
 }
 
 export const loginLogic = kea<loginLogicType>([
@@ -100,9 +105,30 @@ export const loginLogic = kea<loginLogicType>([
                 } catch (e) {
                     const { code } = e as Record<string, any>
                     let { detail } = e as Record<string, any>
+                    if (code === '2fa_required') {
+                        router.actions.push(urls.login2FA())
+                        throw e
+                    }
                     if (values.featureFlags[FEATURE_FLAGS.REGION_SELECT] && code === 'invalid_credentials') {
                         detail += ' Make sure you have selected the right data region.'
                     }
+                    actions.setGeneralError(code, detail)
+                    throw e
+                }
+            },
+        },
+        twofactortoken: {
+            defaults: { token: null } as TwoFactorForm,
+            errors: ({ token }) => ({
+                token: !token ? 'Please enter a token to continued' : undefined,
+            }),
+            submit: async ({ token }, breakpoint) => {
+                await breakpoint()
+                try {
+                    return await api.create('api/login/token', { token })
+                } catch (e) {
+                    const { code } = e as Record<string, any>
+                    const { detail } = e as Record<string, any>
                     actions.setGeneralError(code, detail)
                     throw e
                 }
@@ -113,6 +139,10 @@ export const loginLogic = kea<loginLogicType>([
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
+            window.location.reload()
+        },
+        submitTwofactortokenSuccess: () => {
+            handleLoginRedirect()
             window.location.reload()
         },
     }),

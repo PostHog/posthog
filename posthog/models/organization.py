@@ -106,6 +106,7 @@ class Organization(UUIDModel):
     )
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+    enforce_2fa: models.BooleanField = models.BooleanField(default=False)
 
     # Managed by Billing
     customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)

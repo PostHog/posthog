@@ -66,7 +66,7 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                             (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
                     ) {
                         lemonToast.error(
-                            `${identifierToHuman(actionKey)} on reducer ${identifierToHuman(reducerKey)} failed: ${
+                            `${identifierToHuman(actionKey)} failed: ${
                                 error.detail || error.statusText || 'PostHog may be offline'
                             }`
                         )

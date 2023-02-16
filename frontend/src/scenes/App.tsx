@@ -18,6 +18,8 @@ import { ToastCloseButton } from 'lib/lemon-ui/lemonToast'
 import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
 import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { LemonModal } from '@posthog/lemon-ui'
+import { Setup2FA } from './authentication/Setup2FA'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -154,6 +156,16 @@ function AppScene(): JSX.Element | null {
             <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
             <UpgradeModal />
+            {user.organization.enforce_2fa && !user.is_2fa_enabled && (
+                <LemonModal title="Set up 2FA" closable={false}>
+                    Your organization requires you to set up 2FA.
+                    <Setup2FA
+                        onSuccess={() => {
+                            userLogic.actions.loadUser()
+                        }}
+                    />
+                </LemonModal>
+            )}
         </>
     )
 }

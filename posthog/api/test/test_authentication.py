@@ -5,6 +5,7 @@ from unittest.mock import ANY, patch
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.utils import timezone
+from django_otp.plugins.otp_static.models import StaticDevice
 from freezegun import freeze_time
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -156,6 +157,65 @@ class TestLoginAPI(APIBaseTest):
                     "attr": None,
                 },
             )
+
+    @patch("posthog.api.user.default_device")
+    @patch("posthog.api.authentication.default_device")
+    @patch("posthog.api.authentication.verify_token")
+    def test_login_2fa_enabled(self, patch_verify_token, patch_devices_for_user, patch_default_device):
+        patch_devices_for_user.return_value = [StaticDevice()]
+        patch_default_device.return_value = [StaticDevice()]
+        patch_verify_token.return_value = True
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None},
+        )
+
+        # Assert user is not logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("email", response.json())
+
+        response = self.client.post("/api/login/token", {"token": "abcdefg"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+    @patch("posthog.api.user.default_device")
+    @patch("posthog.api.authentication.default_device")
+    @patch("posthog.api.authentication.verify_token")
+    def test_2fa_expired(self, patch_verify_token, patch_devices_for_user, patch_default_device):
+        patch_devices_for_user.return_value = [StaticDevice()]
+        patch_default_device.return_value = [StaticDevice()]
+        patch_verify_token.return_value = True
+
+        with freeze_time("2023-01-01T10:00:00"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(
+                response.json(),
+                {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None},
+            )
+
+        with freeze_time("2023-01-01T10:30:00"):
+            response = self.client.post("/api/login/token", {"token": "abcdefg"})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "2fa_expired",
+                    "detail": "Login attempt has expired. Re-enter username/password.",
+                    "attr": None,
+                },
+            )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
 
 class TestPasswordResetAPI(APIBaseTest):

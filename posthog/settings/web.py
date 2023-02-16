@@ -37,6 +37,15 @@ INSTALLED_APPS = [
     "django_filters",
     "axes",
     "drf_spectacular",
+    "django_otp",
+    "django_otp.plugins.otp_static",
+    "django_otp.plugins.otp_totp",
+    # 'django_otp.plugins.otp_email',  # <- if you want email capability.
+    "two_factor",
+    "social_2fa",
+    # 'two_factor.plugins.phonenumber',  # <- if you want phone number capability.
+    # 'two_factor.plugins.email',  # <- if you want email capability.
+    # 'two_factor.plugins.yubikey',  # <- for yubikey capability.
 ]
 
 
@@ -60,6 +69,7 @@ MIDDLEWARE = [
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django_otp.middleware.OTPMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "posthog.middleware.CsvNeverCacheMiddleware",
@@ -137,6 +147,7 @@ SOCIAL_AUTH_PIPELINE = (
     "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
+    "social_2fa.social_pipeline.two_factor_auth",
 )
 
 SOCIAL_AUTH_STRATEGY = "social_django.strategy.DjangoStrategy"

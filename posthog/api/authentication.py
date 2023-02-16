@@ -1,3 +1,4 @@
+import time
 from typing import Any, Dict, Optional, cast
 
 from django.conf import settings
@@ -6,14 +7,18 @@ from django.contrib.auth import views as auth_views
 from django.contrib.auth.password_validation import validate_password
 from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.csrf import csrf_protect
+from django_otp import login as otp_login
 from loginas.utils import is_impersonated_session, restore_original_login
 from rest_framework import mixins, permissions, serializers, status, viewsets
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 from social_django.views import auth
+from two_factor.utils import default_device
 
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
@@ -64,6 +69,12 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
     return auth(request, backend)
 
 
+class TwoFactorRequired(APIException):
+    status_code = 401
+    default_detail = "2FA is required."
+    default_code = "2fa_required"
+
+
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
@@ -87,6 +98,11 @@ class LoginSerializer(serializers.Serializer):
 
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
+        if default_device(user) is not None:
+            request.session["user_authenticated_but_no_2fa"] = user.pk
+            request.session["user_authenticated_time"] = time.time()
+            raise TwoFactorRequired()
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_logged_in(user, social_provider="")
@@ -122,6 +138,37 @@ class NonCreatingViewSetMixin(mixins.CreateModelMixin):
 class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
     queryset = User.objects.none()
     serializer_class = LoginSerializer
+    permission_classes = (permissions.AllowAny,)
+
+
+class TwoFactorSerializer(serializers.Serializer):
+    token = serializers.CharField(write_only=True)
+
+    def create(self, validated_data):
+        request = self.context["request"]
+        user = User.objects.get(pk=request.session["user_authenticated_but_no_2fa"])
+        expiration_time = request.session["user_authenticated_time"] + getattr(
+            settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600
+        )
+        if int(time.time()) > expiration_time:
+            raise serializers.ValidationError(
+                detail="Login attempt has expired. Re-enter username/password.", code="2fa_expired"
+            )
+
+        with transaction.atomic():
+            device = default_device(user)
+            if device.verify_token(validated_data["token"]):
+                login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+                otp_login(request, device)
+                report_user_logged_in(user, social_provider="")
+                return Response({"success": True})
+            else:
+                raise serializers.ValidationError(detail="2FA token was not valid", code="2fa_invalid")
+
+
+class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = TwoFactorSerializer
+    queryset = User.objects.none()
     permission_classes = (permissions.AllowAny,)
 
 
