@@ -1,3 +1,4 @@
+from uuid import uuid4
 from django.core.management import call_command
 from kafka import KafkaConsumer, KafkaProducer
 
@@ -15,11 +16,25 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     """
     old_events_topic = "old_events_topic"
     new_events_topic = "new_events_topic"
+    consumer_group_id = "events-ingestion-consumer"
+    message_key = str(uuid4())
+
+    # The command will fail if we don't have a consumer group ID that has
+    # already committed offsets to the old topic, so we need to commit some
+    # offsets first.
+    old_kafka_consumer = KafkaConsumer(
+        old_events_topic,
+        bootstrap_servers="localhost:9092",
+        auto_offset_reset="latest",
+        group_id=consumer_group_id,
+    )
+    old_kafka_consumer.poll(timeout_ms=1000)
+    old_kafka_consumer.commit()
 
     old_kafka = KafkaProducer(bootstrap_servers="localhost:9092")
 
     # Put some data to the old topic
-    old_kafka.send(old_events_topic, b'{ "event": "test" }', key=b"key")
+    old_kafka.send(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
     old_kafka.flush()
 
     call_command(
@@ -33,7 +48,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
         "--to-cluster",
         "localhost:9092",
         "--consumer-group-id",
-        "events-ingestion-consumer",
+        consumer_group_id,
     )
 
     # Now create a kafka consumer to consumer data from the new topic, and
@@ -41,16 +56,32 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     new_kafka_consumer = KafkaConsumer(
         new_events_topic,
         bootstrap_servers="localhost:9092",
+        auto_offset_reset="earliest",
         group_id="test",
     )
 
-    new_kafka_consumer.subscribe([new_events_topic])
+    # Poll the consumer for messages until we find a message with the same
+    # message_key we send to the old topic, failing the test if we don't find
+    # it within 10 seconds.
+    found_message = None
+    for _ in range(10):
+        messages_by_topic = new_kafka_consumer.poll(timeout_ms=1000)
 
-    # Now consume from the consumer, collect all messages and verify they are
-    # the same.
-    messages = new_kafka_consumer.poll(timeout_ms=1000)
+        if not messages_by_topic:
+            continue
 
-    assert len(messages) == 1
+        for _, messages in messages_by_topic.items():
+            for message in messages:
+                if message.key.decode("utf-8") == message_key:
+                    found_message = message
+                    break
+
+            if found_message:
+                break
+        if found_message:
+            break
+
+    assert found_message and found_message.value == b'{ "event": "test" }', "Did not find message in new topic"
 
 
 def test_cannot_send_data_back_into_same_topic_on_same_cluster():
@@ -59,10 +90,20 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     the same cluster, as that would cause duplicates.
     """
     topic = "events_topic"
+    consumer_group_id = "events-ingestion-consumer"
     kafka = KafkaProducer(bootstrap_servers="localhost:9092")
+    message_key = str(uuid4())
+    old_kafka_consumer = KafkaConsumer(
+        topic,
+        bootstrap_servers="localhost:9092",
+        auto_offset_reset="latest",
+        group_id=consumer_group_id,
+    )
+    old_kafka_consumer.poll(timeout_ms=1000)
+    old_kafka_consumer.commit()
 
     # Put some data to the topic
-    kafka.send(topic, b'{ "event": "test" }', key=b"key")
+    kafka.send(topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
     kafka.flush()
 
     try:
@@ -77,9 +118,43 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
             "--to-cluster",
             "localhost:9092",
             "--consumer-group-id",
-            "events-ingestion-consumer",
+            consumer_group_id,
         )
     except ValueError as e:
         assert str(e) == "You must specify a different topic and cluster to migrate data to"
+    else:
+        assert False, "Expected ValueError to be raised"
+
+
+def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist():
+    """
+    We want to make sure that the command fails if the specified consumer group
+    does not exist for the topic.
+    """
+    old_topic = "events_topic"
+    new_topic = "new_events_topic"
+    kafka = KafkaProducer(bootstrap_servers="localhost:9092")
+    message_key = str(uuid4())
+
+    # Put some data to the topic
+    kafka.send(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
+    kafka.flush()
+
+    try:
+        call_command(
+            "migrate_kafka_data",
+            "--from-topic",
+            old_topic,
+            "--to-topic",
+            new_topic,
+            "--from-cluster",
+            "localhost:9092",
+            "--to-cluster",
+            "localhost:9092",
+            "--consumer-group-id",
+            "nonexistent-consumer-group",
+        )
+    except ValueError as e:
+        assert str(e) == "Consumer group nonexistent-consumer-group has no committed offsets"
     else:
         assert False, "Expected ValueError to be raised"

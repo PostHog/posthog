@@ -18,7 +18,7 @@
 # Django settings.
 
 from django.core.management.base import BaseCommand
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 from kafka.structs import TopicPartition
 from typing import Any, Dict, List, Optional, Tuple
@@ -68,6 +68,25 @@ class Command(BaseCommand):
         if from_cluster == to_cluster and from_topic == to_topic:
             raise ValueError("You must specify a different topic and cluster to migrate data to")
 
+        # Using the Kafka Admin API, make sure the specified consumer group
+        # already has offsets committed for the topic we're migrating data from.
+        # If it doesn't, then we do not want to try to migrate data as we expect
+        # that if called correctly, we would be specifying a consumer group ID
+        # that has already been consuming from the cluster.
+        admin_client = KafkaAdminClient(bootstrap_servers=from_cluster)
+        try:
+            committed_offsets = admin_client.list_consumer_group_offsets(consumer_group_id)
+        except KafkaError as e:
+            raise ValueError(f"Failed to list consumer group offsets: {e}")
+
+        if not committed_offsets:
+            raise ValueError(f"Consumer group {consumer_group_id} has no committed offsets")
+
+        if TopicPartition(topic=from_topic, partition=0) not in committed_offsets:
+            raise ValueError(
+                f"Consumer group {consumer_group_id} has no committed offsets for topic {from_topic}: {committed_offsets}"
+            )
+
         self.stdout.write(
             f"Migrating data from topic {from_topic} on cluster {from_cluster} to topic {to_topic} on cluster {to_cluster} using consumer group ID {consumer_group_id}"
         )
@@ -76,9 +95,9 @@ class Command(BaseCommand):
         consumer = KafkaConsumer(
             from_topic,
             bootstrap_servers=from_cluster,
+            auto_offset_reset="earliest",
             enable_auto_commit=True,
             group_id=consumer_group_id,
-            consumer_timeout_ms=1000,  # If we have no more messages, just stop.
         )
 
         # Create a Kafka producer to produce to the new topic.
@@ -86,19 +105,17 @@ class Command(BaseCommand):
 
         # Now consume from the consumer, and produce to the producer.
         while True:
+            self.stdout.write("Polling for messages")
             messages_by_topic = consumer.poll(timeout_ms=1000)
 
             if not messages_by_topic:
                 break
 
-            # Output progress of data migration
-            for topic, messages in messages_by_topic.items():
-                self.stdout.write(f"Migrating {len(messages)} messages from topic {topic}")
-
             # Send the messages to the new topic. Note that messages may not be
             # send immediately, but rather batched by the Kafka Producer
             # according to e.g. linger_ms etc.
-            for _, messages in messages_by_topic.items():
+            for topic, messages in messages_by_topic.items():
+                self.stdout.write(f"Sending {len(messages)} messages to topic {topic}")
                 for message in messages:
                     producer.send(
                         to_topic,
@@ -106,6 +123,7 @@ class Command(BaseCommand):
                         key=message.key,
                     )
 
+        self.stdout.write("Flushing producer")
         producer.flush()
 
         self.stdout.write("Done migrating data")
