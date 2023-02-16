@@ -115,4 +115,29 @@ describe('eachBatchIngestionWithOverflow', () => {
         expect(captureIngestionWarning).not.toHaveBeenCalled()
         expect(queue.pluginsServer.kafkaProducer.queueMessage).not.toHaveBeenCalled()
     })
+
+    it('does not run the rest of the pipeline if overflowing', async () => {
+        const batch = createBatchWithMultipleEventsWithKeys([captureEndpointEvent])
+        const consume = jest.spyOn(ConfiguredLimiter, 'consume').mockImplementation(() => false)
+
+        await eachBatchIngestionWithOverflow(batch, queue)
+
+        expect(consume).toHaveBeenCalledWith(
+            captureEndpointEvent['team_id'] + ':' + captureEndpointEvent['distinct_id'],
+            1
+        )
+        expect(queue.pluginsServer.kafkaProducer.queueMessage).toHaveBeenCalledWith({
+            topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+            messages: [
+                {
+                    value: JSON.stringify(captureEndpointEvent),
+                    timestamp: captureEndpointEvent['timestamp'],
+                    offset: captureEndpointEvent['offset'],
+                    key: null,
+                },
+            ],
+        })
+        // This is "the rest of the pipeline"
+        expect(queue.workerMethods.runEventPipeline).not.toHaveBeenCalled()
+    })
 })
