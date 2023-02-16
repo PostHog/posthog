@@ -154,7 +154,6 @@ export function InsightContainer({
             (!display || (display !== ChartDisplayType.ActionsTable && display !== ChartDisplayType.ActionsBarValue)) &&
             !disableTable
         ) {
-            console.log('activeView: ', activeView)
             return (
                 <>
                     {/* {exporterResourceParams && (

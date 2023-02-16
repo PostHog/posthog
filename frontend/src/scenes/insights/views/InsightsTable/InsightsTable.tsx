@@ -119,7 +119,7 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
     )
 }
 
-type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
+export type InsightsTableComponentProps = InsightsTableProps & {
     isTrends: boolean
     trendsFilter: TrendsFilter | null | undefined
     display: ChartDisplayType | undefined
@@ -133,7 +133,7 @@ type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     handleSeriesEditClick: (item: IndexedTrendResult) => void
 }
 
-function InsightsTableComponent({
+export function InsightsTableComponent({
     isLegend = false,
     embedded = false,
     canEditSeriesNameInline = false,
