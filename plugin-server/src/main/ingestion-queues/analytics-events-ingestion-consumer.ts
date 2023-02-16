@@ -28,10 +28,10 @@ export const startAnalyticsEventsIngestionConsumer = async ({
         Consumes analytics events from the Kafka topic `events_plugin_ingestion`
         and processes them for ingestion into ClickHouse.
 
-        Before processing, if an event has overflowed the capacity for its
-        (team_id, distinct_id) pair, it will not be processed here but instead
-        re-produced into the `events_plugin_ingestion_overflow` topic for later
-        processing.
+        Before processing, if isIngestionOverflowEnabled and an event has
+        overflowed the capacity for its (team_id, distinct_id) pair, it will not
+        be processed here but instead re-produced into the
+        `events_plugin_ingestion_overflow` topic for later processing.
 
         At the moment this is just a wrapper around `IngestionConsumer`. We may
         want to further remove that abstraction in the future.
