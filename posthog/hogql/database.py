@@ -63,6 +63,14 @@ class Table(BaseModel):
         return splash
 
 
+class JoinedTable(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    join_function: Callable[[str, str, List[str]], Any]
+    table: Table
+
+
 class PersonsTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="id")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
@@ -102,14 +110,6 @@ class EventsPersonSubTable(Table):
     def clickhouse_table(self):
         # This is a bit of a hack to make sure person.properties.x works
         return "events"
-
-
-class JoinedTable(BaseModel):
-    class Config:
-        extra = Extra.forbid
-
-    join_function: Callable[[str, str, List[str]], Any]
-    table: Table
 
 
 def join_events_to_max_person_distinct_id(events_alias: str, pdi_alias: str, requested_fields: List[str]):

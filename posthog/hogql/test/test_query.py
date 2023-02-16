@@ -176,7 +176,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events INNER JOIN (SELECT argMax(person_id, version) AS person_id, distinct_id FROM person_distinct_id2 GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events_pdi ON equals(events.distinct_id, events_pdi.distinct_id) LIMIT 10",
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
             )
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
