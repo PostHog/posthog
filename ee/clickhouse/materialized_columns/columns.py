@@ -80,6 +80,7 @@ def materialize(
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
         """,
             {"property": property},
+            settings={"alter_sync": 1},
         )
         sync_execute(
             f"""
@@ -87,7 +88,8 @@ def materialize(
             {execute_on_cluster}
             ADD COLUMN IF NOT EXISTS
             {column_name} VARCHAR
-        """
+        """,
+            settings={"alter_sync": 1},
         )
     else:
         sync_execute(
@@ -98,11 +100,13 @@ def materialize(
             {column_name} VARCHAR MATERIALIZED {TRIM_AND_EXTRACT_PROPERTY.format(table_column=table_column)}
         """,
             {"property": property},
+            settings={"alter_sync": 1},
         )
 
     sync_execute(
         f"ALTER TABLE {table} {execute_on_cluster} COMMENT COLUMN {column_name} %(comment)s",
         {"comment": f"column_materializer::{table_column}::{property}"},
+        settings={"alter_sync": 1},
     )
 
     add_minmax_index(table, column_name)
@@ -121,7 +125,8 @@ def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
         {execute_on_cluster}
         ADD INDEX {index_name} {column_name}
         TYPE minmax GRANULARITY 1
-        """
+        """,
+        settings={"alter_sync": 1},
     )
 
     return index_name
