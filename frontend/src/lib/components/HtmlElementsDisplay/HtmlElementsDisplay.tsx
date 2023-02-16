@@ -80,7 +80,7 @@ export function HtmlElementsDisplay({
     elements = elements.slice(Math.max(elements.length - 10, 1))
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key })
-    const { selectors, chosenSelector } = useValues(logic)
+    const { selectors, chosenSelector, messageStatus } = useValues(logic)
     const { setSelectors } = useActions(logic)
 
     return (
@@ -93,15 +93,7 @@ export function HtmlElementsDisplay({
             )}
             {checkUniqueness && (
                 // TODO use the SelectorCount element here?
-                <AlertMessage
-                    type={
-                        chosenSelector.selectorMatchCount === 0
-                            ? 'info'
-                            : chosenSelector.selectorMatchCount === 1
-                            ? 'success'
-                            : 'warning'
-                    }
-                >
+                <AlertMessage type={messageStatus}>
                     {chosenSelector.selectorMatchCount === null ? (
                         <>Choose parts of the HTML below to build a selector</>
                     ) : (

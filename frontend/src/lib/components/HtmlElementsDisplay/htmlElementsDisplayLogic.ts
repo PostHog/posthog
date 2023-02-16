@@ -36,6 +36,18 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                 chooseSelector: (_, { chosenSelector }) => chosenSelector,
             },
         ],
+        messageStatus: [
+            'info' as 'info' | 'success' | 'warning',
+            {
+                chooseSelector: (_, { chosenSelector }) => {
+                    return chosenSelector.selectorMatchCount === null
+                        ? 'info'
+                        : chosenSelector.selectorMatchCount === 1
+                        ? 'success'
+                        : 'warning'
+                },
+            },
+        ],
     }),
     listeners(({ props, actions }) => ({
         setSelectors: ({ selectors }) => {
