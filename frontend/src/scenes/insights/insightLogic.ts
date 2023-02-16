@@ -105,13 +105,14 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
+            insightSceneLogic,
+            ['activeView'],
         ],
-        actions: [tagsModel, ['loadTags']],
+        actions: [tagsModel, ['loadTags'], insightSceneLogic, ['setActiveView as setSceneActiveView']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
     actions({
-        setActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -507,7 +508,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
         timedOutQueryId: [
             null as string | null,
-            { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId, setActiveView: () => null },
+            { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId, setSceneActiveView: () => null },
         ],
         maybeShowTimeoutMessage: [
             false,
@@ -516,12 +517,12 @@ export const insightLogic = kea<insightLogicType>([
                 markInsightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
                 endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
-                setActiveView: () => false,
+                setSceneActiveView: () => false,
             },
         ],
         erroredQueryId: [
             null as string | null,
-            { markInsightErrored: (_, { erroredQueryId }) => erroredQueryId, setActiveView: () => null },
+            { markInsightErrored: (_, { erroredQueryId }) => erroredQueryId, setSceneActiveView: () => null },
         ],
         maybeShowErrorMessage: [
             false,
@@ -534,7 +535,7 @@ export const insightLogic = kea<insightLogicType>([
                 loadInsightFailure: (_, { errorObject }) => errorObject?.status === 0,
                 loadResultsFailure: (_, { errorObject }) => errorObject?.status === 0,
                 startQuery: () => false,
-                setActiveView: () => false,
+                setSceneActiveView: () => false,
             },
         ],
         timeout: [null as number | null, { setTimeout: (_, { timeout }) => timeout }],
@@ -543,7 +544,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
                 loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
-                setActiveView: () => null,
+                setSceneActiveView: () => null,
             },
         ],
         insightLoading: [
@@ -610,7 +611,6 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level == undefined ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
-        activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
         loadedView: [
             (s) => [s.insight, s.activeView],
             ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
@@ -961,8 +961,8 @@ export const insightLogic = kea<insightLogicType>([
                 }
             }
         },
-        setActiveView: ({ type }) => {
-            actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
+        setSceneActiveView: ({ activeView }) => {
+            actions.setFilters(cleanFilters({ ...values.filters, insight: activeView }, values.filters))
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }

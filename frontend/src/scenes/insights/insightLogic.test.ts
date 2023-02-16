@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import api from 'lib/api'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -1278,11 +1279,15 @@ describe('insightLogic', () => {
     })
 
     describe('active view', () => {
+        let sceneLogic: ReturnType<typeof insightSceneLogic.build>
         beforeEach(async () => {
             logic = insightLogic({
                 dashboardItemId: 'new',
             })
-            logic.mount()
+            const unmountInsightLogic = logic.mount()
+            sceneLogic = insightSceneLogic()
+            sceneLogic.mount()
+            sceneLogic.actions.setInsightLogic(logic, unmountInsightLogic)
         })
 
         it('has a default of trends', async () => {
@@ -1293,7 +1298,7 @@ describe('insightLogic', () => {
 
         it('can set the active view to TRENDS which sets the filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setActiveView(InsightType.TRENDS)
+                sceneLogic.actions.setActiveView(InsightType.TRENDS)
             }).toMatchValues({
                 filters: {
                     actions: [],
@@ -1316,7 +1321,7 @@ describe('insightLogic', () => {
 
         it('can set the active view to FUNNEL which sets the filters differently', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setActiveView(InsightType.FUNNELS)
+                sceneLogic.actions.setActiveView(InsightType.FUNNELS)
             }).toMatchValues({
                 filters: {
                     actions: [],
@@ -1338,28 +1343,28 @@ describe('insightLogic', () => {
         it('clears maybeShowTimeoutMessage when setting active view', async () => {
             logic.actions.markInsightTimedOut('a query id')
             await expectLogic(logic).toMatchValues({ maybeShowTimeoutMessage: true })
-            logic.actions.setActiveView(InsightType.FUNNELS)
+            sceneLogic.actions.setActiveView(InsightType.FUNNELS)
             await expectLogic(logic).toMatchValues({ maybeShowTimeoutMessage: false })
         })
 
         it('clears maybeShowErrorMessage when setting active view', async () => {
             logic.actions.loadInsightFailure('error', { status: 0 })
             await expectLogic(logic).toMatchValues({ maybeShowErrorMessage: true })
-            logic.actions.setActiveView(InsightType.FUNNELS)
+            sceneLogic.actions.setActiveView(InsightType.FUNNELS)
             await expectLogic(logic).toMatchValues({ maybeShowErrorMessage: false })
         })
 
         it('clears lastRefresh when setting active view', async () => {
             logic.actions.setLastRefresh('123')
             await expectLogic(logic).toMatchValues({ lastRefresh: '123' })
-            logic.actions.setActiveView(InsightType.FUNNELS)
+            sceneLogic.actions.setActiveView(InsightType.FUNNELS)
             await expectLogic(logic).toMatchValues({ lastRefresh: null })
         })
 
         it('clears erroredQueryId when setting active view', async () => {
             logic.actions.markInsightErrored('123')
             await expectLogic(logic).toMatchValues({ erroredQueryId: '123' })
-            logic.actions.setActiveView(InsightType.FUNNELS)
+            sceneLogic.actions.setActiveView(InsightType.FUNNELS)
             await expectLogic(logic).toMatchValues({ erroredQueryId: null })
         })
 
@@ -1369,7 +1374,8 @@ describe('insightLogic', () => {
                     dashboardItemId: 'insight' as InsightShortId,
                     cachedInsight: { filters: { insight: InsightType.FUNNELS } },
                 })
-                logicWithCachedInsight.mount()
+                const unmountLogic = logicWithCachedInsight.mount()
+                sceneLogic.actions.setInsightLogic(logicWithCachedInsight, unmountLogic)
                 expect(logicWithCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
             })
 

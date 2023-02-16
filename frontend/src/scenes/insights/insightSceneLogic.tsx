@@ -30,6 +30,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             logic,
             unmount,
         }),
+        setActiveView: (activeView: InsightType) => ({ activeView }),
     }),
     reducers({
         insightId: [
@@ -66,6 +67,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         ],
     }),
     selectors(() => ({
+        activeView: [
+            (s) => [s.insightCache],
+            (insightCache) => insightCache?.logic?.values?.filters?.insight || InsightType.TRENDS,
+        ],
         insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
         insight: [(s) => [(state, props) => s.insightSelector?.(state, props)?.(state, props)], (insight) => insight],
         breadcrumbs: [
