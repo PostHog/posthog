@@ -94,7 +94,7 @@ class Command(BaseCommand):
         consumer = KafkaConsumer(
             from_topic,
             bootstrap_servers=from_cluster,
-            auto_offset_reset="earliest",
+            auto_offset_reset="latest",
             enable_auto_commit=False,
             group_id=consumer_group_id,
             consumer_timeout_ms=1000,
