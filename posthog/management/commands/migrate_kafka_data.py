@@ -84,9 +84,8 @@ class Command(BaseCommand):
         # Fail if the to_topic doesn't exist
         admin_client = KafkaAdminClient(bootstrap_servers=to_cluster)
         topics_response = admin_client.describe_topics([to_topic])
-        print(list(topics_response))
-        if not list(topics_response):
-            raise ValueError(f"Failed to describe topic {to_topic}")
+        if not list(topics_response) or topics_response[0]["error_code"]:
+            raise ValueError(f"Topic {to_topic} does not exist")
 
         # Using the Kafka Admin API, make sure the specified consumer group
         # already has offsets committed for the topic we're migrating data from.
@@ -128,41 +127,46 @@ class Command(BaseCommand):
             batch_size=batch_size,
         )
 
-        # Now consume from the consumer, and produce to the producer.
-        while True:
-            self.stdout.write("Polling for messages")
-            messages_by_topic = consumer.poll(timeout_ms=10)
+        try:
+            # Now consume from the consumer, and produce to the producer.
+            while True:
+                self.stdout.write("Polling for messages")
+                messages_by_topic = consumer.poll(timeout_ms=1000)
 
-            futures: List[FutureRecordMetadata] = []
+                futures: List[FutureRecordMetadata] = []
 
-            if not messages_by_topic:
-                break
+                if not messages_by_topic:
+                    break
 
-            # Send the messages to the new topic. Note that messages may not be
-            # send immediately, but rather batched by the Kafka Producer
-            # according to e.g. linger_ms etc.
-            for topic, messages in messages_by_topic.items():
-                self.stdout.write(f"Sending {len(messages)} messages to topic {topic}")
-                for message in messages:
-                    futures.append(
-                        producer.send(
-                            to_topic,
-                            message.value,
-                            key=message.key,
-                            headers=message.headers,
+                # Send the messages to the new topic. Note that messages may not be
+                # send immediately, but rather batched by the Kafka Producer
+                # according to e.g. linger_ms etc.
+                for topic, messages in messages_by_topic.items():
+                    self.stdout.write(f"Sending {len(messages)} messages to topic {topic}")
+                    for message in messages:
+                        futures.append(
+                            producer.send(
+                                to_topic,
+                                message.value,
+                                key=message.key,
+                                headers=message.headers,
+                            )
                         )
-                    )
 
-            # Flush the producer to ensure that all messages are sent.
-            producer.flush()
-            for future in futures:
-                future.get()
+                # Flush the producer to ensure that all messages are sent.
+                self.stdout.write("Flushing producer")
+                producer.flush()
+                for future in futures:
+                    future.get()
 
-            # Commit the offsets for the messages we just consumed.
-            self.stdout.write("Committing offsets")
-            consumer.commit()
-
-        self.stdout.write("Flushing producer")
-        producer.flush()
+                # Commit the offsets for the messages we just consumed.
+                self.stdout.write("Committing offsets")
+                consumer.commit()
+        finally:
+            # Close the consumer and producer.
+            self.stdout.write("Closing consumer")
+            consumer.close()
+            self.stdout.write("Closing producer")
+            producer.close()
 
         self.stdout.write("Done migrating data")
