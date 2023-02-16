@@ -58,6 +58,7 @@ def materialize(
     property: PropertyName,
     column_name=None,
     table_column: TableColumn = DEFAULT_TABLE_COLUMN,
+    create_minmax_index=not TEST,
 ) -> None:
     if (property, table_column) in get_materialized_columns(table, use_cache=False):
         if TEST:
@@ -110,7 +111,8 @@ def materialize(
         settings={"alter_sync": 1},
     )
 
-    add_minmax_index(table, column_name)
+    if create_minmax_index:
+        add_minmax_index(table, column_name)
 
 
 def add_minmax_index(table: TablesWithMaterializedColumns, column_name: str):
