@@ -129,6 +129,12 @@ jobs:
             JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
         steps:
             - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 1
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+                  ref: ${{ github.event.pull_request.head.ref }}
+                  # Use PostHog Bot token when not on forks to enable proper snapshot updating
+                  token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
             - name: Install pnpm
               uses: pnpm/action-setup@v2
