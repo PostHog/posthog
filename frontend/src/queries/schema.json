@@ -1600,34 +1600,8 @@
                     "type": "array"
                 },
                 "response": {
-                    "additionalProperties": false,
-                    "description": "Cached query response",
-                    "properties": {
-                        "columns": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        },
-                        "hasMore": {
-                            "type": "boolean"
-                        },
-                        "results": {
-                            "items": {
-                                "items": {},
-                                "type": "array"
-                            },
-                            "type": "array"
-                        },
-                        "types": {
-                            "items": {
-                                "type": "string"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["columns", "types", "results"],
-                    "type": "object"
+                    "$ref": "#/definitions/EventsQueryResponse",
+                    "description": "Cached query response"
                 },
                 "select": {
                     "description": "Return a limited set of data. Required.",
@@ -1645,6 +1619,33 @@
                 }
             },
             "required": ["kind", "select"],
+            "type": "object"
+        },
+        "EventsQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hasMore": {
+                    "type": "boolean"
+                },
+                "results": {
+                    "items": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "type": "array"
+                },
+                "types": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columns", "types", "results"],
             "type": "object"
         },
         "FeaturePropertyFilter": {

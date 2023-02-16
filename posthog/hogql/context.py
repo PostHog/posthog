@@ -20,4 +20,9 @@ class HogQLContext:
     field_access_logs: List[HogQLFieldAccess] = field(default_factory=list)
     # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
+    # Do we need to join the persons table or not
     using_person_on_events: bool = True
+    # If set, allows printing full SELECT queries in ClickHouse
+    select_team_id: Optional[int] = None
+    # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=65535 to the topmost select query?
+    limit_top_select: bool = True

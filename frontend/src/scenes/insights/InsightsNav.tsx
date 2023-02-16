@@ -1,4 +1,3 @@
-import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
@@ -7,6 +6,7 @@ import { FunnelsCue } from './views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 interface Tab {
     label: string
@@ -54,30 +54,20 @@ export function InsightsNav(): JSX.Element {
     return (
         <>
             <FunnelsCue />
-            <Tabs
+            <LemonTabs
                 activeKey={activeView}
-                className="top-bar"
-                onChange={(key) => setActiveView(key as InsightType)}
-                animated={false}
-            >
-                {tabs.map(({ label, type, dataAttr }) => (
-                    <Tabs.TabPane
-                        key={type}
-                        tab={
-                            <Link
-                                className="tab-text"
-                                to={urls.insightNew({ insight: type })}
-                                preventClick
-                                data-attr={dataAttr}
-                            >
-                                <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
-                                    {label}
-                                </Tooltip>
-                            </Link>
-                        }
-                    />
-                ))}
-            </Tabs>
+                onChange={(newKey) => setActiveView(newKey)}
+                tabs={tabs.map(({ label, type, dataAttr }) => ({
+                    key: type,
+                    label: (
+                        <Link to={urls.insightNew({ insight: type })} preventClick data-attr={dataAttr}>
+                            <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
+                                {label}
+                            </Tooltip>
+                        </Link>
+                    ),
+                }))}
+            />
         </>
     )
 }

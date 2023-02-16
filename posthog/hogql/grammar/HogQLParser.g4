@@ -21,7 +21,6 @@ selectStmt:
     groupByClause? (WITH (CUBE | ROLLUP))? (WITH TOTALS)?
     havingClause?
     orderByClause?
-    limitByClause?
     limitClause?
     settingsClause?
     ;
@@ -37,8 +36,7 @@ groupByClause: GROUP BY ((CUBE | ROLLUP) LPAREN columnExprList RPAREN | columnEx
 havingClause: HAVING columnExpr;
 orderByClause: ORDER BY orderExprList;
 projectionOrderByClause: ORDER BY columnExprList;
-limitByClause: LIMIT limitExpr BY columnExprList;
-limitClause: LIMIT limitExpr (WITH TIES)?;
+limitClause: LIMIT limitExpr ((WITH TIES) | BY columnExprList)?;
 settingsClause: SETTINGS settingExprList;
 
 joinExpr

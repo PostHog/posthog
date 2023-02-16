@@ -6,7 +6,6 @@ import structlog
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog.clickhouse.replication.utils import clickhouse_is_replicated
 from posthog.clickhouse.schema import CREATE_TABLE_QUERIES, get_table_name
 from posthog.client import sync_execute
 from posthog.cloud_utils import is_cloud
@@ -29,12 +28,6 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if is_cloud():
             logger.info("✅ Skipping sync_replicated_schema because is_cloud=true")
-            return
-
-        if not clickhouse_is_replicated():
-            logger.info(
-                "✅ Skipping sync_replicated_schema because async migration '0004_replicated_schema' has not been run yet."
-            )
             return
 
         _, create_table_queries, out_of_sync_hosts = self.analyze_cluster_tables()
