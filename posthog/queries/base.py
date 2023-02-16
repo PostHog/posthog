@@ -227,12 +227,13 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
         effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         return Q(**{f"{column}__{property.key}__{effective_operator}": value})
 
+    # NOTE: existence clause necessary when overall clause is negated
     if property.operator == "exact" or property.operator is None:
-        return Q(lookup_q(f"{column}__{property.key}", value)) & Q(
-            **{f"{column}__has_key": property.key}
-        )  # NOTE: existence clause necessary when overall clause is negated
+        return Q(lookup_q(f"{column}__{property.key}", value)) & Q(**{f"{column}__has_key": property.key})
     else:
-        return Q(**{f"{column}__{property.key}__{property.operator}": property.value})
+        return Q(**{f"{column}__{property.key}__{property.operator}": property.value}) & Q(
+            **{f"{column}__has_key": property.key}
+        )
 
 
 def property_group_to_Q(property_group: PropertyGroup, override_property_values: Dict[str, Any] = {}) -> Q:
