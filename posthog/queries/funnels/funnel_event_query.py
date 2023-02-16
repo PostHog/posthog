@@ -86,6 +86,8 @@ class FunnelEventQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
+        sample_clause = f"SAMPLE {self._filter.sample_factor}" if self._filter.sample_factor else ""
+
         # KLUDGE: Ideally we wouldn't mix string variables with f-string interpolation
         # but due to ordering requirements in functions building this query we do
         # things like this for now but should do a larger refactor to get rid of it
@@ -93,6 +95,7 @@ class FunnelEventQuery(EventQuery):
             SELECT {', '.join(_fields)}
             {{extra_select_fields}}
             FROM events {self.EVENT_TABLE_ALIAS}
+            {sample_clause}
             {self._get_distinct_id_query()}
             {person_query}
             {groups_query}

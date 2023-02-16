@@ -6,28 +6,32 @@ import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-export function SamplingFilter({ filters: editorFilters }: EditorFilterProps): JSX.Element {
-    const { setFilters } = useActions(insightLogic)
-    const { filters } = useValues(insightLogic)
+export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
+    const logic = insightLogic(insightProps)
+    const { setFilters } = useActions(logic)
+    const { filters } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Sampling is currently behind a feature flag and only available on lifecycle queries
-    if (!featureFlags[FEATURE_FLAGS.SAMPLING] || editorFilters.insight !== InsightType.LIFECYCLE) {
-        return <></>
+    const insightSupportsSampling =
+        editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS
+
+    if (featureFlags[FEATURE_FLAGS.SAMPLING] && insightSupportsSampling) {
+        return (
+            <>
+                <div className="SamplingFilter">
+                    <LemonSwitch
+                        checked={!!filters.sample_results}
+                        label={
+                            <>
+                                <span>Show sampled results</span>
+                            </>
+                        }
+                        onChange={(newChecked) => setFilters({ ...filters, sample_results: newChecked })}
+                    />
+                </div>
+            </>
+        )
     }
-    return (
-        <>
-            <div className="SamplingFilter">
-                <LemonSwitch
-                    checked={!!filters.sample_results}
-                    label={
-                        <>
-                            <span>Show sampled results</span>
-                        </>
-                    }
-                    onChange={(newChecked) => setFilters({ ...filters, sample_results: newChecked })}
-                />
-            </div>
-        </>
-    )
+    return <></>
 }

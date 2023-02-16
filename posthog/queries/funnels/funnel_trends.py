@@ -162,11 +162,15 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         breakdown_clause = self._get_breakdown_prop()
 
         summary = []
+
+        sample_multiplier = 1
+        if self._filter.sample_factor:
+            sample_multiplier = 1 / self._filter.sample_factor
         for period_row in results:
             serialized_result = {
                 "timestamp": period_row[0],
-                "reached_from_step_count": period_row[1],
-                "reached_to_step_count": period_row[2],
+                "reached_from_step_count": period_row[1] * sample_multiplier,
+                "reached_to_step_count": period_row[2] * sample_multiplier,
                 "conversion_rate": period_row[3],
             }
 
