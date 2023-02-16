@@ -39,7 +39,7 @@ interface InsightsTableProps {
     isMainInsightView?: boolean
 }
 
-export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): JSX.Element {
+export function InsightsTableDataExploration({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } = useValues(
         insightDataLogic(insightProps)
@@ -48,8 +48,14 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
     const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
-        // TODO: implement
-        console.log('handleSeriesEditClick: ', item)
+        const typeKey = `${filterKey}_data_exploration`
+        const entityFilter = entityFilterLogic.findMounted({
+            typeKey,
+        })
+        if (entityFilter) {
+            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.showModal()
+        }
     }
     return (
         <InsightsTableComponent
@@ -72,7 +78,6 @@ export function InsightsTableDataExploration({ ...rest }: InsightsTableProps): J
 export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters } = useValues(trendsLogic(insightProps))
-    const { setFilters } = useActions(trendsLogic(insightProps))
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
@@ -84,10 +89,9 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
         isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
+        const typeKey = filterKey
         const entityFilter = entityFilterLogic.findMounted({
-            setFilters,
-            filters,
-            typeKey: filterKey,
+            typeKey,
         })
         if (entityFilter) {
             entityFilter.actions.selectFilter(item.action)
@@ -119,7 +123,7 @@ export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.E
     )
 }
 
-export type InsightsTableComponentProps = InsightsTableProps & {
+export type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
     isTrends: boolean
     trendsFilter: TrendsFilter | null | undefined
     display: ChartDisplayType | undefined
