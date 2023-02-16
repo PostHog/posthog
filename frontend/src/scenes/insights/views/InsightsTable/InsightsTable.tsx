@@ -68,7 +68,7 @@ export function InsightsTableDataExploration({ filterKey, ...rest }: InsightsTab
             breakdown={breakdown}
             allowAggregation={allowAggregation}
             aggregation={aggregation}
-            setAggregationType={(state: CalcColumnState) => setAggregationType(AggregationType[state])}
+            setAggregationType={(state: CalcColumnState) => setAggregationType(state as AggregationType)}
             handleSeriesEditClick={handleSeriesEditClick}
             {...rest}
         />
