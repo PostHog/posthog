@@ -554,3 +554,19 @@ class EmailMixin(BaseParamMixin):
     def email(self) -> Optional[str]:
         email = self._data.get("email", None)
         return email
+
+
+class SampleMixin(BaseParamMixin):
+    """
+    Sample factor for a query.
+    """
+
+    default_sample_factor = 0.1
+
+    @cached_property
+    def sample_factor(self) -> Optional[float]:
+        factor = None
+        if self._data.get("sample_results", False):
+            factor = self.default_sample_factor
+
+        return factor
