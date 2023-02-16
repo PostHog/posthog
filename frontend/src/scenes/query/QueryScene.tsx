@@ -14,6 +14,19 @@ export function QueryScene(): JSX.Element {
     const { query } = useValues(querySceneLogic)
     const { setQuery } = useActions(querySceneLogic)
 
+    let showEditor = true
+    try {
+        const parsed = JSON.parse(query)
+        if (
+            parsed &&
+            parsed.kind == 'DataTableNode' &&
+            parsed.source.kind == 'HogQLQuery' &&
+            (parsed.full || parsed.showHogQLEditor)
+        ) {
+            showEditor = false
+        }
+    } catch (e) {}
+
     return (
         <div className="QueryScene">
             <PageHeader title="Query" />
@@ -35,10 +48,14 @@ export function QueryScene(): JSX.Element {
                         </React.Fragment>
                     ))}
                 </div>
-                <QueryEditor query={query} setQuery={setQuery} />
-                <div className="my-4">
-                    <LemonDivider />
-                </div>
+                {showEditor ? (
+                    <>
+                        <QueryEditor query={query} setQuery={setQuery} />
+                        <div className="my-4">
+                            <LemonDivider />
+                        </div>
+                    </>
+                ) : null}
                 <Query query={query} setQuery={(query) => setQuery(JSON.stringify(query, null, 2))} />
             </div>
         </div>

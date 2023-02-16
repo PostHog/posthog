@@ -138,7 +138,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
-                        showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
+                        showElapsedTime:
+                            query.showElapsedTime ??
+                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
