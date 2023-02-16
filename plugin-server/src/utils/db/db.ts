@@ -1327,7 +1327,9 @@ export class DB {
                 `
                 SELECT * FROM posthog_propertydefinition
                 ${teamId ? 'WHERE team_id = $1' : ''}
-                ORDER BY id
+                -- Order by something that gives a deterministic order. Note
+                -- that this is a unique index.
+                ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
                 `,
                 [teamId],
                 'fetchPropertyDefinitions'
