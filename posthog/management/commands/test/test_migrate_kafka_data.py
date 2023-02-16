@@ -30,11 +30,12 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     )
     old_kafka_consumer.poll(timeout_ms=1000)
     old_kafka_consumer.commit()
+    old_kafka_consumer.close()
 
     old_kafka = KafkaProducer(bootstrap_servers="localhost:9092")
 
     # Put some data to the old topic
-    old_kafka.send(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"))
+    old_kafka.send(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
     old_kafka.flush()
 
     call_command(
@@ -82,6 +83,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
             break
 
     assert found_message and found_message.value == b'{ "event": "test" }', "Did not find message in new topic"
+    assert found_message and found_message.headers == [("foo", b"bar")], "Did not find headers in new topic"
 
 
 def test_cannot_send_data_back_into_same_topic_on_same_cluster():

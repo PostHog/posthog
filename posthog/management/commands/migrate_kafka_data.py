@@ -21,7 +21,6 @@ from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
 from kafka.structs import TopicPartition
-from typing import Any, Dict, List, Optional, Tuple
 
 from django.conf import settings
 
@@ -96,8 +95,9 @@ class Command(BaseCommand):
             from_topic,
             bootstrap_servers=from_cluster,
             auto_offset_reset="earliest",
-            enable_auto_commit=True,
+            enable_auto_commit=False,
             group_id=consumer_group_id,
+            consumer_timeout_ms=1000,
         )
 
         # Create a Kafka producer to produce to the new topic.
@@ -106,7 +106,7 @@ class Command(BaseCommand):
         # Now consume from the consumer, and produce to the producer.
         while True:
             self.stdout.write("Polling for messages")
-            messages_by_topic = consumer.poll(timeout_ms=1000)
+            messages_by_topic = consumer.poll(timeout_ms=10)
 
             if not messages_by_topic:
                 break
@@ -121,7 +121,12 @@ class Command(BaseCommand):
                         to_topic,
                         message.value,
                         key=message.key,
+                        headers=message.headers,
                     )
+
+            # Commit the offsets for the messages we just consumed.
+            self.stdout.write("Committing offsets")
+            consumer.commit()
 
         self.stdout.write("Flushing producer")
         producer.flush()
