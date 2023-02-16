@@ -92,31 +92,19 @@ export async function eachBatchIngestionWithOverflow(
                 // Set message key to be null so we know to send it to overflow topic.
                 // We don't want to do it here to preserve the kafka offset handling
                 message.key = null
-                currentBatch.push(message)
-
-                // Warnings are limited to 1/key/hour to avoid spamming.
-                if (pluginEvent.team_id && WarningLimiter.consume(seenKey, 1)) {
-                    captureIngestionWarning(
-                        queue.pluginsServer.hub.db,
-                        pluginEvent.team_id,
-                        'ingestion_capacity_overflow',
-                        {
-                            overflowDistinctId: pluginEvent.distinct_id,
-                        }
-                    )
-                }
-
-                continue
             }
 
-            if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
+            if (currentBatch.length === batchSize || (message.key != null && seenIds.has(seenKey))) {
                 seenIds.clear()
                 batches.push(currentBatch)
                 currentBatch = []
             }
 
-            seenIds.add(seenKey)
             currentBatch.push(message)
+
+            if (message.key != null) {
+                seenIds.add(seenKey)
+            }
         }
 
         if (currentBatch) {
@@ -133,6 +121,14 @@ export async function eachMessageIngestionWithOverflow(message: KafkaMessage, qu
     // Events are marked to have a null key during batch break-up if they should go to the *_OVERFLOW topic.
     // So we do not ingest them here.
     if (message.key == null) {
+        const { team_id: teamId, distinct_id: distinctId } = JSON.parse(message.value!.toString())
+        // Warnings are limited to 1/key/hour to avoid spamming.
+        if (teamId && WarningLimiter.consume(`${teamId}:${distinctId}`, 1)) {
+            captureIngestionWarning(queue.pluginsServer.hub.db, teamId, 'ingestion_capacity_overflow', {
+                overflowDistinctId: distinctId,
+            })
+        }
+
         await queue.pluginsServer.kafkaProducer.queueMessage({
             topic: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
             messages: [message],
