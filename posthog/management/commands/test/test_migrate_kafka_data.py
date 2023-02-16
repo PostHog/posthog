@@ -2,7 +2,8 @@ from unittest import mock
 from uuid import uuid4
 
 from django.core.management import call_command
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
+from kafka.admin.new_topic import NewTopic
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
@@ -19,8 +20,8 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
         4. we copy over not just the values of the messages, but also the keys
 
     """
-    old_events_topic = "old_events_topic"
-    new_events_topic = "new_events_topic"
+    old_events_topic = str(uuid4())
+    new_events_topic = str(uuid4())
     consumer_group_id = "events-ingestion-consumer"
     message_key = str(uuid4())
 
@@ -28,6 +29,8 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     # already committed offsets to the old topic, so we need to commit some
     # offsets first.
     _commit_offsets_for_topic(old_events_topic, consumer_group_id)
+
+    _create_topic(new_events_topic)
 
     # Put some data to the old topic
     _send_message(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
@@ -76,7 +79,7 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     We want to make sure that we do not send data back into the same topic on
     the same cluster, as that would cause duplicates.
     """
-    topic = "events_topic"
+    topic = str(uuid4())
     consumer_group_id = "events-ingestion-consumer"
     message_key = str(uuid4())
 
@@ -110,9 +113,11 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
     We want to make sure that the command fails if the specified consumer group
     does not exist for the topic.
     """
-    old_topic = "events_topic"
-    new_topic = "new_events_topic"
+    old_topic = str(uuid4())
+    new_topic = str(uuid4())
     message_key = str(uuid4())
+
+    _create_topic(new_topic)
 
     # Put some data to the topic
     _send_message(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
@@ -142,7 +147,7 @@ def test_that_we_error_if_the_target_topic_doesnt_exist():
     We want to make sure that the command fails if the target topic does not
     exist.
     """
-    old_topic = "events_topic"
+    old_topic = str(uuid4())
     new_topic = str(uuid4())
     consumer_group_id = "events-ingestion-consumer"
     message_key = str(uuid4())
@@ -177,10 +182,12 @@ def test_we_fail_on_send_errors_to_new_topic():
     We want to make sure that we fail if we get an error when sending data to
     the new topic.
     """
-    old_topic = "events_topic"
-    new_topic = "new_events_topic"
+    old_topic = str(uuid4())
+    new_topic = str(uuid4())
     consumer_group_id = "events-ingestion-consumer"
     message_key = str(uuid4())
+
+    _create_topic(new_topic)
 
     _commit_offsets_for_topic(old_topic, consumer_group_id)
 
@@ -291,3 +298,13 @@ def _send_message(topic, value, key, headers):
 
     finally:
         producer.close()
+
+
+def _create_topic(topic):
+    admin_client = KafkaAdminClient(bootstrap_servers="localhost:9092")
+
+    try:
+        admin_client.create_topics([NewTopic(topic, num_partitions=1, replication_factor=1)])
+
+    finally:
+        admin_client.close()
