@@ -1944,9 +1944,9 @@ test('team event_properties', async () => {
     expect(await hub.db.fetchPropertyDefinitions()).toEqual([
         {
             id: expect.any(String),
-            is_numerical: true,
-            name: 'price',
-            property_type: 'Numeric',
+            is_numerical: false,
+            name: '$ip',
+            property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
             team_id: 2,
@@ -1968,9 +1968,9 @@ test('team event_properties', async () => {
         },
         {
             id: expect.any(String),
-            is_numerical: false,
-            name: '$ip',
-            property_type: 'String',
+            is_numerical: true,
+            name: 'price',
+            property_type: 'Numeric',
             property_type_format: null,
             query_usage_30_day: null,
             team_id: 2,
