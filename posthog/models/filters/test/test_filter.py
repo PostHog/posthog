@@ -415,6 +415,82 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             )
         self.assertTrue(matched_person)
 
+    def test_person_cohort_properties_with_negation(self):
+        person1_distinct_id = "example_id"
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"$some_prop": "matches"})
+
+        user_in = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {"key": "$some_prop", "value": "matches", "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="user_in_this_cohort",
+        )
+        user_in.calculate_people_ch(pending_version=0)
+        not_in_1_cohort = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "$bad_prop", "value": "nomatchihope", "type": "person"},
+                            ],
+                        },
+                    ],
+                }
+            },
+            name="user_not_in_1",
+        )
+        not_in_1_cohort.calculate_people_ch(pending_version=0)
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "id",
+                            "negation": False,
+                            "type": "cohort",
+                            "value": user_in.pk,
+                        },
+                        {
+                            "key": "id",
+                            "negation": True,
+                            "type": "cohort",
+                            "value": not_in_1_cohort.pk,
+                        },
+                    ],
+                }
+            },
+            name="overall_cohort",
+        )
+        cohort1.calculate_people_ch(pending_version=0)
+
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
+
+        with self.assertNumQueries(7):
+            matched_person = (
+                Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+                .filter(properties_to_Q(filter.property_groups.flat))
+                .exists()
+            )
+        self.assertTrue(matched_person)
+
     def test_group_property_filters_direct(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
         query_filter = properties_to_Q(filter.property_groups.flat)
