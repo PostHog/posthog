@@ -23,7 +23,17 @@ class Migration(AsyncMigrationDefinition):
     posthog_max_version = "1.49.99"
 
     def is_required(self):
-        return settings.EE_AVAILABLE and any(len(get_materialized_columns(table)) > 0 for table in TABLES_TO_INDEX)
+        return settings.EE_AVAILABLE and any(self.has_missing_index(table) for table in TABLES_TO_INDEX)
+
+    def has_missing_index(self, table: TableWithProperties) -> bool:
+        table_to_check = "sharded_events" if table == "events" else table
+        indexes = set(
+            row[0]
+            for row in sync_execute(
+                "SELECT name FROM system.data_skipping_indices WHERE table = %(table)s", {"table": table_to_check}
+            )
+        )
+        return any(f"minmax_{column_name}" not in indexes for column_name in get_materialized_columns(table).values())
 
     @cached_property
     def operations(self):
