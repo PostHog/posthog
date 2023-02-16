@@ -114,7 +114,7 @@ class TestFilter(BaseTest):
 
 
 def property_to_Q_test_factory(filter_persons: Callable, person_factory):
-    class TestPropertiesToQ(BaseTest):
+    class TestPropertiesToQ(BaseTest, QueryMatchingTest):
         def test_simple_persons(self):
             person_factory(team_id=self.team.pk, distinct_ids=["person1"], properties={"url": "https://whatever.com"})
             person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"url": 1})
@@ -362,12 +362,35 @@ def property_to_Q_test_factory(filter_persons: Callable, person_factory):
             results = filter_persons(filter, self.team)
             self.assertEqual(results, [p2_uuid])
 
+        @snapshot_postgres_queries
+        def test_array_property_as_string_on_persons(self):
+            person_factory(
+                team_id=self.team.pk,
+                distinct_ids=["person1"],
+                properties={"urls": ["https://whatever.com", '["abcd"]', "efg"]},
+            )
+            person_factory(team_id=self.team.pk, distinct_ids=["person2"], properties={"urls": ['["abcd"]']})
+            person_factory(team_id=self.team.pk, distinct_ids=["person3"], properties={"urls": '["abcd"]'})
+            p4_uuid = str(
+                person_factory(team_id=self.team.pk, distinct_ids=["person4"], properties={"urls": "['abcd']"}).uuid
+            )
+            person_factory(team_id=self.team.pk, distinct_ids=["person5"])
+
+            # some idiosyncracies on how this works, but we shouldn't error out on this
+            filter = Filter(
+                data={"properties": [{"type": "person", "key": "urls", "operator": "icontains", "value": '["abcd"]'}]}
+            )
+
+            results = filter_persons(filter, self.team)
+
+            self.assertEqual(len(results), 1)
+            self.assertEqual(results[0], p4_uuid)
+
     return TestPropertiesToQ
 
 
 def _filter_persons(filter: Filter, team: Team):
-    flush_persons_and_events()
-    # Postgres only supports ANDing all properties :shrug:
+    flush_persons_and_events(skip_clickhouse=True)
     persons = Person.objects.filter(properties_to_Q(filter.property_groups.flat))
     persons = persons.filter(team_id=team.pk)
     return [str(uuid) for uuid in persons.values_list("uuid", flat=True)]

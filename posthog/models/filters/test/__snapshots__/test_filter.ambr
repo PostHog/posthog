@@ -1,3 +1,11 @@
+# name: TestDjangoPropertiesToQ.test_array_property_as_string_on_persons
+  '
+  SELECT "posthog_person"."uuid"
+  FROM "posthog_person"
+  WHERE (UPPER(("posthog_person"."properties" ->> 'urls')::text) LIKE UPPER('%[''abcd'']%')
+         AND "posthog_person"."team_id" = 2)
+  '
+---
 # name: TestDjangoPropertyGroupToQ.test_property_group_to_q_with_cohorts
   '
   SELECT "posthog_cohort"."id",
