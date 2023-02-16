@@ -53,6 +53,16 @@ class Command(BaseCommand):
             "--consumer-group-id",
             help="The consumer group ID to use when consuming from the old cluster",
         )
+        parser.add_argument(
+            "--linger-ms",
+            default=1000,
+            help="The number of milliseconds to wait before sending a batch of messages to the new cluster",
+        )
+        parser.add_argument(
+            "--batch-size",
+            default=1000 * 1000,
+            help="The maximum number of bytes per partition to send in a batch of messages to the new cluster",
+        )
 
     def handle(self, *args, **options):
         from_topic = options["from_topic"]
@@ -60,6 +70,8 @@ class Command(BaseCommand):
         from_cluster = options["from_cluster"]
         to_cluster = options["to_cluster"]
         consumer_group_id = options["consumer_group_id"]
+        linger_ms = options["linger_ms"]
+        batch_size = options["batch_size"]
 
         # Validate that we don't push messages back into the same cluster and
         # topic.
@@ -100,7 +112,11 @@ class Command(BaseCommand):
         )
 
         # Create a Kafka producer to produce to the new topic.
-        producer = KafkaProducer(bootstrap_servers=to_cluster)
+        producer = KafkaProducer(
+            bootstrap_servers=to_cluster,
+            linger_ms=linger_ms,
+            batch_size=batch_size,
+        )
 
         # Now consume from the consumer, and produce to the producer.
         while True:
@@ -122,6 +138,8 @@ class Command(BaseCommand):
                         key=message.key,
                         headers=message.headers,
                     )
+
+            producer.flush()
 
             # Commit the offsets for the messages we just consumed.
             self.stdout.write("Committing offsets")
