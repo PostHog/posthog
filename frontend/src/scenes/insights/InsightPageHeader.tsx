@@ -1,6 +1,4 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
-import { InsightVizNode } from '~/queries/schema'
 import { IconLock } from 'lib/lemon-ui/icons'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, ItemMode } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -23,15 +21,13 @@ import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { userLogic } from 'scenes/userLogic'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { InsightSceneProps } from 'scenes/insights/Insight'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
+import { insightSummaryString } from 'lib/components/InsightSummary'
 
 export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
@@ -42,7 +38,6 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
         insightProps,
-        filters,
         canEditInsight,
         insight,
         insightChanged,
@@ -51,7 +46,6 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
         isUsingDataExploration,
         isFilterBasedInsight,
         isQueryBasedInsight,
-        isInsightVizQuery,
     } = useValues(logic)
     const { saveInsight, setInsightMetadata, saveAs } = useActions(logic)
 
@@ -75,9 +69,6 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -106,19 +97,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={
-                            isUsingDataExploration && isInsightVizQuery
-                                ? summarizeInsightQuery(
-                                      (query as InsightVizNode).source,
-                                      aggregationLabel,
-                                      cohortsById,
-                                      mathDefinitions
-                                  )
-                                : isFilterBasedInsight
-                                ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-                                : // TODO placeholder for non insight viz queries
-                                  ''
-                        }
+                        placeholder={insightSummaryString({ insight, isUsingDataExploration })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model

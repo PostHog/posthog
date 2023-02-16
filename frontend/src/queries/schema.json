@@ -1977,9 +1977,6 @@
                     "const": "InsightVizNode",
                     "type": "string"
                 },
-                "showEditorPanel": {
-                    "type": "boolean"
-                },
                 "source": {
                     "$ref": "#/definitions/InsightQueryNode"
                 }

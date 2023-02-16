@@ -41,10 +41,6 @@ import { Funnel } from 'scenes/funnels/Funnel'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { UserActivityIndicator } from '../../UserActivityIndicator/UserActivityIndicator'
@@ -61,8 +57,8 @@ import {
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
-import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { dateRangeFor, isInsightQueryNode } from '~/queries/utils'
+import { InsightSummary } from 'lib/components/InsightSummary'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -211,13 +207,12 @@ function InsightMeta({
     showDetailsControls = true,
     moreButtons,
 }: InsightMetaProps): JSX.Element {
-    const { short_id, name, filters, dashboards } = insight
-    const { exporterResourceParams, insightProps } = useValues(insightLogic)
+    const { short_id, name, dashboards } = insight
+    const { exporterResourceParams, insightProps, isUsingDataExploration } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
+
     const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
+
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
         (d: DashboardType) => !dashboards?.includes(d.id)
     )
@@ -225,22 +220,6 @@ function InsightMeta({
 
     // not all interactions are currently implemented for queries
     const allInteractionsAllowed = !insight.query
-
-    const summary = !!name
-        ? null
-        : !!Object.keys(insight.filters).length
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : !!insight.query
-        ? isInsightVizNode(insight.query)
-            ? summarizeInsightQuery(
-                  (insight.query as InsightVizNode).source,
-                  aggregationLabel,
-                  cohortsById,
-                  mathDefinitions
-              )
-            : // TODO summarise other kinds of query too
-              'query: ' + insight.query.kind
-        : null
 
     return (
         <CardMeta
@@ -256,7 +235,7 @@ function InsightMeta({
                 <>
                     <Link to={urls.insightView(short_id)}>
                         <h4 title={name} data-attr="insight-card-title">
-                            {name || <i>{summary}</i>}
+                            <InsightSummary insight={insight} isUsingDataExploration={isUsingDataExploration} />
                         </h4>
                     </Link>
 

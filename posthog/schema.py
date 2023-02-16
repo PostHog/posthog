@@ -1445,7 +1445,6 @@ class InsightVizNode(BaseModel):
         extra = Extra.forbid
 
     kind: str = Field("InsightVizNode", const=True)
-    showEditorPanel: Optional[bool] = None
     source: Union[TrendsQuery, FunnelsQuery, RetentionQuery, PathsQuery, StickinessQuery, LifecycleQuery]
 
 

@@ -18,12 +18,9 @@ export const insightQueryEditorLogic = kea<insightQueryEditorLogicType>([
     }),
     reducers(({ props }) => ({
         query: [
-            props.query ? { ...props.query, showEditorPanel: false } : undefined,
+            props.query,
             {
-                setQuery: (_, { query }) => {
-                    // this view never allows an editor panel to be open
-                    return { ...query, showEditorPanel: false }
-                },
+                setQuery: (_, { query }) => query,
             },
         ],
     })),
