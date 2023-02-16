@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import api from 'lib/api'
+import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -652,79 +653,6 @@ describe('insightLogic', () => {
         })
     })
 
-    test('keeps saved filters', async () => {
-        logic = insightLogic({
-            dashboardItemId: Insight42,
-            cachedInsight: { filters: { insight: InsightType.FUNNELS } },
-        })
-        logic.mount()
-
-        // `setFilters` only changes `filters`, does not change `savedInsight`
-        await expectLogic(logic, () => {
-            logic.actions.setFilters({ insight: InsightType.TRENDS })
-        }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
-            insightChanged: true,
-        })
-
-        // results from search don't change anything
-        await expectLogic(logic, () => {
-            logic.actions.loadResultsSuccess({
-                short_id: Insight42,
-                filters: { insight: InsightType.PATHS },
-            })
-        }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
-            insightChanged: true,
-        })
-
-        // results from API GET and POST calls change saved filters
-        await expectLogic(logic, () => {
-            logic.actions.loadInsightSuccess({
-                short_id: Insight42,
-                filters: { insight: InsightType.PATHS },
-            })
-        }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: partial({ insight: InsightType.PATHS }) }),
-            insightChanged: true,
-        })
-        await expectLogic(logic, () => {
-            logic.actions.updateInsightSuccess({
-                short_id: Insight42,
-                filters: { insight: InsightType.RETENTION },
-            })
-        }).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
-            insightChanged: true,
-        })
-
-        // saving persists the in-flight filters
-        await expectLogic(logic, () => {
-            logic.actions.setFilters(API_FILTERS)
-        }).toFinishAllListeners()
-        await expectLogic(logic).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            loadedFilters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
-            insightChanged: true,
-        })
-
-        await expectLogic(logic, () => {
-            logic.actions.saveInsight()
-        }).toFinishAllListeners()
-
-        await expectLogic(logic).toMatchValues({
-            filters: partial({ insight: InsightType.TRENDS }),
-            loadedFilters: partial({ insight: InsightType.TRENDS }),
-            savedInsight: partial({ filters: partial({ insight: InsightType.TRENDS }) }),
-            insightChanged: false,
-        })
-    })
-
     test('can default filter test accounts to on', async () => {
         logic = insightLogic({
             dashboardItemId: 'new',
@@ -965,23 +893,6 @@ describe('insightLogic', () => {
                     filterPropertiesCount: count,
                 })
             })
-        })
-    })
-
-    describe('setFilters with new entity', () => {
-        it('does not call the api on empty filters', async () => {
-            const insight = {
-                result: ['result from api'],
-            }
-            logic = insightLogic({
-                dashboardItemId: undefined,
-                cachedInsight: insight,
-            })
-            logic.mount()
-
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
-            }).toNotHaveDispatchedActions(['loadResults'])
         })
     })
 
@@ -1431,5 +1342,320 @@ describe('insightLogic', () => {
                 })
             })
         })
+    })
+
+    describe('setFilters', () => {
+        test('does not call the api on empty filters', async () => {
+            const insight = {
+                result: ['result from api'],
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+                cachedInsight: insight,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
+            }).toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        test('keeps saved filters', async () => {
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+            })
+            logic.mount()
+
+            // `setFilters` only changes `filters`, does not change `savedInsight`
+            await expectLogic(logic, () => {
+                logic.actions.setFilters({ insight: InsightType.TRENDS })
+            }).toMatchValues({
+                filters: partial({ insight: InsightType.TRENDS }),
+                savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
+                insightChanged: true,
+            })
+
+            // results from search don't change anything
+            await expectLogic(logic, () => {
+                logic.actions.loadResultsSuccess({
+                    short_id: Insight42,
+                    filters: { insight: InsightType.PATHS },
+                })
+            }).toMatchValues({
+                filters: partial({ insight: InsightType.TRENDS }),
+                savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
+                insightChanged: true,
+            })
+
+            // results from API GET and POST calls change saved filters
+            await expectLogic(logic, () => {
+                logic.actions.loadInsightSuccess({
+                    short_id: Insight42,
+                    filters: { insight: InsightType.PATHS },
+                })
+            }).toMatchValues({
+                filters: partial({ insight: InsightType.TRENDS }),
+                savedInsight: partial({ filters: partial({ insight: InsightType.PATHS }) }),
+                insightChanged: true,
+            })
+            await expectLogic(logic, () => {
+                logic.actions.updateInsightSuccess({
+                    short_id: Insight42,
+                    filters: { insight: InsightType.RETENTION },
+                })
+            }).toMatchValues({
+                filters: partial({ insight: InsightType.TRENDS }),
+                savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
+                insightChanged: true,
+            })
+
+            // saving persists the in-flight filters
+            await expectLogic(logic, () => {
+                logic.actions.setFilters(API_FILTERS)
+            }).toFinishAllListeners()
+            await expectLogic(logic).toMatchValues({
+                filters: partial({ insight: InsightType.TRENDS }),
+                loadedFilters: partial({ insight: InsightType.TRENDS }),
+                savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
+                insightChanged: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.saveInsight()
+            }).toFinishAllListeners()
+
+            await expectLogic(logic).toMatchValues({
+                filters: partial({ insight: InsightType.TRENDS }),
+                loadedFilters: partial({ insight: InsightType.TRENDS }),
+                savedInsight: partial({ filters: partial({ insight: InsightType.TRENDS }) }),
+                insightChanged: false,
+            })
+        })
+    })
+
+    describe('setQuery', () => {
+        test('reads query from cached insight', async () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['count()'],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: ['cached result'],
+                    filters: {},
+                    query,
+                },
+            })
+            logic.mount()
+            await expectLogic(logic).toMatchValues({
+                filters: {},
+                query,
+            })
+        })
+
+        test('set query clears filters', async () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['count()'],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: ['cached result'],
+                    filters: {
+                        insight: InsightType.TRENDS,
+                        events: [{ id: 2 }],
+                        properties: [
+                            {
+                                value: 'lol',
+                                operator: PropertyOperator.Exact,
+                                key: 'lol',
+                                type: PropertyFilterType.Person,
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+            expect(logic.values.filters).not.toEqual({})
+            await expectLogic(logic, () => logic.actions.setQuery(query)).toMatchValues({
+                filters: {},
+                query,
+            })
+        })
+
+        test('set query does not call the API - datanodelogic will handle it', async () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['count()'],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: {
+                    short_id: Insight42,
+                    results: ['cached result'],
+                    filters: {
+                        insight: InsightType.TRENDS,
+                        events: [{ id: 2 }],
+                        properties: [
+                            {
+                                value: 'lol',
+                                operator: PropertyOperator.Exact,
+                                key: 'lol',
+                                type: PropertyFilterType.Person,
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+            expect(logic.values.filters).not.toEqual({})
+            await expectLogic(logic).toDispatchActions(['loadResults'])
+            await expectLogic(logic, () => logic.actions.setQuery(query))
+                .toMatchValues({
+                    filters: {},
+                    query,
+                })
+                .toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        test('does not call the api on empty filters _and_ query', async () => {
+            const insight = {
+                    filters: {},
+                    query: {} as unknown as QuerySchema,
+                },
+                logic = insightLogic({
+                    dashboardItemId: undefined,
+                    cachedInsight: insight,
+                })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery({} as QuerySchema)
+            }).toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        test('on new insight - query can be saved', async () => {
+            jest.spyOn(api, 'create')
+
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['count()'],
+                },
+            }
+            logic = insightLogic({
+                dashboardItemId: undefined,
+            })
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.setQuery(query)).toMatchValues({
+                filters: {},
+                query,
+            })
+            await expectLogic(logic, () => logic.actions.saveInsight())
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            expect(mockCreateCalls).toEqual([
+                [
+                    'api/projects/997/insights/',
+                    {
+                        derived_name: '',
+                        description: '',
+                        filters: {},
+                        query,
+                        name: '',
+                        saved: true,
+                        tags: [],
+                    },
+                ],
+            ])
+        })
+
+        // test('keeps saved filters', async () => {
+        //     logic = insightLogic({
+        //         dashboardItemId: Insight42,
+        //         cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+        //     })
+        //     logic.mount()
+        //
+        //     // `setFilters` only changes `filters`, does not change `savedInsight`
+        //     await expectLogic(logic, () => {
+        //         logic.actions.setFilters({ insight: InsightType.TRENDS })
+        //     }).toMatchValues({
+        //         filters: partial({ insight: InsightType.TRENDS }),
+        //         savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
+        //         insightChanged: true,
+        //     })
+        //
+        //     // results from search don't change anything
+        //     await expectLogic(logic, () => {
+        //         logic.actions.loadResultsSuccess({
+        //             short_id: Insight42,
+        //             filters: { insight: InsightType.PATHS },
+        //         })
+        //     }).toMatchValues({
+        //         filters: partial({ insight: InsightType.TRENDS }),
+        //         savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
+        //         insightChanged: true,
+        //     })
+        //
+        //     // results from API GET and POST calls change saved filters
+        //     await expectLogic(logic, () => {
+        //         logic.actions.loadInsightSuccess({
+        //             short_id: Insight42,
+        //             filters: { insight: InsightType.PATHS },
+        //         })
+        //     }).toMatchValues({
+        //         filters: partial({ insight: InsightType.TRENDS }),
+        //         savedInsight: partial({ filters: partial({ insight: InsightType.PATHS }) }),
+        //         insightChanged: true,
+        //     })
+        //     await expectLogic(logic, () => {
+        //         logic.actions.updateInsightSuccess({
+        //             short_id: Insight42,
+        //             filters: { insight: InsightType.RETENTION },
+        //         })
+        //     }).toMatchValues({
+        //         filters: partial({ insight: InsightType.TRENDS }),
+        //         savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
+        //         insightChanged: true,
+        //     })
+        //
+        //     // saving persists the in-flight filters
+        //     await expectLogic(logic, () => {
+        //         logic.actions.setFilters(API_FILTERS)
+        //     }).toFinishAllListeners()
+        //     await expectLogic(logic).toMatchValues({
+        //         filters: partial({ insight: InsightType.TRENDS }),
+        //         loadedFilters: partial({ insight: InsightType.TRENDS }),
+        //         savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
+        //         insightChanged: true,
+        //     })
+        //
+        //     await expectLogic(logic, () => {
+        //         logic.actions.saveInsight()
+        //     }).toFinishAllListeners()
+        //
+        //     await expectLogic(logic).toMatchValues({
+        //         filters: partial({ insight: InsightType.TRENDS }),
+        //         loadedFilters: partial({ insight: InsightType.TRENDS }),
+        //         savedInsight: partial({ filters: partial({ insight: InsightType.TRENDS }) }),
+        //         insightChanged: false,
+        //     })
+        // })
     })
 })

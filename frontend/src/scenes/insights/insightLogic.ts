@@ -60,6 +60,7 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
+import { QuerySchema } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -112,6 +113,7 @@ export const insightLogic = kea<insightLogicType>([
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
+        setQuery: (query: QuerySchema) => ({ query }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -479,6 +481,12 @@ export const insightLogic = kea<insightLogicType>([
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },
         },
+        query: [
+            props.cachedInsight?.query || null,
+            {
+                setQuery: (_, { query }) => query,
+            },
+        ],
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
@@ -490,6 +498,7 @@ export const insightLogic = kea<insightLogicType>([
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
+                setQuery: (state, { query }) => (!!query ? {} : state),
             },
         ],
         /** The insight's state as it is in the database. */
@@ -970,7 +979,10 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, dashboards, tags } = values.insight
+            const { name, description, favorited, deleted, dashboards, tags } = values.insight
+            const query =
+                values.query && !objectsEqual(values.insight.query, values.query) ? values.query : values.insight.query
+            const filters = !!query && !!Object.keys(query).length ? {} : values.insight.filters
             let savedInsight: InsightModel
 
             try {
@@ -981,6 +993,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
+                    query,
                     deleted,
                     saved: true,
                     dashboards,
