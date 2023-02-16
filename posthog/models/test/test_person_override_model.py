@@ -2,6 +2,7 @@ import contextlib
 import datetime as dt
 from threading import Event, Thread
 from uuid import uuid4
+from django.db.utils import ConnectionHandler
 
 import pytest
 from django.db.utils import DEFAULT_DB_ALIAS, ConnectionHandler, IntegrityError

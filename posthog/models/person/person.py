@@ -89,6 +89,11 @@ class Person(models.Model):
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["uuid"], name="unique uuid for person"),
+        ]
+
 
 class PersonDistinctId(models.Model):
     class Meta:
