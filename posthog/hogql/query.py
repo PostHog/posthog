@@ -56,7 +56,13 @@ def execute_hogql_query(
         query_type=query_type,
         workload=workload,
     )
-    print_columns = [print_ast(col, HogQLContext(), "hogql") for col in select_query.select]
+    print_columns = []
+    for node in select_query.select:
+        if isinstance(node, ast.Alias):
+            print_columns.append(node.alias)
+        else:
+            print_columns.append(print_ast(node=node, context=hogql_context, dialect="hogql", stack=[select_query]))
+
     return HogQLQueryResponse(
         query=query,
         hogql=hogql,

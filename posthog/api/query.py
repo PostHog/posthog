@@ -42,20 +42,20 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         return self._process_query(self.team, query_json)
 
     def _process_query(self, team: Team, query_json: Dict) -> JsonResponse:
-        # try:
-        query_kind = query_json.get("kind")
-        if query_kind == "EventsQuery":
-            query = EventsQuery.parse_obj(query_json)
-            response = run_events_query(query=query, team=team)
-            return self._response_to_json_response(response)
-        elif query_kind == "HogQLQuery":
-            query = HogQLQuery.parse_obj(query_json)
-            response = execute_hogql_query(query=query.query, team=team)
-            return self._response_to_json_response(response)
-        else:
-            raise ValidationError("Unsupported query kind: %s" % query_kind)
-        # except Exception as e:
-        #     return JsonResponse({"error": str(e)}, status=400)
+        try:
+            query_kind = query_json.get("kind")
+            if query_kind == "EventsQuery":
+                query = EventsQuery.parse_obj(query_json)
+                response = run_events_query(query=query, team=team)
+                return self._response_to_json_response(response)
+            elif query_kind == "HogQLQuery":
+                query = HogQLQuery.parse_obj(query_json)
+                response = execute_hogql_query(query=query.query, team=team)
+                return self._response_to_json_response(response)
+            else:
+                raise ValidationError("Unsupported query kind: %s" % query_kind)
+        except Exception as e:
+            return JsonResponse({"error": str(e)}, status=400)
 
     def _query_json_from_request(self, request):
         if request.method == "POST":

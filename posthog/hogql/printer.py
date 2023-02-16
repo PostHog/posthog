@@ -8,7 +8,7 @@ from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
-from posthog.hogql.visitor import Visitor, clone_expr
+from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
 
@@ -35,8 +35,6 @@ def print_ast(
     """Print an AST into a string. Does not modify the node."""
     symbol = stack[-1].symbol if stack else None
 
-    # make a clean copy of the object
-    node = clone_expr(node)
     # resolve symbols
     resolve_symbols(node, symbol)
 
