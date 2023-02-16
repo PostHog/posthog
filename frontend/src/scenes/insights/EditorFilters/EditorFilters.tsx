@@ -254,8 +254,8 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                     component: SamplingFilter,
                     tooltip: (
                         <>
-                            Sampling computes the result on a subset of the data, making results load significantly
-                            faster.
+                            Sampling computes the result on a subset of the data, making insights load significantly
+                            faster. Results are not exact, but statistically similar to the exact results.
                         </>
                     ),
                 },
