@@ -92,6 +92,30 @@
   LIMIT 101
   '
 ---
+# name: TestQuery.test_full_hogql_query
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT event,
+         distinct_id,
+         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
+  FROM events
+  WHERE equals(team_id, 68)
+  ORDER BY timestamp ASC
+  LIMIT 1000
+  '
+---
+# name: TestQuery.test_full_hogql_query_materialized
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT event,
+         distinct_id,
+         mat_key
+  FROM events
+  WHERE equals(team_id, 69)
+  ORDER BY timestamp ASC
+  LIMIT 1000
+  '
+---
 # name: TestQuery.test_hogql_property_filter
   '
   /* user_id:0 request:_snapshot_ */
