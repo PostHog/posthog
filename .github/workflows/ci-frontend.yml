@@ -168,6 +168,8 @@ jobs:
             - name: Count snapshot changes from git diff
               id: diff
               run: |
+                  # Prevent git from being worried about ownership of the snapshots
+                  git config --global --add safe.directory '*'
                   echo "added=$(git diff --name-status | grep '^A' | wc -l)" >> $GITHUB_OUTPUT
                   echo "modified=$(git diff --name-status | grep '^M' | wc -l)" >> $GITHUB_OUTPUT
                   echo "deleted=$(git diff --name-status | grep '^D' | wc -l)" >> $GITHUB_OUTPUT
