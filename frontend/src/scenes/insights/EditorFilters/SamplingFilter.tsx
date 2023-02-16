@@ -22,7 +22,7 @@ export function SamplingFilter({ filters: editorFilters }: EditorFilterProps): J
                     checked={!!filters.sample_results}
                     label={
                         <>
-                            <span>Turn on sampling</span>
+                            <span>Show sampled results</span>
                         </>
                     }
                     onChange={(newChecked) => setFilters({ ...filters, sample_results: newChecked })}
