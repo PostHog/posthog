@@ -209,6 +209,8 @@ def run_events_query(
         select = ["*"]
 
     for expr in select:
+        if expr == "*":
+            expr = f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
         hogql_context.found_aggregation = False
         clickhouse_sql = translate_hogql(expr, hogql_context)
         select_columns.append(clickhouse_sql)
@@ -293,14 +295,6 @@ def run_events_query(
 def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
     new_result["properties"] = json.loads(new_result["properties"])
-    new_result["person"] = {
-        "id": new_result["person.id"],
-        "created_at": new_result["person.created_at"],
-        "properties": json.loads(new_result["person.properties"]),
-    }
-    new_result.pop("person.id")
-    new_result.pop("person.created_at")
-    new_result.pop("person.properties")
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
