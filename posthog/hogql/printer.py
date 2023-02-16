@@ -469,16 +469,7 @@ class Printer(Visitor):
         return self._print_identifier(symbol.name)
 
     def visit_splash_symbol(self, symbol: ast.SplashSymbol):
-        table = symbol.table
-        while isinstance(table, ast.TableAliasSymbol):
-            table = table.table
-        if not isinstance(table, ast.TableSymbol):
-            raise ValueError(f"Unknown SplashSymbol table type: {type(table).__name__}")
-        splash_fields = table.table.get_splash()
-        prefix = (
-            f"{self._print_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
-        )
-        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field.name)}' for chain, field in splash_fields.items())})"
+        raise ValueError("Unexpected splash (*). It's only allowed in a SELECT column.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")
