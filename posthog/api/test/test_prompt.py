@@ -12,10 +12,10 @@ def _setup_prompts() -> None:
         step=0,
         type="tooltip",
         title="Welcome to PostHog!",
-        text="We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
+        text="Want tips to get you started? At any time you can click the question mark in the top right and select 'How to be successful with PostHog'.",
         placement="bottom-start",
         reference="help-button",
-        buttons=[{"action": "activation-checklist", "label": "Show me suggestions"}],
+        buttons=[{"action": "activation-checklist", "label": "Sh"}],
     )
     sequence1 = PromptSequence.objects.create(
         key="start-flow",
@@ -29,14 +29,14 @@ def _setup_prompts() -> None:
     prompt2 = Prompt.objects.create(
         step=0,
         type="tooltip",
-        title="Track your marketing websites",
-        text="PostHog may have been built for product analytics, but that doesn’t mean you can only deploy it on your core product — you can also use it to gather analytics from your marketing website too.",
+        title="Track marketing websites",
+        text="You don't just have to deploy PostHog on your product — you can also use it on marketing website to gather even more user data!",
         placement="bottom-start",
         reference="help-button",
         buttons=[
             {
                 "url": "https://posthog.com/blog/how-and-why-track-your-website-with-posthog",
-                "label": "How (and why) to track your website with PostHog",
+                "label": "Find out how",
             }
         ],
     )
@@ -57,7 +57,7 @@ _webhook_prompt = {
         {
             "step": 0,
             "title": "Welcome to PostHog!",
-            "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
+            "text": "Want tips to get you started? At any time you can click the question mark in the top right and select 'How to be successful with PostHog'.",
         }
     ],
 }
@@ -156,10 +156,10 @@ class TestPrompt(APIBaseTest):
                         "step": 0,
                         "type": "tooltip",
                         "title": "Welcome to PostHog!",
-                        "text": "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'.",
+                        "text": "Want tips to get you started? At any time you can click the question mark in the top right and select 'How to be successful with PostHog'.",
                         "placement": "bottom-start",
                         "reference": "help-button",
-                        "buttons": [{"action": "activation-checklist", "label": "Show me suggestions"}],
+                        "buttons": [{"action": "activation-checklist", "label": "Show me"}],
                     }
                 ],
             },
@@ -195,7 +195,7 @@ class TestPrompt(APIBaseTest):
         assert first_saved_prompt.title == "Welcome to PostHog!"
         assert (
             first_saved_prompt.text
-            == "We have prepared a list of suggestions and resources to improve your experience with the tool. You can access it at any time by clicking on the question mark icon in the top right corner of the screen, and then selecting 'How to be successful with PostHog'."
+            == "Want tips to get you started? At any time you can click the question mark in the top right and select 'How to be successful with PostHog'."
         )
         assert first_saved_prompt.placement == "top"
         assert first_saved_prompt.reference is None
