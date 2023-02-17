@@ -972,6 +972,10 @@ class AnyPartialFilterTypeItem(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     formula: Optional[Any] = None
     from_dashboard: Optional[Union[bool, float]] = None
@@ -1024,6 +1028,10 @@ class AnyPartialFilterTypeItem1(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
@@ -1079,6 +1087,10 @@ class AnyPartialFilterTypeItem2(BaseModel):
     entrance_period_start: Optional[str] = None
     events: Optional[List[Dict[str, Any]]] = None
     exclusions: Optional[List[FunnelStepRangeEntityFilter]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     funnel_advanced: Optional[bool] = None
@@ -1142,6 +1154,10 @@ class AnyPartialFilterTypeItem3(BaseModel):
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
     exclude_events: Optional[List[str]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     funnel_filter: Optional[Dict[str, Any]] = None
@@ -1201,6 +1217,10 @@ class AnyPartialFilterTypeItem4(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     insight: Optional[InsightType] = None
@@ -1252,6 +1272,10 @@ class AnyPartialFilterTypeItem5(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     insight: Optional[InsightType] = None
@@ -1298,6 +1322,10 @@ class AnyPartialFilterTypeItem6(BaseModel):
     entity_math: Optional[str] = None
     entity_type: Optional[EntityType] = None
     events: Optional[List[Dict[str, Any]]] = None
+    explicit_date: Optional[Union[bool, str]] = Field(
+        None,
+        description='Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. "true" -> true.',
+    )
     filter_test_accounts: Optional[bool] = None
     from_dashboard: Optional[Union[bool, float]] = None
     insight: Optional[InsightType] = None
