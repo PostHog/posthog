@@ -72,7 +72,7 @@ export enum KafkaSaslMechanism {
     ScramSha512 = 'scram-sha-512',
 }
 
-export interface PluginsServerConfig extends Record<string, any> {
+export interface PluginsServerConfig {
     WORKER_CONCURRENCY: number
     TASKS_PER_WORKER: number
     TASK_TIMEOUT: number
