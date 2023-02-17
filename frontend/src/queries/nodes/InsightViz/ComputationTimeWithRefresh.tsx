@@ -26,7 +26,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     </>
                 }
             >
-                <div>
+                <span>
                     <Button
                         size="small"
                         type="link"
@@ -43,7 +43,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     >
                         <span className="text-sm">Refresh</span>
                     </Button>
-                </div>
+                </span>
             </Tooltip>
         </div>
     )
