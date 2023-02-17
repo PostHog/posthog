@@ -128,6 +128,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                                         value={iconProperties['$geoip_country_code']}
                                     />
                                     {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
+                                    {!isFullScreen && iconProperties['$geoip_subdivision_1_code'] ? ', ' + iconProperties['$geoip_subdivision_1_code'] : null}
                                 </span>
                             </div>
                         ) : null}
