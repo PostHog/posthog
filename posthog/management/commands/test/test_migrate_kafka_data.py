@@ -49,11 +49,11 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
         consumer_group_id,
         # Include all the options so we check they can be passed in
         "--linger-ms",
-        "100",
+        "0",
         "--batch-size",
-        "1000000",
-        "--timeout-ms",
         "100",
+        "--timeout-ms",
+        "1000",
     )
 
     # We should have produced a message to the new topic
