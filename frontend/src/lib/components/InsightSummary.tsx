@@ -17,7 +17,9 @@ export function insightSummaryString(props: InsightSummaryProps): string {
     const { insight } = props
     const { filters, query } = insight
 
-    return props.insight.name || (props.isUsingDataExploration && isInsightVizNode(query))
+    return !!props.insight.name
+        ? props.insight.name
+        : props.isUsingDataExploration && isInsightVizNode(query)
         ? summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel, cohortsById, mathDefinitions)
         : !!query
         ? 'query: ' + query.kind
