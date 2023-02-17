@@ -6,6 +6,8 @@ import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
+const DEFAULT_SAMPLING_FACTOR = 0.1
+
 export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
     const logic = insightLogic(insightProps)
     const { setFilters } = useActions(logic)
@@ -16,18 +18,18 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
     const insightSupportsSampling =
         editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS
 
-    if (featureFlags[FEATURE_FLAGS.SAMPLING] && insightSupportsSampling) {
+    if (insightSupportsSampling) {
         return (
             <>
                 <div className="SamplingFilter">
                     <LemonSwitch
-                        checked={!!filters.sample_results}
+                        checked={!!filters.sampling_factor}
                         label={
                             <>
                                 <span>Show sampled results</span>
                             </>
                         }
-                        onChange={(newChecked) => setFilters({ ...filters, sample_results: newChecked })}
+                        onChange={(newChecked) => setFilters({ ...filters, sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null })}
                     />
                 </div>
             </>

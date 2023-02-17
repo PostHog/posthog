@@ -155,7 +155,7 @@ class LifecycleEventQuery(EventQuery):
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
-        sample_clause = f"SAMPLE {self._filter.sample_factor}" if self._filter.sample_factor else ""
+        sample_clause = f"SAMPLE {self._filter.sampling_factor}" if self._filter.sampling_factor else ""
 
         return (
             LIFECYCLE_EVENTS_QUERY.format(

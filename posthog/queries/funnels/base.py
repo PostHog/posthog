@@ -104,15 +104,15 @@ class ClickhouseFunnelBase(ABC):
         return self._format_results(results)
 
     def _serialize_step(
-        self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None, sample_factor: Optional[float] = None
+        self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None, sampling_factor: Optional[float] = None
     ) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action().name
         else:
             name = step.id
 
-        if sample_factor:
-            count = count * 1 / sample_factor
+        if sampling_factor:
+            count = count * 1 / sampling_factor
 
         return {
             "action_id": step.id,
@@ -200,7 +200,7 @@ class ClickhouseFunnelBase(ABC):
                 total_people += results[step.index]
 
             serialized_result = self._serialize_step(
-                step, total_people, [], self._filter.sample_factor
+                step, total_people, [], self._filter.sampling_factor
             )  # persons not needed on initial return
             if cast(int, step.index) > 0:
                 serialized_result.update(

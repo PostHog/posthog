@@ -164,8 +164,8 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
         summary = []
 
         sample_multiplier = 1
-        if self._filter.sample_factor:
-            sample_multiplier = 1 / self._filter.sample_factor
+        if self._filter.sampling_factor:
+            sample_multiplier = 1 / self._filter.sampling_factor
         for period_row in results:
             serialized_result = {
                 "timestamp": period_row[0],

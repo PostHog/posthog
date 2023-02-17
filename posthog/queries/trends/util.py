@@ -85,8 +85,8 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
-    if filter.sample_factor:
-        counts = [c * (1 / filter.sample_factor) for c in counts]
+    if filter.sampling_factor:
+        counts = [c * (1 / filter.sampling_factor) for c in counts]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),

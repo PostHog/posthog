@@ -561,12 +561,16 @@ class SampleMixin(BaseParamMixin):
     Sample factor for a query.
     """
 
-    default_sample_factor = 0.1
-
     @cached_property
-    def sample_factor(self) -> Optional[float]:
-        factor = None
-        if self._data.get("sample_results", False):
-            factor = self.default_sample_factor
+    def sampling_factor(self) -> Optional[float]:
+        sampling_factor = self._data.get("sampling_factor", None)
 
-        return factor
+        # if the client sends us 0 or below 
+        if sampling_factor is not None:
+            sampling_factor = float(sampling_factor)
+            if sampling_factor < 0 or sampling_factor >= 1:
+                raise ValueError("Sampling factor must be greater than 0 and smaller than 1")
+            
+            return sampling_factor
+
+        return None
