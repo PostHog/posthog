@@ -113,7 +113,6 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
-    INSIGHT_EDITOR_PANELS: '8929-insight-editor-panels', // owner: @mariusandra
     BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
@@ -126,13 +125,11 @@ export const FEATURE_FLAGS = {
     EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
-    ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
-    BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
@@ -141,6 +138,8 @@ export const FEATURE_FLAGS = {
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
+    DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
+    SAMPLING: 'sampling', // owner: @yakkomajuri
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

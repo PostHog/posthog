@@ -157,6 +157,30 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
+def get_current_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:
+    """
+    Returns a pair of datetimes, representing the start and end of the current day.
+    `at` is the datetime to use as a reference point.
+    """
+
+    if not at:
+        at = timezone.now()
+
+    period_end: datetime.datetime = datetime.datetime.combine(
+        at,
+        datetime.time.max,
+        tzinfo=pytz.UTC,
+    )  # very end of the previous day
+
+    period_start: datetime.datetime = datetime.datetime.combine(
+        period_end,
+        datetime.time.min,
+        tzinfo=pytz.UTC,
+    )  # very start of the previous day
+
+    return (period_start, period_end)
+
+
 def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
@@ -964,7 +988,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     return result
 
 
-def should_refresh(request: Request) -> bool:
+def refresh_requested_by_client(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
 
 

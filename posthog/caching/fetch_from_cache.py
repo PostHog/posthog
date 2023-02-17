@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Optional, Union
 
 from django.utils.timezone import now
@@ -19,6 +19,7 @@ class InsightResult:
     cache_key: Optional[str]
     is_cached: bool
     timezone: Optional[str]
+    next_allowed_client_refresh: Optional[datetime] = None
 
 
 @dataclass(frozen=True)
@@ -28,9 +29,10 @@ class NothingInCacheResult(InsightResult):
     cache_key: Optional[str] = None
     is_cached: bool = False
     timezone: Optional[str] = None
+    next_allowed_client_refresh: Optional[datetime] = None
 
 
-def fetch_cached_insight_result(target: Union[Insight, DashboardTile]) -> InsightResult:
+def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_frequency: timedelta) -> InsightResult:
     """
     Returns cached value for this insight.
 
@@ -48,23 +50,46 @@ def fetch_cached_insight_result(target: Union[Insight, DashboardTile]) -> Insigh
         return NothingInCacheResult(cache_key=cache_key)
     else:
         statsd.incr("posthog_cloud_insight_cache_hit")
+        last_refresh = cached_result.get("last_refresh")
+        next_allowed_client_refresh = (
+            cached_result.get("next_allowed_client_refresh") or last_refresh + refresh_frequency
+        )
+
         return InsightResult(
             result=cached_result.get("result"),
-            last_refresh=cached_result.get("last_refresh"),
+            last_refresh=last_refresh,
             cache_key=cache_key,
             is_cached=True,
             # :TODO: This is only populated in some code paths writing to cache
             timezone=cached_result.get("timezone"),
+            next_allowed_client_refresh=next_allowed_client_refresh,
         )
 
 
-def synchronously_update_cache(insight: Insight, dashboard: Optional[Dashboard]) -> InsightResult:
+def synchronously_update_cache(
+    insight: Insight, dashboard: Optional[Dashboard], refresh_frequency: Optional[timedelta] = None
+) -> InsightResult:
     cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
     timestamp = now()
+
+    next_allowed_client_refresh = timestamp + refresh_frequency if refresh_frequency else None
     update_cached_state(
-        insight.team_id, cache_key, timestamp, {"result": result, "type": cache_type, "last_refresh": timestamp}
+        insight.team_id,
+        cache_key,
+        timestamp,
+        {
+            "result": result,
+            "type": cache_type,
+            "last_refresh": timestamp,
+            "next_allowed_client_refresh": next_allowed_client_refresh,
+        },
     )
 
     return InsightResult(
-        result=result, last_refresh=timestamp, cache_key=cache_key, is_cached=False, timezone=insight.team.timezone
+        result=result,
+        last_refresh=timestamp,
+        cache_key=cache_key,
+        is_cached=False,
+        timezone=insight.team.timezone,
+        next_allowed_client_refresh=next_allowed_client_refresh,
     )

@@ -23,21 +23,40 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 thread_local_storage = threading.local()
 
+# As of CH 22.8 - more algorithms have been added on newer versions
+CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS = [
+    "default",
+    "hash",
+    "parallel_hash",
+    "direct",
+    "full_sorting_merge",
+    "partial_merge",
+    "auto",
+]
+
+is_invalid_algorithm = lambda algo: algo not in CLICKHOUSE_SUPPORTED_JOIN_ALGORITHMS
+
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
-    from posthog.version_requirement import ServiceVersionRequirement
-
     # On CH 22.3 we need to disable optimize_move_to_prewhere due to a bug. This is verified fixed on 22.8 (LTS),
     # so we only disable on versions below that.
     # This is calculated once per deploy
-    clickhouse_at_least_228, _ = ServiceVersionRequirement(
-        service="clickhouse", supported_version=">=22.8.0"
-    ).is_service_in_accepted_version()
-    if clickhouse_at_least_228:
-        return {}
+    if clickhouse_at_least_228():
+        return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
     else:
         return {"optimize_move_to_prewhere": 0}
+
+
+@lru_cache(maxsize=1)
+def clickhouse_at_least_228() -> bool:
+    from posthog.version_requirement import ServiceVersionRequirement
+
+    is_ch_version_228_or_above, _ = ServiceVersionRequirement(
+        service="clickhouse", supported_version=">=22.8.0"
+    ).is_service_in_accepted_version()
+
+    return is_ch_version_228_or_above
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -58,7 +77,7 @@ def sync_execute(
     with_column_types=False,
     flush=True,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ):
     if TEST and flush:
         try:
@@ -72,14 +91,18 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
-        settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
+
+        query_id = validated_client_query_id()
+        core_settings = {**default_settings(), **(settings or {})}
+        tags["query_settings"] = core_settings
+        settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
             result = client.execute(
                 prepared_sql,
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validated_client_query_id(),
+                query_id=query_id,
             )
         except Exception as err:
             err = wrap_query_error(err)
@@ -105,7 +128,7 @@ def query_with_columns(
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
     *,
-    workload: Workload = Workload.ONLINE,
+    workload: Workload = Workload.DEFAULT,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
@@ -127,7 +150,7 @@ def query_with_columns(
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.DEFAULT):
     """
     Given a string query with placeholders we do one of two things:
 

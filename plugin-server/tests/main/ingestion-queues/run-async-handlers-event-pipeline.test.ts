@@ -14,15 +14,19 @@
 //     DependencyUnavailableError Error being thrown.
 //  2. the KafkaQueue consumer handler will let the error bubble up to the
 //     KafkaJS consumer runner, which we assume will handle retries.
+import Piscina from '@posthog/piscina'
 import { RetryError } from '@posthog/plugin-scaffold'
 import Redis from 'ioredis'
 import { KafkaJSError } from 'kafkajs'
 
+import { defaultConfig } from '../../../src/config/config'
 import { KAFKA_EVENTS_JSON } from '../../../src/config/kafka-topics'
+import { buildOnEventIngestionConsumer } from '../../../src/main/ingestion-queues/on-event-handler-consumer'
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
+import { makePiscina } from '../../../src/worker/piscina'
 import { setupPlugins } from '../../../src/worker/plugins/setup'
 import { createTaskRunner } from '../../../src/worker/worker'
 import {
@@ -32,7 +36,6 @@ import {
     createTeam,
     POSTGRES_DELETE_TABLES_QUERY,
 } from '../../helpers/sql'
-import { IngestionConsumer } from './../../../src/main/ingestion-queues/kafka-queue'
 
 describe('workerTasks.runAsyncHandlersEventPipeline()', () => {
     // Tests the failure cases for the workerTasks.runAsyncHandlersEventPipeline
@@ -232,6 +235,7 @@ describe('eachBatchAsyncHandlers', () => {
     // the case.
     let hub: Hub
     let closeHub: () => Promise<void>
+    let piscina: Piscina
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
@@ -239,25 +243,16 @@ describe('eachBatchAsyncHandlers', () => {
 
     afterEach(async () => {
         await closeHub?.()
+        await piscina.destroy()
     })
 
     test('rejections from piscina are bubbled up to the consumer', async () => {
-        const ingestionConsumer = new IngestionConsumer(hub, {
-            runAsyncHandlersEventPipeline: () => {
-                throw new DependencyUnavailableError(
-                    'Failed to produce',
-                    'Kafka',
-                    new KafkaJSError('Failed to produce')
-                )
-            },
-            runEventPipeline: () => {
-                throw new DependencyUnavailableError(
-                    'Failed to produce',
-                    'Kafka',
-                    new KafkaJSError('Failed to produce')
-                )
-            },
-        } as any)
+        piscina = makePiscina(defaultConfig)
+        const ingestionConsumer = buildOnEventIngestionConsumer({ hub, piscina })
+
+        jest.spyOn(ingestionConsumer, 'eachBatch').mockRejectedValue(
+            new DependencyUnavailableError('Failed to produce', 'Kafka', new KafkaJSError('Failed to produce'))
+        )
 
         await expect(
             ingestionConsumer.eachBatchConsumer({

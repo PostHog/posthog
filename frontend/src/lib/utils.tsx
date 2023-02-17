@@ -420,6 +420,33 @@ export function objectClean<T extends Record<string | number | symbol, unknown>>
     })
     return response
 }
+export function objectCleanWithEmpty<T extends Record<string | number | symbol, unknown>>(obj: T): T {
+    const response = { ...obj }
+    Object.keys(response).forEach((key) => {
+        // remove undefined values
+        if (response[key] === undefined) {
+            delete response[key]
+        }
+        // remove empty arrays i.e. []
+        if (
+            typeof response[key] === 'object' &&
+            Array.isArray(response[key]) &&
+            (response[key] as unknown[]).length === 0
+        ) {
+            delete response[key]
+        }
+        // remove empty objects i.e. {}
+        if (
+            typeof response[key] === 'object' &&
+            !Array.isArray(response[key]) &&
+            response[key] !== null &&
+            Object.keys(response[key] as Record<string | number | symbol, unknown>).length === 0
+        ) {
+            delete response[key]
+        }
+    })
+    return response
+}
 
 /** Returns "response" from: obj2 = { ...obj1, ...response }  */
 export function objectDiffShallow(obj1: Record<string, any>, obj2: Record<string, any>): Record<string, any> {
@@ -1257,10 +1284,11 @@ export function endWithPunctation(text?: string | null): string {
 export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
     try {
-        const localeTimeString = date
+        const localeTimeStringParts = date
             .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
             .replace('GMT', 'UTC')
-        return localeTimeString.split(' ')[2]
+            .split(' ')
+        return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         Sentry.captureException(e)
         return null

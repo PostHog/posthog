@@ -1,4 +1,5 @@
 import { DateTime, Settings } from 'luxon'
+import { v4 } from 'uuid'
 
 import { DateTimePropertyTypeFormat, Hub, PropertyDefinitionTypeEnum, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
@@ -11,7 +12,7 @@ import {
 } from '../../../src/worker/ingestion/property-definitions-auto-discovery'
 import { NULL_AFTER_PROPERTY_TYPE_DETECTION } from '../../../src/worker/ingestion/property-definitions-cache'
 import { PropertyDefinitionsManager } from '../../../src/worker/ingestion/property-definitions-manager'
-import { resetTestDatabase } from '../../helpers/sql'
+import { createOrganization, createOrganizationMembership, createTeam, createUser } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 jest.mock('../../../src/utils/posthog', () => ({
@@ -25,10 +26,13 @@ describe('PropertyDefinitionsManager()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
     let manager: PropertyDefinitionsManager
+    let teamId: number
+    let organizationId: string
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase()
+        organizationId = await createOrganization(hub.db.postgres)
+        teamId = await createTeam(hub.db.postgres, organizationId)
         const groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager, hub.SITE_URL)
         manager = new PropertyDefinitionsManager(hub.teamManager, groupTypeManager, hub.db, hub)
 
@@ -40,38 +44,47 @@ describe('PropertyDefinitionsManager()', () => {
     })
 
     describe('updateEventNamesAndProperties()', () => {
-        beforeEach(async () => {
-            await hub.db.postgresQuery("UPDATE posthog_team SET ingested_event = 't'", undefined, 'testTag')
-            await hub.db.postgresQuery('DELETE FROM posthog_eventdefinition', undefined, 'testTag')
-            await hub.db.postgresQuery('DELETE FROM posthog_propertydefinition', undefined, 'testTag')
-            await hub.db.postgresQuery('DELETE FROM posthog_eventproperty', undefined, 'testTag')
-        })
-
         describe('base tests', () => {
             beforeEach(async () => {
                 await hub.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, created_at) VALUES ($1, $2, $3, $4, $5, NOW())`,
-                    [new UUIDT().toString(), '$pageview', 3, 2, 2],
+                    [new UUIDT().toString(), '$pageview', 3, 2, teamId],
                     'testTag'
                 )
                 await hub.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, team_id, created_at, last_seen_at) VALUES ($1, $2, $3, NOW(), $4)`,
-                    [new UUIDT().toString(), 'another_test_event', 2, '2014-03-23T23:23:23Z'],
+                    [new UUIDT().toString(), 'another_test_event', teamId, '2014-03-23T23:23:23Z'],
                     'testTag'
                 )
                 await hub.db.postgresQuery(
                     `INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [new UUIDT().toString(), 'property_name', PropertyDefinitionTypeEnum.Event, false, null, null, 2],
+                    [
+                        new UUIDT().toString(),
+                        'property_name',
+                        PropertyDefinitionTypeEnum.Event,
+                        false,
+                        null,
+                        null,
+                        teamId,
+                    ],
                     'testTag'
                 )
                 await hub.db.postgresQuery(
                     `INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-                    [new UUIDT().toString(), 'numeric_prop', PropertyDefinitionTypeEnum.Event, true, null, null, 2],
+                    [
+                        new UUIDT().toString(),
+                        'numeric_prop',
+                        PropertyDefinitionTypeEnum.Event,
+                        true,
+                        null,
+                        null,
+                        teamId,
+                    ],
                     'testTag'
                 )
                 await hub.db.postgresQuery(
                     `INSERT INTO posthog_eventproperty (event, property, team_id) VALUES ($1, $2, $3)`,
-                    ['new-event', 'numeric_prop', 2],
+                    ['new-event', 'numeric_prop', teamId],
                     'testTag'
                 )
             })
@@ -79,20 +92,20 @@ describe('PropertyDefinitionsManager()', () => {
             it('updates event properties', async () => {
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:36.000Z').getTime())
 
-                await manager.updateEventNamesAndProperties(2, 'new-event', {
+                await manager.updateEventNamesAndProperties(teamId, 'new-event', {
                     property_name: 'efg',
                     number: 4,
                     numeric_prop: 5,
                 })
 
-                const eventDefinitions = await hub.db.fetchEventDefinitions()
+                const eventDefinitions = await hub.db.fetchEventDefinitions(teamId)
 
                 expect(eventDefinitions).toEqual([
                     {
                         id: expect.any(String),
                         name: '$pageview',
                         query_usage_30_day: 2,
-                        team_id: 2,
+                        team_id: teamId,
                         volume_30_day: 3,
                         last_seen_at: null,
                         created_at: expect.any(String),
@@ -101,7 +114,7 @@ describe('PropertyDefinitionsManager()', () => {
                         id: expect.any(String),
                         name: 'another_test_event',
                         query_usage_30_day: null,
-                        team_id: 2,
+                        team_id: teamId,
                         volume_30_day: null,
                         last_seen_at: '2014-03-23T23:23:23.000Z', // values are not updated directly
                         created_at: expect.any(String),
@@ -110,7 +123,7 @@ describe('PropertyDefinitionsManager()', () => {
                         id: expect.any(String),
                         name: 'new-event',
                         query_usage_30_day: null,
-                        team_id: 2,
+                        team_id: teamId,
                         volume_30_day: null,
                         last_seen_at: '2020-02-27T11:00:36.000Z', // overridden Date.now()
                         created_at: expect.any(String),
@@ -127,40 +140,28 @@ describe('PropertyDefinitionsManager()', () => {
                     }
                 }
 
-                expect(await hub.db.fetchEventProperties()).toEqual([
+                expect(await hub.db.fetchEventProperties(teamId)).toEqual([
+                    {
+                        id: expect.any(Number),
+                        event: 'new-event',
+                        property: 'number',
+                        team_id: teamId,
+                    },
                     {
                         id: expect.any(Number),
                         event: 'new-event',
                         property: 'numeric_prop',
-                        team_id: 2,
+                        team_id: teamId,
                     },
                     {
                         id: expect.any(Number),
                         event: 'new-event',
                         property: 'property_name',
-                        team_id: 2,
-                    },
-                    {
-                        id: expect.any(Number),
-                        event: 'new-event',
-                        property: 'number',
-                        team_id: 2,
+                        team_id: teamId,
                     },
                 ])
 
-                expect(await hub.db.fetchPropertyDefinitions()).toEqual([
-                    {
-                        id: expect.any(String),
-                        is_numerical: false,
-                        name: 'property_name',
-                        property_type: 'String',
-                        property_type_format: null,
-                        query_usage_30_day: null,
-                        team_id: 2,
-                        volume_30_day: null,
-                        type: PropertyDefinitionTypeEnum.Event,
-                        group_type_index: null,
-                    },
+                expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     {
                         id: expect.any(String),
                         is_numerical: true,
@@ -168,7 +169,7 @@ describe('PropertyDefinitionsManager()', () => {
                         property_type: 'Numeric',
                         property_type_format: null,
                         query_usage_30_day: null,
-                        team_id: 2,
+                        team_id: teamId,
                         volume_30_day: null,
                         type: PropertyDefinitionTypeEnum.Event,
                         group_type_index: null,
@@ -180,7 +181,19 @@ describe('PropertyDefinitionsManager()', () => {
                         property_type: 'Numeric',
                         property_type_format: null,
                         query_usage_30_day: null,
-                        team_id: 2,
+                        team_id: teamId,
+                        volume_30_day: null,
+                        type: PropertyDefinitionTypeEnum.Event,
+                        group_type_index: null,
+                    },
+                    {
+                        id: expect.any(String),
+                        is_numerical: false,
+                        name: 'property_name',
+                        property_type: 'String',
+                        property_type_format: null,
+                        query_usage_30_day: null,
+                        team_id: teamId,
                         volume_30_day: null,
                         type: PropertyDefinitionTypeEnum.Event,
                         group_type_index: null,
@@ -192,48 +205,48 @@ describe('PropertyDefinitionsManager()', () => {
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:04.000Z').getTime())
 
                 expect(manager.eventLastSeenCache.length).toEqual(0)
-                await manager.updateEventNamesAndProperties(2, 'another_test_event', {})
+                await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {})
                 expect(manager.eventLastSeenCache.length).toEqual(1)
-                expect(manager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150404)
+                expect(manager.eventLastSeenCache.get(`[${teamId},"another_test_event"]`)).toEqual(20150404)
 
                 // Start tracking queries
                 const postgresQuery = jest.spyOn(manager.db, 'postgresQuery')
 
                 // New event, 10 sec later (all caches should be hit)
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-04T04:04:14.000Z').getTime())
-                await manager.updateEventNamesAndProperties(2, 'another_test_event', {})
+                await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {})
                 expect(postgresQuery).not.toHaveBeenCalled()
 
                 // New event, 1 day later (all caches should be empty)
                 jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2015-04-05T04:04:14.000Z').getTime())
-                await manager.updateEventNamesAndProperties(2, 'another_test_event', {})
+                await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {})
                 expect(postgresQuery).toHaveBeenCalledWith(
                     'UPDATE posthog_eventdefinition SET last_seen_at=$1 WHERE team_id=$2 AND name=$3',
-                    [DateTime.now(), 2, 'another_test_event'],
+                    [DateTime.now(), teamId, 'another_test_event'],
                     'updateEventLastSeenAt'
                 )
 
                 // Re-ingest, should add no queries
                 postgresQuery.mockClear()
-                await manager.updateEventNamesAndProperties(2, 'another_test_event', {})
+                await manager.updateEventNamesAndProperties(teamId, 'another_test_event', {})
                 expect(postgresQuery).not.toHaveBeenCalled()
 
                 expect(manager.eventLastSeenCache.length).toEqual(1)
-                expect(manager.eventLastSeenCache.get('[2,"another_test_event"]')).toEqual(20150405)
+                expect(manager.eventLastSeenCache.get(`[${teamId},"another_test_event"]`)).toEqual(20150405)
             })
 
             it('does not capture event', async () => {
-                await manager.updateEventNamesAndProperties(2, 'new-event', { property_name: 'efg', number: 4 })
+                await manager.updateEventNamesAndProperties(teamId, 'new-event', { property_name: 'efg', number: 4 })
 
                 expect(posthog.capture).not.toHaveBeenCalled()
             })
 
             it('handles cache invalidation properly', async () => {
-                await manager.teamManager.fetchTeam(2)
-                await manager.cacheEventNamesAndProperties(2, '$foobar')
+                await manager.teamManager.fetchTeam(teamId)
+                await manager.cacheEventNamesAndProperties(teamId, '$foobar')
                 await hub.db.postgresQuery(
                     `INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, NULL, NULL, $3) ON CONFLICT DO NOTHING`,
-                    [new UUIDT().toString(), '$foobar', 2],
+                    [new UUIDT().toString(), '$foobar', teamId],
                     'insertEventDefinition'
                 )
 
@@ -241,7 +254,7 @@ describe('PropertyDefinitionsManager()', () => {
                 jest.spyOn(hub.db, 'postgresQuery')
 
                 // Scenario: Different request comes in, team gets reloaded in the background with no updates
-                await manager.updateEventNamesAndProperties(2, '$foobar', {})
+                await manager.updateEventNamesAndProperties(teamId, '$foobar', {})
                 expect(manager.teamManager.fetchTeam).toHaveBeenCalledTimes(1)
                 expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
 
@@ -249,7 +262,7 @@ describe('PropertyDefinitionsManager()', () => {
                 jest.mocked(manager.teamManager.fetchTeam).mockClear()
                 jest.mocked(hub.db.postgresQuery).mockClear()
 
-                await manager.updateEventNamesAndProperties(2, '$newevent', {})
+                await manager.updateEventNamesAndProperties(teamId, '$newevent', {})
                 expect(manager.teamManager.fetchTeam).toHaveBeenCalledTimes(1)
                 // extra query for `cacheEventNamesAndProperties` that we did manually before
                 expect(hub.db.postgresQuery).toHaveBeenCalledTimes(2)
@@ -257,7 +270,7 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('saves person property definitions', async () => {
-            await manager.updateEventNamesAndProperties(2, 'new-event', {
+            await manager.updateEventNamesAndProperties(teamId, 'new-event', {
                 $set: {
                     foo: 'bar',
                 },
@@ -266,7 +279,7 @@ describe('PropertyDefinitionsManager()', () => {
                 },
             })
 
-            expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+            expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                 {
                     id: expect.any(String),
                     is_numerical: false,
@@ -274,7 +287,7 @@ describe('PropertyDefinitionsManager()', () => {
                     property_type: 'String',
                     property_type_format: null,
                     query_usage_30_day: null,
-                    team_id: 2,
+                    team_id: teamId,
                     volume_30_day: null,
                     type: PropertyDefinitionTypeEnum.Person,
                     group_type_index: null,
@@ -286,7 +299,7 @@ describe('PropertyDefinitionsManager()', () => {
                     property_type: 'Numeric',
                     property_type_format: null,
                     query_usage_30_day: null,
-                    team_id: 2,
+                    team_id: teamId,
                     volume_30_day: null,
                     type: PropertyDefinitionTypeEnum.Person,
                     group_type_index: null,
@@ -295,10 +308,10 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('saves group property definitions', async () => {
-            await hub.db.insertGroupType(2, 'project', 0)
-            await hub.db.insertGroupType(2, 'organization', 1)
+            await hub.db.insertGroupType(teamId, 'project', 0)
+            await hub.db.insertGroupType(teamId, 'organization', 1)
 
-            await manager.updateEventNamesAndProperties(2, '$groupidentify', {
+            await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
                 $group_type: 'organization',
                 $group_key: 'org::5',
                 $group_set: {
@@ -307,7 +320,7 @@ describe('PropertyDefinitionsManager()', () => {
                 },
             })
 
-            expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+            expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                 {
                     id: expect.any(String),
                     is_numerical: false,
@@ -315,7 +328,7 @@ describe('PropertyDefinitionsManager()', () => {
                     property_type: 'String',
                     property_type_format: null,
                     query_usage_30_day: null,
-                    team_id: 2,
+                    team_id: teamId,
                     volume_30_day: null,
                     type: PropertyDefinitionTypeEnum.Group,
                     group_type_index: 1,
@@ -327,7 +340,7 @@ describe('PropertyDefinitionsManager()', () => {
                     property_type: 'Numeric',
                     property_type_format: null,
                     query_usage_30_day: null,
-                    team_id: 2,
+                    team_id: teamId,
                     volume_30_day: null,
                     type: PropertyDefinitionTypeEnum.Group,
                     group_type_index: 1,
@@ -335,20 +348,49 @@ describe('PropertyDefinitionsManager()', () => {
             ])
         })
 
-        describe('first event has not yet been ingested', () => {
-            beforeEach(async () => {
-                await hub.db.postgresQuery('UPDATE posthog_team SET ingested_event = false', undefined, 'testTag')
-            })
+        it('regression tests: handles group set properties being empty', async () => {
+            // See details of the regression
+            // [here](https://posthog.slack.com/archives/C0460J93NBU/p1676384802876269)
+            //
+            // We were essentially failing and throwing a Sentry error if the
+            // group properties was no an object. This test would throw before
+            // the fix.
+            await hub.db.insertGroupType(teamId, 'project', 0)
+            await hub.db.insertGroupType(teamId, 'organization', 1)
 
+            await manager.updateEventNamesAndProperties(teamId, '$groupidentify', {
+                $group_type: 'organization',
+                $group_key: 'org::5',
+                $group_set: null,
+            })
+        })
+
+        describe('first event has not yet been ingested', () => {
             it('calls posthog.identify and posthog.capture', async () => {
-                await manager.updateEventNamesAndProperties(2, 'new-event', {
+                // NOTE: that this functionality is dependent on users being a
+                // member of the team. It will produce an event for each member
+                // of the team.
+                const distinctId = v4()
+                const userId = await createUser(hub.db.postgres, distinctId)
+                await createOrganizationMembership(hub.db.postgres, organizationId, userId)
+                await hub.db.postgresQuery(
+                    `
+                        UPDATE posthog_team 
+                        SET ingested_event = false
+                        WHERE id = $1
+                    `,
+                    [teamId],
+                    'testTag'
+                )
+
+                await manager.updateEventNamesAndProperties(teamId, 'new-event', {
                     $lib: 'python',
                     $host: 'localhost:8000',
                 })
 
-                const team = await manager.teamManager.fetchTeam(2)
+                const team = await manager.teamManager.fetchTeam(teamId)
                 expect(posthog.capture).toHaveBeenCalledWith({
-                    distinctId: 'plugin_test_user_distinct_id_1001',
+                    distinctId: distinctId,
                     event: 'first team event ingested',
                     properties: {
                         team: team!.uuid,
@@ -357,7 +399,7 @@ describe('PropertyDefinitionsManager()', () => {
                         sdk: 'python',
                     },
                     groups: {
-                        organization: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
+                        organization: organizationId,
                         project: team!.uuid,
                         instance: 'unknown',
                     },
@@ -366,8 +408,6 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         describe('auto-detection of property types', () => {
-            const teamId = 2
-
             const randomInteger = () => Math.floor(Math.random() * 1000) + 1
             const randomString = () => [...Array(10)].map(() => (~~(Math.random() * 36)).toString(36)).join('')
 
@@ -380,7 +420,7 @@ describe('PropertyDefinitionsManager()', () => {
                     NULL_AFTER_PROPERTY_TYPE_DETECTION
                 )
 
-                expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
@@ -412,7 +452,7 @@ describe('PropertyDefinitionsManager()', () => {
 
                     expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_bool')).toEqual('Boolean')
 
-                    expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                    expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                         expect.objectContaining({
                             id: expect.any(String),
                             team_id: teamId,
@@ -443,7 +483,7 @@ describe('PropertyDefinitionsManager()', () => {
 
                 expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
 
-                expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
@@ -461,7 +501,7 @@ describe('PropertyDefinitionsManager()', () => {
 
                 expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
 
-                expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
@@ -479,7 +519,7 @@ describe('PropertyDefinitionsManager()', () => {
 
                 expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_string')).toEqual('String')
 
-                expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                     expect.objectContaining({
                         id: expect.any(String),
                         team_id: teamId,
@@ -557,7 +597,7 @@ describe('PropertyDefinitionsManager()', () => {
                     properties[testcase.propertyKey] = testcase.date
                     await manager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
 
-                    expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                    expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                         expect.objectContaining({
                             id: expect.any(String),
                             team_id: teamId,
@@ -680,7 +720,7 @@ describe('PropertyDefinitionsManager()', () => {
                     properties[testcase.propertyKey] = testcase.date
                     await manager.updateEventNamesAndProperties(teamId, 'another_test_event', properties)
 
-                    expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                    expect(await hub.db.fetchPropertyDefinitions(teamId)).toEqual([
                         expect.objectContaining({
                             id: expect.any(String),
                             team_id: teamId,

@@ -26,22 +26,24 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                     </>
                 }
             >
-                <Button
-                    size="small"
-                    type="link"
-                    onClick={() => {
-                        loadData(true)
-                    }}
-                    disabled={
-                        !!lastRefresh &&
-                        dayjs()
-                            .subtract(REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
-                            .isBefore(lastRefresh)
-                    }
-                    className="p-0"
-                >
-                    <span className="text-sm">Refresh</span>
-                </Button>
+                <span>
+                    <Button
+                        size="small"
+                        type="link"
+                        onClick={() => {
+                            loadData(true)
+                        }}
+                        disabled={
+                            !!lastRefresh &&
+                            dayjs()
+                                .subtract(REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                                .isBefore(lastRefresh)
+                        }
+                        className="p-0"
+                    >
+                        <span className="text-sm">Refresh</span>
+                    </Button>
+                </span>
             </Tooltip>
         </div>
     )

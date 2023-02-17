@@ -85,6 +85,8 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
+    if filter.sample_factor:
+        counts = [c * (1 / filter.sample_factor) for c in counts]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),
@@ -201,5 +203,5 @@ def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, t
     else:  # "day" is the default interval
         date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
     if date.tzinfo is None:
-        date = date.replace(tzinfo=pytz.timezone(team.timezone))
+        date = pytz.timezone(team.timezone).localize(date)
     return date

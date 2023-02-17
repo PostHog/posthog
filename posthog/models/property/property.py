@@ -11,12 +11,10 @@ from typing import (
     cast,
 )
 
-from django.db.models import Exists, F, OuterRef, Q, Subquery
-
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
-from posthog.utils import is_valid_regex, str_to_bool
+from posthog.utils import str_to_bool
 
 
 class BehavioralPropertyType(str, Enum):
@@ -252,9 +250,10 @@ class Property:
     def to_dict(self) -> Dict[str, Any]:
         return {key: value for key, value in vars(self).items() if value is not None}
 
-    def _parse_value(self, value: ValueT) -> Any:
+    @staticmethod
+    def _parse_value(value: ValueT) -> Any:
         if isinstance(value, list):
-            return [self._parse_value(v) for v in value]
+            return [Property._parse_value(v) for v in value]
         if value == "true":
             return True
         if value == "false":
@@ -276,79 +275,6 @@ class Property:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
             return value
-
-    def property_to_Q(self) -> Q:
-        from posthog.models.cohort import CohortPeople
-
-        if self.type in CLICKHOUSE_ONLY_PROPERTY_TYPES:
-            raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
-
-        value = self._parse_value(self.value)
-        if self.type == "cohort":
-            from posthog.models.cohort import Cohort
-
-            cohort_id = int(cast(Union[str, int], value))
-
-            cohort_set = Cohort.objects.only("version").filter(pk=cohort_id)
-            cohort = cohort_set.get()
-            if cohort.is_static:
-                return Q(
-                    Exists(
-                        CohortPeople.objects.filter(
-                            cohort_id=cohort_id, person_id=OuterRef("id"), cohort__id=cohort_id
-                        ).only("id")
-                    )
-                )
-            else:
-
-                return Q(
-                    Exists(
-                        CohortPeople.objects.annotate(cohort_version=Subquery(cohort_set.values("version")[:1]))
-                        .filter(cohort_id=cohort_id, person_id=OuterRef("id"))
-                        .filter(
-                            # bit of a hack. if cohort_version is NULL, the query is still `version = cohort_version`, which doesn't match
-                            # So just explicitly ask if cohort_version is null
-                            Q(cohort_version=F("version"))
-                            | Q(cohort_version__isnull=True)
-                        )
-                        .only("id")
-                    )
-                )
-
-        column = "group_properties" if self.type == "group" else "properties"
-
-        if self.operator == "is_not":
-            return Q(~lookup_q(f"{column}__{self.key}", value) | ~Q(**{f"{column}__has_key": self.key}))
-        if self.operator == "is_set":
-            return Q(**{f"{column}__{self.key}__isnull": False})
-        if self.operator == "is_not_set":
-            return Q(**{f"{column}__{self.key}__isnull": True})
-        if self.operator in ("regex", "not_regex") and not is_valid_regex(value):
-            # Return no data for invalid regexes
-            return Q(pk=-1)
-        if isinstance(self.operator, str) and self.operator.startswith("not_"):
-            return Q(
-                ~Q(**{f"{column}__{self.key}__{self.operator[4:]}": value})
-                | ~Q(**{f"{column}__has_key": self.key})
-                | Q(**{f"{column}__{self.key}": None})
-            )
-
-        if self.operator in ("is_date_after", "is_date_before"):
-            effective_operator = "gt" if self.operator == "is_date_after" else "lt"
-            return Q(**{f"{column}__{self.key}__{effective_operator}": value})
-
-        if self.operator == "exact" or self.operator is None:
-            return lookup_q(f"{column}__{self.key}", value)
-        else:
-            assert not isinstance(value, list)
-            return Q(**{f"{column}__{self.key}__{self.operator}": value})
-
-
-def lookup_q(key: str, value: Any) -> Q:
-    # exact and is_not operators can pass lists as arguments. Handle those lookups!
-    if isinstance(value, list):
-        return Q(**{f"{key}__in": value})
-    return Q(**{key: value})
 
 
 class PropertyGroup:

@@ -12,7 +12,10 @@ jest.spyOn(Storage.prototype, 'getItem')
 const MOCK_INSIGHT_SHORT_ID = 'abcdef' as InsightShortId
 const MOCK_INSIGHT_NUMERIC_ID = 1
 
-const BASE_MOCK_ANNOTATION = {
+const BASE_MOCK_ANNOTATION: Pick<
+    RawAnnotationType,
+    'creation_type' | 'created_at' | 'created_by' | 'updated_at' | 'deleted'
+> = {
     creation_type: 'USR',
     created_by: {
         id: 5,

@@ -1,5 +1,6 @@
 import functools
 import re
+from datetime import timedelta
 from typing import Any, Dict, Optional, Tuple, Union
 from urllib.parse import urlsplit
 
@@ -83,14 +84,9 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         key_last_used_at = personal_api_key_object.last_used_at
         # Only updating last_used_at if the hour's changed
         # This is to avooid excessive UPDATE queries, while still presenting accurate (down to the hour) info in the UI
-        if key_last_used_at is None or (now.year, now.month, now.day, now.hour) > (
-            key_last_used_at.year,
-            key_last_used_at.month,
-            key_last_used_at.day,
-            key_last_used_at.hour,
-        ):
-            key_last_used_at = now
-            personal_api_key_object.save()
+        if key_last_used_at is None or (now - key_last_used_at > timedelta(hours=1)):
+            personal_api_key_object.last_used_at = now
+            personal_api_key_object.save(update_fields=["last_used_at"])
         assert personal_api_key_object.user is not None
 
         # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.

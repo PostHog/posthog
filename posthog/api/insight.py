@@ -37,6 +37,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import format_paginated_url
 from posthog.caching.fetch_from_cache import InsightResult, fetch_cached_insight_result, synchronously_update_cache
+from posthog.caching.insights_api import should_refresh_insight
 from posthog.client import sync_execute
 from posthog.constants import (
     BREAKDOWN_VALUES_LIMIT,
@@ -75,11 +76,11 @@ from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
 from posthog.queries.trends.trends import Trends
 from posthog.queries.util import get_earliest_timestamp
-from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
+from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 from posthog.user_permissions import UserPermissionsSerializerMixin
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, refresh_requested_by_client, relative_date_parse, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -196,6 +197,13 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     (see from_dashboard query parameter).
     """,
     )
+    next_allowed_client_refresh = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="""
+    The earliest possible datetime at which we'll allow the cached results for this insight to be refreshed
+    by querying the database.
+    """,
+    )
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
@@ -234,6 +242,7 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             "dashboards",
             "dashboard_tiles",
             "last_refresh",
+            "next_allowed_client_refresh",
             "result",
             "created_at",
             "created_by",
@@ -413,13 +422,16 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     def get_timezone(self, insight: Insight):
         # :TODO: This doesn't work properly as background cache updates don't set timezone in the response.
         # This should get refactored.
-        if should_refresh(self.context["request"]):
+        if refresh_requested_by_client(self.context["request"]):
             return insight.team.timezone
 
         return self.insight_result(insight).timezone
 
     def get_last_refresh(self, insight: Insight):
         return self.insight_result(insight).last_refresh
+
+    def get_next_allowed_client_refresh(self, insight: Insight):
+        return self.insight_result(insight).next_allowed_client_refresh
 
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
@@ -461,13 +473,16 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     @lru_cache(maxsize=1)
     def insight_result(self, insight: Insight) -> InsightResult:
         dashboard = self.context.get("dashboard", None)
+        dashboard_tile = self.dashboard_tile_from_context(insight, dashboard)
+        target = insight if dashboard is None else dashboard_tile
 
-        if insight.filters and should_refresh(self.context["request"]):
-            return synchronously_update_cache(insight, dashboard)
+        refresh_insight_now, refresh_frequency = should_refresh_insight(insight, dashboard_tile)
+        if insight.filters and refresh_requested_by_client(self.context["request"]):
+            if refresh_insight_now:
+                return synchronously_update_cache(insight, dashboard, refresh_frequency)
 
-        target = insight if dashboard is None else self.dashboard_tile_from_context(insight, dashboard)
         # :TODO: Clear up if tile can be null or not
-        return fetch_cached_insight_result(target or insight)
+        return fetch_cached_insight_result(target or insight, refresh_frequency)
 
     @lru_cache(maxsize=1)  # each serializer instance should only deal with one insight/tile combo
     def dashboard_tile_from_context(self, insight: Insight, dashboard: Optional[Dashboard]) -> Optional[DashboardTile]:
@@ -499,8 +514,8 @@ class InsightViewSet(
         TeamMemberAccessPermission,
     ]
     throttle_classes = [
-        PassThroughClickHouseBurstRateThrottle,
-        PassThroughClickHouseSustainedRateThrottle,
+        ClickHouseBurstRateThrottle,
+        ClickHouseSustainedRateThrottle,
     ]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
@@ -550,7 +565,8 @@ class InsightViewSet(
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
             # exclude insights that have a query but no filters (for now)
-            queryset = queryset.exclude(filters={})
+            if not self.request.query_params.get("include_query_insights", False):
+                queryset = queryset.exclude(filters={})
 
         order = self.request.GET.get("order", None)
         if order:
@@ -632,11 +648,10 @@ class InsightViewSet(
                 name="refresh",
                 type=OpenApiTypes.BOOL,
                 description="""
-To improve UI responsiveness if there is not already a result cached the insight is returned without a result.
-
-This allows the UI to render and then request the result separately.
-
-To ensure the result is calculated and returned include a `refresh=true` query parameter.""",
+                The client can request that an insight be refreshed by setting the `refresh=true` parameter.
+                The server will then decide if the data should or not be refreshed based on a set of heuristics
+                meant to determine the staleness of cached data. The result will contain as `is_cached` field
+                that indicates whether the insight was actually refreshed or not through the request.""",
             ),
             OpenApiParameter(
                 name="from_dashboard",
