@@ -3,7 +3,10 @@
 from django.db import migrations, models
 import django.db.models.deletion
 
-from posthog.models.person.person import DROP_FUNCTION_FOR_CONSTRAINT_SQL
+
+# The previous migration attempted to add a constraint to the personoverride
+# table. We want to remove that constraint, as the ForeignKey replaces this.
+DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as_old_person"
 
 
 class Migration(migrations.Migration):

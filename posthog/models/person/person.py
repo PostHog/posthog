@@ -91,7 +91,14 @@ class Person(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["uuid"], name="unique uuid for person"),
+            models.UniqueConstraint(
+                # This was added to enable the overrides table to reference this
+                # table using the uuid. Ideally we'd put this on (team_id, uuid)
+                # but I couldn't see if Django could handle SQL `REFERENCES` on
+                # a composite key.
+                fields=["uuid"],
+                name="unique uuid for person",
+            ),
         ]
 
 
