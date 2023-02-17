@@ -62,7 +62,7 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
-import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { DataTableNode, NodeKind, Node } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -118,7 +118,7 @@ export const insightLogic = kea<insightLogicType>([
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
-        setQuery: (query: QuerySchema) => ({ query }),
+        setQuery: (query: Node) => ({ query }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -210,7 +210,7 @@ export const insightLogic = kea<insightLogicType>([
 
                     const query = values.insight.query || insight.query
                     console.log('query when updating is ', query)
-                    if (!Object.keys(query).length && 'filters' in insight && emptyFilters(insight.filters)) {
+                    if (!Object.keys(query || {}).length && 'filters' in insight && emptyFilters(insight.filters)) {
                         const error = new Error(
                             'Will not override empty filters when no insight query in updateInsight.'
                         )

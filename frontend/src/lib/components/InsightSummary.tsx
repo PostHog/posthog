@@ -17,24 +17,15 @@ export function insightSummaryString(props: InsightSummaryProps): string {
     const { insight } = props
     const { filters, query } = insight
 
-    if (props.insight.name) {
-        return props.insight.name
-    } else if (props.isUsingDataExploration && isInsightVizNode(query)) {
-        console.log(
-            'insightSummaryString',
-            props.insight.name,
-            props.isUsingDataExploration,
-            isInsightVizNode(query),
-            query
-        )
-        return summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel, cohortsById, mathDefinitions)
-    } else {
-        return !!query
-            ? 'query: ' + query.kind
-            : !!filters && !!Object.keys(filters).length
-            ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-            : 'unknown insight type'
-    }
+    return !!props.insight.name
+        ? props.insight.name
+        : props.isUsingDataExploration && isInsightVizNode(query)
+        ? summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel, cohortsById, mathDefinitions)
+        : !!query
+        ? 'query: ' + query.kind
+        : !!filters && !!Object.keys(filters).length
+        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+        : 'unknown insight type'
 }
 
 export function InsightSummary(props: InsightSummaryProps): JSX.Element {

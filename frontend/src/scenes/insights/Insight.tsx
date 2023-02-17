@@ -15,6 +15,7 @@ import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
 import { insightQueryEditorLogic } from './insightQueryEditorLogic'
+import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -31,8 +32,8 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         insightLoading,
         filtersKnown,
         filters,
+        query: q,
         isUsingDataExploration,
-        isUsingQueryBasedInsights,
         erroredQueryId,
         isFilterBasedInsight,
         isQueryBasedInsight,
@@ -44,20 +45,16 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
     const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
 
-    const { query: insightEditorQuery } = useValues(
-        insightQueryEditorLogic({ ...insightProps, query: insightVizQuery })
-    )
-    const { setQuery: insightEditorSetQuery } = useActions(
-        insightQueryEditorLogic({ ...insightProps, query: insightVizQuery })
-    )
+    const { query: insightEditorQuery } = useValues(insightQueryEditorLogic(insightProps))
+    const { setQuery: insightEditorSetQuery } = useActions(insightQueryEditorLogic(insightProps))
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
     let setQuery = insightVizSetQuery
-    if (!!insightEditorQuery && isQueryBasedInsight) {
+    if (isQueryBasedInsight) {
         query = insightEditorQuery
         setQuery = insightEditorSetQuery
     }
-
+    console.log('query', { query, insightEditorQuery, insightVizQuery, q })
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
 
@@ -91,7 +88,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
-            {isUsingDataExploration || (isUsingQueryBasedInsights && isQueryBasedInsight) ? (
+            {isUsingDataExploration ? (
                 <>
                     {insightMode === ItemMode.Edit && isQueryBasedInsight && (
                         <>
@@ -99,6 +96,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
                                 query={JSON.stringify(query, null, 4)}
                                 setQuery={setQuery ? (query) => setQuery(JSON.parse(query)) : undefined}
                             />
+                            <LemonDivider />
                         </>
                     )}
                     <Query query={query} setQuery={setQuery} />

@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
 import { InsightLogicProps } from '~/types'
 
 import type { insightQueryEditorLogicType } from './insightQueryEditorLogicType'
@@ -7,29 +7,27 @@ import { Node } from '~/queries/schema'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
-export interface InsightQueryEditorLogicProps extends InsightLogicProps {
-    query?: Node
-}
-
 export const insightQueryEditorLogic = kea<insightQueryEditorLogicType>([
-    props({} as InsightQueryEditorLogicProps),
+    props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightQueryEditorLogic', key]),
-    connect((props: InsightQueryEditorLogicProps) => ({
-        actions: [insightLogic(props as InsightLogicProps), ['setQuery as setInsightQuery']],
+    connect((props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setQuery as setInsightQuery', 'setActiveView']],
+        values: [insightLogic(props), ['query as insightQuery']],
     })),
     actions({
         setQuery: (query: Node) => ({ query }),
     }),
-    reducers(({ props }) => ({
+    reducers(({ values }) => ({
         query: [
-            props.query,
+            values.insightQuery,
             {
                 setQuery: (_, { query }) => query,
+                setInsightQuery: (_, { query }) => query,
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
                 // insight viz is handled elsewhere
@@ -37,10 +35,10 @@ export const insightQueryEditorLogic = kea<insightQueryEditorLogicType>([
             }
             actions.setInsightQuery(query)
         },
+        setActiveView: () => {
+            if (!!values.insightQuery && values.insightQuery !== values.query) {
+                actions.setQuery(values.insightQuery)
+            }
+        },
     })),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (!!props.query && props.query !== oldProps.query) {
-            actions.setQuery(props.query)
-        }
-    }),
 ])
