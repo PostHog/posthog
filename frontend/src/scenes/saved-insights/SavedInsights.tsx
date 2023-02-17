@@ -39,10 +39,6 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
-import { groupsModel } from '~/models/groupsModel'
-import { cohortsModel } from '~/models/cohortsModel'
-import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
@@ -52,6 +48,9 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { NodeKind } from '~/queries/schema'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { InsightSummary } from 'lib/components/InsightSummary'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -337,9 +336,9 @@ export function SavedInsights(): JSX.Element {
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
     const { hasDashboardCollaboration } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { aggregationLabel } = useValues(groupsModel)
-    const { cohortsById } = useValues(cohortsModel)
-    const { mathDefinitions } = useValues(mathsLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
 
     const { tab, layoutView, page } = filters
 
@@ -359,21 +358,12 @@ export function SavedInsights(): JSX.Element {
             title: 'Name',
             dataIndex: 'name',
             key: 'name',
-            render: function renderName(name: string, insight) {
+            render: function renderName(_, insight) {
                 return (
                     <>
                         <span className="row-name">
                             <Link to={urls.insightView(insight.short_id)}>
-                                {name || (
-                                    <i>
-                                        {summarizeInsightFilters(
-                                            insight.filters,
-                                            aggregationLabel,
-                                            cohortsById,
-                                            mathDefinitions
-                                        )}
-                                    </i>
-                                )}
+                                <InsightSummary insight={insight} isUsingDataExploration={isUsingDataExploration} />
                             </Link>
                             <LemonButton
                                 className="ml-1"
