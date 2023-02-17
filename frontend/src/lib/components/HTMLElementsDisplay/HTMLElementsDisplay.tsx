@@ -1,7 +1,7 @@
 import { ElementType } from '~/types'
 import { SelectableElement } from './SelectableElement'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
-import { htmlElementsDisplayLogic } from 'lib/components/HtmlElementsDisplay/htmlElementsDisplayLogic'
+import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
@@ -61,7 +61,7 @@ function Tags({
 
 let uniqueNode = 0
 
-export function HtmlElementsDisplay({
+export function HTMLElementsDisplay({
     elements: providedElements,
     onChange,
     highlight = true,

@@ -1,6 +1,6 @@
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { HtmlElementsDisplay } from 'lib/components/HtmlElementsDisplay/HtmlElementsDisplay'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
@@ -55,7 +55,7 @@ export const SelectorEditingModal = ({
             isOpen={isOpen}
             title="Manually override the selector"
         >
-            <HtmlElementsDisplay
+            <HTMLElementsDisplay
                 editable={true}
                 highlight={false}
                 elements={activeElementChain}

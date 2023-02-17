@@ -1,14 +1,14 @@
 import { ComponentMeta } from '@storybook/react'
 import { ElementType } from '~/types'
-import { HtmlElementsDisplay } from './HtmlElementsDisplay'
+import { HTMLElementsDisplay } from './HTMLElementsDisplay'
 
 export default {
     title: 'Components/Html Elements Display',
-    component: HtmlElementsDisplay,
-} as ComponentMeta<typeof HtmlElementsDisplay>
+    component: HTMLElementsDisplay,
+} as ComponentMeta<typeof HTMLElementsDisplay>
 
 export function EmptyDisplay(): JSX.Element {
-    return <HtmlElementsDisplay elements={[] as ElementType[]} />
+    return <HTMLElementsDisplay elements={[] as ElementType[]} />
 }
 
 const elementsExample = [
@@ -175,17 +175,17 @@ const elementsExample = [
 ] as ElementType[]
 
 export function ReadOnlyDisplay(): JSX.Element {
-    return <HtmlElementsDisplay elements={elementsExample} />
+    return <HTMLElementsDisplay elements={elementsExample} />
 }
 
 export function WithoutCentralHghlightDisplay(): JSX.Element {
-    return <HtmlElementsDisplay elements={elementsExample} highlight={false} />
+    return <HTMLElementsDisplay elements={elementsExample} highlight={false} />
 }
 
 export function EditableDisplay(): JSX.Element {
-    return <HtmlElementsDisplay elements={elementsExample} highlight={false} editable={true} />
+    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} />
 }
 
-export function WithUniquessCheck(): JSX.Element {
-    return <HtmlElementsDisplay elements={elementsExample} highlight={false} editable={true} checkUniqueness={true} />
+export function WithUniquenessCheck(): JSX.Element {
+    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} checkUniqueness={true} />
 }
