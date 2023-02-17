@@ -20,10 +20,11 @@ declare module '@storybook/react' {
             skip?: boolean
             /**
              * Whether we should wait for all loading indicators to disappear.
+             * If a number is passed, it will be used as an extra delay, in milliseconds.
              * Enable for stories that take a bit to load, and which you aren't testing loading states for.
              * @default false
              */
-            waitForLoadersToDisappear?: boolean
+            waitForLoadersToDisappear?: boolean | number
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
@@ -100,6 +101,9 @@ async function expectStoryToMatchSnapshot(
             page.waitForSelector('.Spinner', { state: 'detached', timeout: 1000 }),
             page.waitForSelector('.LemonTableLoader', { state: 'detached', timeout: 1000 }),
         ])
+        if (typeof waitForLoadersToDisappear === 'number') {
+            await page.waitForTimeout(waitForLoadersToDisappear)
+        }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
     await check(page, context, browser)

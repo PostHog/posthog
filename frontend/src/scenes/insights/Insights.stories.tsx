@@ -9,7 +9,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         testOptions: {
-            waitForLoadersToDisappear: true,
+            waitForLoadersToDisappear: 400,
             excludeNavigationFromSnapshot: true,
             snapshotBrowsers: ['chromium', 'webkit', 'firefox'],
         },
