@@ -43,7 +43,7 @@ def default_settings() -> Dict:
     # so we only disable on versions below that.
     # This is calculated once per deploy
     if clickhouse_at_least_228():
-        return {}
+        return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
     else:
         return {"optimize_move_to_prewhere": 0}
 
@@ -57,13 +57,6 @@ def clickhouse_at_least_228() -> bool:
     ).is_service_in_accepted_version()
 
     return is_ch_version_228_or_above
-
-
-def extra_settings(query_id: Optional[str]) -> Dict[str, Any]:
-    if not clickhouse_at_least_228():
-        return {}
-
-    return {"join_algorithm": "direct,parallel_hash"}
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -100,7 +93,7 @@ def sync_execute(
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
         settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:

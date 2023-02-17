@@ -1003,6 +1003,7 @@ class AnyPartialFilterTypeItem(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sample_results: Optional[bool] = None
     show_legend: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
@@ -1057,6 +1058,7 @@ class AnyPartialFilterTypeItem1(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sample_results: Optional[bool] = None
     show_legend: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
@@ -1129,6 +1131,7 @@ class AnyPartialFilterTypeItem2(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sample_results: Optional[bool] = None
 
 
 class AnyPartialFilterTypeItem3(BaseModel):
@@ -1192,6 +1195,7 @@ class AnyPartialFilterTypeItem3(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sample_results: Optional[bool] = None
     start_point: Optional[str] = None
     step_limit: Optional[float] = None
 
@@ -1246,6 +1250,7 @@ class AnyPartialFilterTypeItem4(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
+    sample_results: Optional[bool] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
 
@@ -1296,6 +1301,7 @@ class AnyPartialFilterTypeItem5(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sample_results: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
 
 
@@ -1345,6 +1351,7 @@ class AnyPartialFilterTypeItem6(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
+    sample_results: Optional[bool] = None
 
 
 class FunnelsQuery(BaseModel):

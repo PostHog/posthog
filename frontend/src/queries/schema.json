@@ -213,6 +213,9 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "show_legend": {
                             "type": "boolean"
                         },
@@ -339,6 +342,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         },
                         "show_legend": {
                             "type": "boolean"
@@ -543,6 +549,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
@@ -700,6 +709,9 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "start_point": {
                             "type": "string"
                         },
@@ -818,6 +830,9 @@
                         "returning_entity": {
                             "type": "object"
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "target_entity": {
                             "type": "object"
                         },
@@ -923,6 +938,9 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
                         }
@@ -1024,6 +1042,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
