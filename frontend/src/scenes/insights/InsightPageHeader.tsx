@@ -9,7 +9,6 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { deleteWithUndo } from 'lib/utils'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
-import { isInsightVizNode } from '~/queries/utils'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -44,7 +43,6 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        isFilterBasedInsight,
         isQueryBasedInsight,
     } = useValues(logic)
     const { saveInsight, setInsightMetadata, saveAs } = useActions(logic)
@@ -54,11 +52,11 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
 
     // insightDataLogic
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+    const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
 
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
-    let setQuery = insighVizSetQuery
+    let setQuery = insightVizSetQuery
     if (!!insight.query && isQueryBasedInsight) {
         query = insight.query
         setQuery = () => {
@@ -206,8 +204,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
-                            canEditInsight &&
-                            (isFilterBasedInsight || isInsightVizNode(query)) && (
+                            canEditInsight && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}

@@ -62,7 +62,7 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
-import { DataTableNode, NodeKind, Node } from '~/queries/schema'
+import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -209,7 +209,7 @@ export const insightLogic = kea<insightLogicType>([
                     }
 
                     const query = values.insight.query || insight.query
-                    console.log('query when updating is ', query)
+
                     if (!Object.keys(query || {}).length && 'filters' in insight && emptyFilters(insight.filters)) {
                         const error = new Error(
                             'Will not override empty filters when no insight query in updateInsight.'
@@ -517,6 +517,8 @@ export const insightLogic = kea<insightLogicType>([
                                   limit: 100,
                               },
                           } as DataTableNode),
+                setInsight: (state, { insight: { query }, options: { overrideFilter } }) =>
+                    overrideFilter && !!query ? query : state,
             },
         ],
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
@@ -524,8 +526,8 @@ export const insightLogic = kea<insightLogicType>([
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
                 setFilters: (state, { filters }) => cleanFilters(filters, state),
-                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
-                    overrideFilter ? cleanFilters(filters || {}) : state,
+                setInsight: (state, { insight: { filters, query }, options: { overrideFilter } }) =>
+                    overrideFilter ? (!!query ? {} : cleanFilters(filters || {})) : state,
                 loadInsightSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 loadResultsSuccess: (state, { insight }) =>
@@ -666,10 +668,7 @@ export const insightLogic = kea<insightLogicType>([
         activeView: [
             (s) => [s.filters, s.query],
             (filters, query) => {
-                const chosenActiveView =
-                    !!query && !isInsightVizNode(query) ? InsightType.QUERY : filters.insight || InsightType.TRENDS
-                console.log('choosing active view', { filters, query, chosenActiveView })
-                return chosenActiveView
+                return !!query && !isInsightVizNode(query) ? InsightType.QUERY : filters.insight || InsightType.TRENDS
             },
         ],
         loadedView: [

@@ -228,6 +228,8 @@ describe('insightLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
         insightsModel.mount()
+        dashboardsModel.mount()
+        eventUsageLogic.mount()
     })
 
     it('requires props', () => {
@@ -1548,6 +1550,44 @@ describe('insightLogic', () => {
             }).toNotHaveDispatchedActions(['loadResults'])
         })
 
+        test('setting an insight, sets the query', async () => {
+            const eventsTableQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: ['count()'],
+                },
+            }
+            const personsTableQuery: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.PersonsNode,
+                },
+            }
+            const cachedInsight = {
+                short_id: Insight42,
+                filters: {},
+                query: eventsTableQuery,
+            }
+            logic = insightLogic({
+                dashboardItemId: Insight42,
+                cachedInsight: cachedInsight,
+            })
+            logic.mount()
+            await expectLogic(logic, () => {
+                logic.actions.setInsight(
+                    {
+                        ...cachedInsight,
+                        query: personsTableQuery,
+                    },
+                    { overrideFilter: true, fromPersistentApi: true }
+                )
+            }).toMatchValues({
+                filters: {},
+                query: personsTableQuery,
+            })
+        })
+
         test('on new insight - query can be saved', async () => {
             jest.spyOn(api, 'create')
 
@@ -1584,78 +1624,5 @@ describe('insightLogic', () => {
                 ],
             ])
         })
-
-        // test('keeps saved filters', async () => {
-        //     logic = insightLogic({
-        //         dashboardItemId: Insight42,
-        //         cachedInsight: { filters: { insight: InsightType.FUNNELS } },
-        //     })
-        //     logic.mount()
-        //
-        //     // `setFilters` only changes `filters`, does not change `savedInsight`
-        //     await expectLogic(logic, () => {
-        //         logic.actions.setFilters({ insight: InsightType.TRENDS })
-        //     }).toMatchValues({
-        //         filters: partial({ insight: InsightType.TRENDS }),
-        //         savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
-        //         insightChanged: true,
-        //     })
-        //
-        //     // results from search don't change anything
-        //     await expectLogic(logic, () => {
-        //         logic.actions.loadResultsSuccess({
-        //             short_id: Insight42,
-        //             filters: { insight: InsightType.PATHS },
-        //         })
-        //     }).toMatchValues({
-        //         filters: partial({ insight: InsightType.TRENDS }),
-        //         savedInsight: partial({ filters: { insight: InsightType.FUNNELS } }),
-        //         insightChanged: true,
-        //     })
-        //
-        //     // results from API GET and POST calls change saved filters
-        //     await expectLogic(logic, () => {
-        //         logic.actions.loadInsightSuccess({
-        //             short_id: Insight42,
-        //             filters: { insight: InsightType.PATHS },
-        //         })
-        //     }).toMatchValues({
-        //         filters: partial({ insight: InsightType.TRENDS }),
-        //         savedInsight: partial({ filters: partial({ insight: InsightType.PATHS }) }),
-        //         insightChanged: true,
-        //     })
-        //     await expectLogic(logic, () => {
-        //         logic.actions.updateInsightSuccess({
-        //             short_id: Insight42,
-        //             filters: { insight: InsightType.RETENTION },
-        //         })
-        //     }).toMatchValues({
-        //         filters: partial({ insight: InsightType.TRENDS }),
-        //         savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
-        //         insightChanged: true,
-        //     })
-        //
-        //     // saving persists the in-flight filters
-        //     await expectLogic(logic, () => {
-        //         logic.actions.setFilters(API_FILTERS)
-        //     }).toFinishAllListeners()
-        //     await expectLogic(logic).toMatchValues({
-        //         filters: partial({ insight: InsightType.TRENDS }),
-        //         loadedFilters: partial({ insight: InsightType.TRENDS }),
-        //         savedInsight: partial({ filters: partial({ insight: InsightType.RETENTION }) }),
-        //         insightChanged: true,
-        //     })
-        //
-        //     await expectLogic(logic, () => {
-        //         logic.actions.saveInsight()
-        //     }).toFinishAllListeners()
-        //
-        //     await expectLogic(logic).toMatchValues({
-        //         filters: partial({ insight: InsightType.TRENDS }),
-        //         loadedFilters: partial({ insight: InsightType.TRENDS }),
-        //         savedInsight: partial({ filters: partial({ insight: InsightType.TRENDS }) }),
-        //         insightChanged: false,
-        //     })
-        // })
     })
 })
