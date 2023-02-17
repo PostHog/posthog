@@ -1,27 +1,47 @@
 import { useActions, useValues } from 'kea'
-import { Field } from 'lib/forms/Field'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { AvailableFeature } from '~/types'
-import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
-import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
-import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { Form } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { userLogic } from 'scenes/userLogic'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+
+function TemplateItem({ name, description }: { name: string; description: string }): JSX.Element {
+    return (
+        <div
+            style={{
+                width: '150px',
+            }}
+        >
+            <div
+                style={{
+                    width: '100%',
+                    height: '100px',
+                    padding: '10px',
+                    backgroundColor: 'var(--muted)',
+                    // center the text vertically and horizontally
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                }}
+            >
+                Image
+            </div>
+            <div>{name}</div>
+            <div>{description}</div>
+        </div>
+    )
+}
 
 export function NewDashboardModal(): JSX.Element {
-    const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
-    const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { hideNewDashboardModal } = useActions(newDashboardLogic)
+    const { newDashboardModalVisible } = useValues(newDashboardLogic)
     const { templatesList } = useValues(dashboardTemplatesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+
+    const { dashboardGroup } = useValues(newDashboardLogic)
+    const { setDashboardGroup } = useActions(newDashboardLogic)
 
     const templates = dashboardTemplates
         ? templatesList
@@ -33,82 +53,55 @@ export function NewDashboardModal(): JSX.Element {
               },
           ]
 
+    // const templateGroups = ['Popular Templates', 'Team Templates', 'Your Templates', 'All Templates']
+    const templateGroups = [
+        {
+            label: 'Popular Templates',
+            key: 'popular',
+        },
+        {
+            label: 'Team Templates',
+            key: 'team',
+        },
+        {
+            label: 'Your Templates',
+            key: 'your',
+        },
+        {
+            label: 'All Templates',
+            key: 'all',
+        },
+    ]
+
     return (
-        <LemonModal
-            title="New dashboard"
-            description="Use dashboards to compose multiple insights into a single view."
-            onClose={hideNewDashboardModal}
-            isOpen={newDashboardModalVisible}
-            footer={
-                <>
-                    <LemonButton
-                        form="new-dashboard-form"
-                        type="secondary"
-                        data-attr="dashboard-cancel"
-                        disabled={isNewDashboardSubmitting}
-                        onClick={hideNewDashboardModal}
-                    >
-                        Cancel
-                    </LemonButton>
-                    <LemonButton
-                        form="new-dashboard-form"
-                        type="secondary"
-                        data-attr="dashboard-submit-and-go"
-                        disabled={isNewDashboardSubmitting}
-                        onClick={createAndGoToDashboard}
-                    >
-                        Create and go to dashboard
-                    </LemonButton>
-                    <LemonButton
-                        form="new-dashboard-form"
-                        htmlType="submit"
-                        type="primary"
-                        data-attr="dashboard-submit"
-                        loading={isNewDashboardSubmitting}
-                        disabled={isNewDashboardSubmitting}
-                    >
-                        Create
-                    </LemonButton>
-                </>
-            }
-        >
-            <Form
-                logic={newDashboardLogic}
-                formKey="newDashboard"
-                id="new-dashboard-form"
-                enableFormOnSubmit
-                className="space-y-2"
-            >
-                <Field name="name" label="Name">
-                    <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
-                </Field>
-                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
-                    <Field name="description" label="Description" showOptional>
-                        <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
-                    </Field>
-                ) : null}
-                <Field name="useTemplate" label="Template" showOptional>
-                    <LemonSelect
-                        placeholder="Optionally start from template"
-                        allowClear
-                        options={templates}
-                        fullWidth
-                        data-attr="copy-from-template"
-                    />
-                </Field>
-                <Field name="restrictionLevel" label="Collaboration settings">
-                    {({ value, onChange }) => (
-                        <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
-                            <LemonSelect
-                                value={value}
-                                onChange={onChange}
-                                options={DASHBOARD_RESTRICTION_OPTIONS}
-                                fullWidth
-                            />
-                        </PayGateMini>
-                    )}
-                </Field>
-            </Form>
+        <LemonModal title="New dashboard" onClose={hideNewDashboardModal} isOpen={newDashboardModalVisible} width={800}>
+            <div>
+                <LemonTabs
+                    activeKey={dashboardGroup ?? 'popular'}
+                    onChange={(key) => {
+                        console.log(key)
+                        setDashboardGroup(key)
+                        console.log(dashboardGroup)
+                    }}
+                    tabs={templateGroups.map((group) => ({
+                        label: group.label,
+                        key: group.key,
+                        content: <div />,
+                    }))}
+                />
+                <div
+                    style={{
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        margin: '0 20px',
+                    }}
+                >
+                    <TemplateItem name="Blank dashboard" description="Start from scratch" />
+                    {templates.map((template, key) => (
+                        <TemplateItem key={key} name={template.label} description="Start from scratch" />
+                    ))}
+                </div>
+            </div>
         </LemonModal>
     )
 }
