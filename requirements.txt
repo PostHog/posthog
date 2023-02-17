@@ -251,6 +251,8 @@ parso==0.8.1
     # via -r requirements.in
 pexpect==4.7.0
     # via -r requirements.in
+phonenumberslite==8.13.6
+    # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
 pillow==9.2.0
