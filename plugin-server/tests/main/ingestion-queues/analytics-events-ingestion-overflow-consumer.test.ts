@@ -59,9 +59,7 @@ describe('eachBatchIngestionWithOverflow', () => {
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
-                hub: {
-                    db: 'database',
-                },
+                db: 'database',
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
@@ -82,7 +80,7 @@ describe('eachBatchIngestionWithOverflow', () => {
             1
         )
         expect(captureIngestionWarning).toHaveBeenCalledWith(
-            queue.pluginsServer.hub.db,
+            queue.pluginsServer.db,
             captureEndpointEvent['team_id'],
             'ingestion_capacity_overflow',
             {
