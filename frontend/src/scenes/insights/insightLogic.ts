@@ -12,6 +12,8 @@ import {
     InsightShortId,
     InsightType,
     ItemMode,
+    PropertyFilterType,
+    PropertyOperator,
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
@@ -60,8 +62,8 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
-import { QuerySchema } from '~/queries/schema'
-import { insightQueryEditorLogic } from './insightQueryEditorLogic'
+import { DataTableNode, NodeKind, QuerySchema } from '~/queries/schema'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -97,7 +99,7 @@ export const insightLogic = kea<insightLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightLogic', key]),
 
-    connect((props: InsightLogicProps) => ({
+    connect(() => ({
         values: [
             teamLogic,
             ['currentTeamId', 'currentTeam'],
@@ -109,10 +111,8 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
-            insightQueryEditorLogic(props),
-            ['query as editedQuery'],
         ],
-        actions: [tagsModel, ['loadTags'], insightQueryEditorLogic(props), ['setQuery']],
+        actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     })),
 
@@ -490,6 +490,27 @@ export const insightLogic = kea<insightLogicType>([
             props.cachedInsight?.query || null,
             {
                 setQuery: (_, { query }) => query,
+                setActiveView: (state, { type }) =>
+                    type !== InsightType.QUERY
+                        ? null
+                        : !!state && !isInsightVizNode(state)
+                        ? state
+                        : ({
+                              kind: NodeKind.DataTableNode,
+                              source: {
+                                  kind: NodeKind.EventsQuery,
+                                  select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                  properties: [
+                                      {
+                                          type: PropertyFilterType.Event,
+                                          key: '$browser',
+                                          operator: PropertyOperator.Exact,
+                                          value: 'Chrome',
+                                      },
+                                  ],
+                                  limit: 100,
+                              },
+                          } as DataTableNode),
             },
         ],
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
@@ -637,9 +658,12 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         activeView: [
-            (s) => [s.filters],
-            (filters) => {
-                return filters.insight || InsightType.QUERY
+            (s) => [s.filters, s.query],
+            (filters, query) => {
+                const chosenActiveView =
+                    !!query && !isInsightVizNode(query) ? InsightType.QUERY : filters.insight || InsightType.TRENDS
+                console.log('choosing active view', { filters, query, chosenActiveView })
+                return chosenActiveView
             },
         ],
         loadedView: [
@@ -652,7 +676,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         insightChanged: [
-            (s) => [s.insight, s.savedInsight, s.filters, s.editedQuery],
+            (s) => [s.insight, s.savedInsight, s.filters, s.query],
             (insight, savedInsight, filters, editedQuery): boolean =>
                 (insight.name || '') !== (savedInsight.name || '') ||
                 (insight.description || '') !== (savedInsight.description || '') ||
