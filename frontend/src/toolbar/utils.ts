@@ -54,12 +54,8 @@ export function elementToQuery(element: HTMLElement, dataAttributes: string[]): 
     }
 }
 
-export function elementToActionStep(
-    element: HTMLElement,
-    dataAttributes: string[],
-    overriddenSelector?: string
-): ActionStepType {
-    const query = overriddenSelector || elementToQuery(element, dataAttributes)
+export function elementToActionStep(element: HTMLElement, dataAttributes: string[]): ActionStepType {
+    const query = elementToQuery(element, dataAttributes)
     const tagName = element.tagName.toLowerCase()
 
     return {

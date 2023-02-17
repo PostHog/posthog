@@ -1,22 +1,49 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
+import { actionStepToAntdForm, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { actionsTabLogicType } from './actionsTabLogicType'
-import { ActionType } from '~/types'
+import { ActionType, ElementType } from '~/types'
 import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { urls } from 'scenes/urls'
 
-function newAction(element: HTMLElement | null, dataAttributes: string[] = [], selector?: string): ActionDraftType {
+function newAction(element: HTMLElement | null, dataAttributes: string[] = []): ActionDraftType {
     return {
         name: '',
-        steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes, selector), true) : {}],
+        steps: [element ? actionStepToAntdForm(elementToActionStep(element, dataAttributes), true) : {}],
     }
+}
+
+function toElementsChain(element: HTMLElement): ElementType[] {
+    const chain: HTMLElement[] = []
+    let currentElement: HTMLElement | null | undefined = element
+    while (currentElement && chain.length <= 10 && currentElement !== document.body) {
+        chain.push(currentElement)
+        currentElement = currentElement.parentElement
+    }
+    return chain.map(
+        (element, index) =>
+            ({
+                attr_class: element.getAttribute('class') || undefined,
+                attr_id: element.getAttribute('id') || undefined,
+                attributes: Array.from(element.attributes).reduce((acc, attr) => {
+                    if (!acc[attr.name]) {
+                        acc[attr.name] = attr.value
+                    } else {
+                        acc[attr.name] += ` ${attr.value}`
+                    }
+                    return acc
+                }, {} as Record<string, string>),
+                href: element.getAttribute('href') || undefined,
+                tag_name: element.tagName.toLowerCase(),
+                text: index === 0 ? element.innerText : undefined,
+            } as ElementType)
+    )
 }
 
 export type ActionFormInstance = FormInstance<ActionForm>
@@ -26,9 +53,8 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     actions: {
         setForm: (form: ActionFormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
-        newAction: (element?: HTMLElement, elementSelector?: string | null) => ({
+        newAction: (element?: HTMLElement) => ({
             element: element || null,
-            elementSelector,
         }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
@@ -42,6 +68,18 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     },
 
     reducers: {
+        actionFormElementsChains: [
+            {} as Record<string, ElementType[]>,
+            {
+                inspectElementSelected: (state, { element, index }) => ({
+                    ...state,
+                    [String(index)]: toElementsChain(element),
+                }),
+                newAction: (_, { element }) => ({
+                    '0': element ? toElementsChain(element) : [],
+                }),
+            },
+        ],
         buttonActionsVisible: [
             false,
             {
@@ -60,13 +98,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
             null as HTMLElement | null,
             {
                 newAction: (_, { element }) => element,
-                selectAction: () => null,
-            },
-        ],
-        newActionSelectorOverride: [
-            null as string | null,
-            {
-                newAction: (_, { elementSelector }) => elementSelector || null,
                 selectAction: () => null,
             },
         ],
@@ -109,20 +140,10 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
 
     selectors: {
         selectedAction: [
-            (s) => [
-                s.selectedActionId,
-                s.newActionForElement,
-                actionsLogic.selectors.allActions,
-                s.newActionSelectorOverride,
-            ],
-            (
-                selectedActionId,
-                newActionForElement,
-                allActions,
-                newActionSelectorOverride
-            ): ActionType | ActionDraftType | null => {
+            (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
+            (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, [], newActionSelectorOverride ?? undefined)
+                    return newAction(newActionForElement, [])
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },

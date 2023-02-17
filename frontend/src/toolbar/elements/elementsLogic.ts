@@ -11,7 +11,6 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep } from 'query-selector-shadow-dom'
-import { ElementType } from '~/types'
 
 export type ActionElementMap = Map<HTMLElement, ActionElementWithMetadata[]>
 export type ElementMap = Map<HTMLElement, ElementWithMetadata>
@@ -33,9 +32,8 @@ export const elementsLogic = kea<elementsLogicType>({
         enableInspect: true,
         disableInspect: true,
 
-        selectElement: (element: HTMLElement | null, elementType?: 'heatmap' | 'inspect' | 'action') => ({
+        selectElement: (element: HTMLElement | null) => ({
             element,
-            elementType,
         }),
         createAction: (element: HTMLElement) => ({ element }),
 
@@ -93,16 +91,6 @@ export const elementsLogic = kea<elementsLogicType>({
                 [actionsTabLogic.actionTypes.selectAction]: () => null,
             },
         ],
-        selectedElementIsInspected: [
-            false as boolean | null,
-            {
-                selectElement: (_, { elementType }) => elementType === 'inspect',
-                disableInspect: () => null,
-                createAction: () => null,
-                [heatmapLogic.actionTypes.disableHeatmap]: () => null,
-                [actionsTabLogic.actionTypes.selectAction]: () => null,
-            },
-        ],
         enabledLast: [
             null as null | 'inspect' | 'heatmap',
             {
@@ -115,20 +103,6 @@ export const elementsLogic = kea<elementsLogicType>({
             0,
             {
                 setRelativePositionCompensation: (_, { compensation }) => compensation,
-            },
-        ],
-        overriddenSelectors: [
-            new Map<HTMLElement, string>(),
-            {
-                overrideSelector: (state, { element, selector }) => {
-                    const newMap = new Map(state)
-                    if (newMap.has(element) && !selector) {
-                        newMap.delete(element)
-                    } else if (!!selector) {
-                        newMap.set(element, selector)
-                    }
-                    return newMap
-                },
             },
         ],
     }),
@@ -145,8 +119,15 @@ export const elementsLogic = kea<elementsLogicType>({
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
             ],
-            (inpsectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) => {
+                console.log(
+                    inspectEnabledRaw,
+                    buttonActionsVisible,
+                    inspectingElement,
+                    buttonActionsVisible && inspectingElement !== null
+                )
+                return inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null)
+            },
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
@@ -205,24 +186,18 @@ export const elementsLogic = kea<elementsLogicType>({
         ],
 
         elementMap: [
-            (s) => [
-                s.heatmapElements,
-                s.inspectElements,
-                s.actionElements,
-                s.actionsListElements,
-                s.overriddenSelectors,
-            ],
-            (heatmapElements, inspectElements, actionElements, actionsListElements, overridenSelectors): ElementMap => {
+            (s) => [s.heatmapElements, s.inspectElements, s.actionElements, s.actionsListElements],
+            (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
                 inspectElements.forEach((e) => {
-                    updateElementMap(overridenSelectors, e, elementMap)
+                    updateElementMap(e, elementMap)
                 })
                 heatmapElements.forEach((e) => {
-                    updateElementMap(overridenSelectors, e, elementMap)
+                    updateElementMap(e, elementMap)
                 })
                 ;[...actionElements, ...actionsListElements].forEach((e) => {
-                    updateElementMap(overridenSelectors, e, elementMap)
+                    updateElementMap(e, elementMap)
                 })
                 return elementMap
             },
@@ -320,7 +295,7 @@ export const elementsLogic = kea<elementsLogicType>({
                         const actions = actionsForElementMap.get(selectedElement)
                         return {
                             ...meta,
-                            actionStep: elementToActionStep(meta.element, dataAttributes, meta.overriddenSelector),
+                            actionStep: elementToActionStep(meta.element, dataAttributes),
                             actions: actions || [],
                         }
                     }
@@ -368,37 +343,6 @@ export const elementsLogic = kea<elementsLogicType>({
             (s) => [s.selectedElementMeta, s.hoverElementMeta],
             (selectedElementMeta, hoverElementMeta) => {
                 return selectedElementMeta || hoverElementMeta
-            },
-        ],
-        activeElementChain: [
-            (s) => [s.activeMeta],
-            (activeMeta): ElementType[] => {
-                const chain: HTMLElement[] = []
-                let currentElement: HTMLElement | null | undefined = activeMeta?.element
-                while (currentElement && chain.length <= 10 && currentElement !== document.body) {
-                    chain.push(currentElement)
-                    currentElement = currentElement.parentElement
-                }
-                const elements = chain.map(
-                    (element, index) =>
-                        ({
-                            attr_class: element.getAttribute('class') || undefined,
-                            attr_id: element.getAttribute('id') || undefined,
-                            attributes: Array.from(element.attributes).reduce((acc, attr) => {
-                                if (!acc[attr.name]) {
-                                    acc[attr.name] = attr.value
-                                } else {
-                                    acc[attr.name] += ` ${attr.value}`
-                                }
-                                return acc
-                            }, {} as Record<string, string>),
-                            href: element.getAttribute('href') || undefined,
-                            tag_name: element.tagName.toLowerCase(),
-                            text: index === 0 ? element.innerText : undefined,
-                        } as ElementType)
-                )
-
-                return elements
             },
         ],
     },
@@ -516,25 +460,16 @@ export const elementsLogic = kea<elementsLogicType>({
             actionsTabLogic.actions.showButtonActions()
             toolbarButtonLogic.actions.showActionsInfo()
             elementsLogic.actions.selectElement(null)
-            actionsTabLogic.actions.newAction(element, values.overriddenSelectors.get(element))
+            actionsTabLogic.actions.newAction(element)
         },
     }),
 })
 
 /**
- *  Yuck warning: this relies on the instance identify of elementMap
- * it's already expensive enough passing around and serialising the elements in the map
- * let's not make it worse by cloning the map every time we update it
- *
+ *  NB: this relies on the instance identify of elementMap
  */
-function updateElementMap(
-    overridenSelectors: Map<HTMLElement, string>,
-    e: ElementWithMetadata,
-    elementMap: Map<HTMLElement, ElementWithMetadata>
-): void {
-    const elementWithMetadata: ElementWithMetadata = overridenSelectors.has(e.element)
-        ? { ...e, overriddenSelector: overridenSelectors.get(e.element) }
-        : { ...e }
+function updateElementMap(e: ElementWithMetadata, elementMap: Map<HTMLElement, ElementWithMetadata>): void {
+    const elementWithMetadata: ElementWithMetadata = { ...e }
     if (elementMap.get(e.element)) {
         elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
     } else {

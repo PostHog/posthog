@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -10,15 +10,25 @@ import {
     CloseOutlined,
     DeleteOutlined,
 } from '@ant-design/icons'
+import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { IconEdit } from 'lib/lemon-ui/icons'
+import { posthog } from '~/toolbar/posthog'
+import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
 export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
 
-    const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
+    const { initialValuesForForm, selectedActionId, inspectingElement, editingFields, actionFormElementsChains } =
+        useValues(actionsTabLogic)
     const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
         useActions(actionsTabLogic)
 
+    const [modalOpen, setModalOpen] = useState(false)
+
     const { getFieldValue } = form
+
+    console.log(actionFormElementsChains)
 
     useEffect(() => {
         // This sucks. We're storing the antd "form" object in kea in a reducer. Dispatching an action for it.
@@ -123,6 +133,11 @@ export function EditAction(): JSX.Element {
                                                     label="Text"
                                                     caption="Text content inside your element"
                                                 />
+                                                <SelectorEditingModal
+                                                    isOpen={modalOpen}
+                                                    setIsOpen={setModalOpen}
+                                                    activeElementChain={actionFormElementsChains[index]}
+                                                />
                                                 <StepField
                                                     field={field}
                                                     step={step}
@@ -130,6 +145,23 @@ export function EditAction(): JSX.Element {
                                                     label="Selector"
                                                     caption="CSS selector that uniquely identifies your element"
                                                 />
+
+                                                <div className="flex flex-row justify-end mb-2">
+                                                    <LemonButton
+                                                        size={'small'}
+                                                        type={'secondary'}
+                                                        icon={<IconEdit />}
+                                                        onClick={() => {
+                                                            posthog.capture('toolbar_manual_selector_modal_opened', {
+                                                                selector: step?.selector,
+                                                            })
+                                                            setModalOpen(true)
+                                                        }}
+                                                        getTooltipPopupContainer={getShadowRootPopoverContainer}
+                                                    >
+                                                        Edit the selector
+                                                    </LemonButton>
+                                                </div>
                                                 <StepField
                                                     field={field}
                                                     step={step}

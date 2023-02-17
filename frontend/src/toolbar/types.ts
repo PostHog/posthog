@@ -28,7 +28,6 @@ export interface ElementWithMetadata {
     clickCount?: number
     rageclickCount?: number
     position?: number
-    overriddenSelector?: string
 }
 
 export interface ActionElementWithMetadata extends ElementWithMetadata {
