@@ -27,6 +27,7 @@ import { InsightSceneProps } from 'scenes/insights/Insight'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { insightSummaryString } from 'lib/components/InsightSummary'
+import { insightQueryEditorLogic } from 'scenes/insights/insightQueryEditorLogic'
 
 export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
@@ -54,14 +55,14 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
     const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
 
+    const { query: insightEditorQuery } = useValues(insightQueryEditorLogic(insightProps))
+    const { setQuery: insightEditorSetQuery } = useActions(insightQueryEditorLogic(insightProps))
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
     let setQuery = insightVizSetQuery
-    if (!!insight.query && isQueryBasedInsight) {
-        query = insight.query
-        setQuery = () => {
-            // don't support editing non-insight viz queries _yet_
-        }
+    if (!!insightEditorQuery && isQueryBasedInsight) {
+        query = insightEditorQuery
+        setQuery = insightEditorSetQuery
     }
 
     // other logics
@@ -95,7 +96,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={insightSummaryString({ insight, isUsingDataExploration })}
+                        placeholder={insightSummaryString({ insight, isUsingDataExploration, inflightQuery: query })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model

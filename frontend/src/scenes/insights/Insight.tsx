@@ -50,7 +50,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
     let setQuery = insightVizSetQuery
-    if (isQueryBasedInsight) {
+    if (!!insightEditorQuery && isQueryBasedInsight) {
         query = insightEditorQuery
         setQuery = insightEditorSetQuery
     }

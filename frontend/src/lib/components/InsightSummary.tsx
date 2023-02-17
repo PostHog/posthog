@@ -4,10 +4,10 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
 import { isInsightVizNode } from '~/queries/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { InsightVizNode, Node } from '~/queries/schema'
 import { useValues } from 'kea'
 
-type InsightSummaryProps = { insight: Partial<InsightModel>; isUsingDataExploration: boolean }
+type InsightSummaryProps = { insight: Partial<InsightModel>; isUsingDataExploration: boolean; inflightQuery?: Node }
 
 export function insightSummaryString(props: InsightSummaryProps): string {
     const { aggregationLabel } = useValues(groupsModel)
@@ -15,7 +15,11 @@ export function insightSummaryString(props: InsightSummaryProps): string {
     const { mathDefinitions } = useValues(mathsLogic)
 
     const { insight } = props
-    const { filters, query } = insight
+    const { filters } = insight
+
+    const query = props.inflightQuery || insight.query
+
+    console.log('insightSummaryString', props, query, filters)
 
     return !!props.insight.name
         ? props.insight.name
