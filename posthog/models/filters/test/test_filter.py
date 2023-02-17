@@ -436,7 +436,6 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             },
             name="user_in_this_cohort",
         )
-        user_in.calculate_people_ch(pending_version=0)
         not_in_1_cohort = Cohort.objects.create(
             team=self.team,
             filters={
@@ -454,7 +453,6 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             },
             name="user_not_in_1",
         )
-        not_in_1_cohort.calculate_people_ch(pending_version=0)
 
         cohort1 = Cohort.objects.create(
             team=self.team,
@@ -479,7 +477,6 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
             },
             name="overall_cohort",
         )
-        cohort1.calculate_people_ch(pending_version=0)
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
 
@@ -494,7 +491,14 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
     def test_group_property_filters_direct(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
         query_filter = properties_to_Q(filter.property_groups.flat)
-        self.assertEqual(query_filter, Q(Q(group_properties__some_prop=5) & Q(group_properties__has_key="some_prop")))
+        self.assertEqual(
+            query_filter,
+            Q(
+                Q(group_properties__some_prop=5)
+                & Q(group_properties__has_key="some_prop")
+                & ~Q(group_properties__some_prop=None)
+            ),
+        )
 
     def _filter_with_date_range(
         self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
