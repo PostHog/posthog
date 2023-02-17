@@ -39,6 +39,7 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
+    SAMPLE_FACTOR,
     SELECTOR,
     SHOWN_AS,
     SMOOTHING_INTERVALS,
@@ -566,7 +567,11 @@ class SampleMixin(BaseParamMixin):
     @cached_property
     def sample_factor(self) -> Optional[float]:
         factor = None
-        if self._data.get("sample_results", False):
+        if process_bool(self._data.get("sample_results", False)):
             factor = self.default_sample_factor
 
         return factor
+
+    @include_dict
+    def sample_factor_to_dict(self):
+        return {SAMPLE_FACTOR: self.sample_factor or ""}
