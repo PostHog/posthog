@@ -5,10 +5,12 @@ from unittest.mock import ANY, patch
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.utils import timezone
-from django_otp.plugins.otp_static.models import StaticDevice
+from django_otp.oath import totp
+from django_otp.util import random_hex
 from freezegun import freeze_time
 from rest_framework import status
 from social_django.models import UserSocialAuth
+from two_factor.utils import totp_digits
 
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -16,6 +18,10 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
+
+
+def totp_str(key):
+    return str(totp(key)).zfill(totp_digits())
 
 
 class TestLoginPrecheckAPI(APIBaseTest):
@@ -158,13 +164,8 @@ class TestLoginAPI(APIBaseTest):
                 },
             )
 
-    @patch("posthog.api.user.default_device")
-    @patch("posthog.api.authentication.default_device")
-    @patch("posthog.api.authentication.verify_token")
-    def test_login_2fa_enabled(self, patch_verify_token, patch_devices_for_user, patch_default_device):
-        patch_devices_for_user.return_value = [StaticDevice()]
-        patch_default_device.return_value = [StaticDevice()]
-        patch_verify_token.return_value = True
+    def test_login_2fa_enabled(self):
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
 
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -178,20 +179,20 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertNotIn("email", response.json())
 
-        response = self.client.post("/api/login/token", {"token": "abcdefg"})
+        response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["email"], self.user.email)
 
-    @patch("posthog.api.user.default_device")
-    @patch("posthog.api.authentication.default_device")
-    @patch("posthog.api.authentication.verify_token")
-    def test_2fa_expired(self, patch_verify_token, patch_devices_for_user, patch_default_device):
-        patch_devices_for_user.return_value = [StaticDevice()]
-        patch_default_device.return_value = [StaticDevice()]
-        patch_verify_token.return_value = True
+        # Test remembering cookie
+        self.client.post("/logout", follow=True)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_2fa_expired(self):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
 
         with freeze_time("2023-01-01T10:00:00"):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -216,6 +217,14 @@ class TestLoginAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_2fa_throttling(self):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_invalid")
+        self.assertEqual(
+            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_too_many_attempts"
+        )
 
 
 class TestPasswordResetAPI(APIBaseTest):

@@ -1,5 +1,6 @@
 import time
 from typing import Any, Dict, Optional, cast
+from uuid import uuid4
 
 from django.conf import settings
 from django.contrib.auth import authenticate, login
@@ -19,6 +20,8 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from social_django.views import auth
 from two_factor.utils import default_device
+from two_factor.views.core import REMEMBER_COOKIE_PREFIX
+from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
 
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
@@ -82,6 +85,19 @@ class LoginSerializer(serializers.Serializer):
     def to_representation(self, instance: Any) -> Dict[str, Any]:
         return {"success": True}
 
+    def _check_if_2fa_required(self, user: User) -> bool:
+        device = default_device(user)
+        if not device:
+            return False
+        # If user has a valid 2FA cookie, use that instead of showing them the 2FA screen
+        for key, value in self.context["request"].COOKIES.items():
+            if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
+                if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
+                    user.otp_device = device
+                    device.throttle_reset()
+                    return False
+        return True
+
     def create(self, validated_data: Dict[str, str]) -> Any:
 
         # Check SSO enforcement (which happens at the domain level)
@@ -99,7 +115,7 @@ class LoginSerializer(serializers.Serializer):
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        if default_device(user) is not None:
+        if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk
             request.session["user_authenticated_time"] = time.time()
             raise TwoFactorRequired()
@@ -144,8 +160,34 @@ class LoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 class TwoFactorSerializer(serializers.Serializer):
     token = serializers.CharField(write_only=True)
 
-    def create(self, validated_data):
-        request = self.context["request"]
+
+class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    serializer_class = TwoFactorSerializer
+    queryset = User.objects.none()
+    permission_classes = (permissions.AllowAny,)
+
+    def _token_is_valid(self, request, user: User, device) -> Response:
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        otp_login(request, device)
+        report_user_logged_in(user, social_provider="")
+        device.throttle_reset()
+
+        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+        cookie_value = get_remember_device_cookie(user=user, otp_device_id=device.persistent_id)
+        response = Response({"success": True})
+        response.set_cookie(
+            cookie_key,
+            cookie_value,
+            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,
+            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+        )
+        return response
+
+    def create(self, request: Request):
         user = User.objects.get(pk=request.session["user_authenticated_but_no_2fa"])
         expiration_time = request.session["user_authenticated_time"] + getattr(
             settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600
@@ -157,19 +199,15 @@ class TwoFactorSerializer(serializers.Serializer):
 
         with transaction.atomic():
             device = default_device(user)
-            if device.verify_token(validated_data["token"]):
-                login(request, user, backend="django.contrib.auth.backends.ModelBackend")
-                otp_login(request, device)
-                report_user_logged_in(user, social_provider="")
-                return Response({"success": True})
-            else:
-                raise serializers.ValidationError(detail="2FA token was not valid", code="2fa_invalid")
+            is_allowed = device.verify_is_allowed()
+            if not is_allowed[0]:
+                raise serializers.ValidationError(detail="Too many attempts.", code="2fa_too_many_attempts")
+            if device.verify_token(request.data["token"]):
+                return self._token_is_valid(request, user, device)
 
-
-class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
-    serializer_class = TwoFactorSerializer
-    queryset = User.objects.none()
-    permission_classes = (permissions.AllowAny,)
+        # Failed attempt so increase throttle
+        device.throttle_increment()
+        raise serializers.ValidationError(detail="2FA token was not valid", code="2fa_invalid")
 
 
 class LoginPrecheckViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
