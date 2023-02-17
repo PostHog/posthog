@@ -47,6 +47,13 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
         "localhost:9092",
         "--consumer-group-id",
         consumer_group_id,
+        # Include all the options so we check they can be passed in
+        "--linger-ms",
+        "0",
+        "--batch-size",
+        "100",
+        "--timeout-ms",
+        "1000",
     )
 
     # We should have produced a message to the new topic

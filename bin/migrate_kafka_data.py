@@ -71,16 +71,19 @@ def get_parser():
     parser.add_argument(
         "--linger-ms",
         default=1000,
+        type=int,
         help="The number of milliseconds to wait before sending a batch of messages to the new cluster",
     )
     parser.add_argument(
         "--batch-size",
         default=1000 * 1000,
+        type=int,
         help="The maximum number of bytes per partition to send in a batch of messages to the new cluster",
     )
     parser.add_argument(
         "--timeout-ms",
         default=1000 * 10,
+        type=int,
         help="The maximum number of milliseconds to wait for a batch from the old cluster before timing out",
     )
     parser.add_argument(
@@ -157,33 +160,33 @@ def handle(**options):
         security_protocol=to_cluster_security_protocol,
     )
 
-    # Get all the partitions for the topic we're migrating data from.
-    partitions = consumer.partitions_for_topic(from_topic)
-    assert partitions, "No partitions found for topic"
-
-    # Get the latest offsets for all the partitions of the topic we're
-    # migrating data from.
-    latest_offsets = consumer.end_offsets(
-        [TopicPartition(topic=from_topic, partition=partition) for partition in partitions]
-    )
-    assert latest_offsets, "No latest offsets found for topic"
-
-    # Calculate the current lag for the consumer group.
-    current_lag = sum(
-        latest_offsets[TopicPartition(topic=from_topic, partition=partition)]
-        - committed_offsets[TopicPartition(topic=from_topic, partition=partition)].offset
-        for partition in partitions
-    )
-
-    print(f"Current lag for consumer group {consumer_group_id} is {current_lag}")  # noqa: T201
-
-    if dry_run:
-        print("Dry run, not migrating any data or committing any offsets")  # noqa: T201
-        return
-    else:
-        print("Migrating data")  # noqa: T201
-
     try:
+        # Get all the partitions for the topic we're migrating data from.
+        partitions = consumer.partitions_for_topic(from_topic)
+        assert partitions, "No partitions found for topic"
+
+        # Get the latest offsets for all the partitions of the topic we're
+        # migrating data from.
+        latest_offsets = consumer.end_offsets(
+            [TopicPartition(topic=from_topic, partition=partition) for partition in partitions]
+        )
+        assert latest_offsets, "No latest offsets found for topic"
+
+        # Calculate the current lag for the consumer group.
+        current_lag = sum(
+            latest_offsets[TopicPartition(topic=from_topic, partition=partition)]
+            - committed_offsets[TopicPartition(topic=from_topic, partition=partition)].offset
+            for partition in partitions
+        )
+
+        print(f"Current lag for consumer group {consumer_group_id} is {current_lag}")  # noqa: T201
+
+        if dry_run:
+            print("Dry run, not migrating any data or committing any offsets")  # noqa: T201
+            return
+        else:
+            print("Migrating data")  # noqa: T201
+
         # Now consume from the consumer, and produce to the producer.
         while True:
             print("Polling for messages")  # noqa: T201
