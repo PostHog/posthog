@@ -85,19 +85,9 @@ def disable_migrations() -> None:
         def handle(self, *args, **kwargs):
             from django.db import connection
 
-            from posthog.models.person.person import CREATE_FUNCTION_FOR_CONSTRAINT_SQL
-
-            create_function = ";".join(
-                (
-                    "SET check_function_bodies=off",
-                    CREATE_FUNCTION_FOR_CONSTRAINT_SQL,
-                )
-            )
-
             # :TRICKY: Create extension and function depended on by models.
             with connection.cursor() as cursor:
                 cursor.execute("CREATE EXTENSION pg_trgm")
-                cursor.execute(create_function)
 
             return super().handle(*args, **kwargs)
 
