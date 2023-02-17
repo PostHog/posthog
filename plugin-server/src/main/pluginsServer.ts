@@ -6,6 +6,7 @@ import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
+import { serialize } from 'v8'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
@@ -41,7 +42,6 @@ export type ServerInstance = {
     piscina: Piscina
     queue: IngestionConsumer | null
     mmdb?: ReaderModel
-    mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
 
@@ -104,9 +104,11 @@ export async function startPluginsServer(
 
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
+    let mmdbUpdateJob: schedule.Job | undefined
 
     let shuttingDown = false
     async function closeJobs(): Promise<void> {
+        mmdbUpdateJob?.cancel()
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
@@ -225,9 +227,10 @@ export async function startPluginsServer(
             serverInstance = { hub }
 
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
-            serverInstance.mmdbUpdateJob = schedule.scheduleJob('0 */4 * * *', async () =>
-                serverInstance ? await performMmdbStalenessCheck(serverInstance) : null
-            )
+            mmdbUpdateJob = serverInstance ? schedule.scheduleJob(
+                '0 */4 * * *',
+                async () => await performMmdbStalenessCheck(serverInstance!)
+            ) : undefined
             mmdbServer = await createMmdbServer(serverInstance)
             serverConfig.INTERNAL_MMDB_SERVER_PORT = (mmdbServer.address() as AddressInfo).port
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
