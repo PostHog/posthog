@@ -134,9 +134,9 @@ def handle(**options):
             f"Consumer group {consumer_group_id} has no committed offsets for topic {from_topic}: {committed_offsets}"
         )
 
-    print(
+    print(  # noqa: T201
         f"Migrating data from topic {from_topic} on cluster {from_cluster} to topic {to_topic} on cluster {to_cluster} using consumer group ID {consumer_group_id}"
-    )  # noqa: T201
+    )
 
     # Create a Kafka consumer to consume from the old topic.
     consumer = KafkaConsumer(
@@ -228,9 +228,9 @@ def handle(**options):
                 for partition in partitions
             )
 
-            print(
+            print(  # noqa: T201
                 f"Original lag: {current_lag}, current lag: {new_lag}, migrated: {100 - (new_lag / current_lag * 100):.2f}%"
-            )  # noqa: T201
+            )
 
     finally:
         # Close the consumer and producer.
