@@ -23,7 +23,7 @@ declare module '@storybook/react' {
              * Enable for stories that take a bit to load, and which you aren't testing loading states for.
              * @default false
              */
-            waitForLoadingToFinish?: boolean
+            waitForLoadersToDisappear?: boolean
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
@@ -77,7 +77,7 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { waitForLoadingToFinish = false, excludeNavigationFromSnapshot = false } =
+    const { waitForLoadersToDisappear = false, excludeNavigationFromSnapshot = false } =
         storyContext.parameters?.testOptions ?? {}
 
     let check: (page: Page, context: TestContext, browser: SupportedBrowserName) => Promise<void>
@@ -92,11 +92,12 @@ async function expectStoryToMatchSnapshot(
     }
     // Wait for story to load
     await page.waitForSelector('.sb-show-preparing-story', { state: 'detached', timeout: 1000 })
-    if (waitForLoadingToFinish) {
+    if (waitForLoadersToDisappear) {
         await Promise.all([
             page.waitForSelector('.ant-skeleton', { state: 'detached', timeout: 1000 }),
             page.waitForSelector('.LemonSkeleton', { state: 'detached', timeout: 1000 }),
             page.waitForSelector('.Spinner', { state: 'detached', timeout: 1000 }),
+            page.waitForSelector('.LemonTableLoader', { state: 'detached', timeout: 1000 }),
         ])
     }
     await page.waitForTimeout(200) // Just a bit of extra delay for things to settle

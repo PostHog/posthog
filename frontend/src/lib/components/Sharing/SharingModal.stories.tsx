@@ -19,7 +19,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         testOptions: {
-            waitForLoadingToFinish: true,
+            waitForLoadersToDisappear: true,
         },
         viewMode: 'story',
     },
