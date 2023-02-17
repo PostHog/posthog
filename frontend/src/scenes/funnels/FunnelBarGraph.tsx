@@ -346,7 +346,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                         </header>
                         <div className="funnel-inner-viz">
                             <div className={clsx('funnel-bar-wrapper', { breakdown: isBreakdown })}>
-                                {isBreakdown ? (
+                                {!width ? null : isBreakdown ? (
                                     <>
                                         {step?.nested_breakdown?.map((breakdown, index) => {
                                             const barSizePercentage = breakdown.count / basisStep.count
