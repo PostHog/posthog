@@ -1532,7 +1532,7 @@ describe('insightLogic', () => {
                 .toNotHaveDispatchedActions(['loadResults'])
         })
 
-        test('does not call the api on empty filters _and_ query', async () => {
+        test('does not call the api on empty filters _and_ empty query', async () => {
             const insight = {
                     filters: {},
                     query: {} as unknown as QuerySchema,

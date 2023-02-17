@@ -208,11 +208,16 @@ export const insightLogic = kea<insightLogicType>([
                         return values.insight
                     }
 
-                    if ('filters' in insight && emptyFilters(insight.filters)) {
-                        const error = new Error('Will not override empty filters in updateInsight.')
+                    const query = values.insight.query || insight.query
+                    console.log('query when updating is ', query)
+                    if (!Object.keys(query).length && 'filters' in insight && emptyFilters(insight.filters)) {
+                        const error = new Error(
+                            'Will not override empty filters when no insight query in updateInsight.'
+                        )
                         Sentry.captureException(error, {
                             extra: {
                                 filters: JSON.stringify(insight.filters),
+                                query: JSON.stringify(insight.query),
                                 insight: JSON.stringify(insight),
                                 valuesInsight: JSON.stringify(values.insight),
                             },
@@ -220,6 +225,7 @@ export const insightLogic = kea<insightLogicType>([
                         throw error
                     }
 
+                    insight.query = query
                     const response = await api.update(
                         `api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}`,
                         insight
