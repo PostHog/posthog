@@ -430,7 +430,6 @@ class TrendsFilter(BaseModel):
     show_legend: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
-    sample_factor: Optional[float] = None
 
 
 class Breakdown(BaseModel):
@@ -1007,7 +1006,6 @@ class AnyPartialFilterTypeItem(BaseModel):
     show_legend: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
-    sample_factor: Optional[float] = None
 
 
 class AnyPartialFilterTypeItem1(BaseModel):
