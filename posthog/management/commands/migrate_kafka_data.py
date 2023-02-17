@@ -19,7 +19,6 @@
 
 from typing import List
 
-from django.conf import settings
 from django.core.management.base import BaseCommand
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.errors import KafkaError
@@ -43,12 +42,10 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--from-cluster",
-            default=settings.KAFKA_URL,
             help="The Kafka cluster to migrate data from",
         )
         parser.add_argument(
             "--to-cluster",
-            default=settings.KAFKA_URL,
             help="The Kafka cluster to migrate data to",
         )
         parser.add_argument(
@@ -127,6 +124,24 @@ class Command(BaseCommand):
             batch_size=batch_size,
         )
 
+        # Get all the partitions for the topic we're migrating data from.
+        partitions = consumer.partitions_for_topic(from_topic)
+        assert partitions, "No partitions found for topic"
+
+        # Get the latest offsets for all the partitions of the topic we're
+        # migrating data from.
+        latest_offsets = consumer.end_offsets(
+            [TopicPartition(topic=from_topic, partition=partition) for partition in partitions]
+        )
+        assert latest_offsets, "No latest offsets found for topic"
+
+        # Calculate the current lag for the consumer group.
+        current_lag = sum(
+            latest_offsets[TopicPartition(topic=from_topic, partition=partition)]
+            - committed_offsets[TopicPartition(topic=from_topic, partition=partition)].offset
+            for partition in partitions
+        )
+
         try:
             # Now consume from the consumer, and produce to the producer.
             while True:
@@ -162,6 +177,20 @@ class Command(BaseCommand):
                 # Commit the offsets for the messages we just consumed.
                 self.stdout.write("Committing offsets")
                 consumer.commit()
+
+                # Report the original offset lag, the current offset lag, and
+                # the percentage of the original offset lag that has been
+                # migrated.
+                new_lag = sum(
+                    latest_offsets[TopicPartition(topic=from_topic, partition=partition)]
+                    - consumer.position(TopicPartition(topic=from_topic, partition=partition))
+                    for partition in partitions
+                )
+
+                self.stdout.write(
+                    f"Original lag: {current_lag}, current lag: {new_lag}, migrated: {100 - (new_lag / current_lag * 100):.2f}%"
+                )
+
         finally:
             # Close the consumer and producer.
             self.stdout.write("Closing consumer")
