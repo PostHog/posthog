@@ -92,6 +92,7 @@ async function expectStoryToMatchSnapshot(
     }
     // Wait for story to load
     await page.waitForSelector('.sb-show-preparing-story', { state: 'detached', timeout: 1000 })
+    await page.waitForTimeout(100) // Wait for initial UI to load
     if (waitForLoadersToDisappear) {
         await Promise.all([
             page.waitForSelector('.ant-skeleton', { state: 'detached', timeout: 1000 }),
@@ -100,7 +101,7 @@ async function expectStoryToMatchSnapshot(
             page.waitForSelector('.LemonTableLoader', { state: 'detached', timeout: 1000 }),
         ])
     }
-    await page.waitForTimeout(200) // Just a bit of extra delay for things to settle
+    await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
     await check(page, context, browser)
 }
 
