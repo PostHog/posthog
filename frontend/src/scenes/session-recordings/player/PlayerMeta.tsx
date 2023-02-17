@@ -129,11 +129,12 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                                             value={iconProperties['$geoip_country_code']}
                                         />
                                         {!isFullScreen &&
-                                            `${iconProperties['$geoip_city_name'] || null}${
+                                            `${iconProperties['$geoip_city_name'] || ''}${
                                                 iconProperties['$geoip_subdivision_1_code'] &&
-                                                iconProperties['$geoip_city_name'] &&
-                                                ', '
-                                            }${iconProperties['$geoip_subdivision_1_code'] || null}`}
+                                                iconProperties['$geoip_city_name']
+                                                    ? ', '
+                                                    : ''
+                                            }${iconProperties['$geoip_subdivision_1_code'] || ''}`}
                                     </span>
                                 )}
                             </div>
