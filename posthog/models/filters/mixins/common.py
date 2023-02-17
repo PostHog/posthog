@@ -574,4 +574,4 @@ class SampleMixin(BaseParamMixin):
 
     @include_dict
     def sample_factor_to_dict(self):
-        return {SAMPLE_FACTOR: self.sample_factor}
+        return {SAMPLE_FACTOR: self.sample_factor or ""}
