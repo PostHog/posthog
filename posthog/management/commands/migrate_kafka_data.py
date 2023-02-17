@@ -36,17 +36,27 @@ class Command(BaseCommand):
             help="The topic to migrate data from",
         )
         parser.add_argument(
+            "--from-cluster",
+            help="The Kafka cluster to migrate data from",
+        )
+        parser.add_argument(
+            "--from-cluster-security-protocol",
+            default="PLAINTEXT",
+            help="The security protocol to use when connecting to the old cluster",
+        )
+        parser.add_argument(
             "--to-topic",
             required=True,
             help="The topic to migrate data to",
         )
         parser.add_argument(
-            "--from-cluster",
-            help="The Kafka cluster to migrate data from",
-        )
-        parser.add_argument(
             "--to-cluster",
             help="The Kafka cluster to migrate data to",
+        )
+        parser.add_argument(
+            "--to-cluster-security-protocol",
+            default="PLAINTEXT",
+            help="The security protocol to use when connecting to the new cluster",
         )
         parser.add_argument(
             "--consumer-group-id",
@@ -72,6 +82,8 @@ class Command(BaseCommand):
         consumer_group_id = options["consumer_group_id"]
         linger_ms = options["linger_ms"]
         batch_size = options["batch_size"]
+        from_cluster_security_protocol = options["from_cluster_security_protocol"]
+        to_cluster_security_protocol = options["to_cluster_security_protocol"]
 
         # Validate that we don't push messages back into the same cluster and
         # topic.
@@ -79,7 +91,7 @@ class Command(BaseCommand):
             raise ValueError("You must specify a different topic and cluster to migrate data to")
 
         # Fail if the to_topic doesn't exist
-        admin_client = KafkaAdminClient(bootstrap_servers=to_cluster)
+        admin_client = KafkaAdminClient(bootstrap_servers=to_cluster, security_protocol=to_cluster_security_protocol)
         topics_response = admin_client.describe_topics([to_topic])
         if not list(topics_response) or topics_response[0]["error_code"]:
             raise ValueError(f"Topic {to_topic} does not exist")
@@ -89,7 +101,9 @@ class Command(BaseCommand):
         # If it doesn't, then we do not want to try to migrate data as we expect
         # that if called correctly, we would be specifying a consumer group ID
         # that has already been consuming from the cluster.
-        admin_client = KafkaAdminClient(bootstrap_servers=from_cluster)
+        admin_client = KafkaAdminClient(
+            bootstrap_servers=from_cluster, security_protocol=from_cluster_security_protocol
+        )
         try:
             committed_offsets = admin_client.list_consumer_group_offsets(consumer_group_id)
         except KafkaError as e:
@@ -115,6 +129,7 @@ class Command(BaseCommand):
             enable_auto_commit=False,
             group_id=consumer_group_id,
             consumer_timeout_ms=1000,
+            security_protocol=from_cluster_security_protocol,
         )
 
         # Create a Kafka producer to produce to the new topic.
@@ -122,6 +137,7 @@ class Command(BaseCommand):
             bootstrap_servers=to_cluster,
             linger_ms=linger_ms,
             batch_size=batch_size,
+            security_protocol=to_cluster_security_protocol,
         )
 
         # Get all the partitions for the topic we're migrating data from.
