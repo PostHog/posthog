@@ -35,6 +35,7 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         createAndGoToDashboard: true,
         setDashboardGroup: (group: string) => ({ group }),
+        setActiveDashboardTemplate: (template: string) => ({ template }),
     }),
     reducers({
         newDashboardModalVisible: [
@@ -48,6 +49,12 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             undefined,
             {
                 setDashboardGroup: (_, { group }) => group,
+            },
+        ],
+        activeDashboardTemplate: [
+            undefined,
+            {
+                setActiveDashboardTemplate: (_, { template }) => template,
             },
         ],
     }),
