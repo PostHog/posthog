@@ -12,8 +12,6 @@ import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
 import { insightSceneLogicType } from 'scenes/insights/insightSceneLogicType'
 
-import type { insightSceneLogicType } from './insightSceneLogicType'
-
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
     connect({
