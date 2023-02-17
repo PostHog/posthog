@@ -99,6 +99,7 @@ async function expectStoryToMatchSnapshot(
             page.waitForSelector('.Spinner', { state: 'detached', timeout: 1000 }),
         ])
     }
+    await page.waitForTimeout(200) // Just a bit of extra delay for things to settle
     await check(page, context, browser)
 }
 

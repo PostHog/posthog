@@ -18,6 +18,7 @@ export default {
             iframeHeight: 400,
             source: { state: 'close' },
         },
+        mockDate: '2023-02-01',
         viewMode: 'story',
     },
 } as ComponentMeta<typeof Exporter>
