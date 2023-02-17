@@ -232,7 +232,7 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
         return Q(lookup_q(f"{column}__{property.key}", value)) & Q(**{f"{column}__has_key": property.key})
     else:
         return Q(**{f"{column}__{property.key}__{property.operator}": property.value}) & Q(
-            **{f"{column}__has_key": property.key}
+            **{f"{column}__has_key": property.key}) & ~Q(**{f"{column}__{property.key}": None}
         )
 
 
