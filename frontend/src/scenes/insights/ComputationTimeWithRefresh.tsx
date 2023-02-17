@@ -11,8 +11,6 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
 
     usePeriodicRerender(15000)
 
-    console.log(insightRefreshButtonDisabledReason)
-
     return (
         <div className="flex items-center text-muted-alt">
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
