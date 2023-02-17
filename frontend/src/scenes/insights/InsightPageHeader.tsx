@@ -83,7 +83,10 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={insightSummaryString({ insight, isUsingDataExploration })}
+                        placeholder={insightSummaryString({
+                            insight: { name: insight.name, filters: insight.filters, query } as Partial<InsightModel>,
+                            isUsingDataExploration,
+                        })}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
