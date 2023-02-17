@@ -79,12 +79,11 @@ async function expectStoryToMatchSnapshot(
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
-    // You'd expect that the 'load' state which @storybook/test-runner waits for would already mean
-    // the story is ready, and definitely that 'networkidle' would indicate all assets to be ready.
-    // But that's not the case, so we need to introduce a bit of a delay.
-    // The delay is extended when updating snapshots, so that we're 100% sure they represent the final state.
-    const delayMultiplier: number = updateSnapshot ? RETRY_TIMES : 1
-    await page.waitForTimeout(100 * delayMultiplier)
+    // Wait for story to load
+    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached', timeout: 1000 })
+    // Then wait for everything to load inside the story
+    // The wait when taking snapshots is [the wait when verifying snapshots] * [the number of retries]
+    await page.waitForTimeout(100 * (updateSnapshot ? RETRY_TIMES : 1))
     await check(page, context, browser)
 }
 
