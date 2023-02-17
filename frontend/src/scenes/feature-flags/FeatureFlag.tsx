@@ -64,6 +64,7 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
+import { FeatureFlagImplementationHelp } from './FeatureFlagImplementationHelp'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -276,6 +277,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
+                                <FeatureFlagImplementationHelp />
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
