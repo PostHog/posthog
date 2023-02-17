@@ -186,6 +186,34 @@ def test_readyz_accepts_no_role_and_fails_on_everything(client: Client):
 
 
 @pytest.mark.django_db
+def test_readyz_accepts_role_decide_and_filters_by_relevant_services(client: Client):
+    with simulate_kafka_cannot_connect():
+        resp = get_readyz(client=client, role="decide")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_postgres_error():
+        resp = get_readyz(client=client, role="decide")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_clickhouse_cannot_connect():
+        resp = get_readyz(client=client, role="decide")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_celery_cannot_connect():
+        resp = get_readyz(client=client, role="decide")
+
+    assert resp.status_code == 200, resp.content
+
+    with simulate_cache_cannot_connect():
+        resp = get_readyz(client=client, role="decide")
+
+    assert resp.status_code == 503, resp.content
+
+
+@pytest.mark.django_db
 def test_readyz_complains_if_role_does_not_exist(client: Client):
     """
     We want to be sure that, if we specify a role, we end up using the expected

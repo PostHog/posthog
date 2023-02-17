@@ -182,6 +182,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
+        "usage",
     ]
     inlines = [OrganizationTeamInline, OrganizationMemberInline]
     readonly_fields = [
@@ -191,6 +192,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         "organization_billing_link",
         "billing_link_v2",
         "usage_posthog",
+        "usage",
     ]
     search_fields = ("name", "members__email")
     list_display = (
