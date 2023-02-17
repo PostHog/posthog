@@ -563,7 +563,7 @@ class SampleMixin(BaseParamMixin):
 
     default_sample_factor = 0.1
 
-    @cached_property
+    @include_dict
     def sample_factor(self) -> Optional[float]:
         factor = None
         if self._data.get("sample_results", False):
