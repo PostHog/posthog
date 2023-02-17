@@ -114,8 +114,8 @@ jobs:
 
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
-              # Skip on forks
-              if: github.event.pull_request.head.repo.full_name == github.repository
+              # Only run if there are changes, and skip on forks
+              if: steps.diff.outputs.total != '0' && github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
                   add: '["frontend/__snapshots__/", "playwright/"]'
@@ -129,14 +129,3 @@ jobs:
               run: |
                   INFO_BODY="## 📸 UI snapshots have been updated for \`${{ matrix.browser }}\`\n\n**${{ steps.diff.outputs.total }}** changes in total.\n**${{ steps.diff.outputs.added }}** added, **${{ steps.diff.outputs.modified }}** modified, **${{ steps.diff.outputs.deleted }}** deleted.\n\n**Review the changes:**\n👉 **[View this update's diff.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ steps.commit.outputs.commit_long_sha }})**\n👉 [View this PR's final diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)"
                   curl -s -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -X POST -d "{ \"body\": \"$INFO_BODY\" }" "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments"
-
-            - name: Upload Playwright report and diffs
-              uses: actions/upload-artifact@v3
-              if: failure()
-              with:
-                  name: visual-regression-report-${{ matrix.browser }}
-                  path: |
-                      playwright-report/
-                      test-results/
-                      frontend/__snapshots__/__diff_output__/
-                  retention-days: 3
