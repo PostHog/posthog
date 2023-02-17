@@ -78,6 +78,16 @@ def get_parser():
         default=1000 * 1000,
         help="The maximum number of bytes per partition to send in a batch of messages to the new cluster",
     )
+    parser.add_argument(
+        "--timeout-ms",
+        default=1000 * 10,
+        help="The maximum number of milliseconds to wait for a batch from the old cluster before timing out",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Do not actually migrate any data or commit any offsets, just print the number of messages that would be migrated",
+    )
     return parser
 
 
@@ -91,6 +101,8 @@ def handle(**options):
     batch_size = options["batch_size"]
     from_cluster_security_protocol = options["from_cluster_security_protocol"]
     to_cluster_security_protocol = options["to_cluster_security_protocol"]
+    dry_run = options["dry_run"]
+    timeout_ms = options["timeout_ms"]
 
     # Validate that we don't push messages back into the same cluster and
     # topic.
@@ -122,7 +134,7 @@ def handle(**options):
             f"Consumer group {consumer_group_id} has no committed offsets for topic {from_topic}: {committed_offsets}"
         )
 
-    sys.stdout.write(
+    print(
         f"Migrating data from topic {from_topic} on cluster {from_cluster} to topic {to_topic} on cluster {to_cluster} using consumer group ID {consumer_group_id}"
     )
 
@@ -163,11 +175,19 @@ def handle(**options):
         for partition in partitions
     )
 
+    print(f"Current lag for consumer group {consumer_group_id} is {current_lag}")
+
+    if dry_run:
+        print("Dry run, not migrating any data or committing any offsets")
+        return
+    else:
+        print("Migrating data")
+
     try:
         # Now consume from the consumer, and produce to the producer.
         while True:
-            sys.stdout.write("Polling for messages")
-            messages_by_topic = consumer.poll(timeout_ms=1000)
+            print("Polling for messages")
+            messages_by_topic = consumer.poll(timeout_ms=timeout_ms)
 
             futures: List[FutureRecordMetadata] = []
 
@@ -178,7 +198,7 @@ def handle(**options):
             # send immediately, but rather batched by the Kafka Producer
             # according to e.g. linger_ms etc.
             for topic, messages in messages_by_topic.items():
-                sys.stdout.write(f"Sending {len(messages)} messages to topic {topic}")
+                print(f"Sending {len(messages)} messages to topic {topic}")
                 for message in messages:
                     futures.append(
                         producer.send(
@@ -190,13 +210,13 @@ def handle(**options):
                     )
 
             # Flush the producer to ensure that all messages are sent.
-            sys.stdout.write("Flushing producer")
+            print("Flushing producer")
             producer.flush()
             for future in futures:
                 future.get()
 
             # Commit the offsets for the messages we just consumed.
-            sys.stdout.write("Committing offsets")
+            print("Committing offsets")
             consumer.commit()
 
             # Report the original offset lag, the current offset lag, and
@@ -208,18 +228,18 @@ def handle(**options):
                 for partition in partitions
             )
 
-            sys.stdout.write(
+            print(
                 f"Original lag: {current_lag}, current lag: {new_lag}, migrated: {100 - (new_lag / current_lag * 100):.2f}%"
             )
 
     finally:
         # Close the consumer and producer.
-        sys.stdout.write("Closing consumer")
+        print("Closing consumer")
         consumer.close()
-        sys.stdout.write("Closing producer")
+        print("Closing producer")
         producer.close()
 
-    sys.stdout.write("Done migrating data")
+    print("Done migrating data")
 
 
 def run(*args):

@@ -73,6 +73,42 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     assert not found_message
 
 
+def test_we_do_not_migrate_when_dry_run_is_set():
+    """
+    We want to make sure that we do not migrate data when the dry run flag is
+    set.
+    """
+    old_events_topic = str(uuid4())
+    new_events_topic = str(uuid4())
+    consumer_group_id = "events-ingestion-consumer"
+    message_key = str(uuid4())
+
+    _commit_offsets_for_topic(old_events_topic, consumer_group_id)
+
+    _create_topic(new_events_topic)
+
+    # Put some data to the old topic
+    _send_message(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+
+    migrate_kafka_data(
+        "--from-topic",
+        old_events_topic,
+        "--to-topic",
+        new_events_topic,
+        "--from-cluster",
+        "localhost:9092",
+        "--to-cluster",
+        "localhost:9092",
+        "--consumer-group-id",
+        consumer_group_id,
+        "--dry-run",
+    )
+
+    # We should not have produced a message to the new topic
+    found_message = _wait_for_message(new_events_topic, message_key)
+    assert not found_message
+
+
 def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     """
     We want to make sure that we do not send data back into the same topic on
