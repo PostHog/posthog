@@ -1145,6 +1145,7 @@ export enum InsightColor {
 
 export interface Cacheable {
     last_refresh: string | null
+    next_allowed_client_refresh?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -1475,6 +1476,7 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
+    sample_results?: boolean | null
 }
 
 export interface PropertiesTimelineFilterType {

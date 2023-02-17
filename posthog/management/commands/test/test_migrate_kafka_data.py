@@ -1,12 +1,13 @@
 from unittest import mock
 from uuid import uuid4
 
-from django.core.management import call_command
 from kafka import KafkaAdminClient, KafkaConsumer, KafkaProducer
 from kafka.admin.new_topic import NewTopic
 from kafka.errors import KafkaError
 from kafka.producer.future import FutureProduceResult, FutureRecordMetadata
 from kafka.structs import TopicPartition
+
+from bin.migrate_kafka_data import run as migrate_kafka_data
 
 
 def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
@@ -35,8 +36,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     # Put some data to the old topic
     _send_message(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
 
-    call_command(
-        "migrate_kafka_data",
+    migrate_kafka_data(
         "--from-topic",
         old_events_topic,
         "--to-topic",
@@ -56,8 +56,7 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
     assert found_message and found_message.headers == [("foo", b"bar")], "Did not find headers in new topic"
 
     # Try running the command again, and we should't see a new message produced
-    call_command(
-        "migrate_kafka_data",
+    migrate_kafka_data(
         "--from-topic",
         old_events_topic,
         "--to-topic",
@@ -70,6 +69,42 @@ def test_can_migrate_data_from_one_topic_to_another_on_a_different_cluster():
         consumer_group_id,
     )
 
+    found_message = _wait_for_message(new_events_topic, message_key)
+    assert not found_message
+
+
+def test_we_do_not_migrate_when_dry_run_is_set():
+    """
+    We want to make sure that we do not migrate data when the dry run flag is
+    set.
+    """
+    old_events_topic = str(uuid4())
+    new_events_topic = str(uuid4())
+    consumer_group_id = "events-ingestion-consumer"
+    message_key = str(uuid4())
+
+    _commit_offsets_for_topic(old_events_topic, consumer_group_id)
+
+    _create_topic(new_events_topic)
+
+    # Put some data to the old topic
+    _send_message(old_events_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
+
+    migrate_kafka_data(
+        "--from-topic",
+        old_events_topic,
+        "--to-topic",
+        new_events_topic,
+        "--from-cluster",
+        "localhost:9092",
+        "--to-cluster",
+        "localhost:9092",
+        "--consumer-group-id",
+        consumer_group_id,
+        "--dry-run",
+    )
+
+    # We should not have produced a message to the new topic
     found_message = _wait_for_message(new_events_topic, message_key)
     assert not found_message
 
@@ -89,8 +124,7 @@ def test_cannot_send_data_back_into_same_topic_on_same_cluster():
     _send_message(topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
 
     try:
-        call_command(
-            "migrate_kafka_data",
+        migrate_kafka_data(
             "--from-topic",
             topic,
             "--to-topic",
@@ -123,8 +157,7 @@ def test_that_the_command_fails_if_the_specified_consumer_group_does_not_exist()
     _send_message(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
 
     try:
-        call_command(
-            "migrate_kafka_data",
+        migrate_kafka_data(
             "--from-topic",
             old_topic,
             "--to-topic",
@@ -158,8 +191,7 @@ def test_that_we_error_if_the_target_topic_doesnt_exist():
     _send_message(old_topic, b'{ "event": "test" }', key=message_key.encode("utf-8"), headers=[("foo", b"bar")])
 
     try:
-        call_command(
-            "migrate_kafka_data",
+        migrate_kafka_data(
             "--from-topic",
             old_topic,
             "--to-topic",
@@ -209,8 +241,7 @@ def test_we_fail_on_send_errors_to_new_topic():
         mock_send.return_value = future
 
         try:
-            call_command(
-                "migrate_kafka_data",
+            migrate_kafka_data(
                 "--from-topic",
                 old_topic,
                 "--to-topic",
@@ -229,8 +260,7 @@ def test_we_fail_on_send_errors_to_new_topic():
 
     # Ensure that if we run the command again, it will not fail
     # and will re-consume and produce the message to the new topic.
-    call_command(
-        "migrate_kafka_data",
+    migrate_kafka_data(
         "--from-topic",
         old_topic,
         "--to-topic",

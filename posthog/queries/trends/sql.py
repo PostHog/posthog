@@ -439,6 +439,7 @@ SELECT
     period_status_pairs.2 as status,
     toDateTime(min({created_at_clause}), %(timezone)s) AS created_at
 FROM events AS {event_table_alias}
+{sample_clause}
 {distinct_id_query}
 {person_query}
 {groups_query}
