@@ -136,7 +136,7 @@ def handle(**options):
 
     print(
         f"Migrating data from topic {from_topic} on cluster {from_cluster} to topic {to_topic} on cluster {to_cluster} using consumer group ID {consumer_group_id}"
-    )
+    )  # noqa: T201
 
     # Create a Kafka consumer to consume from the old topic.
     consumer = KafkaConsumer(
@@ -175,18 +175,18 @@ def handle(**options):
         for partition in partitions
     )
 
-    print(f"Current lag for consumer group {consumer_group_id} is {current_lag}")
+    print(f"Current lag for consumer group {consumer_group_id} is {current_lag}")  # noqa: T201
 
     if dry_run:
-        print("Dry run, not migrating any data or committing any offsets")
+        print("Dry run, not migrating any data or committing any offsets")  # noqa: T201
         return
     else:
-        print("Migrating data")
+        print("Migrating data")  # noqa: T201
 
     try:
         # Now consume from the consumer, and produce to the producer.
         while True:
-            print("Polling for messages")
+            print("Polling for messages")  # noqa: T201
             messages_by_topic = consumer.poll(timeout_ms=timeout_ms)
 
             futures: List[FutureRecordMetadata] = []
@@ -198,7 +198,7 @@ def handle(**options):
             # send immediately, but rather batched by the Kafka Producer
             # according to e.g. linger_ms etc.
             for topic, messages in messages_by_topic.items():
-                print(f"Sending {len(messages)} messages to topic {topic}")
+                print(f"Sending {len(messages)} messages to topic {topic}")  # noqa: T201
                 for message in messages:
                     futures.append(
                         producer.send(
@@ -210,13 +210,13 @@ def handle(**options):
                     )
 
             # Flush the producer to ensure that all messages are sent.
-            print("Flushing producer")
+            print("Flushing producer")  # noqa: T201
             producer.flush()
             for future in futures:
                 future.get()
 
             # Commit the offsets for the messages we just consumed.
-            print("Committing offsets")
+            print("Committing offsets")  # noqa: T201
             consumer.commit()
 
             # Report the original offset lag, the current offset lag, and
@@ -230,16 +230,16 @@ def handle(**options):
 
             print(
                 f"Original lag: {current_lag}, current lag: {new_lag}, migrated: {100 - (new_lag / current_lag * 100):.2f}%"
-            )
+            )  # noqa: T201
 
     finally:
         # Close the consumer and producer.
-        print("Closing consumer")
+        print("Closing consumer")  # noqa: T201
         consumer.close()
-        print("Closing producer")
+        print("Closing producer")  # noqa: T201
         producer.close()
 
-    print("Done migrating data")
+    print("Done migrating data")  # noqa: T201
 
 
 def run(*args):
