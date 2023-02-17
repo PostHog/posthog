@@ -12,6 +12,7 @@ export const KAFKA_PERSON_DISTINCT_ID = `${prefix}clickhouse_person_distinct_id$
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${suffix}`
+export const KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW = `${prefix}events_plugin_ingestion_overflow${suffix}`
 export const KAFKA_SESSION_RECORDING_EVENTS = `${prefix}session_recording_events${suffix}`
 export const KAFKA_SESSION_RECORDING_EVENTS_DLQ = `${prefix}session_recording_events_dlq${suffix}`
 export const KAFKA_PLUGIN_LOG_ENTRIES = `${prefix}plugin_log_entries${suffix}`

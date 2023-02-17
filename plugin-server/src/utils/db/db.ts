@@ -1306,24 +1306,56 @@ export class DB {
 
     // EventDefinition
 
-    public async fetchEventDefinitions(): Promise<EventDefinitionType[]> {
-        return (await this.postgresQuery('SELECT * FROM posthog_eventdefinition', undefined, 'fetchEventDefinitions'))
-            .rows as EventDefinitionType[]
+    public async fetchEventDefinitions(teamId?: number): Promise<EventDefinitionType[]> {
+        return (
+            await this.postgresQuery(
+                `
+                SELECT * FROM posthog_eventdefinition
+                ${teamId ? 'WHERE team_id = $1' : ''}
+                -- Order by something that gives a deterministic order. Note
+                -- that this is a unique index.
+                ORDER BY (team_id, name)
+                `,
+                teamId ? [teamId] : undefined,
+                'fetchEventDefinitions'
+            )
+        ).rows as EventDefinitionType[]
     }
 
     // PropertyDefinition
 
-    public async fetchPropertyDefinitions(): Promise<PropertyDefinitionType[]> {
+    public async fetchPropertyDefinitions(teamId?: number): Promise<PropertyDefinitionType[]> {
         return (
-            await this.postgresQuery('SELECT * FROM posthog_propertydefinition', undefined, 'fetchPropertyDefinitions')
+            await this.postgresQuery(
+                `
+                SELECT * FROM posthog_propertydefinition
+                ${teamId ? 'WHERE team_id = $1' : ''}
+                -- Order by something that gives a deterministic order. Note
+                -- that this is a unique index.
+                ORDER BY (team_id, name, type, coalesce(group_type_index, -1))
+                `,
+                teamId ? [teamId] : undefined,
+                'fetchPropertyDefinitions'
+            )
         ).rows as PropertyDefinitionType[]
     }
 
     // EventProperty
 
-    public async fetchEventProperties(): Promise<EventPropertyType[]> {
-        return (await this.postgresQuery('SELECT * FROM posthog_eventproperty', undefined, 'fetchEventProperties'))
-            .rows as EventPropertyType[]
+    public async fetchEventProperties(teamId?: number): Promise<EventPropertyType[]> {
+        return (
+            await this.postgresQuery(
+                `
+                    SELECT * FROM posthog_eventproperty
+                    ${teamId ? 'WHERE team_id = $1' : ''}
+                    -- Order by something that gives a deterministic order. Note
+                    -- that this is a unique index.
+                    ORDER BY (team_id, event, property)
+                `,
+                teamId ? [teamId] : undefined,
+                'fetchEventProperties'
+            )
+        ).rows as EventPropertyType[]
     }
 
     // Action & ActionStep & Action<>Event

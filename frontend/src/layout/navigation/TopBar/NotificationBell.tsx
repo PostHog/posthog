@@ -9,6 +9,7 @@ import { ActivityLogRow } from 'lib/components/ActivityLog/ActivityLog'
 import './NotificationsBell.scss'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
+import { urls } from 'scenes/urls'
 
 export function NotificationBell(): JSX.Element {
     const { unreadCount, hasImportantChanges, importantChanges, isNotificationPopoverOpen, hasUnread } =
@@ -31,9 +32,10 @@ export function NotificationBell(): JSX.Element {
                             Beta
                         </LemonTag>
                     </h5>
-                    <p className={'mx-2 text-muted'}>
-                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to
-                        Insights and Feature Flags that you created. Come join{' '}
+                    <p className={'mx-2 text-muted mt-2'}>
+                        <IconInfo /> Notifications is in beta. Right now it only shows you changes other users make to{' '}
+                        <Link to={urls.savedInsights('history')}>Insights</Link> and{' '}
+                        <Link to={urls.featureFlags('history')}>Feature Flags</Link> that you created. Come join{' '}
                         <Link to={'https://posthog.com/slack'}>our community slack</Link> and tell us what else should
                         be here!
                     </p>
