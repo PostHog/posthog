@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, InsightType } from '~/types'
 
 import type { insightQueryEditorLogicType } from './insightQueryEditorLogicType'
 import { keyForInsightLogicProps } from './sharedUtils'
@@ -16,7 +16,7 @@ export const insightQueryEditorLogic = kea<insightQueryEditorLogicType>([
         values: [insightLogic(props), ['query as insightQuery']],
     })),
     actions({
-        setQuery: (query: Node) => ({ query }),
+        setQuery: (query: Node | null) => ({ query }),
     }),
     reducers(({ values }) => ({
         query: [
@@ -24,21 +24,17 @@ export const insightQueryEditorLogic = kea<insightQueryEditorLogicType>([
             {
                 setQuery: (_, { query }) => query,
                 setInsightQuery: (_, { query }) => query,
+                setActiveView: (state, { type }) => (type !== InsightType.QUERY ? null : state),
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setQuery: ({ query }) => {
-            if (isInsightVizNode(query)) {
+            if (isInsightVizNode(query ?? undefined)) {
                 // insight viz is handled elsewhere
                 return
             }
             actions.setInsightQuery(query)
-        },
-        setActiveView: () => {
-            if (!!values.insightQuery && values.insightQuery !== values.query) {
-                actions.setQuery(values.insightQuery)
-            }
         },
     })),
 ])

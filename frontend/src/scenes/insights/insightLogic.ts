@@ -120,7 +120,7 @@ export const insightLogic = kea<insightLogicType>([
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
-        setQuery: (query: Node) => ({ query }),
+        setQuery: (query: Node | null) => ({ query }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -539,12 +539,7 @@ export const insightLogic = kea<insightLogicType>([
                 loadResultsSuccess: (state, { insight }) =>
                     Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
                 setQuery: (state, { query }) => (!!query ? {} : state),
-                setActiveView: (state, { type }) => {
-                    if (type === InsightType.QUERY) {
-                        return {}
-                    }
-                    return state
-                },
+                setActiveView: (state, { type }) => (type === InsightType.QUERY ? {} : state),
             },
         ],
         /** The insight's state as it is in the database. */
