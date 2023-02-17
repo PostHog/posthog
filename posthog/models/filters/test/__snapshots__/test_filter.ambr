@@ -232,8 +232,6 @@
          "posthog_person"."version"
   FROM "posthog_person"
   WHERE (UPPER(("posthog_person"."properties" ->> 'urls')::text) LIKE UPPER('%["abcd"]%')
-         AND "posthog_person"."properties" ? 'urls'
-         AND NOT (("posthog_person"."properties" -> 'urls') = 'null')
          AND "posthog_person"."team_id" = 2)
   '
 ---
@@ -327,20 +325,10 @@
          "posthog_person"."version"
   FROM "posthog_person"
   WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'
-           AND "posthog_person"."properties" ? 'url'
-           AND NOT (("posthog_person"."properties" -> 'url') = 'null')
            AND ("posthog_person"."properties" -> 'bla') = '1'
-           AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null')
-           AND ((("posthog_person"."properties" -> 'bla') = '1'
-                 AND "posthog_person"."properties" ? 'bla'
-                 AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-                OR (("posthog_person"."properties" -> 'bla') = '2'
-                    AND "posthog_person"."properties" ? 'bla'
-                    AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))))
-          OR (("posthog_person"."properties" -> 'bla') = '3'
-              AND "posthog_person"."properties" ? 'bla'
-              AND NOT (("posthog_person"."properties" -> 'bla') = 'null')))
+           AND (("posthog_person"."properties" -> 'bla') = '1'
+                OR ("posthog_person"."properties" -> 'bla') = '2'))
+          OR ("posthog_person"."properties" -> 'bla') = '3')
          AND "posthog_person"."team_id" = 2)
   '
 ---
@@ -443,20 +431,10 @@
          "posthog_person"."version"
   FROM "posthog_person"
   WHERE (((("posthog_person"."properties" -> 'url') = '"https://whatever.com"'
-           AND "posthog_person"."properties" ? 'url'
-           AND NOT (("posthog_person"."properties" -> 'url') = 'null')
            AND ("posthog_person"."properties" -> 'bla') = '1'
-           AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null')
            AND ("posthog_person"."properties" -> 'bla') = '1'
-           AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null')
-           AND ("posthog_person"."properties" -> 'bla') = '2'
-           AND "posthog_person"."properties" ? 'bla'
-           AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-          OR (("posthog_person"."properties" -> 'bla') = '3'
-              AND "posthog_person"."properties" ? 'bla'
-              AND NOT (("posthog_person"."properties" -> 'bla') = 'null')))
+           AND ("posthog_person"."properties" -> 'bla') = '2')
+          OR ("posthog_person"."properties" -> 'bla') = '3')
          AND "posthog_person"."team_id" = 2)
   '
 ---
@@ -759,21 +737,11 @@
          "posthog_person"."uuid",
          "posthog_person"."version"
   FROM "posthog_person"
-  WHERE (NOT (((("posthog_person"."properties" -> 'bla') = '1'
-                AND "posthog_person"."properties" ? 'bla'
-                AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-               OR (("posthog_person"."properties" -> 'bla') = '2'
-                   AND "posthog_person"."properties" ? 'bla'
-                   AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))))
-         AND NOT (((("posthog_person"."properties" -> 'bla') = '3'
-                    AND "posthog_person"."properties" ? 'bla'
-                    AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))
-                   OR (("posthog_person"."properties" -> 'bla') = '4'
-                       AND "posthog_person"."properties" ? 'bla'
-                       AND NOT (("posthog_person"."properties" -> 'bla') = 'null'))))
+  WHERE (NOT ((("posthog_person"."properties" -> 'bla') = '1'
+               OR ("posthog_person"."properties" -> 'bla') = '2'))
+         AND NOT ((("posthog_person"."properties" -> 'bla') = '3'
+                   OR ("posthog_person"."properties" -> 'bla') = '4'))
          AND ("posthog_person"."properties" -> 'other') = '1'
-         AND "posthog_person"."properties" ? 'other'
-         AND NOT (("posthog_person"."properties" -> 'other') = 'null')
          AND "posthog_person"."team_id" = 2)
   '
 ---

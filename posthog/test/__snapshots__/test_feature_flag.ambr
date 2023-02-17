@@ -12,9 +12,7 @@
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.1
   '
-  SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+  SELECT ("posthog_person"."properties" -> 'email') = '"test@posthog.com"' AS "flag_X_condition_0",
          (true) AS "flag_X_condition_1",
          (true) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0",
@@ -38,12 +36,8 @@
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.3
   '
-  SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
-          AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0",
-         (("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"')
-          AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0"
+  SELECT ("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"') AS "flag_X_condition_0",
+         ("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"') AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo'
@@ -64,9 +58,7 @@
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.5
   '
-  SELECT (("posthog_person"."properties" -> 'email') = '"test@posthog.com"'
-          AND "posthog_person"."properties" ? 'email'
-          AND NOT (("posthog_person"."properties" -> 'email') = 'null')) AS "flag_X_condition_0",
+  SELECT ("posthog_person"."properties" -> 'email') = '"test@posthog.com"' AS "flag_X_condition_0",
          (true) AS "flag_X_condition_1",
          (true) AS "flag_X_condition_0",
          (true) AS "flag_X_condition_0",
@@ -80,12 +72,8 @@
 ---
 # name: TestFeatureFlagMatcher.test_multiple_flags.6
   '
-  SELECT (("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"')
-          AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0",
-         (("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"')
-          AND "posthog_group"."group_properties" ? 'name'
-          AND NOT (("posthog_group"."group_properties" -> 'name') = 'null')) AS "flag_X_condition_0"
+  SELECT ("posthog_group"."group_properties" -> 'name') IN ('"foo.inc"') AS "flag_X_condition_0",
+         ("posthog_group"."group_properties" -> 'name') IN ('"foo2.inc"') AS "flag_X_condition_0"
   FROM "posthog_group"
   WHERE ("posthog_group"."team_id" = 2
          AND "posthog_group"."group_key" = 'foo2'
