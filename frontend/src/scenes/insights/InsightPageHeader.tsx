@@ -17,7 +17,6 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightCommandLogic } from 'scenes/insights/insightCommandLogic'
 import { userLogic } from 'scenes/userLogic'
 import { tagsModel } from '~/models/tagsModel'
@@ -27,7 +26,7 @@ import { InsightSceneProps } from 'scenes/insights/Insight'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { insightSummaryString } from 'lib/components/InsightSummary'
-import { insightQueryEditorLogic } from 'scenes/insights/insightQueryEditorLogic'
+import { insightQueryLogic } from 'scenes/insights/insightQueryLogic'
 
 export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element {
     // insightSceneLogic
@@ -44,26 +43,14 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        isQueryBasedInsight,
     } = useValues(logic)
     const { saveInsight, setInsightMetadata, saveAs } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
-    // insightDataLogic
-    const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
-
-    const { query: insightEditorQuery } = useValues(insightQueryEditorLogic(insightProps))
-    const { setQuery: insightEditorSetQuery } = useActions(insightQueryEditorLogic(insightProps))
-    // TODO - separate presentation of insight with viz query from insight with query
-    let query = insightVizQuery
-    let setQuery = insightVizSetQuery
-    if (!!insightEditorQuery && isQueryBasedInsight) {
-        query = insightEditorQuery
-        setQuery = insightEditorSetQuery
-    }
+    const { query } = useValues(insightQueryLogic(insightProps))
+    const { setQuery } = useActions(insightQueryLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))

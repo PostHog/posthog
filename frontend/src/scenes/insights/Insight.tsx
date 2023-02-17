@@ -4,7 +4,6 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
-import { insightDataLogic } from './insightDataLogic'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
 import { InsightsNav } from './InsightsNav'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -14,8 +13,8 @@ import clsx from 'clsx'
 import { Query } from '~/queries/Query/Query'
 import { InsightPageHeader } from 'scenes/insights/InsightPageHeader'
 import { QueryEditor } from '~/queries/QueryEditor/QueryEditor'
-import { insightQueryEditorLogic } from './insightQueryEditorLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
+import { insightQueryLogic } from 'scenes/insights/insightQueryLogic'
 
 export interface InsightSceneProps {
     insightId: InsightShortId | 'new'
@@ -32,7 +31,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
         insightLoading,
         filtersKnown,
         filters,
-        query: q,
         isUsingDataExploration,
         erroredQueryId,
         isFilterBasedInsight,
@@ -41,20 +39,9 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
-    // insightDataLogic
-    const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insightVizSetQuery } = useActions(insightDataLogic(insightProps))
+    const { query } = useValues(insightQueryLogic(insightProps))
+    const { setQuery } = useActions(insightQueryLogic(insightProps))
 
-    const { query: insightEditorQuery } = useValues(insightQueryEditorLogic(insightProps))
-    const { setQuery: insightEditorSetQuery } = useActions(insightQueryEditorLogic(insightProps))
-    // TODO - separate presentation of insight with viz query from insight with query
-    let query = insightVizQuery
-    let setQuery = insightVizSetQuery
-    if (!!insightEditorQuery && isQueryBasedInsight) {
-        query = insightEditorQuery
-        setQuery = insightEditorSetQuery
-    }
-    console.log('query', { query, insightEditorQuery, insightVizQuery, q })
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
 
