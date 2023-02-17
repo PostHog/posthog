@@ -18,6 +18,7 @@ import {
     IconPlusMini,
     IconSubArrowRight,
     IconErrorOutline,
+    IconArrowDropDown,
 } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -101,6 +102,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [clickedImplementationHelp, setClickedImplementationHelp] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -277,7 +279,19 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
-                                <FeatureFlagImplementationHelp />
+                                <LemonButton
+                                    type="secondary"
+                                    sideIcon={<IconArrowDropDown />}
+                                    className="mb-2"
+                                    onClick={() => setClickedImplementationHelp(!clickedImplementationHelp)}
+                                >
+                                    Which feature flag setup is best for me?
+                                </LemonButton>
+                                {clickedImplementationHelp && (
+                                    <div className="border rounded p-4 mb-4">
+                                        <FeatureFlagImplementationHelp />
+                                    </div>
+                                )}
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>

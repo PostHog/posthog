@@ -1,4 +1,5 @@
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
+import { IconArrowLeft } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 
@@ -30,14 +31,16 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
     const [implementationStep, setImplementationStep] = useState(ImplementationSteps.LibrarySelection)
     const [library, setLibrary] = useState(allLibraries.JavaScript)
     const [shouldBootstrap, setShouldBootstrap] = useState(false)
+    const [shouldLocalEval, setShouldLocalEval] = useState(false)
 
     return (
-        <div>
+        <div className="mb-4">
             {implementationStep === ImplementationSteps.LibrarySelection && (
                 <div className="LibrarySelection">
                     Which library will you be implementing this feature flag in?
                     <LemonSelect
-                        value={library}
+                        className="mt-4"
+                        dropdownMaxContentWidth
                         onSelect={(val) => {
                             setLibrary(val)
                             if (val in ServerLibraries) {
@@ -75,47 +78,92 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
             )}
             {implementationStep === ImplementationSteps.LocalEvaluation && (
                 <div>
+                    <LemonButton
+                        icon={<IconArrowLeft />}
+                        size="small"
+                        onClick={() => setImplementationStep(ImplementationSteps.LibrarySelection)}
+                    >
+                        Library selection
+                    </LemonButton>
                     <div>
-                        For server libraries, we recommend implementing <b>local evaluation</b>. This improves
-                        performance as it doesn't rely on additional network requests to handle returned feature flag
-                        values because it's computed in the server's end directly. This requires: 1. Initializing the
-                        library with your personal API key (found in user account settings) 2. Passing in all the person
-                        and group properties the flag relies on
+                        <span>
+                            For server libraries, we recommend implementing <b>local evaluation</b>. This improves
+                            performance as it doesn't rely on additional network requests.
+                        </span>
+                        <ul>
+                            This requires:
+                            <li>
+                                1. Initializing the library with your personal API key (found in user account settings)
+                            </li>
+                            <li>2. Passing in all the person and group properties the flag relies on</li>
+                        </ul>
                         <a
                             href={'https://posthog.com/manual/feature-flags#server-side-local-evaluation'}
                             target="_blank"
                         >
-                            Implementation details
+                            Code example details
                         </a>
                     </div>
-                    <LemonButton
-                        onClick={() => {
-                            setShouldBootstrap(true)
-                            setImplementationStep(ImplementationSteps.Bootstrapping)
-                        }}
-                    >
-                        I'll want to do this
-                    </LemonButton>
-                    <LemonButton onClick={() => setImplementationStep(ImplementationSteps.Bootstrapping)}>
-                        I'll skip this
-                    </LemonButton>
+                    <div className="flex justify-between mt-4">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => {
+                                setShouldLocalEval(false)
+                                setImplementationStep(ImplementationSteps.Bootstrapping)
+                            }}
+                        >
+                            I'll skip this
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => {
+                                setShouldLocalEval(true)
+                                setImplementationStep(ImplementationSteps.Bootstrapping)
+                            }}
+                        >
+                            Add this to my summary
+                        </LemonButton>
+                    </div>
                 </div>
             )}
             {implementationStep === ImplementationSteps.Bootstrapping && (
                 <div>
                     <div>
-                        We recommend <b>bootstrapping</b> if you need to have your feature flags available immediately
-                        as there's a delay between initial loading of the library and feature flags becoming available
-                        to use.
+                        If you need to have your feature flags immediately available as there's a delay between initial
+                        loading of the library and feature flags becoming available to use, we recommend{' '}
+                        <b>bootstrapping</b>.
                     </div>
-                    <LemonButton onClick={() => setImplementationStep(ImplementationSteps.Summary)}>Finish</LemonButton>
+                    <div className="flex justify-between mt-4">
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => setImplementationStep(ImplementationSteps.Summary)}
+                        >
+                            I'll skip this
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            onClick={() => {
+                                setShouldBootstrap(true)
+                                setImplementationStep(ImplementationSteps.Summary)
+                            }}
+                        >
+                            Add this to my summary
+                        </LemonButton>
+                    </div>
                 </div>
             )}
             {implementationStep === ImplementationSteps.Summary && (
-                <>
+                <div>
+                    <h3>Summary</h3>
+                    Library: {library}
                     <FeatureFlagInstructions featureFlagKey={'my-flag'} />
+                    {shouldLocalEval && <div />}
                     {shouldBootstrap && <div>bootstrapping instructions</div>}
-                </>
+                </div>
             )}
         </div>
     )
