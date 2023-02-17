@@ -494,8 +494,7 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
     def test_group_property_filters_direct(self):
         filter = Filter(data={"properties": [{"key": "some_prop", "value": 5, "type": "group", "group_type_index": 1}]})
         query_filter = properties_to_Q(filter.property_groups.flat)
-
-        self.assertEqual(query_filter, Q(group_properties__some_prop=5))
+        self.assertEqual(query_filter, Q(Q(group_properties__some_prop=5) & Q(group_properties__has_key="some_prop")))
 
     def _filter_with_date_range(
         self, date_from: datetime.datetime, date_to: Optional[datetime.datetime] = None
