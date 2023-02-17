@@ -108,9 +108,9 @@ export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
 export const MOCK_DEFAULT_USER: UserType = {
     date_joined: '2022-03-11T13:03:32.333971Z',
     uuid: MOCK_USER_UUID,
-    distinct_id: 'mock-user-178-distinct-id',
-    first_name: 'John',
-    email: 'john.doe@posthog.com',
+    distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
+    first_name: MOCK_DEFAULT_BASIC_USER.first_name,
+    email: MOCK_DEFAULT_BASIC_USER.email,
     email_opt_in: true,
     notification_settings: { plugin_disabled: false },
     anonymize_data: false,
@@ -137,6 +137,22 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     level: OrganizationMembershipLevel.Owner,
     joined_at: '2020-09-24T15:05:26.758796Z',
     updated_at: '2020-09-24T15:05:26.758837Z',
+}
+
+export const MOCK_SECOND_BASIC_USER: UserBasicType = {
+    id: 202,
+    uuid: 'bf313676-e728-4221-a975-d8e90b9d168c',
+    distinct_id: 'mock-user-202-distinct-id',
+    first_name: 'Rose',
+    email: 'rose.dawson@posthog.com',
+}
+
+export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
+    id: '4622ae44-7818-4f4f-8dab-64894131d9e3',
+    user: MOCK_SECOND_BASIC_USER,
+    level: OrganizationMembershipLevel.Member,
+    joined_at: '2021-03-11T19:11:11Z',
+    updated_at: '2021-03-11T19:11:11Z',
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
