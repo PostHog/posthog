@@ -33,6 +33,8 @@ interface BarProps {
     popoverTitle?: string | JSX.Element | null
     popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
     aggregationTargetLabel: Noun
+    /** Bar wrapper width in px. */
+    wrapperWidth: number
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -68,6 +70,7 @@ function Bar({
     popoverTitle = null,
     popoverMetrics = [],
     aggregationTargetLabel,
+    wrapperWidth,
 }: BarProps): JSX.Element {
     const barRef = useRef<HTMLDivElement | null>(null)
     const labelRef = useRef<HTMLDivElement | null>(null)
@@ -84,7 +87,6 @@ function Bar({
             setLabelPosition('outside')
             const barWidth = barRef.current?.clientWidth ?? null
             const barOffset = barRef.current?.offsetLeft ?? null
-            const wrapperWidth = barRef.current?.parentElement?.clientWidth ?? null
             const labelWidth = labelRef.current?.clientWidth ?? null
             if (barWidth !== null && barOffset !== null && wrapperWidth !== null && labelWidth !== null) {
                 if (wrapperWidth - (barWidth + barOffset) < labelWidth + LABEL_POSITION_OFFSET * 2) {
@@ -107,10 +109,9 @@ function Bar({
         setLabelPosition('inside')
     }
 
-    useResizeObserver({
-        onResize: useThrottledCallback(decideLabelPosition, 200),
-        ref: barRef,
-    })
+    useEffect(() => {
+        decideLabelPosition()
+    }, [wrapperWidth])
 
     return (
         <Popover
@@ -280,9 +281,11 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
     } = useValues(funnelLogic)
     const { openPersonsModalForStep } = useActions(funnelLogic)
 
+    const { ref: graphRef, width } = useResizeObserver()
+
     // Everything rendered after is a funnel in top-to-bottom mode.
     return (
-        <div data-attr="funnel-bar-graph" className={clsx('funnel-bar-graph', 'white')}>
+        <div data-attr="funnel-bar-graph" className={clsx('funnel-bar-graph', 'white')} ref={graphRef}>
             {steps.map((step, stepIndex) => {
                 const basisStep = getReferenceStep(steps, stepReference, stepIndex)
                 const previousStep = getReferenceStep(steps, FunnelStepReference.previous, stepIndex)
@@ -433,6 +436,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                         },
                                                     ]}
                                                     aggregationTargetLabel={aggregationTargetLabel}
+                                                    wrapperWidth={width}
                                                 />
                                             )
                                         })}
@@ -492,6 +496,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                 },
                                             ]}
                                             aggregationTargetLabel={aggregationTargetLabel}
+                                            wrapperWidth={width}
                                         />
                                         <div
                                             className="funnel-bar-empty-space"

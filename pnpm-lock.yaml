@@ -180,7 +180,7 @@ specifiers:
   ts-json-schema-generator: ^1.1.2
   ts-node: ^10.9.1
   typescript: ^4.6.4
-  use-debounce: ^6.0.1
+  use-debounce: ^9.0.3
   use-resize-observer: ^8.0.0
   webpack: ^4.46.0
   webpack-cli: ^4.5.0
@@ -269,7 +269,7 @@ dependencies:
   resize-observer-polyfill: 1.5.1
   rrweb: 1.1.3
   sass: 1.56.0
-  use-debounce: 6.0.1_react@16.14.0
+  use-debounce: 9.0.3_react@16.14.0
   use-resize-observer: 8.0.0_wcqkhtmu7mswc6yz4uyexck3ty
   wildcard-match: 5.1.2
   zxcvbn: 4.4.2
@@ -18082,8 +18082,8 @@ packages:
       react: 16.14.0
     dev: false
 
-  /use-debounce/6.0.1_react@16.14.0:
-    resolution: {integrity: sha512-kpvIxpa0vOLz/2I2sfNJ72mUeaT2CMNCu5BT1f2HkV9qZK27UVSOFf1sSSu+wjJE4TcR2VTXS2SM569+m3TN7Q==}
+  /use-debounce/9.0.3_react@16.14.0:
+    resolution: {integrity: sha512-FhtlbDtDXILJV7Lix5OZj5yX/fW1tzq+VrvK1fnT2bUrPOGruU9Rw8NCEn+UI9wopfERBEZAOQ8lfeCJPllgnw==}
     engines: {node: '>= 10.0.0'}
     peerDependencies:
       react: '>=16.8.0'
