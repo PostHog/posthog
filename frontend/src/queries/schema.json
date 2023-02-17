@@ -164,6 +164,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -287,6 +291,10 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
                         },
                         "filter_test_accounts": {
                             "type": "boolean"
@@ -425,6 +433,10 @@
                                 "$ref": "#/definitions/FunnelStepRangeEntityFilter"
                             },
                             "type": "array"
+                        },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
                         },
                         "filter_test_accounts": {
                             "type": "boolean"
@@ -608,6 +620,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -754,6 +770,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -868,6 +888,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -965,6 +989,10 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
                         },
                         "filter_test_accounts": {
                             "type": "boolean"
@@ -1692,7 +1720,7 @@
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"

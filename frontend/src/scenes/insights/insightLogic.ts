@@ -60,6 +60,7 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { isInsightVizNode } from '~/queries/utils'
+import { QuerySchema } from '~/queries/schema'
 import { insightQueryEditorLogic } from './insightQueryEditorLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
@@ -117,6 +118,7 @@ export const insightLogic = kea<insightLogicType>([
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
+        setQuery: (query: QuerySchema) => ({ query }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -206,7 +208,7 @@ export const insightLogic = kea<insightLogicType>([
                         return values.insight
                     }
 
-                    if (!values.editedQuery && 'filters' in insight && emptyFilters(insight.filters)) {
+                    if ('filters' in insight && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
                             extra: {
@@ -216,11 +218,6 @@ export const insightLogic = kea<insightLogicType>([
                             },
                         })
                         throw error
-                    }
-
-                    if (!!values.editedQuery) {
-                        insight.filters = {}
-                        insight.query = values.editedQuery
                     }
 
                     const response = await api.update(
@@ -489,22 +486,24 @@ export const insightLogic = kea<insightLogicType>([
                 return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
             },
         },
+        query: [
+            props.cachedInsight?.query || null,
+            {
+                setQuery: (_, { query }) => query,
+            },
+        ],
         /* filters contains the in-flight filters, might not (yet?) be the same as insight.filters */
         filters: [
             () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
             {
-                setFilters: (state, { filters }) => {
-                    return cleanFilters(filters, state)
-                },
-                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) => {
-                    return overrideFilter ? cleanFilters(filters || {}) : state
-                },
-                loadInsightSuccess: (state, { insight }) => {
-                    return Object.keys(state).length === 0 && insight.filters ? insight.filters : state
-                },
-                loadResultsSuccess: (state, { insight }) => {
-                    return Object.keys(state).length === 0 && insight.filters ? insight.filters : state
-                },
+                setFilters: (state, { filters }) => cleanFilters(filters, state),
+                setInsight: (state, { insight: { filters }, options: { overrideFilter } }) =>
+                    overrideFilter ? cleanFilters(filters || {}) : state,
+                loadInsightSuccess: (state, { insight }) =>
+                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
+                loadResultsSuccess: (state, { insight }) =>
+                    Object.keys(state).length === 0 && insight.filters ? insight.filters : state,
+                setQuery: (state, { query }) => (!!query ? {} : state),
                 setActiveView: (state, { type }) => {
                     if (type === InsightType.QUERY) {
                         return {}
@@ -818,7 +817,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values, cache, props }) => ({
+    listeners(({ actions, selectors, values, cache }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -1017,7 +1016,10 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, dashboards, tags } = values.insight
+            const { name, description, favorited, deleted, dashboards, tags } = values.insight
+            const query =
+                values.query && !objectsEqual(values.insight.query, values.query) ? values.query : values.insight.query
+            const filters = !!query && !!Object.keys(query).length ? {} : values.insight.filters
             let savedInsight: InsightModel
 
             try {
@@ -1028,17 +1030,11 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
+                    query,
                     deleted,
                     saved: true,
                     dashboards,
                     tags,
-                }
-
-                const iqel = insightQueryEditorLogic.findMounted(props)
-                const editedQuery = iqel?.values.query
-                if (!!editedQuery) {
-                    insightRequest.filters = {}
-                    insightRequest.query = editedQuery
                 }
 
                 savedInsight = insightNumericId
