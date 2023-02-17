@@ -59,9 +59,7 @@ describe('eachBatchIngestionWithOverflow', () => {
                 kafkaProducer: {
                     queueMessage: jest.fn(),
                 },
-                hub: {
-                    db: 'database',
-                },
+                db: 'database',
             },
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
