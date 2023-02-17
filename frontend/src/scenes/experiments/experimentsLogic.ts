@@ -11,7 +11,7 @@ import { loaders } from 'kea-loaders'
 
 export const experimentsLogic = kea<experimentsLogicType>([
     path(['scenes', 'experiments', 'experimentsLogic']),
-    connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user']] }),
+    connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
     actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
@@ -36,7 +36,7 @@ export const experimentsLogic = kea<experimentsLogicType>([
             [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                    if (!values.hasExperimentAvailableFeature) {
                         return []
                     }
                     const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
