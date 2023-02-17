@@ -327,6 +327,12 @@ def _merge_people(team, cursor, old_person_id, override_person_id, oldest_event)
     Of note is that we handle cases where the override_person_id is already
     merged into another person, meaning we need to first resolve that
     override_person_id to the one it was merged in to.
+
+    Note that we don't actually handle the merge on the posthog_person table,
+    but rather simply DELETE the record associated with `old_person_id`. It may
+    be that we remove the implmentation of deleting merged persons, in which
+    case we'll need to update the constraint to also include e.g. the
+    `is_deleted` flag we may add.
     """
     cursor.execute(
         """
