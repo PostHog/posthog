@@ -93,7 +93,7 @@ class LoginSerializer(serializers.Serializer):
         for key, value in self.context["request"].COOKIES.items():
             if key.startswith(REMEMBER_COOKIE_PREFIX) and value:
                 if validate_remember_device_cookie(value, user=user, otp_device_id=device.persistent_id):
-                    user.otp_device = device
+                    user.otp_device = device  # type: ignore
                     device.throttle_reset()
                     return False
         return True
@@ -187,7 +187,7 @@ class TwoFactorViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         )
         return response
 
-    def create(self, request: Request):
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Any:
         user = User.objects.get(pk=request.session["user_authenticated_but_no_2fa"])
         expiration_time = request.session["user_authenticated_time"] + getattr(
             settings, "TWO_FACTOR_LOGIN_TIMEOUT", 600

@@ -165,7 +165,7 @@ class TestLoginAPI(APIBaseTest):
             )
 
     def test_login_2fa_enabled(self):
-        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
@@ -192,7 +192,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_2fa_expired(self):
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
 
         with freeze_time("2023-01-01T10:00:00"):
             response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -219,7 +219,7 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
     def test_2fa_throttling(self):
-        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
         self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_invalid")
         self.assertEqual(

@@ -17,7 +17,7 @@ export function TwoFactorAuthentication(): JSX.Element {
                     <Setup2FA
                         onSuccess={() => {
                             setModalVisible(false)
-                            updateUser()
+                            updateUser({})
                         }}
                     />
                 </LemonModal>

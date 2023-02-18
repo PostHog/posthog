@@ -8,7 +8,7 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 
 export function Login2FA(): JSX.Element {
-    const { precheckResponseLoading, isLoginSubmitting, generalError } = useValues(login2FALogic)
+    const { isTwofactortokenSubmitting, generalError } = useValues(login2FALogic)
     const { preflight } = useValues(preflightLogic)
     return (
         <BridgePage
@@ -45,7 +45,7 @@ export function Login2FA(): JSX.Element {
                         fullWidth
                         type="primary"
                         center
-                        loading={isLoginSubmitting || precheckResponseLoading}
+                        loading={isTwofactortokenSubmitting}
                     >
                         Login
                     </LemonButton>
