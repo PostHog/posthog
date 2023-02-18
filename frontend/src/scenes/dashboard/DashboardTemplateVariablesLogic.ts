@@ -6,13 +6,13 @@ import type { dashboardTemplateVariablesLogicType } from './DashboardTemplateVar
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     actions({
-        setFilters: (filters: FilterType) => ({ filters }),
+        setFilterGroups: (newFilterGroups: Record<string, FilterType>) => ({ newFilterGroups }),
     }),
     reducers({
-        filters: [
-            undefined,
+        filterGroups: [
+            {},
             {
-                setFilters: (_, { filters }) => filters,
+                setFilterGroups: (filterGroups, { newFilterGroups }) => ({ ...filterGroups, ...newFilterGroups }),
             },
         ],
     }),

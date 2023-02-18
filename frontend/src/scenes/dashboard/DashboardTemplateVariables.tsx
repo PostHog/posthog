@@ -5,72 +5,98 @@ import { InsightType } from '~/types'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 
 export function DashboardTemplateVariables(): JSX.Element {
-    const { setFilters } = useActions(dashboardTemplateVariablesLogic)
-    const { filters } = useValues(dashboardTemplateVariablesLogic)
+    const { setFilterGroups } = useActions(dashboardTemplateVariablesLogic)
+    const { filterGroups } = useValues(dashboardTemplateVariablesLogic)
 
     const dashboardId = 1
-
-    useEffect(() => {
-        setFilters({
-            insight: InsightType.TRENDS,
-            events: [
-                {
-                    id: '$pageview',
-                    name: '$pageview',
-                    order: 0,
-                    type: 'events',
-                    properties: [
-                        {
-                            key: '$browser',
-                            value: ['Chrome'],
-                            operator: 'exact',
-                            type: 'person',
-                        },
-                    ],
-                },
-            ],
-        })
-    }, [])
-
-    // const [filters, setFilters] = useState<FilterType>({
-    //     insight: InsightType.TRENDS,
-    //     events: [
-    //         {
-    //             id: '$pageview',
-    //             name: '$pageview',
-    //             order: 0,
-    //             type: 'events',
-    //             properties: [
-    //                 {
-    //                     key: '$browser',
-    //                     value: ['Chrome'],
-    //                     operator: 'exact',
-    //                     type: 'person',
-    //                 },
-    //             ],
-    //         },
-    //     ],
-    // })
 
     const signUpFlowEvents = [
         {
             name: 'Created Account',
             required: true,
             id: 1,
+            defaultEvent: {
+                id: '$pageview',
+                name: '$pageview',
+                order: 0,
+                type: 'events',
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'person',
+                    },
+                ],
+            },
         },
         {
             name: 'Homepage pageview',
             required: true,
+            defaultEvent: {
+                id: '$pageview',
+                name: '$pageview',
+                order: 0,
+                type: 'events',
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'person',
+                    },
+                ],
+            },
         },
         {
             name: 'Sign Up page pageview',
             required: false,
+            defaultEvent: {
+                id: '$pageview',
+                name: '$pageview',
+                order: 0,
+                type: 'events',
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'person',
+                    },
+                ],
+            },
         },
         {
             name: 'Activation event',
             required: false,
+            defaultEvent: {
+                id: '$pageview',
+                name: '$pageview',
+                order: 0,
+                type: 'events',
+                properties: [
+                    {
+                        key: '$browser',
+                        value: ['Chrome'],
+                        operator: 'exact',
+                        type: 'person',
+                    },
+                ],
+            },
         },
     ]
+    useEffect(() => {
+        setFilterGroups(
+            signUpFlowEvents.reduce((acc, variable) => {
+                acc[variable.name] = {
+                    insight: InsightType.TRENDS,
+                    events: [variable.defaultEvent],
+                }
+                return acc
+            }, {})
+        )
+    }, [])
+
     return (
         <div>
             <h3>Variables</h3>
@@ -88,12 +114,16 @@ export function DashboardTemplateVariables(): JSX.Element {
                             </span>
                         </div>
                         <div>
-                            {filters && (
+                            {filterGroups && filterGroups[variable.name] && (
                                 <ActionFilter
-                                    filters={filters}
-                                    setFilters={setFilters}
+                                    filters={filterGroups[variable.name]}
+                                    setFilters={(filters) => setFilterGroups({ [variable.name]: filters })}
                                     typeKey={'dashboard_' + dashboardId + '_variable_' + variable.name}
                                     buttonCopy={''}
+                                    hideDeleteBtn={true}
+                                    hideRename={true}
+                                    hideDuplicate={true}
+                                    entitiesLimit={1}
                                 />
                             )}
                         </div>
