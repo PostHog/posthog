@@ -1239,9 +1239,16 @@ export interface DashboardTemplateType {
     dashboard_description: string
     dashboard_filters: Record<string, any>
     tiles: DashboardTile[]
-    variables: Record<string, any>
+    variables: DashboardTemplateVariableType[]
     tags: string[]
     created_at: string
+}
+
+export interface DashboardTemplateVariableType {
+    name: string
+    type: 'event'
+    default: Optional<FilterType, 'type'>
+    required: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'

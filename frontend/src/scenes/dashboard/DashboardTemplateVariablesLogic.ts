@@ -1,18 +1,31 @@
 import { actions, kea, path, reducers } from 'kea'
-import { FilterType } from '~/types'
+import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './DashboardTemplateVariablesLogicType'
 
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     actions({
-        setFilterGroups: (newFilterGroups: Record<string, FilterType>) => ({ newFilterGroups }),
+        setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
+        updateVariable: (variable_name: string, filterGroup: Optional<FilterType, 'type'>) => ({
+            variable_name,
+            filterGroup,
+        }),
     }),
     reducers({
-        filterGroups: [
-            {},
+        variables: [
+            [] as DashboardTemplateVariableType[],
             {
-                setFilterGroups: (filterGroups, { newFilterGroups }) => ({ ...filterGroups, ...newFilterGroups }),
+                setVariables: (_, { variables }) => variables,
+                updateVariable: (variables: DashboardTemplateVariableType, { variable_name, filterGroup }) => {
+                    console.log('reducer', variable_name, filterGroup)
+                    return variables.map((v: DashboardTemplateVariableType) => {
+                        if (v.name === variable_name) {
+                            v.default = filterGroup.events[0]
+                        }
+                        return v
+                    })
+                },
             },
         ],
     }),

@@ -95,8 +95,18 @@ variable_template = {
     ],
     "tags": ["popular"],
     "variables": [
-        {"name": "VARIABLE_1", "type": "event", "default": {"id": "$pageview", "math": "dau", "type": "events"}},
-        {"name": "VARIABLE_2", "type": "event", "default": {"id": "$autocapture", "math": "dau", "type": "events"}},
+        {
+            "name": "VARIABLE_1",
+            "type": "event",
+            "default": {"id": "$pageview", "math": "dau", "type": "events"},
+            "required": True,
+        },
+        {
+            "name": "VARIABLE_2",
+            "type": "event",
+            "default": {"id": "$autocapture", "math": "dau", "type": "events"},
+            "required": False,
+        },
     ],
 }
 
