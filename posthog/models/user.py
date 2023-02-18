@@ -125,6 +125,7 @@ class User(AbstractUser, UUIDClassicModel):
     )
     current_team = models.ForeignKey("posthog.Team", models.SET_NULL, null=True, related_name="teams_currently+")
     email = models.EmailField(_("email address"), unique=True)
+    pending_email = models.EmailField(_("pending email address awaiting verification"), null=True, blank=True)
     temporary_token: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
     distinct_id: models.CharField = models.CharField(max_length=200, null=True, blank=True, unique=True)
 

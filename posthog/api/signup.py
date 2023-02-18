@@ -30,15 +30,15 @@ logger = structlog.get_logger(__name__)
 
 
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
-    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
+    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.distinct_id))
     if is_cloud() and require_verification_feature:
         send_email_verification(user.id)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
-def get_verification_redirect_url(uuid: str):
-    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(uuid))
+def get_verification_redirect_url(uuid: str, distinct_id: str):
+    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(distinct_id))
     return "/verify_email/" + uuid if is_cloud() and require_verification_feature and not settings.DEMO else "/"
 
 
@@ -140,7 +140,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_verification_redirect_url(data["uuid"])
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"])
         return data
 
 
@@ -161,7 +161,7 @@ class InviteSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_verification_redirect_url(data["uuid"])
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"])
         return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:

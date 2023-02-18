@@ -2,6 +2,7 @@ import uuid
 from unittest.mock import ANY, patch
 
 import pytest
+from django.contrib.auth.tokens import default_token_generator
 from django.core.cache import cache
 from django.utils.text import slugify
 from freezegun.api import freeze_time
@@ -284,6 +285,50 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "beta@example.com"
         mock_is_email_available.assert_called_once()
         mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    @patch("posthog.tasks.email.send_email_verification.delay")
+    def test_update_current_user_email_with_email_verification(
+        self, mock_send_email_verification, mock_send_email_change_emails, mock_is_email_available, mock_feature_enabled
+    ):
+        """Test that when a user updates their email, they receive a verification email before the switch actually happens."""
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        with self.is_cloud(True):
+            with freeze_time("2020-01-01T21:37:00+00:00"):
+                response = self.client.patch(
+                    "/api/users/@me/",
+                    {
+                        "email": "beta@example.com",
+                    },
+                )
+            response_data = response.json()
+            self.user.refresh_from_db()
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response_data["email"] == "alpha@example.com"
+            assert response_data["pending_email"] == "beta@example.com"
+            assert self.user.email == "alpha@example.com"
+            assert self.user.pending_email == "beta@example.com"
+
+            mock_is_email_available.assert_called_once()
+            mock_send_email_verification.assert_called_once()
+
+            token = default_token_generator.make_token(self.user)
+            with freeze_time("2020-01-01T21:37:00+00:00"):
+                response_data = self.client.get(f"/api/verify/{self.user.uuid}/?token={token}")
+            self.assertEqual(response_data.status_code, status.HTTP_204_NO_CONTENT)
+            self.assertEqual(response_data.content.decode(), "")
+
+            self.user.refresh_from_db()
+            assert self.user.email == "beta@example.com"
+            assert self.user.pending_email is None
+            mock_is_email_available.assert_called_once()
+            mock_send_email_change_emails.assert_called_once_with(
+                "2020-01-01T21:37:00+00:00", self.user.first_name, "alpha@example.com", "beta@example.com"
+            )
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")

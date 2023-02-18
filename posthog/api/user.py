@@ -4,9 +4,10 @@ import secrets
 import urllib.parse
 from typing import Any, Optional, cast
 
+import posthoganalytics
 import requests
 from django.conf import settings
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -21,13 +22,14 @@ from rest_framework.throttling import UserRateThrottle
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
+from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_updated
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
-from posthog.tasks.email import send_email_change_emails
+from posthog.tasks.email import send_email_change_emails, send_email_verification
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 
@@ -62,6 +64,7 @@ class UserSerializer(serializers.ModelSerializer):
             "distinct_id",
             "first_name",
             "email",
+            "pending_email",
             "email_opt_in",
             "is_email_verified",
             "notification_settings",
@@ -165,14 +168,28 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
+        require_verification_feature = (
+            posthoganalytics.feature_enabled("require-email-verification", str(instance.distinct_id)) and is_cloud()
+        )
+
         if (
             "email" in validated_data
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
-            send_email_change_emails.delay(
-                timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
-            )
+            if require_verification_feature:
+                # Verification tokens remain valid until the user logs in again. So in order to invalidate existing tokens
+                # we need to log the user in first, and then generate a new token. This prevents people
+                # from generating a token for an email they have access to, then changing the email to one they don't
+                # and using the first token to verify the second email.
+                login(self.context["request"], instance, backend="django.contrib.auth.backends.ModelBackend")
+                instance.pending_email = validated_data.pop("email", None)
+                instance.save()
+                send_email_verification.delay(instance.id)
+            else:
+                send_email_change_emails.delay(
+                    timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
+                )
 
         # Update password
         current_password = validated_data.pop("current_password", None)

@@ -3,6 +3,7 @@ from typing import Any
 from django.conf import settings
 from django.contrib.auth import login
 from django.contrib.auth.tokens import default_token_generator
+from django.utils import timezone
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -11,7 +12,7 @@ from posthog.api.authentication import NonCreatingViewSetMixin
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_verified_email
 from posthog.models import User
-from posthog.tasks.email import send_email_verification
+from posthog.tasks.email import send_email_change_emails, send_email_verification
 
 
 class VerifyEmailSerializer(serializers.Serializer):
@@ -36,7 +37,7 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
             return {"success": True, "token": token}
 
         try:
-            user = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: User = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 
@@ -44,6 +45,13 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
             raise serializers.ValidationError(
                 {"token": ["This verification token is invalid or has expired."]}, code="invalid_token"
             )
+
+        if user.pending_email:
+            old_email = user.email
+            user.email = user.pending_email
+            user.pending_email = None
+            user.save()
+            send_email_change_emails.delay(timezone.now().isoformat(), user.first_name, old_email, user.email)
 
         user.is_email_verified = True
         user.save()

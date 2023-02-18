@@ -90,7 +90,9 @@ class LoginSerializer(serializers.Serializer):
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
+        require_verification_feature = posthoganalytics.feature_enabled(
+            "require-email-verification", str(user.distinct_id)
+        )
         # We still let them log in if is_email_verified is null so existing users don't get locked out
         if is_cloud() and require_verification_feature and user.is_email_verified is not True:
             send_email_verification(user.id)
