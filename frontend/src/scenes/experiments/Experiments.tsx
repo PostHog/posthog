@@ -10,13 +10,14 @@ import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { Link } from 'lib/lemon-ui/Link'
 import { dayjs } from 'lib/dayjs'
-import { Tabs, Tag } from 'antd'
+import { Tag } from 'antd'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -140,10 +141,8 @@ export function Experiments(): JSX.Element {
                         </LemonButton>
                     ) : undefined
                 }
-            />
-            {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
-                <>
-                    <div className="mb-4">
+                caption={
+                    <>
                         Check out our
                         <Link
                             data-attr="experiment-help"
@@ -154,16 +153,21 @@ export function Experiments(): JSX.Element {
                             Experimentation user guide
                         </Link>{' '}
                         to learn more.
-                    </div>
-                    <Tabs
+                    </>
+                }
+                tabbedPage={hasAvailableFeature(AvailableFeature.EXPERIMENTATION)}
+            />
+            {hasAvailableFeature(AvailableFeature.EXPERIMENTATION) ? (
+                <>
+                    <LemonTabs
                         activeKey={tab}
-                        style={{ borderColor: '#D9D9D9' }}
-                        onChange={(t) => setExperimentsTab(t as ExperimentsTabs)}
-                    >
-                        <Tabs.TabPane tab="All experiments" key={ExperimentsTabs.All} />
-                        <Tabs.TabPane tab="Your experiments" key={ExperimentsTabs.Yours} />
-                        <Tabs.TabPane tab="Archived experiments" key={ExperimentsTabs.Archived} />
-                    </Tabs>
+                        onChange={(newKey) => setExperimentsTab(newKey)}
+                        tabs={[
+                            { key: ExperimentsTabs.All, label: 'All experiments' },
+                            { key: ExperimentsTabs.Yours, label: 'Your experiments' },
+                            { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
+                        ]}
+                    />
                     <div className="flex justify-between mb-4">
                         <LemonInput
                             type="search"

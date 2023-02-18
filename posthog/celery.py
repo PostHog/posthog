@@ -84,6 +84,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     # Send all instance usage to the Billing service
     sender.add_periodic_task(crontab(hour=0, minute=0), send_org_usage_reports.s(), name="send instance usage report")
+    # Update local usage info for rate limiting purposes - offset by 30 minutes to not clash with the above
+    sender.add_periodic_task(crontab(hour="*", minute=30), update_quota_limiting.s(), name="update quota limiting")
 
     # PostHog Cloud cron jobs
     if is_cloud():
@@ -100,7 +102,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    # Sync all Organization.available_features every hour
+    # Sync all Organization.available_features every hour, only for billing v1 orgs
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
     sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
@@ -686,6 +688,16 @@ def send_org_usage_reports():
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
     send_all_org_usage_reports()
+
+
+@app.task(ignore_result=True)
+def update_quota_limiting():
+    try:
+        from ee.billing.quota_limiting import update_all_org_billing_quotas
+    except ImportError:
+        pass
+
+    update_all_org_billing_quotas()
 
 
 @app.task(ignore_result=True)

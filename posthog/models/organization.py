@@ -37,9 +37,18 @@ logger = structlog.get_logger(__name__)
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
-class OrganizationUsageInfo(TypedDict):
+class OrganizationUsageResource(TypedDict):
     usage: Optional[int]
     limit: Optional[int]
+    todays_usage: Optional[int]
+
+
+# The "usage" field is essentially cached info from the Billing Service to be used for visual reporting to the user
+# as well as for enforcing limits.
+class OrganizationUsageInfo(TypedDict):
+    events: Optional[OrganizationUsageResource]
+    recordings: Optional[OrganizationUsageResource]
+    period: Optional[List[str]]
 
 
 class OrganizationManager(models.Manager):
@@ -112,8 +121,9 @@ class Organization(UUIDModel):
     available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     # Managed by Billing, cached here for usage controls
     # Like {
-    #   'events': { 'usage': 10000, 'limit': 20000 },
-    #   'recordings': { 'usage': 10000, 'limit': 20000 }
+    #   'events': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 },
+    #   'recordings': { 'usage': 10000, 'limit': 20000, 'todays_usage': 1000 }
+    #   'period': ['2021-01-01', '2021-01-31']
     # }
     # Also currently indicates if the organization is on billing V2 or not
     usage: models.JSONField = models.JSONField(null=True, blank=True)
@@ -185,16 +195,6 @@ class Organization(UUIDModel):
 
     def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
-
-    def get_usage_for_feature(self, feature: str) -> Optional[int]:
-        if not self.usage:
-            return None
-        return self.usage.get(feature, {}).get("usage", None)
-
-    def get_limit_for_feature(self, feature: str) -> Optional[int]:
-        if not self.usage:
-            return None
-        return self.usage.get(feature, {}).get("limit", None)
 
     @property
     def has_billing_v2_setup(self):

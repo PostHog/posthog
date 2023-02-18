@@ -57,6 +57,8 @@ export enum NodeKind {
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
+    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
+    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
     /** Performance */
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
@@ -134,6 +136,13 @@ export interface NewEntityNode extends EntityNode {
     event?: string | null
 }
 
+export interface EventsQueryResponse {
+    columns: any[]
+    types: string[]
+    results: any[][]
+    hasMore?: boolean
+}
+
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -170,12 +179,7 @@ export interface EventsQuery extends DataNode {
     /** Columns to order by */
     orderBy?: string[]
 
-    response?: {
-        columns: string[]
-        types: string[]
-        results: any[][]
-        hasMore?: boolean
-    }
+    response?: EventsQueryResponse
 }
 
 export interface PersonsNode extends DataNode {
@@ -244,7 +248,7 @@ export interface InsightVizNode extends Node {
 }
 
 // Base class should not be used directly
-interface InsightsQueryBase extends Node {
+export interface InsightsQueryBase extends Node {
     /** Date range for the query */
     dateRange?: DateRange
     /** Exclude internal and test users by applying the respective filters */
@@ -360,8 +364,6 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     teamId?: number
 }
 
-export type HogQLExpression = string
-
 export interface TimeToSeeDataQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataQuery
 
@@ -376,10 +378,24 @@ export interface TimeToSeeDataQuery extends DataNode {
     sessionEnd?: string
 }
 
+export interface TimeToSeeDataJSONNode {
+    kind: NodeKind.TimeToSeeDataSessionsJSONNode
+    source: TimeToSeeDataQuery
+}
+
+export interface TimeToSeeDataWaterfallNode {
+    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
+    source: TimeToSeeDataQuery
+}
+
+export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
+
 export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
     numberOfDays?: number // defaults to 7
 }
+
+export type HogQLExpression = string
 
 // Legacy queries
 

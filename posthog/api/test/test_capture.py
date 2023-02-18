@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import lzstring
 import pytest
+import structlog
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
@@ -191,6 +192,9 @@ class TestCapture(BaseTest):
             },
             self._to_arguments(kafka_produce),
         )
+        log_context = structlog.contextvars.get_contextvars()
+        assert "team_id" in log_context
+        assert log_context["team_id"] == self.team.pk
 
     @patch("axes.middleware.AxesMiddleware")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1394,6 +1398,11 @@ class TestCapture(BaseTest):
                 # refactor best suited for another PR, hence accessing the call_args
                 # directly here
                 self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")
+
+                log_context = structlog.contextvars.get_contextvars()
+                # Lightweight capture doesn't get ingestion_context/team_id.
+                assert "team_id" in log_context
+                assert log_context["team_id"] is None
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):

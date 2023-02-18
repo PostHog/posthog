@@ -2,8 +2,6 @@ from typing import Any, List, Optional
 
 from django.db import models, transaction
 from django.db.models import F, Q
-from django.db.models.expressions import Func
-from django.db.models.fields import BooleanField
 
 from posthog.models.utils import UUIDT
 
@@ -91,6 +89,18 @@ class Person(models.Model):
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                # This was added to enable the overrides table to reference this
+                # table using the uuid. Ideally we'd put this on (team_id, uuid)
+                # but I couldn't see if Django could handle SQL `REFERENCES` on
+                # a composite key.
+                fields=["uuid"],
+                name="unique uuid for person",
+            ),
+        ]
+
 
 class PersonDistinctId(models.Model):
     class Meta:
@@ -123,18 +133,6 @@ class PersonOverride(models.Model):
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
             ),
-            models.CheckConstraint(
-                check=Q(
-                    Func(
-                        F("team_id"),
-                        F("override_person_id"),
-                        F("old_person_id"),
-                        function="is_override_person_not_used_as_old_person",
-                        output_field=BooleanField(),
-                    )
-                ),
-                name="old_person_id_is_not_override_person_id",
-            ),
         ]
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
@@ -143,30 +141,8 @@ class PersonOverride(models.Model):
     # We don't want to delete rows before we had a chance to propagate updates to the events table.
     # To reduce potential side-effects, these are not ForeingKeys.
     old_person_id = models.UUIDField(db_index=True)
-    override_person_id = models.UUIDField(db_index=True)
+    # override_person_id = models.UUIDField(db_index=True)
+    override_person = models.ForeignKey(Person, to_field="uuid", on_delete=models.DO_NOTHING)
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
-
-
-# This function checks two things:
-# 1. A new override_person_id must not match an existing old_person_id
-# 2. A new old_person_id must not match an existing override_person_id
-CREATE_FUNCTION_FOR_CONSTRAINT_SQL = f"""
-CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(team_id bigint, override_person_id uuid, old_person_id uuid)
-RETURNS BOOLEAN AS $$
-  SELECT NOT EXISTS (
-    SELECT 1
-      FROM "{PersonOverride._meta.db_table}"
-      WHERE team_id = $1
-      AND override_person_id = $3
-    ) AND NOT EXISTS (
-        SELECT 1
-      FROM "{PersonOverride._meta.db_table}"
-      WHERE team_id = $1
-      AND old_person_id = $2
-    );
-$$ LANGUAGE SQL;
-"""
-
-DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as_old_person"

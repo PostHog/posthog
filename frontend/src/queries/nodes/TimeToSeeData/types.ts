@@ -1,26 +1,29 @@
+import { UserBasicType } from '~/types'
+
 export type TimeToSeeNode = TimeToSeeSessionNode | TimeToSeeInteractionNode | TimeToSeeQueryNode
 
-interface TimeToSeeSessionNode {
+export interface TimeToSeeSessionNode {
     type: 'session'
     data: SessionData
-    children: Array<TimeToSeeNode>
+    children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
 }
 
-interface TimeToSeeInteractionNode {
+export interface TimeToSeeInteractionNode {
     type: 'interaction' | 'event'
     data: InteractionData
-    children: Array<TimeToSeeNode>
+    children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
 }
 
-interface TimeToSeeQueryNode {
+export interface TimeToSeeQueryNode {
     type: 'query' | 'subquery'
     data: QueryData
-    children: Array<TimeToSeeNode>
+    children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
 }
 
-interface SessionData {
+export interface SessionData {
     session_id: string
     user_id: number
+    user: UserBasicType
     team_id: number
     session_start: string
     session_end: string
@@ -30,7 +33,7 @@ interface SessionData {
     events_count: string
     interactions_count: string
     total_interaction_time_to_see_data_ms: string
-    frustrating_interactions_count: string
+    frustrating_interactions_count: number
 }
 
 interface InteractionData {
@@ -87,4 +90,16 @@ interface QueryData {
     log_comment: string
 
     is_frustrating: boolean
+}
+
+export const isSessionNode = (x: TimeToSeeNode | undefined): x is TimeToSeeSessionNode => {
+    return !!x && x.type === 'session'
+}
+
+export const isInteractionNode = (x: TimeToSeeNode | undefined): x is TimeToSeeInteractionNode => {
+    return ['interaction', 'event'].includes(x?.type || 'not present')
+}
+
+export const isQueryNode = (x: TimeToSeeNode | undefined): x is TimeToSeeQueryNode => {
+    return ['query', 'subquery'].includes(x?.type || 'not present')
 }

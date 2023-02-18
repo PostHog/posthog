@@ -84,9 +84,18 @@ class TestTeamPluginsDeliveryRateQuery(ClickhouseTestMixin, BaseTest):
             successes=5,
             successes_on_retry=15,
         )
+        create_app_metric(
+            team_id=self.team.pk,
+            category="processEvent",
+            plugin_config_id=4,
+            timestamp="2021-12-05T00:10:00Z",
+            successes=0,  # handles all zero rows
+            successes_on_retry=0,
+            failures=0,
+        )
 
         results = TeamPluginsDeliveryRateQuery(self.team).run()
-        self.assertEqual(results, {1: 0, 2: 0.5, 3: 1})
+        self.assertEqual(results, {1: 0, 2: 0.5, 3: 1, 4: 1})
 
     @freeze_time("2021-12-05T13:23:00Z")
     def test_ignores_out_of_bound_metrics(self):
