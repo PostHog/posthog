@@ -56,10 +56,15 @@ class DashboardTemplateSerializer(serializers.Serializer):
             if not validated_data["tiles"]:
                 raise ValidationError(detail="You need to provide tiles for the template.")
 
-            return DashboardTemplate.objects.update_or_create(
+            return DashboardTemplate.objects.create(
                 team_id=None,
-                defaults=validated_data,
-            )[0]
+                template_name=validated_data["template_name"],
+                dashboard_description=validated_data["dashboard_description"],
+                dashboard_filters=validated_data["dashboard_filters"],
+                tags=validated_data["tags"],
+                tiles=validated_data["tiles"],
+                variables=validated_data["variables"],
+            )
 
 
 class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):

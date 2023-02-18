@@ -109,7 +109,7 @@ class TestDashboardTemplates(APIBaseTest):
         self.user.save()
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
-    def test_create_dashboard_template_with_tile(self, patched_requests) -> None:
+    def test_create_and_get_dashboard_template_with_tile(self, patched_requests) -> None:
         self._patch_request_get(patched_requests, website_traffic_template_listing)
 
         response = self.client.post(
