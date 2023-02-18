@@ -1,3 +1,4 @@
+from django_otp.util import random_hex
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
@@ -21,14 +22,15 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response_data[0]["user"]["first_name"], instance.user.first_name)
 
     def test_list_organization_members_is_not_nplus1(self):
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
             response = self.client.get("/api/organizations/@current/members/")
 
         assert len(response.json()["results"]) == 1
 
         User.objects.create_and_join(self.organization, "1@posthog.com", None)
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
             response = self.client.get("/api/organizations/@current/members/")
 
         assert len(response.json()["results"]) == 2
@@ -88,6 +90,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             response_data,
             {
                 "id": str(updated_membership.id),
+                "is_2fa_enabled": False,
                 "user": {
                     "id": user.id,
                     "uuid": str(user.uuid),

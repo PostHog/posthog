@@ -1,5 +1,5 @@
 import uuid
-from unittest.mock import ANY, patch
+from unittest.mock import ANY, Mock, patch
 
 import pytest
 from django.core.cache import cache
@@ -786,9 +786,10 @@ class TestStaffUserAPI(APIBaseTest):
         user.refresh_from_db()
         self.assertEqual(user.is_staff, False)
 
-    def test_add_2fa(self):
+    @patch("posthog.api.user.TOTPDeviceForm")
+    def test_add_2fa(self, patch_is_valid):
+        patch_is_valid.return_value = Mock()
         self._create_user("newuser@posthog.com", password="12345678")
-        self.client.logout()
         response = self.client.get(f"/api/users/@me/start_2fa_setup/")
         response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
