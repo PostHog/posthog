@@ -1,6 +1,5 @@
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
-import { Tabs } from 'antd'
 import { Link } from 'lib/lemon-ui/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -24,6 +23,7 @@ import { IconLock } from 'lib/lemon-ui/icons'
 import { router } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { userLogic } from 'scenes/userLogic'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -297,15 +297,22 @@ export function FeatureFlags(): JSX.Element {
                     </LemonButton>
                 }
             />
-
-            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}>
-                <Tabs.TabPane tab="Overview" key="overview">
-                    <OverViewTab />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="History" key="history">
-                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} />
-                </Tabs.TabPane>
-            </Tabs>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(newKey) => setActiveTab(newKey)}
+                tabs={[
+                    {
+                        key: FeatureFlagsTabs.OVERVIEW,
+                        label: 'Overview',
+                        content: <OverViewTab />,
+                    },
+                    {
+                        key: FeatureFlagsTabs.HISTORY,
+                        label: 'History',
+                        content: <ActivityLog scope={ActivityScope.FEATURE_FLAG} />,
+                    },
+                ]}
+            />
         </div>
     )
 }
