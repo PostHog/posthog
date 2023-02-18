@@ -1,11 +1,36 @@
-import { useActions } from 'kea'
-import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
+import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
+import { InsightType } from '~/types'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 
 export function DashboardTemplateVariables(): JSX.Element {
-    const { setProperties } = useActions(dashboardTemplateVariablesLogic)
-    // const { filters } = useValues(dashboardVariablesLogic)
+    const { setFilters } = useActions(dashboardTemplateVariablesLogic)
+    const { filters } = useValues(dashboardTemplateVariablesLogic)
+
+    const dashboardId = 1
+
+    useEffect(() => {
+        setFilters({
+            insight: InsightType.TRENDS,
+            events: [
+                {
+                    id: '$pageview',
+                    name: '$pageview',
+                    order: 0,
+                    type: 'events',
+                    properties: [
+                        {
+                            key: '$browser',
+                            value: ['Chrome'],
+                            operator: 'exact',
+                            type: 'person',
+                        },
+                    ],
+                },
+            ],
+        })
+    }, [])
 
     // const [filters, setFilters] = useState<FilterType>({
     //     insight: InsightType.TRENDS,
@@ -27,35 +52,31 @@ export function DashboardTemplateVariables(): JSX.Element {
     //     ],
     // })
 
-    const dashboard = {
-        id: 1,
-    }
-
     const signUpFlowEvents = [
         {
             name: 'Created Account',
             required: true,
             id: 1,
         },
-        // {
-        //     name: 'Homepage pageview',
-        //     required: true,
-        // },
-        // {
-        //     name: 'Sign Up page pageview',
-        //     required: false,
-        // },
-        // {
-        //     name: 'Activation event',
-        //     required: false,
-        // },
+        {
+            name: 'Homepage pageview',
+            required: true,
+        },
+        {
+            name: 'Sign Up page pageview',
+            required: false,
+        },
+        {
+            name: 'Activation event',
+            required: false,
+        },
     ]
     return (
         <div>
             <h3>Variables</h3>
             <div>
-                {signUpFlowEvents.map((variable) => (
-                    <>
+                {signUpFlowEvents.map((variable, index) => (
+                    <div key={index}>
                         <div key={variable.name}>
                             <span>{variable.name}</span>{' '}
                             <span
@@ -67,21 +88,16 @@ export function DashboardTemplateVariables(): JSX.Element {
                             </span>
                         </div>
                         <div>
-                            <PropertyFilters
-                                onChange={setProperties}
-                                pageKey={'dashboard_' + dashboard?.id + '_variable' + variable.id}
-                                // propertyFilters={filters.properties}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                    // ...groupsTaxonomicTypes,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                            />
+                            {filters && (
+                                <ActionFilter
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    typeKey={'dashboard_' + dashboardId + '_variable_' + variable.name}
+                                    buttonCopy={''}
+                                />
+                            )}
                         </div>
-                    </>
+                    </div>
                 ))}
             </div>
         </div>

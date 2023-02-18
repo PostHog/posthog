@@ -1,18 +1,18 @@
 import { actions, kea, path, reducers } from 'kea'
-import { AnyPropertyFilter } from '~/types'
+import { FilterType } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './DashboardTemplateVariablesLogicType'
 
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     actions({
-        setProperties: (filters: AnyPropertyFilter[]) => ({ filters }),
+        setFilters: (filters: FilterType) => ({ filters }),
     }),
     reducers({
-        properties: [
-            [] as AnyPropertyFilter[],
+        filters: [
+            undefined,
             {
-                setProperties: (_, { filters }) => filters,
+                setFilters: (_, { filters }) => filters,
             },
         ],
     }),
