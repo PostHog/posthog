@@ -1,6 +1,6 @@
-import { template } from './DashboardTemplateVariables'
+import { template } from './DashboardTemplateVariablesLogic'
 
-describe('DashboardTemplateVariables', () => {
+describe('DashboardTemplateVariablesLogic', () => {
     it('template works', () => {
         expect(template({ a: 'hello', b: 'hi' }, [{ id: 'a', name: 'a', default: 3 }])).toEqual({ a: 'hello', b: 'hi' })
 
