@@ -17,7 +17,11 @@ def get_materialized_columns(
 
 
 def materialize(
-    table: TableWithProperties, property: PropertyName, column_name=None, table_column: TableColumn = "properties"
+    table: TableWithProperties,
+    property: PropertyName,
+    column_name=None,
+    table_column: TableColumn = "properties",
+    create_minmax_index=False,
 ) -> None:
     pass
 

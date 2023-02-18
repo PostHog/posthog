@@ -26,6 +26,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SampleMixin,
     SearchMixin,
     SelectorMixin,
     ShownAsMixin,
@@ -90,6 +91,7 @@ class Filter(
     EmailMixin,
     BaseFilter,
     ClientQueryIdMixin,
+    SampleMixin,
 ):
     """
     Filters allow us to describe what events to show/use in various places in the system, for example Trends or Funnels.
@@ -119,7 +121,7 @@ class Filter(
                 properties = request.data[PROPERTIES]
 
             data = {**request.GET.dict(), **request.data, **(data if data else {}), **({PROPERTIES: properties})}
-        elif not data:
+        elif data is None:
             raise ValueError("You need to define either a data dict or a request")
 
         self._data = data

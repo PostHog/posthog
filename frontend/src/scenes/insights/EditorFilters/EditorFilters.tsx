@@ -38,6 +38,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import { SamplingFilter } from './SamplingFilter'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -239,6 +240,24 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: FunnelsAdvanced,
+                },
+            ]),
+        },
+        {
+            title: 'Sampling',
+            position: 'right',
+            editorFilters: filterFalsy([
+                {
+                    key: 'sampling',
+                    label: '',
+                    position: 'right',
+                    component: SamplingFilter,
+                    tooltip: (
+                        <>
+                            Sampling computes the result on a subset of the data, making insights load significantly
+                            faster. Results are not exact, but statistically similar to the exact results.
+                        </>
+                    ),
                 },
             ]),
         },

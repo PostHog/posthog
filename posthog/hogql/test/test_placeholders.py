@@ -1,6 +1,6 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.placeholders import replace_placeholders
+from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
 from posthog.test.base import BaseTest
 
 
@@ -16,6 +16,15 @@ class TestParser(BaseTest):
             expr2,
             ast.Constant(value="bar"),
         )
+
+    def test_replace_placeholders_error(self):
+        expr = ast.Placeholder(field="foo")
+        with self.assertRaises(ValueError) as context:
+            replace_placeholders(expr, {})
+        self.assertTrue("Placeholder 'foo' not found in provided dict:" in str(context.exception))
+        with self.assertRaises(ValueError) as context:
+            replace_placeholders(expr, {"bar": ast.Constant(value=123)})
+        self.assertTrue("Placeholder 'foo' not found in provided dict: bar" in str(context.exception))
 
     def test_replace_placeholders_comparison(self):
         expr = parse_expr("timestamp < {timestamp}")
@@ -36,3 +45,9 @@ class TestParser(BaseTest):
                 right=ast.Constant(value=123),
             ),
         )
+
+    def test_assert_no_placeholders(self):
+        expr = ast.Placeholder(field="foo")
+        with self.assertRaises(ValueError) as context:
+            assert_no_placeholders(expr)
+        self.assertTrue("Placeholder 'foo' not allowed in this context" in str(context.exception))

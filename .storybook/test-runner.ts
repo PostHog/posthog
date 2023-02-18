@@ -83,7 +83,7 @@ async function expectStoryToMatchSnapshot(
     // But that's not the case, so we need to introduce a bit of a delay.
     // The delay is extended when updating snapshots, so that we're 100% sure they represent the final state.
     const delayMultiplier: number = updateSnapshot ? RETRY_TIMES : 1
-    await page.waitForTimeout(100 * delayMultiplier)
+    await page.waitForTimeout(150 * delayMultiplier)
     await check(page, context, browser)
 }
 
@@ -140,7 +140,7 @@ async function expectLocatorToMatchStorySnapshot(
         // Compare structural similarity instead of raw pixels - reducing false positives
         // See https://github.com/americanexpress/jest-image-snapshot#recommendations-when-using-ssim-comparison
         comparisonMethod: 'ssim',
-        failureThreshold: 0.01,
+        failureThreshold: 0.001,
         failureThresholdType: 'percent',
     })
 }

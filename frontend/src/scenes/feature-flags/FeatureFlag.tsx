@@ -5,9 +5,9 @@ import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
-import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic } from './featureFlagLogic'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { FeatureFlagInstructions } from './FeatureFlagInstructions'
+import { FeatureFlagInstructions, FeatureFlagPayloadInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
 import {
@@ -26,7 +26,14 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
+import {
+    AnyPropertyFilter,
+    AvailableFeature,
+    EventsTableRowItem,
+    PropertyFilterType,
+    PropertyOperator,
+    Resource,
+} from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -58,9 +65,6 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { NodeKind } from '~/queries/schema'
-import { Query } from '~/queries/Query/Query'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
@@ -456,8 +460,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane tab="Exposures" key="exposure">
-                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
+                                        <Tabs.TabPane tab="Usage" key="usage">
+                                            <UsageTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -492,37 +496,56 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
-    const { featureFlags } = useValues(enabledFeaturesLogic)
-    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+    const propertyFilter: AnyPropertyFilter[] = [
+        {
+            key: '$feature_flag',
+            type: PropertyFilterType.Event,
+            value: featureFlagKey,
+            operator: PropertyOperator.Exact,
+        },
+        {
+            key: '$feature_flag_response',
+            type: PropertyFilterType.Event,
+            value: 'is_set',
+            operator: PropertyOperator.IsSet,
+        },
+    ]
 
-    return featureDataExploration ? (
-        <Query
-            query={{
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.EventsQuery,
-                    select: defaultDataTableColumns(NodeKind.EventsQuery),
-                    event: '$feature_flag_called',
-                    properties: defaultPropertyOnFlag(featureFlagKey),
-                },
-                full: true,
-                showEventFilter: false,
-                showPropertyFilter: false,
-            }}
-        />
-    ) : (
-        <EventsTable
-            fixedFilters={{
-                event_filter: '$feature_flag_called',
-                properties: defaultPropertyOnFlag(featureFlagKey),
-            }}
-            sceneUrl={urls.featureFlag(id)}
-            fetchMonths={3}
-            pageKey={`feature-flag-${featureFlagKey}}`}
-            showEventFilter={false}
-            showPropertyFilter={false}
-        />
+    // TODO: reintegrate HogQL Editor
+    return (
+        <div>
+            <div className="mb-4">
+                <b>Log</b>
+                <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
+            </div>
+            <EventsTable
+                fixedFilters={{
+                    event_filter: '$feature_flag_called',
+                    properties: propertyFilter,
+                }}
+                fixedColumns={[
+                    {
+                        title: 'Value',
+                        key: 'value',
+                        render: function renderEventProperty(_, { event }: EventsTableRowItem) {
+                            return event?.properties['$feature_flag_response']?.toString()
+                        },
+                    },
+                ]}
+                startingColumns={['person']}
+                fetchMonths={1}
+                pageKey={`feature-flag-` + featureFlagKey}
+                showPersonColumn={true}
+                showEventFilter={false}
+                showPropertyFilter={false}
+                showCustomizeColumns={false}
+                showAutoload={false}
+                showExport={false}
+                showActionsButton={false}
+                emptyPrompt={`No events received`}
+            />
+        </div>
     )
 }
 
@@ -741,20 +764,12 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
             )}
             {featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] && !multivariateEnabled && (
                 <div className="mb-6">
-                    <h3 className="l4">Payload</h3>
-                    {!readOnly && (
-                        <div className="text-muted mb-4">
-                            Specify a json payload to be returned when the served value is{' '}
-                            <strong>
-                                <code>true</code>
-                            </strong>
-                            . Examples: <code>"A string"</code>
-                            {', '}
-                            <code>2500</code>
-                            {', '}
-                            <code>{'{"key": "value"}'}</code>
-                        </div>
-                    )}
+                    <h3 className="l4">
+                        Payload
+                        <LemonTag type="warning" className="uppercase ml-2">
+                            Beta
+                        </LemonTag>
+                    </h3>
                     {readOnly ? (
                         featureFlag.filters.payloads?.['true'] ? (
                             <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
@@ -762,11 +777,28 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             <span>No payload associated with this flag</span>
                         )
                     ) : (
-                        <Group name={['filters', 'payloads']}>
-                            <Field name="true">
-                                <JSONEditorInput readOnly={readOnly} />
-                            </Field>
-                        </Group>
+                        <Row gutter={16}>
+                            <Col span={12}>
+                                <div className="text-muted mb-4">
+                                    Specify a payload to be returned when the served value is{' '}
+                                    <strong>
+                                        <code>true</code>
+                                    </strong>
+                                </div>
+                                <Group name={['filters', 'payloads']}>
+                                    <Field name="true">
+                                        <JSONEditorInput
+                                            readOnly={readOnly}
+                                            placeholder={'Examples: "A string", 2500, {"key": "value"}'}
+                                        />
+                                    </Field>
+                                </Group>
+                            </Col>
+
+                            <Col span={12}>
+                                <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                            </Col>
+                        </Row>
                     )}
                 </div>
             )}
@@ -783,8 +815,15 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 <Col span={6}>Description</Col>
                                 <Col span={8}>
                                     <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
-                                        <b>Payload</b>
-                                        <span className="text-muted">Specify return JSON payload when key matches</span>
+                                        <b>
+                                            Payload
+                                            <LemonTag type="warning" className="uppercase ml-2">
+                                                Beta
+                                            </LemonTag>
+                                        </b>
+                                        <span className="text-muted">
+                                            Specify return payload when the variant key matches
+                                        </span>
                                     </div>
                                 </Col>
                                 <Col span={4}>
@@ -826,7 +865,13 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                         <Col span={8}>
                                             <Field name={['payloads', index]}>
                                                 {({ value, onChange }) => {
-                                                    return <JSONEditorInput onChange={onChange} value={value} />
+                                                    return (
+                                                        <JSONEditorInput
+                                                            onChange={onChange}
+                                                            value={value}
+                                                            placeholder={'{"key": "value"}'}
+                                                        />
+                                                    )
                                                 }}
                                             </Field>
                                         </Col>

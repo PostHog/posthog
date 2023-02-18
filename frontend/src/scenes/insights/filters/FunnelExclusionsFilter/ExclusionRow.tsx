@@ -1,5 +1,3 @@
-import { Col, Row } from 'antd'
-
 export function ExclusionRow({
     seriesIndicator,
     filter,
@@ -11,15 +9,23 @@ export function ExclusionRow({
     filter?: JSX.Element | string
     isVertical?: boolean
 }): JSX.Element {
+    if (isVertical) {
+        return (
+            <div className="w-full">
+                <div className="flex flex-nowrap items-center">
+                    <div className="px-2">{seriesIndicator}</div>
+                    <div className="flex-1">{filter}</div>
+                </div>
+                <div className="ml-9">{suffix}</div>
+            </div>
+        )
+    }
+
     return (
-        <Row wrap={false} align={isVertical ? 'top' : 'middle'} style={{ width: '100%' }}>
-            <Col style={{ padding: `${isVertical ? 5 : 0}px 8px` }}>{seriesIndicator}</Col>
-            <Col flex="auto">
-                <Row align="middle" wrap={isVertical}>
-                    {filter}
-                    {suffix}
-                </Row>
-            </Col>
-        </Row>
+        <div className="flex items-center w-full">
+            <div className="px-2">{seriesIndicator}</div>
+            <div className="flex-1">{filter}</div>
+            {suffix}
+        </div>
     )
 }

@@ -16,3 +16,12 @@ class ReplacePlaceholders(EverythingVisitor):
         if node.field in self.placeholders:
             return self.placeholders[node.field]
         raise ValueError(f"Placeholder '{node.field}' not found in provided dict: {', '.join(list(self.placeholders))}")
+
+
+def assert_no_placeholders(node: ast.Expr):
+    AssertNoPlaceholders().visit(node)
+
+
+class AssertNoPlaceholders(EverythingVisitor):
+    def visit_placeholder(self, node):
+        raise ValueError(f"Placeholder '{node.field}' not allowed in this context")
