@@ -51,8 +51,11 @@ export function DashboardTemplatePreview(): JSX.Element {
 
     return (
         <div>
-            <h3>Create a dashboard</h3>
-            <div>{activeDashboardTemplate}</div>
+            <h3>
+                Set up your <strong>{activeDashboardTemplate}</strong> dashboard
+            </h3>
+
+            <hr />
 
             <DashboardTemplateVariables />
             <button onClick={() => setActiveDashboardTemplate('')}>Close</button>
