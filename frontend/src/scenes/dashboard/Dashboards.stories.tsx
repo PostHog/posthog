@@ -49,6 +49,17 @@ export const New = (): JSX.Element => {
     return <App />
 }
 
+export const NewTemplate = (): JSX.Element => {
+    useAvailableFeatures([])
+    useEffect(() => {
+        router.actions.push(urls.dashboards())
+        newDashboardLogic.mount()
+        newDashboardLogic.actions.showNewDashboardModal()
+        newDashboardLogic.actions.setActiveDashboardTemplate('BLANK')
+    }, [])
+    return <App />
+}
+
 export const NewPremium = (): JSX.Element => {
     useAvailableFeatures([AvailableFeature.DASHBOARD_PERMISSIONING])
     useEffect(() => {

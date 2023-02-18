@@ -5,6 +5,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 
 function TemplateItem({
     templateId,
@@ -51,15 +52,9 @@ export function DashboardTemplatePreview(): JSX.Element {
     return (
         <div>
             <h3>Create a dashboard</h3>
-            <div>Preview</div>
             <div>{activeDashboardTemplate}</div>
-            <div
-                style={{
-                    width: '100px',
-                    height: '100px',
-                    backgroundColor: 'var(--muted)',
-                }}
-            />
+
+            <DashboardTemplateVariables />
             <button onClick={() => setActiveDashboardTemplate('')}>Close</button>
             <button
                 onClick={() => {

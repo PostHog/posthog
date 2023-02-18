@@ -78,7 +78,6 @@ export function DashboardTemplateVariables(): JSX.Element {
 
     return (
         <div>
-            <h3>Variables</h3>
             <div>
                 {signUpFlowEvents.map((variable, index) => (
                     <div key={index}>
