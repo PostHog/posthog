@@ -79,7 +79,7 @@ variable_template = {
             "type": "INSIGHT",
             "color": "blue",
             "filters": {
-                "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                "events": ["{VARIABLE_1}"],
                 "compare": True,
                 "display": "BoldNumber",
                 "insight": "TRENDS",
@@ -95,8 +95,8 @@ variable_template = {
     ],
     "tags": ["popular"],
     "variables": [
-        {"name": "VARIABLE_1", "default": {"id": "$pageview", "math": "dau", "type": "events"}},
-        {"name": "VARIABLE_2", "default": {"id": "$autocapture", "math": "dau", "type": "events"}},
+        {"name": "VARIABLE_1", "type": "event", "default": {"id": "$pageview", "math": "dau", "type": "events"}},
+        {"name": "VARIABLE_2", "type": "event", "default": {"id": "$autocapture", "math": "dau", "type": "events"}},
     ],
 }
 
@@ -120,9 +120,6 @@ class TestDashboardTemplates(APIBaseTest):
 
         assert DashboardTemplate.objects.count() == 1
         assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
-
-        # assert DashboardTemplate.objects.first() == variable_template
-        # assert json object
 
         keys_to_check = ["template_name", "dashboard_description", "tags", "variables", "tiles", "dashboard_filters"]
 
