@@ -20,6 +20,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
     name: serializers.CharField = serializers.CharField(write_only=True, required=True)
     url: serializers.CharField = serializers.CharField(write_only=True, required=False)
     tiles: serializers.JSONField = serializers.JSONField(required=False)
+    variables: serializers.JSONField = serializers.JSONField(required=False)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
         if "url" in validated_data:
@@ -51,6 +52,7 @@ class DashboardTemplateSerializer(serializers.Serializer):
                 template_name=validated_data.get("template_name"),
                 defaults={
                     "tiles": validated_data["tiles"],
+                    "variables": validated_data["variables"],
                 },
             )[0]
 

@@ -114,7 +114,11 @@ class TestDashboardTemplates(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {"name": variable_template["template_name"], "tiles": variable_template["tiles"]},
+            {
+                "name": variable_template["template_name"],
+                "tiles": variable_template["tiles"],
+                "variables": variable_template["variables"],
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
@@ -122,11 +126,13 @@ class TestDashboardTemplates(APIBaseTest):
         assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
 
         assert DashboardTemplate.objects.first().tiles == variable_template["tiles"]
+        assert DashboardTemplate.objects.first().variables == variable_template["variables"]
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         self.assertEqual(response.json()[0]["tiles"], variable_template["tiles"])
+        self.assertEqual(response.json()[0]["variables"], variable_template["variables"])
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
