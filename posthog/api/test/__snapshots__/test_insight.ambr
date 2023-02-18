@@ -500,6 +500,7 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
@@ -791,7 +792,7 @@
          "posthog_insightcachingstate"."created_at",
          "posthog_insightcachingstate"."updated_at"
   FROM "posthog_insightcachingstate"
-  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_8927b6bdeed5f8af7eeba3673259bf59'
+  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_4bd92504c2514440cdae39b73b87009e'
          AND "posthog_insightcachingstate"."insight_id" = 2
          AND "posthog_insightcachingstate"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -890,6 +891,7 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
@@ -1076,6 +1078,7 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
@@ -1096,6 +1099,7 @@
          T4."current_organization_id",
          T4."current_team_id",
          T4."email",
+         T4."pending_email",
          T4."temporary_token",
          T4."distinct_id",
          T4."email_opt_in",
