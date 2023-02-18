@@ -22,14 +22,15 @@ export function DashboardTemplateVariables(): JSX.Element {
                     <div key={index}>
                         <div key={variable.name}>
                             <span>{variable.name}</span>{' '}
-                            <span
-                                style={{
-                                    color: variable.required ? 'red' : 'green',
-                                }}
-                            >
-                                {variable.required ? 'required' : 'optional'}
-                                {JSON.stringify(variable.default)}
-                            </span>
+                            {variable.required !== undefined && (
+                                <span
+                                    style={{
+                                        color: variable.required ? 'red' : 'green',
+                                    }}
+                                >
+                                    {variable.required ? 'required' : 'optional'}
+                                </span>
+                            )}
                         </div>
                         <div>
                             <ActionFilter

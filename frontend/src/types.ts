@@ -1245,7 +1245,9 @@ export interface DashboardTemplateType {
 }
 
 export interface DashboardTemplateVariableType {
+    id: string
     name: string
+    description: string
     type: 'event'
     default: Optional<FilterType, 'type'>
     required: boolean

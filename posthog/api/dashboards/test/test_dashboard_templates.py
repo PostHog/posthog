@@ -96,13 +96,17 @@ variable_template = {
     "tags": ["popular"],
     "variables": [
         {
-            "name": "VARIABLE_1",
+            "id": "VARIABLE_1",
+            "name": "Page view on your website",
+            "description": "The event that is triggered when a user visits a page on your site",
             "type": "event",
             "default": {"id": "$pageview", "math": "dau", "type": "events"},
             "required": True,
         },
         {
-            "name": "VARIABLE_2",
+            "id": "VARIABLE_2",
+            "name": "Sign up event",
+            "description": "The event that is triggered when a user signs up",
             "type": "event",
             "default": {"id": "$autocapture", "math": "dau", "type": "events"},
             "required": False,
