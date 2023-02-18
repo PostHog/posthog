@@ -46,7 +46,7 @@ function TemplateItem({
 
 export function DashboardTemplatePreview(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
-    const { setActiveDashboardTemplate } = useActions(newDashboardLogic)
+    const { setActiveDashboardTemplate, addDashboard } = useActions(newDashboardLogic)
 
     return (
         <div>
@@ -61,6 +61,16 @@ export function DashboardTemplatePreview(): JSX.Element {
                 }}
             />
             <button onClick={() => setActiveDashboardTemplate('')}>Close</button>
+            <button
+                onClick={() => {
+                    addDashboard({
+                        name: 'Test',
+                        show: true,
+                    })
+                }}
+            >
+                Create
+            </button>
         </div>
     )
 }
