@@ -66,7 +66,7 @@ export function DashboardTemplatePreview(): JSX.Element {
                     addDashboard({
                         name: 'Test',
                         show: true,
-                        useTemplate: activeDashboardTemplate,
+                        useTemplate: activeDashboardTemplate == 'BLANK' ? '' : activeDashboardTemplate,
                     })
                 }}
             >
@@ -141,7 +141,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                 <TemplateItem
                     name="Blank dashboard"
                     description="Start from scratch"
-                    templateId="blank"
+                    templateId="BLANK"
                     onClick={setActiveDashboardTemplate}
                 />
                 {templates.map((template, index) => (
