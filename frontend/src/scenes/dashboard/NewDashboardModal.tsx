@@ -7,6 +7,7 @@ import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/d
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 function TemplateItem({
+    templateId,
     name,
     description,
     onClick,
@@ -21,7 +22,7 @@ function TemplateItem({
             style={{
                 width: '150px',
             }}
-            onClick={onClick}
+            onClick={() => onClick(templateId)}
         >
             <div
                 style={{
@@ -63,9 +64,9 @@ export function DashboardTemplatePreview(): JSX.Element {
             <button
                 onClick={() => {
                     addDashboard({
-                        name: 'New dashboard',
+                        name: 'Test',
                         show: true,
-                        useTemplate: activeDashboardTemplate ?? '',
+                        useTemplate: activeDashboardTemplate,
                     })
                 }}
             >
@@ -141,14 +142,15 @@ export function DashboardTemplateChooser(): JSX.Element {
                     name="Blank dashboard"
                     description="Start from scratch"
                     templateId="blank"
-                    onClick={() => setActiveDashboardTemplate('')}
+                    onClick={setActiveDashboardTemplate}
                 />
                 {templates.map((template, index) => (
                     <TemplateItem
                         key={index}
                         name={template.label}
                         description="Start from scratch"
-                        onClick={() => setActiveDashboardTemplate(template.value)}
+                        templateId={template.value}
+                        onClick={setActiveDashboardTemplate}
                     />
                 ))}
             </div>
@@ -164,7 +166,7 @@ export function NewDashboardModal(): JSX.Element {
 
     return (
         <LemonModal onClose={hideNewDashboardModal} isOpen={newDashboardModalVisible} width={800}>
-            {activeDashboardTemplate !== undefined ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
+            {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
         </LemonModal>
     )
 }
