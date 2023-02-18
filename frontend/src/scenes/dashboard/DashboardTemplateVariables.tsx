@@ -1,3 +1,4 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
@@ -71,6 +72,10 @@ export function DashboardTemplateVariables(): JSX.Element {
         )
     }, [])
 
+    function createDashboard(): void {
+        window.alert('create dashboard with the following filters: ' + JSON.stringify(filterGroups))
+    }
+
     return (
         <div>
             <h3>Variables</h3>
@@ -103,6 +108,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                         </div>
                     </div>
                 ))}
+                <LemonButton onClick={createDashboard}>Create dashboard</LemonButton>
             </div>
         </div>
     )
