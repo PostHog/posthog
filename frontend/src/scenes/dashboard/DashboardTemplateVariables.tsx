@@ -51,38 +51,12 @@ export function DashboardTemplateVariables(): JSX.Element {
         {
             name: 'Sign Up page pageview',
             required: false,
-            defaultEvent: {
-                id: '$pageview',
-                name: '$pageview',
-                order: 0,
-                type: 'events',
-                properties: [
-                    {
-                        key: '$browser',
-                        value: ['Chrome'],
-                        operator: 'exact',
-                        type: 'person',
-                    },
-                ],
-            },
+            defaultEvent: undefined,
         },
         {
             name: 'Activation event',
             required: false,
-            defaultEvent: {
-                id: '$pageview',
-                name: '$pageview',
-                order: 0,
-                type: 'events',
-                properties: [
-                    {
-                        key: '$browser',
-                        value: ['Chrome'],
-                        operator: 'exact',
-                        type: 'person',
-                    },
-                ],
-            },
+            defaultEvent: undefined,
         },
     ]
     useEffect(() => {
