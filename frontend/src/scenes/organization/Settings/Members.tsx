@@ -187,7 +187,7 @@ export function Members({ user }: MembersProps): JSX.Element {
                     </LemonTag>
                 )
             },
-            sorter: (a, b) => a.is_2fa_enabled != b.is_2fa_enabled,
+            sorter: (a, b) => (a.is_2fa_enabled != b.is_2fa_enabled ? 1 : 0),
         },
         {
             title: 'Joined',
@@ -217,7 +217,7 @@ export function Members({ user }: MembersProps): JSX.Element {
                 <LemonSwitch
                     label="Enforce 2FA"
                     bordered
-                    checked={currentOrganization.enforce_2fa}
+                    checked={currentOrganization?.enforce_2fa}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
                 />
             </Row>

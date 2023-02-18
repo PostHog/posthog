@@ -91,6 +91,7 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     available_features: [],
     is_member_join_email_enabled: true,
+    enforce_2fa: false,
     metadata: {
         taxonomy_set_events_count: 60,
         taxonomy_set_properties_count: 17,
@@ -118,6 +119,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     has_password: true,
     is_staff: true,
     is_impersonated: false,
+    is_2fa_enabled: false,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
@@ -137,6 +139,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     level: OrganizationMembershipLevel.Owner,
     joined_at: '2020-09-24T15:05:26.758796Z',
     updated_at: '2020-09-24T15:05:26.758837Z',
+    is_2fa_enabled: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {

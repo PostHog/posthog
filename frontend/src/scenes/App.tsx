@@ -156,7 +156,7 @@ function AppScene(): JSX.Element | null {
             <Navigation>{protectedBoundActiveScene}</Navigation>
             {toastContainer}
             <UpgradeModal />
-            {user.organization.enforce_2fa && !user.is_2fa_enabled && (
+            {user.organization?.enforce_2fa && !user.is_2fa_enabled && (
                 <LemonModal title="Set up 2FA" closable={false}>
                     Your organization requires you to set up 2FA.
                     <Setup2FA

@@ -3,49 +3,12 @@ import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
 import type { loginLogicType } from './loginLogicType'
-import { router } from 'kea-router'
-import { SSOProviders } from '~/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 
-export interface AuthenticateResponseType {
-    success: boolean
-    errorCode?: string
-    errorDetail?: string
-}
-
-export interface PrecheckResponseType {
-    sso_enforcement?: SSOProviders | null
-    saml_available: boolean
-    status: 'pending' | 'completed'
-}
-
-export function handleLoginRedirect(): void {
-    let nextURL = '/'
-    try {
-        const nextPath = router.values.searchParams['next'] || '/'
-        const url = new URL(nextPath.startsWith('/') ? location.origin + nextPath : nextPath)
-        if (url.protocol === 'http:' || url.protocol === 'https:') {
-            nextURL = url.pathname + url.search + url.hash
-        }
-    } catch (e) {}
-    // A safe way to redirect to a user input URL. Calls history.replaceState() ensuring the URLs origin does not change.
-    router.actions.replace(nextURL)
-}
-
-export interface LoginForm {
-    email: string
-    password: string
-}
-
 export interface TwoFactorForm {
     token: number | null
-}
-
-export enum LoginStep {
-    LOGIN = 'login',
-    TWO_FACTOR = 'two_factor',
 }
 
 export const setup2FALogic = kea<loginLogicType>([
@@ -55,7 +18,6 @@ export const setup2FALogic = kea<loginLogicType>([
     }),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
-        setLoginStep: (step: LoginStep) => ({ step }),
         clearGeneralError: true,
     }),
     reducers({
@@ -67,16 +29,10 @@ export const setup2FALogic = kea<loginLogicType>([
                 clearGeneralError: () => null,
             },
         ],
-        loginStep: [
-            LoginStep.LOGIN,
-            {
-                setLoginStep: (_, { step }) => step,
-            },
-        ],
     }),
     loaders(() => ({
         startSetup: [
-            { status: 'pending' } as PrecheckResponseType,
+            {},
             {
                 setup: async (_, breakpoint) => {
                     await breakpoint()

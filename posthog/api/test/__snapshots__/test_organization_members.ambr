@@ -33,7 +33,7 @@
          "ee_license"."key",
          "ee_license"."max_users"
   FROM "ee_license"
-  WHERE "ee_license"."valid_until" >= '2023-02-18T01:39:11.448173+00:00'::timestamptz /**/
+  WHERE "ee_license"."valid_until" >= '2023-02-18T04:43:36.782238+00:00'::timestamptz /**/
   '
 ---
 # name: TestOrganizationMembersAPI.test_list_organization_members_is_not_nplus1.10

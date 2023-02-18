@@ -182,7 +182,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
-    enforce_2fa: boolean
+    enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
 }
 
