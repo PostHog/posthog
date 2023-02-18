@@ -66,6 +66,7 @@ export function DashboardTemplatePreview(): JSX.Element {
                     addDashboard({
                         name: 'Test',
                         show: true,
+                        useTemplate: activeDashboardTemplate,
                     })
                 }}
             >
