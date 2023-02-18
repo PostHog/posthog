@@ -71,7 +71,7 @@ website_traffic_template_listing: Dict = {
 
 variable_template = {
     "template_name": "Sign up conversion template with variables",
-    "dashboard_description": "",
+    "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
     "dashboard_filters": {},
     "tiles": [
         {
@@ -93,7 +93,7 @@ variable_template = {
             "description": "Shows the number of unique users that use your app every day.",
         },
     ],
-    "tags": [],
+    "tags": ["popular"],
     "variables": [
         {"name": "VARIABLE_1", "default": {"id": "$pageview", "math": "dau", "type": "events"}},
         {"name": "VARIABLE_2", "default": {"id": "$autocapture", "math": "dau", "type": "events"}},
@@ -114,25 +114,26 @@ class TestDashboardTemplates(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {
-                "name": variable_template["template_name"],
-                "tiles": variable_template["tiles"],
-                "variables": variable_template["variables"],
-            },
+            variable_template,
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, f"{response} {response.json()}")
 
         assert DashboardTemplate.objects.count() == 1
         assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
 
-        assert DashboardTemplate.objects.first().tiles == variable_template["tiles"]
-        assert DashboardTemplate.objects.first().variables == variable_template["variables"]
+        # assert DashboardTemplate.objects.first() == variable_template
+        # assert json object
+
+        keys_to_check = ["template_name", "dashboard_description", "tags", "variables", "tiles", "dashboard_filters"]
+
+        for key in keys_to_check:
+            assert DashboardTemplate.objects.first().__dict__[key] == variable_template[key], f"key {key} failed"
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
-        self.assertEqual(response.json()[0]["tiles"], variable_template["tiles"])
-        self.assertEqual(response.json()[0]["variables"], variable_template["variables"])
+        for key in keys_to_check:
+            assert response.json()[0][key] == variable_template[key], f"key {key} failed"
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:

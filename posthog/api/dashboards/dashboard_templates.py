@@ -17,13 +17,21 @@ logger = structlog.get_logger(__name__)
 
 
 class DashboardTemplateSerializer(serializers.Serializer):
-    name: serializers.CharField = serializers.CharField(write_only=True, required=True)
+    name: serializers.CharField = serializers.CharField(write_only=True, required=False)
     url: serializers.CharField = serializers.CharField(write_only=True, required=False)
+
+    template_name: serializers.CharField = serializers.CharField(required=False)
+    dashboard_description: serializers.CharField = serializers.CharField(required=False)
+    dashboard_filters: serializers.JSONField = serializers.JSONField(required=False)
+    tags: serializers.ListField = serializers.ListField(required=False)
     tiles: serializers.JSONField = serializers.JSONField(required=False)
     variables: serializers.JSONField = serializers.JSONField(required=False)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
         if "url" in validated_data:
+            # name required
+            if not validated_data["name"]:
+                raise ValidationError(detail="You need to provide a name for the template.")
             try:
                 github_response = requests.get(validated_data["url"])
                 template: Dict = github_response.json()
@@ -47,13 +55,10 @@ class DashboardTemplateSerializer(serializers.Serializer):
         else:
             if not validated_data["tiles"]:
                 raise ValidationError(detail="You need to provide tiles for the template.")
+
             return DashboardTemplate.objects.update_or_create(
                 team_id=None,
-                template_name=validated_data.get("template_name"),
-                defaults={
-                    "tiles": validated_data["tiles"],
-                    "variables": validated_data["variables"],
-                },
+                defaults=validated_data,
             )[0]
 
 
