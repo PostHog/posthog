@@ -11,6 +11,7 @@ class DashboardTemplate(UUIDModel):
     dashboard_description: models.CharField = models.CharField(max_length=400, null=True)
     dashboard_filters: models.JSONField = models.JSONField(null=True)
     tiles: models.JSONField = models.JSONField(default=list)
+    # variables: models.JSONField = models.JSONField(default=list)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list)
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers

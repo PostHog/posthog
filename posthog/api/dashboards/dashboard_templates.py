@@ -18,29 +18,41 @@ logger = structlog.get_logger(__name__)
 
 class DashboardTemplateSerializer(serializers.Serializer):
     name: serializers.CharField = serializers.CharField(write_only=True, required=True)
-    url: serializers.CharField = serializers.CharField(write_only=True, required=True)
+    url: serializers.CharField = serializers.CharField(write_only=True, required=False)
+    tiles: serializers.JSONField = serializers.JSONField(required=False)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
-        try:
-            github_response = requests.get(validated_data["url"])
-            template: Dict = github_response.json()
-            template["github_url"] = validated_data["url"]
-        except Exception as e:
-            logger.error(
-                "dashboard_templates.api.could_not_load_template_from_github",
-                validated_data=validated_data,
-                exc_info=True,
-            )
-            raise ValidationError(f"Could not load template from GitHub. {e}")
+        if "url" in validated_data:
+            try:
+                github_response = requests.get(validated_data["url"])
+                template: Dict = github_response.json()
+                template["github_url"] = validated_data["url"]
+            except Exception as e:
+                logger.error(
+                    "dashboard_templates.api.could_not_load_template_from_github",
+                    validated_data=validated_data,
+                    exc_info=True,
+                )
+                raise ValidationError(f"Could not load template from GitHub. {e}")
 
-        if "template_name" not in template or template["template_name"] != validated_data["name"]:
-            raise ValidationError(
-                detail=f'The requested template "{validated_data["name"]}" does not match the requested template URL which loaded the template "{template.get("template_name", "no template name loaded from github")}"'
-            )
+            if "template_name" not in template or template["template_name"] != validated_data["name"]:
+                raise ValidationError(
+                    detail=f'The requested template "{validated_data["name"]}" does not match the requested template URL which loaded the template "{template.get("template_name", "no template name loaded from github")}"'
+                )
 
-        return DashboardTemplate.objects.update_or_create(
-            team_id=None, template_name=template.get("template_name"), defaults=template
-        )[0]
+            return DashboardTemplate.objects.update_or_create(
+                team_id=None, template_name=template.get("template_name"), defaults=template
+            )[0]
+        else:
+            if not validated_data["tiles"]:
+                raise ValidationError(detail="You need to provide tiles for the template.")
+            return DashboardTemplate.objects.update_or_create(
+                team_id=None,
+                template_name=validated_data.get("template_name"),
+                defaults={
+                    "tiles": validated_data["tiles"],
+                },
+            )[0]
 
 
 class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -58,6 +70,9 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save()
         return response.Response(data="", status=status.HTTP_200_OK)
+
+    def list(self, request: request.Request, **kwargs) -> response.Response:
+        return response.Response(DashboardTemplate.objects.filter(team_id=None).values())
 
     @timed("dashboard_templates.api_repository_load")
     @action(methods=["GET"], detail=False)

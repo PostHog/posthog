@@ -69,6 +69,37 @@ website_traffic_template_listing: Dict = {
     "tags": [],
 }
 
+variable_template = {
+    "template_name": "Sign up conversion template with variables",
+    "dashboard_description": "",
+    "dashboard_filters": {},
+    "tiles": [
+        {
+            "name": "Website Unique Users (Total)",
+            "type": "INSIGHT",
+            "color": "blue",
+            "filters": {
+                "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                "compare": True,
+                "display": "BoldNumber",
+                "insight": "TRENDS",
+                "interval": "day",
+                "date_from": "-30d",
+            },
+            "layouts": {
+                "sm": {"h": 5, "i": "21", "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "i": "21", "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 1},
+            },
+            "description": "Shows the number of unique users that use your app every day.",
+        },
+    ],
+    "tags": [],
+    "variables": [
+        {"name": "VARIABLE_1", "default": {"id": "$pageview", "math": "dau", "type": "events"}},
+        {"name": "VARIABLE_2", "default": {"id": "$autocapture", "math": "dau", "type": "events"}},
+    ],
+}
+
 
 class TestDashboardTemplates(APIBaseTest):
     def setUp(self):
@@ -76,6 +107,26 @@ class TestDashboardTemplates(APIBaseTest):
 
         self.user.is_staff = True
         self.user.save()
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_create_dashboard_template_with_tile(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            {"name": variable_template["template_name"], "tiles": variable_template["tiles"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        assert DashboardTemplate.objects.count() == 1
+        assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
+
+        assert DashboardTemplate.objects.first().tiles == variable_template["tiles"]
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        self.assertEqual(response.json()[0]["tiles"], variable_template["tiles"])
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
@@ -159,7 +210,7 @@ class TestDashboardTemplates(APIBaseTest):
 
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
-            {"name": "Website traffic", "url": "a github url"},
+            {"name": "Website traffic", "url": "a github url", "tiles": website_traffic_template_listing["tiles"]},
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
