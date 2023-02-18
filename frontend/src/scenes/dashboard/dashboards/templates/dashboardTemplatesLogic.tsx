@@ -5,6 +5,7 @@ import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/t
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
+import { DashboardTemplateType } from '~/types'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
@@ -27,6 +28,14 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             {
                 installTemplate: async (payload: { name: string; url: string }) => {
                     return await api.create('api/projects/@current/dashboard_templates/', payload)
+                },
+            },
+        ],
+        allTemplates: [
+            [] as DashboardTemplateType[],
+            {
+                getAllTemplates: async () => {
+                    return await api.get('api/projects/@current/dashboard_templates/')
                 },
             },
         ],
@@ -53,11 +62,18 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
+        allTemplates: [
+            [] as DashboardTemplateType[],
+            {
+                getAllTemplatesSuccess: (_, { allTemplates }) => allTemplates,
+            },
+        ],
     })),
     listeners(({ actions }) => ({
         installTemplateSuccess: () => actions.loadRepository(),
     })),
     afterMount(({ actions }) => {
         actions.loadRepository()
+        actions.getAllTemplates()
     }),
 ])

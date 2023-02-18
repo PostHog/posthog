@@ -1,7 +1,7 @@
 import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
-import { DashboardType } from '~/types'
+import { DashboardTemplateType, DashboardType } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { router } from 'kea-router'
@@ -35,7 +35,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         createAndGoToDashboard: true,
         setDashboardGroup: (group: string) => ({ group }),
-        setActiveDashboardTemplate: (template: string) => ({ template }),
+        setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
+        clearActiveDashboardTemplate: true,
     }),
     reducers({
         newDashboardModalVisible: [
@@ -52,9 +53,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             },
         ],
         activeDashboardTemplate: [
-            undefined,
+            null as DashboardTemplateType | null,
             {
                 setActiveDashboardTemplate: (_, { template }) => template,
+                clearActiveDashboardTemplate: () => null,
             },
         ],
     }),
@@ -106,8 +108,8 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             actions.submitNewDashboard()
         },
         hideNewDashboardModal: () => {
+            actions.clearActiveDashboardTemplate()
             actions.resetNewDashboard()
-            actions.setActiveDashboardTemplate('')
         },
     })),
 ])

@@ -1,29 +1,27 @@
 import { useActions, useValues } from 'kea'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+// import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+// import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 
 function TemplateItem({
-    templateId,
     name,
     description,
     onClick,
 }: {
-    templateId: string
     name: string
     description: string
-    onClick: (template: string) => void
+    onClick: () => void
 }): JSX.Element {
     return (
         <div
             style={{
                 width: '150px',
             }}
-            onClick={() => onClick(templateId)}
+            onClick={onClick}
         >
             <div
                 style={{
@@ -47,24 +45,24 @@ function TemplateItem({
 
 export function DashboardTemplatePreview(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
-    const { setActiveDashboardTemplate, addDashboard } = useActions(newDashboardLogic)
+    const { addDashboard, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
 
     return (
         <div>
             <h3>
-                Set up your <strong>{activeDashboardTemplate}</strong> dashboard
+                Set up your <strong>{activeDashboardTemplate?.template_name}</strong> dashboard
             </h3>
 
             <hr />
 
             <DashboardTemplateVariables />
-            <button onClick={() => setActiveDashboardTemplate('')}>Close</button>
+            <button onClick={clearActiveDashboardTemplate}>Close</button>
             <button
                 onClick={() => {
                     addDashboard({
                         name: 'Test',
                         show: true,
-                        useTemplate: activeDashboardTemplate == 'BLANK' ? '' : activeDashboardTemplate,
+                        useTemplate: activeDashboardTemplate?.id,
                     })
                 }}
             >
@@ -75,24 +73,14 @@ export function DashboardTemplatePreview(): JSX.Element {
 }
 
 export function DashboardTemplateChooser(): JSX.Element {
-    const { templatesList } = useValues(dashboardTemplatesLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+    const { allTemplates } = useValues(dashboardTemplatesLogic)
+    // const { featureFlags } = useValues(featureFlagLogic)
+    // const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
     const { dashboardGroup } = useValues(newDashboardLogic)
-    const { setDashboardGroup } = useActions(newDashboardLogic)
+    const { setDashboardGroup, addDashboard } = useActions(newDashboardLogic)
 
     const { setActiveDashboardTemplate } = useActions(newDashboardLogic)
-
-    const templates = dashboardTemplates
-        ? templatesList
-        : [
-              {
-                  value: 'DEFAULT_APP',
-                  label: 'Product analytics',
-                  'data-attr': 'dashboard-select-default-app',
-              },
-          ]
 
     // const templateGroups = ['Popular Templates', 'Team Templates', 'Your Templates', 'All Templates']
     const templateGroups = [
@@ -139,16 +127,19 @@ export function DashboardTemplateChooser(): JSX.Element {
                 <TemplateItem
                     name="Blank dashboard"
                     description="Start from scratch"
-                    templateId="BLANK"
-                    onClick={setActiveDashboardTemplate}
+                    onClick={() =>
+                        addDashboard({
+                            name: 'New Dashboard',
+                            show: true,
+                        })
+                    }
                 />
-                {templates.map((template, index) => (
+                {allTemplates.map((template, index) => (
                     <TemplateItem
                         key={index}
-                        name={template.label}
+                        name={template.template_name}
                         description="Start from scratch"
-                        templateId={template.value}
-                        onClick={setActiveDashboardTemplate}
+                        onClick={() => setActiveDashboardTemplate(template)}
                     />
                 ))}
             </div>

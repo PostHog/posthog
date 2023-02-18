@@ -1232,6 +1232,18 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateType {
+    id: string
+    team_id: number
+    template_name: string
+    dashboard_description: string
+    dashboard_filters: Record<string, any>
+    tiles: DashboardTile[]
+    variables: Record<string, any>
+    tags: string[]
+    created_at: string
+}
+
 export type DashboardLayoutSize = 'sm' | 'xs'
 
 /** Explicit dashboard collaborator, based on DashboardPrivilege. */
