@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, Optional
 
 from django.conf import settings
 from django.contrib.auth import login
@@ -37,7 +37,7 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
             return {"success": True, "token": token}
 
         try:
-            user: User = User.objects.filter(is_active=True).get(uuid=user_uuid)
+            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             user = None
 
