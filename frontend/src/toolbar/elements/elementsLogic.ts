@@ -43,7 +43,6 @@ export const elementsLogic = kea<elementsLogicType>({
         setSelectedElement: (element: HTMLElement | null) => ({ element }),
 
         setRelativePositionCompensation: (compensation: number) => ({ compensation }),
-        overrideSelector: (element: HTMLElement, selector: string | null) => ({ element, selector }),
     },
 
     reducers: () => ({
