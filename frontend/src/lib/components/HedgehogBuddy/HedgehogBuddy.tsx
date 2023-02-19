@@ -68,6 +68,8 @@ class HedgehogActor {
                 const moonwalk = e.shiftKey
                 if (moonwalk) {
                     this.direction = this.direction === 'left' ? 'right' : 'left'
+                    // Moonwalking is hard so he moves slightly slower of course
+                    this.xVelocity *= 0.8
                 }
 
                 this.animationIterations = null
