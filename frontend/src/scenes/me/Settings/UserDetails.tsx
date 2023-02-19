@@ -4,9 +4,10 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Field } from 'lib/forms/Field'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
+import { LemonTag } from '@posthog/lemon-ui'
 
 export function UserDetails(): JSX.Element {
-    const { userLoading, isUserDetailsSubmitting, userDetailsChanged } = useValues(userLogic)
+    const { userLoading, isUserDetailsSubmitting, userDetailsChanged, user } = useValues(userLogic)
 
     return (
         <Form
@@ -35,6 +36,7 @@ export function UserDetails(): JSX.Element {
                     disabled={userLoading}
                 />
             </Field>
+            {user?.pending_email && <LemonTag type="highlight">Pending verification for {user.pending_email}</LemonTag>}
 
             <LemonButton
                 type="primary"

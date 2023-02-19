@@ -67,6 +67,7 @@ class UserSerializer(serializers.ModelSerializer):
             "pending_email",
             "email_opt_in",
             "is_email_verified",
+            "pending_email",
             "notification_settings",
             "anonymize_data",
             "toolbar_mode",

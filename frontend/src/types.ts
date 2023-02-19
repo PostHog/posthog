@@ -140,6 +140,7 @@ export interface UserType extends UserBaseType {
     realm?: Realm
     posthog_version?: string
     is_email_verified?: boolean | null
+    pending_email?: string | null
 }
 
 export interface NotificationSettings {
