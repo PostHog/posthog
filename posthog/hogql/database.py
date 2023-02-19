@@ -185,6 +185,17 @@ def join_with_max_person_distinct_id_table(from_table: str, to_table: str, reque
     )
 
 
+class GroupsTable(Table):
+    group_type_index: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    group_key: StringDatabaseField = StringDatabaseField(name="group_key")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    group_properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
+
+    def clickhouse_table(self):
+        return "groups"
+
+
 class EventsTable(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
     event: StringDatabaseField = StringDatabaseField(name="event")
@@ -238,6 +249,7 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
+    groups: GroupsTable = GroupsTable()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)

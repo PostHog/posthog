@@ -17,7 +17,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {
-        title = 'First seen'
+        title = 'Created at'
     } else if (key === 'event') {
         title = 'Event'
     } else if (key === 'person') {
