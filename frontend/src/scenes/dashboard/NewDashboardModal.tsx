@@ -6,6 +6,9 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
+import { AppstoreAddOutlined } from '@ant-design/icons'
+import { Card } from 'antd'
+import { LemonButton } from '@posthog/lemon-ui'
 
 function TemplateItem({
     name,
@@ -17,29 +20,11 @@ function TemplateItem({
     onClick: () => void
 }): JSX.Element {
     return (
-        <div
-            style={{
-                width: '150px',
-            }}
-            onClick={onClick}
-        >
-            <div
-                style={{
-                    width: '100%',
-                    height: '100px',
-                    padding: '10px',
-                    backgroundColor: 'var(--muted)',
-                    // center the text vertically and horizontally
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                }}
-            >
-                Image
+        <Card title={name} size="small" style={{ width: 200, cursor: 'pointer' }} onClick={onClick}>
+            <div style={{ textAlign: 'center', fontSize: 40 }}>
+                <AppstoreAddOutlined />
             </div>
-            <div>{name}</div>
-            <div>{description}</div>
-        </div>
+        </Card>
     )
 }
 
@@ -56,18 +41,24 @@ export function DashboardTemplatePreview(): JSX.Element {
             <hr />
 
             <DashboardTemplateVariables />
-            <button onClick={clearActiveDashboardTemplate}>Close</button>
-            <button
-                onClick={() => {
-                    addDashboard({
-                        name: 'Test',
-                        show: true,
-                        useTemplate: activeDashboardTemplate?.id,
-                    })
-                }}
-            >
-                Create
-            </button>
+
+            <div className="flex justify-between m-4">
+                <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
+                    Back
+                </LemonButton>
+                <LemonButton
+                    onClick={() => {
+                        addDashboard({
+                            name: 'Test',
+                            show: true,
+                            useTemplate: activeDashboardTemplate?.id,
+                        })
+                    }}
+                    type="primary"
+                >
+                    Create dashboard
+                </LemonButton>
+            </div>
         </div>
     )
 }
@@ -118,10 +109,12 @@ export function DashboardTemplateChooser(): JSX.Element {
                 }))}
             />
             <div
+                className="flex justify-center items-center gap-4"
                 style={{
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    margin: '0 20px',
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(3, 1fr)',
+                    gridTemplateRows: 'repeat(3, 1fr)',
+                    gap: '10px 10px',
                 }}
             >
                 <TemplateItem
