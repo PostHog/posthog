@@ -2,15 +2,9 @@ import { IconBranch, IconClipboardEdit, IconLink, IconTextSize } from 'lib/lemon
 
 function SelectorString({ value }: { value: string }): JSX.Element {
     const [last, ...rest] = value.split(' ').reverse()
-    const selector = (
-        <span>
-            {rest.reverse().join(' ')} <strong>{last}</strong>
-        </span>
-    )
-
     return (
         <>
-            <div className="flex flex-row items-center">{selector}</div>
+            {rest.reverse().join(' ')} <strong>{last}</strong>
         </>
     )
 }
