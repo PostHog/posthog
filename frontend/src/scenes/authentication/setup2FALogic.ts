@@ -60,12 +60,12 @@ export const setup2FALogic = kea([
             },
         },
     })),
-
-    afterMount(({ actions }) => actions.setup()),
     listeners(({ props }) => ({
         submitTokenSuccess: () => {
             lemonToast.success('2FA method added successfully')
             props.onSuccess && props.onSuccess()
         },
     })),
+
+    afterMount(({ actions }) => actions.setup()),
 ])

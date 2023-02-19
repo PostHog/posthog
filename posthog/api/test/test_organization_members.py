@@ -30,7 +30,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
 
         User.objects.create_and_join(self.organization, "1@posthog.com", None)
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
             response = self.client.get("/api/organizations/@current/members/")
 
         assert len(response.json()["results"]) == 2

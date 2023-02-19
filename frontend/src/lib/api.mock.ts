@@ -92,7 +92,6 @@ export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
     teams: [MOCK_DEFAULT_TEAM],
     available_features: [],
     is_member_join_email_enabled: true,
-    enforce_2fa: false,
     metadata: {
         taxonomy_set_events_count: 60,
         taxonomy_set_properties_count: 17,
