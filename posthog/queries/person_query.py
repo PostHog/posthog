@@ -109,7 +109,7 @@ class PersonQuery:
             )
             {cohort_filters}
             GROUP BY id
-            HAVING max(is_deleted) = 0
+            HAVING max(is_deleted) = 0 and max(created_at) < now() + interval '1 minute'
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
@@ -122,7 +122,7 @@ class PersonQuery:
             WHERE team_id = %(team_id)s
             {cohort_filters}
             GROUP BY id
-            HAVING max(is_deleted) = 0
+            HAVING max(is_deleted) = 0 and max(created_at) < now() + interval '1 minute'
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
             {"ORDER BY max(created_at) DESC, id" if paginate else ""}
             {limit_offset}
