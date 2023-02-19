@@ -10,11 +10,11 @@ type ActionStepPropertyKey = 'text' | 'name' | 'href' | 'selector'
 export function ActionStep({ actionStep }: ActionStepProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            {(['text', 'name', 'href', 'selector'] as ActionStepPropertyKey[]).map((attr) => {
-                return actionStep[attr] || attr === 'selector' ? (
+            {(['text', 'name', 'href', 'selector'] as ActionStepPropertyKey[]).map((attr) =>
+                actionStep[attr] || attr === 'selector' ? (
                     <ActionAttribute key={attr} attribute={attr} value={actionStep[attr] || undefined} />
                 ) : null
-            })}
+            )}
         </div>
     )
 }
