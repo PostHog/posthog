@@ -343,7 +343,6 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT event, e.timestamp, e.pdi.person.properties.email FROM events e LIMIT 10",
                 self.team,
             )
-            # import pdb; pdb.set_trace()
             self.assertEqual(
                 response.clickhouse,
                 f"SELECT e.event, e.timestamp, replaceRegexpAll(JSONExtractRaw(e__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '') "
@@ -360,3 +359,27 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "tim@posthog.com")
+
+    def test_query_joins_events_person_properties_in_aggregration(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+            response = execute_hogql_query(
+                "SELECT s.pdi.person.properties.email, count() FROM events s GROUP BY s.pdi.person.properties.email LIMIT 10",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT replaceRegexpAll(JSONExtractRaw(s__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', ''), "
+                f"count(*) FROM events AS s INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, "
+                f"distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING "
+                f"equals(argMax(is_deleted, version), 0)) AS s__pdi ON equals(s.distinct_id, s__pdi.distinct_id) INNER JOIN "
+                f"(SELECT argMax(person.properties, version) AS properties, id FROM person WHERE equals(team_id, {self.team.pk}) "
+                f"GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS s__pdi__person ON "
+                f"equals(s__pdi.person_id, s__pdi__person.id) WHERE equals(s.team_id, {self.team.pk}) GROUP BY "
+                f"replaceRegexpAll(JSONExtractRaw(s__pdi__person.properties, %(hogql_val_1)s), '^\"|\"$', '') LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT s.pdi.person.properties.email, count() FROM events AS s GROUP BY s.pdi.person.properties.email LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "tim@posthog.com")

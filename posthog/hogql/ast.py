@@ -182,7 +182,9 @@ class FieldSymbol(Symbol):
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, JoinedTable):
-            return FieldSymbol(name=name, table=LazyTableSymbol(table=self, field=name, joined_table=database_field))
+            return FieldSymbol(
+                name=name, table=LazyTableSymbol(table=self.table, field=name, joined_table=database_field)
+            )
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertySymbol(name=name, parent=self)
         raise ValueError(
