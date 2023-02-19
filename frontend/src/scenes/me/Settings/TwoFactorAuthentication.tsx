@@ -23,15 +23,17 @@ export function TwoFactorAuthentication(): JSX.Element {
                 </LemonModal>
             )}
 
-            {user.is_2fa_enabled ? (
+            {user?.is_2fa_enabled ? (
                 <>
                     <IconCheckmark color="green" />
                     2FA enabled.
                     <br />
                     <br />
-                    <LemonButton type="primary" to="/account/two_factor/" targetBlank={true} style={{ width: 180 }}>
-                        Manage or disable 2FA
-                    </LemonButton>
+                    <div style={{ width: 180 }}>
+                        <LemonButton type="primary" to="/account/two_factor/" targetBlank={true}>
+                            Manage or disable 2FA
+                        </LemonButton>
+                    </div>
                 </>
             ) : (
                 <>

@@ -10,6 +10,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
       "saml",
     ],
     "created_at": "2020-09-24T15:05:01.254111Z",
+    "enforce_2fa": false,
     "customer_id": null,
     "id": "ABCD",
     "is_member_join_email_enabled": true,

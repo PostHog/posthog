@@ -2,7 +2,6 @@ import { kea, path, connect, afterMount, listeners, actions, reducers } from 'ke
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import type { loginLogicType } from './loginLogicType'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -11,7 +10,7 @@ export interface TwoFactorForm {
     token: number | null
 }
 
-export const setup2FALogic = kea<loginLogicType>([
+export const setup2FALogic = kea([
     path(['scenes', 'authentication', 'loginLogic']),
     connect({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],

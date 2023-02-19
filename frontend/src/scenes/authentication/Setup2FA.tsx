@@ -22,9 +22,7 @@ export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element 
                         autoFocus
                         data-attr="token"
                         placeholder="123456"
-                        type="text"
-                        inputMode="numeric"
-                        pattern="[0-9]*"
+                        type="number"
                         autoComplete="one-time-code"
                     />
                 </Field>

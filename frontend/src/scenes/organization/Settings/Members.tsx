@@ -217,7 +217,7 @@ export function Members({ user }: MembersProps): JSX.Element {
                 <LemonSwitch
                     label="Enforce 2FA"
                     bordered
-                    checked={currentOrganization?.enforce_2fa}
+                    checked={currentOrganization?.enforce_2fa ? true : false}
                     onChange={(enforce_2fa) => updateOrganization({ enforce_2fa })}
                 />
             </Row>
