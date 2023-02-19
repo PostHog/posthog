@@ -418,6 +418,34 @@ def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> 
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
+def _create_from_template_json(dashboard: Dashboard, template: any) -> None:
+    dashboard.name = template['template_name']
+    dashboard.filters = template['dashboard_filters']
+    dashboard.description = template['dashboard_description']
+    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
+        for template_tag in template['tags']:
+            tag, _ = Tag.objects.get_or_create(
+                name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+            )
+            dashboard.tagged_items.create(tag_id=tag.id)
+    dashboard.save()
+
+    for template_tile in template['tiles']:
+        if template_tile["type"] == "INSIGHT":
+            _create_tile_for_insight(
+                dashboard,
+                name=template_tile.get("name"),
+                filters=template_tile.get("filters"),
+                description=template_tile.get("description"),
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+            )
+        elif template_tile["type"] == "TEXT":
+            # TODO support text tiles
+            pass
+        else:
+            logger.error("dashboard_templates.creation.unknown_type", template=template)
+
 
 def _create_tile_for_insight(
     dashboard: Dashboard, name: str, filters: Dict, description: str, layouts: Dict, color: Optional[str]

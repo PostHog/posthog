@@ -940,3 +940,49 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
+
+    def test_create_from_template_json(self) -> None:
+
+        template = {
+            "template_name": "Sign up conversion template with variables",
+            "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
+            "dashboard_filters": {},
+            "tiles": [
+                {
+                    "name": "Website Unique Users (Total)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "filters": {
+                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                        "compare": True,
+                        "display": "BoldNumber",
+                        "insight": "TRENDS",
+                        "interval": "day",
+                        "date_from": "-30d",
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "i": "21", "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "i": "21", "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 1},
+                    },
+                    "description": "Shows the number of unique users that use your app every day.",
+                },
+            ],
+            "tags": ["popular"],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            json.dumps({"template": template}),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        dashboard_id = response.json()["id"]
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+
+        self.assertEqual(dashboard["name"], template["template_name"], dashboard)
+        self.assertEqual(dashboard["description"], template["dashboard_description"])
+        self.assertEqual(dashboard["tags"], template["tags"])
+
+        self.assertEqual(len(dashboard["tiles"]), 1)

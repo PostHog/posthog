@@ -115,6 +115,8 @@ variable_template = {
 }
 
 
+
+
 class TestDashboardTemplates(APIBaseTest):
     def setUp(self):
         super().setUp()

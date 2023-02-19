@@ -21,6 +21,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
+from posthog.helpers.dashboard_templates import _create_from_template_json
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import get_available_features_for_team
@@ -175,6 +176,17 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 "dashboard_id": use_dashboard,
             },
         )
+
+        return dashboard
+
+    @staticmethod
+    def create_from_template_json(template_json: Dict, team: Team, user: User) -> Dashboard:
+        """
+        Creates a dashboard from a template JSON object.
+        """
+        dashboard = Dashboard.objects.create(team=team, created_by=user, **template_json["dashboard"])
+        for tile in template_json["tiles"]:
+            DashboardTile.objects.create(dashboard=dashboard, **tile)
 
         return dashboard
 
@@ -433,6 +445,19 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
         )
         return Response(serializer.data)
+
+    @action(methods=["POST"], detail=False)
+    def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        # load template from string into json
+        template = request.data["template"]
+        tiles = template["tiles"]
+
+        team = Team.objects.get(id=self.team_id)
+
+        dashboard = Dashboard.objects.create(team_id=self.team_id)
+        _create_from_template_json(dashboard, template)
+
+        return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):
