@@ -81,7 +81,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
                               [index]: toElementsChain(element),
                           },
                 newAction: (_, { element }) => ({
-                    '0': element ? toElementsChain(element) : [],
+                    0: element ? toElementsChain(element) : [],
                 }),
             },
         ],
