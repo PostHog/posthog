@@ -41,65 +41,93 @@ def resolve_lazy_tables(node: ast.Expr):
 class LazyTableResolver(TraversingVisitor):
     def __init__(self):
         super().__init__()
-        self.fields: List[List[Union[ast.FieldSymbol]]] = []
+        self.stack_of_fields: List[List[ast.FieldSymbol]] = []
 
-    def visit_select_query(self, node: ast.SelectQuery):
-        if not node.symbol:
-            raise ValueError("Select query must have a symbol")
-
-        # Collects each `ast.Field` with `ast.LazyTableSymbol`
-        lazy_fields: List[Union[ast.FieldSymbol]] = []
-        self.fields.append(lazy_fields)
-
-        super().visit_select_query(node)
-
-        last_join = node.select_from
-        while last_join.next_join is not None:
-            last_join = last_join.next_join
-
-        @dataclasses.dataclass
-        class LocalScope:
-            fields_accessed: Set[str]
-            join_function: Callable[[str, str, List[str]], ast.JoinExpr]
-            parent_key: str
-            table_alias: str
-
-        new_tables: Dict[str, LocalScope] = {}
-
-        for field in lazy_fields:
-            if not isinstance(field.table, ast.LazyTableSymbol):
-                raise ValueError("Should not be reachable.")
-            parent_key = node.symbol.key_for_table(field.table.table)
-            if parent_key is None:
-                raise ValueError("Should not be reachable.")
-            table_alias = f"{parent_key}_{field.table.field}"
-            if not new_tables.get(table_alias):
-                new_tables[table_alias] = LocalScope(
-                    fields_accessed=set(),
-                    join_function=field.table.joined_table.join_function,
-                    parent_key=parent_key,
-                    table_alias=table_alias,
-                )
-            new_tables[table_alias].fields_accessed.add(field.name)
-
-        for table_alias, scope in new_tables.items():
-            next_join = scope.join_function(scope.parent_key, scope.table_alias, list(scope.fields_accessed))
-            resolve_symbols(next_join, node.symbol)
-            node.symbol.tables[table_alias] = next_join.symbol  # type: ignore
-
-            last_join.next_join = next_join
-            while last_join.next_join is not None:
-                last_join = last_join.next_join
-
-        for field in lazy_fields:
-            parent_key = node.symbol.key_for_table(field.table.table)
-            table_alias = f"{parent_key}_{field.table.field}"
-            field.table = node.symbol.tables[table_alias]
-
-        self.fields.pop()
+    def _get_long_table_name(
+        self, select: ast.SelectQuerySymbol, symbol: Union[ast.TableSymbol, ast.LazyTableSymbol, ast.TableAliasSymbol]
+    ) -> str:
+        if isinstance(symbol, ast.TableSymbol):
+            return select.key_for_table(symbol)
+        elif isinstance(symbol, ast.TableAliasSymbol):
+            return symbol.name
+        elif isinstance(symbol, ast.LazyTableSymbol):
+            return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
+        else:
+            raise ValueError("Should not be reachable")
 
     def visit_field_symbol(self, node: ast.FieldSymbol):
         if isinstance(node.table, ast.LazyTableSymbol):
-            if len(self.fields) == 0:
+            if len(self.stack_of_fields) == 0:
                 raise ValueError("Can't access a lazy field when not in a SelectQuery context")
-            self.fields[-1].append(node)
+            self.stack_of_fields[-1].append(node)
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        select_symbol = node.symbol
+        if not select_symbol:
+            raise ValueError("Select query must have a symbol")
+
+        # Collects each `ast.Field` with `ast.LazyTableSymbol`
+        field_collector: List[ast.FieldSymbol] = []
+        self.stack_of_fields.append(field_collector)
+
+        super().visit_select_query(node)
+
+        @dataclasses.dataclass
+        class JoinToAdd:
+            fields_accessed: Set[str]
+            join_function: Callable[[str, str, List[str]], ast.JoinExpr]
+            from_table: str
+            from_field: str
+            to_table: str
+
+        joins_to_add: Dict[str, JoinToAdd] = {}
+
+        for field in field_collector:
+            lazy_table = field.table
+            # traverse the lazy tables to a real table, then loop over them in reverse order to create the joins
+            joins_for_field: List = []
+            while isinstance(lazy_table, ast.LazyTableSymbol):
+                joins_for_field.append(lazy_table)
+                lazy_table = lazy_table.table
+            for lazy_table in reversed(joins_for_field):
+                from_table = self._get_long_table_name(select_symbol, lazy_table.table)
+                to_table = self._get_long_table_name(select_symbol, lazy_table)
+                if to_table not in joins_to_add:
+                    joins_to_add[to_table] = JoinToAdd(
+                        fields_accessed=set(),
+                        join_function=lazy_table.joined_table.join_function,
+                        from_table=from_table,
+                        from_field=lazy_table.joined_table.from_field,
+                        to_table=to_table,
+                    )
+                new_join = joins_to_add[to_table]
+                if lazy_table == field.table:
+                    new_join.fields_accessed.add(field.name)
+
+        # Make sure we also add the join "ON" condition fields into the list of fields accessed.
+        # Without this "events.pdi.person.anything" won't work without ALSO selecting "events.pdi.person_id" explicitly
+        for new_join in joins_to_add.values():
+            if new_join.from_table in joins_to_add:
+                joins_to_add[new_join.from_table].fields_accessed.add(new_join.from_field)
+
+        last_join = node.select_from
+        while last_join and last_join.next_join is not None:
+            last_join = last_join.next_join
+
+        for to_table, scope in joins_to_add.items():
+            next_join = scope.join_function(scope.from_table, scope.to_table, list(scope.fields_accessed))
+            resolve_symbols(next_join, select_symbol)
+            select_symbol.tables[to_table] = next_join.symbol
+            if last_join is None:
+                node.select_from = next_join
+                last_join = next_join
+            else:
+                last_join.next_join = next_join
+            while last_join.next_join is not None:
+                last_join = last_join.next_join
+
+        for field in field_collector:
+            to_table = self._get_long_table_name(select_symbol, field.table)
+            field.table = select_symbol.tables[to_table]
+
+        self.stack_of_fields.pop()
