@@ -183,14 +183,13 @@ export const elementsLogic = kea<elementsLogicType>({
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                inspectElements.forEach((e) => {
-                    updateElementMap(e, elementMap)
-                })
-                heatmapElements.forEach((e) => {
-                    updateElementMap(e, elementMap)
-                })
-                ;[...actionElements, ...actionsListElements].forEach((e) => {
-                    updateElementMap(e, elementMap)
+                ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
+                    const elementWithMetadata: ElementWithMetadata = { ...e }
+                    if (elementMap.get(e.element)) {
+                        elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
+                    } else {
+                        elementMap.set(e.element, elementWithMetadata)
+                    }
                 })
                 return elementMap
             },
@@ -457,15 +456,3 @@ export const elementsLogic = kea<elementsLogicType>({
         },
     }),
 })
-
-/**
- *  NB: this relies on the instance identify of elementMap
- */
-function updateElementMap(e: ElementWithMetadata, elementMap: Map<HTMLElement, ElementWithMetadata>): void {
-    const elementWithMetadata: ElementWithMetadata = { ...e }
-    if (elementMap.get(e.element)) {
-        elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
-    } else {
-        elementMap.set(e.element, elementWithMetadata)
-    }
-}
