@@ -364,14 +364,14 @@ class Printer(Visitor):
 
             # :KLUDGE: Legacy person properties handling. Assume we're in a context where the tables have been joined,
             # and this "person_props" alias is accessible to us.
-            if resolved_field == database.events.person.properties:
-                if not self.context.using_person_on_events:
-                    field_sql = "person_props"
+            # if resolved_field == database.events.pdi.table.person.table.properties:
+            #     if not self.context.using_person_on_events:
+            #         field_sql = "person_props"
 
             # If the field is called on a table that has an alias, prepend the table alias.
             # If there's another field with the same name in the scope that's not this, prepend the full table name.
             # Note: we don't prepend a table name for the special "person" fields.
-            elif isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
+            if isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
             # TODO: refactor this legacy logging
@@ -406,38 +406,34 @@ class Printer(Visitor):
 
     def visit_property_symbol(self, symbol: ast.PropertySymbol):
         field_symbol = symbol.parent
+        field = field_symbol.resolve_database_field()
 
         key = f"hogql_val_{len(self.context.values)}"
         self.context.values[key] = symbol.name
 
+        # check for a materialised column
         table = field_symbol.table
         while isinstance(table, ast.TableAliasSymbol):
             table = table.table
+        if isinstance(table, ast.TableSymbol):
+            table_name = table.table.clickhouse_table()
+            if field is None:
+                raise ValueError(f"Can't resolve field {field_symbol.name} on table {table_name}")
+            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-        if not isinstance(table, ast.TableSymbol):
-            raise ValueError(f"Unknown PropertySymbol table type: {type(table).__name__}")
-
-        table_name = table.table.clickhouse_table()
-
-        field = field_symbol.resolve_database_field()
-        if field is None:
-            raise ValueError(f"Can't resolve field {field_symbol.name} on table {table_name}")
-
-        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-        if field_name == "person_properties" and not self.context.using_person_on_events:
-            # :KLUDGE: person property materialized columns support when person on events is off
-            materialized_column = self._get_materialized_column("person", symbol.name, "properties")
-        else:
             materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
-
-        if materialized_column:
-            property_sql = self._print_identifier(materialized_column)
+            if materialized_column:
+                property_sql = self._print_identifier(materialized_column)
+            else:
+                field_sql = self.visit(field_symbol)
+                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
         else:
             field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
 
-        if field_name == "properties":
+        if not field:
+            pass
+        elif field.name == "properties":
             # TODO: refactor this legacy logging
             self.context.field_access_logs.append(
                 HogQLFieldAccess(
@@ -447,7 +443,7 @@ class Printer(Visitor):
                     property_sql,
                 )
             )
-        elif field_name == "person_properties":
+        elif field.name == "person_properties":
             # TODO: refactor this legacy logging
             self.context.field_access_logs.append(
                 HogQLFieldAccess(

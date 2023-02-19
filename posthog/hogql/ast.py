@@ -169,6 +169,8 @@ class FieldSymbol(Symbol):
 
     def resolve_database_field(self) -> Optional[Union[DatabaseField, Table]]:
         table_symbol = self.table
+        if isinstance(table_symbol, LazyTableSymbol):
+            return table_symbol.joined_table.table.get_field(self.name)
         while isinstance(table_symbol, TableAliasSymbol):
             table_symbol = table_symbol.table
         if isinstance(table_symbol, TableSymbol):

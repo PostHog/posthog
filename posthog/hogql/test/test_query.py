@@ -1,5 +1,8 @@
+from uuid import UUID
+
 from freezegun import freeze_time
 
+from posthog import datetime
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.models.utils import UUIDT
@@ -160,68 +163,200 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
             self.assertTrue(len(response.results) > 0)
 
-    def test_query_joins_pdi_automatic(self):
+    def test_query_joins_events_pdi(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
 
             response = execute_hogql_query(
-                """
-                SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10
-                """,
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
                 self.team,
-            )
-            self.assertEqual(
-                response.clickhouse,
-                f"SELECT event, timestamp, events_pdi.distinct_id, events_pdi.person_id FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, 1) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events_pdi ON equals(events.distinct_id, events_pdi.distinct_id) WHERE equals(team_id, {self.team.pk}) LIMIT 10",
             )
             self.assertEqual(
                 response.hogql,
                 "SELECT event, timestamp, pdi.distinct_id, pdi.person_id FROM events LIMIT 10",
             )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT event, timestamp, events__pdi.distinct_id, events__pdi.person_id FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) WHERE equals(team_id, {self.team.pk}) LIMIT 10",
+            )
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
-            self.assertEqual(response.results[0][4], "00000000-0000-4000-8000-000000000001")
+            self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
 
-    def test_query_joins_person(self):
+    def test_query_joins_events_e_pdi(self):
         with freeze_time("2020-01-10"):
             self._create_random_events()
 
             response = execute_hogql_query(
-                """
-                    SELECT event, timestamp, pdi.person_id from events e
-                    INNER JOIN (
-                        SELECT distinct_id,
-                               argMax(person_id, version) as person_id
-                          FROM person_distinct_ids
-                         GROUP BY distinct_id
-                        HAVING argMax(is_deleted, version) = 0
-                       ) AS pdi
-                    ON e.distinct_id = pdi.distinct_id
-                    INNER JOIN (
-                        SELECT id
-                          FROM person
-                         WHERE team_id = 1
-                           AND id IN (
-                                SELECT id
-                                  FROM person
-                                 WHERE team_id = 1
-                                   AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(person.properties, '$browser'), '^"|"$', '')))
-                               )
-                         GROUP BY id
-                        HAVING max(is_deleted) = 0
-                           AND (has(['Chrome'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$browser'), '^"|"$', '')))
-                       ) person
-                    ON person.id = pdi.person_id
-                    """,
+                "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events e LIMIT 10",
                 self.team,
             )
-
+            self.assertEqual(
+                response.hogql, "SELECT event, e.timestamp, e.pdi.distinct_id, pdi.person_id FROM events AS e LIMIT 10"
+            )
             self.assertEqual(
                 response.clickhouse,
-                f"SELECT e.event, e.timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_distinct_id2.person_id, version) AS person_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.id}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) WHERE equals(e.team_id, {self.team.id}) LIMIT 1000",
+                f"SELECT e.event, e.timestamp, e__pdi.distinct_id, e__pdi.person_id FROM events AS e INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "random event")
+            self.assertEqual(response.results[0][2], "bla")
+            self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+
+    def test_query_joins_pdi_persons(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_ids pdi LIMIT 10",
+                self.team,
             )
             self.assertEqual(
                 response.hogql,
-                "SELECT event, timestamp, pdi.person_id FROM events AS e INNER JOIN (SELECT distinct_id, argMax(person_id, version) AS person_id FROM person_distinct_id2 GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS pdi ON equals(e.distinct_id, pdi.distinct_id) LIMIT 1000",
+                # TODO: store original db name in hogql
+                "SELECT pdi.distinct_id, pdi.person.created_at FROM person_distinct_id2 AS pdi LIMIT 10",
             )
-            self.assertTrue(len(response.results) > 0)
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT pdi.distinct_id, pdi__person.created_at FROM person_distinct_id2 AS pdi INNER JOIN (SELECT argMax(person.created_at, version) AS created_at, id FROM person WHERE equals(team_id, {self.team.pk}) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS pdi__person ON equals(pdi.person_id, pdi__person.id) WHERE equals(pdi.team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "bla")
+            self.assertEqual(response.results[0][1], datetime.datetime(2020, 1, 10, 0, 0))
+
+    def test_query_joins_pdi_person_properties(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                "SELECT pdi.distinct_id, pdi.person.properties.email FROM person_distinct_ids pdi LIMIT 10",
+                self.team,
+            )
+            self.assertEqual(
+                response.hogql,
+                # TODO: store original db name in hogql
+                "SELECT pdi.distinct_id, pdi.person.properties.email FROM person_distinct_id2 AS pdi LIMIT 10",
+            )
+            self.assertEqual(
+                response.clickhouse,
+                # TODO: properties should be extracted within the subquery
+                f"SELECT pdi.distinct_id, replaceRegexpAll(JSONExtractRaw(pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '') FROM person_distinct_id2 AS pdi INNER JOIN (SELECT argMax(person.properties, version) AS properties, id FROM person WHERE equals(team_id, {self.team.pk}) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS pdi__person ON equals(pdi.person_id, pdi__person.id) WHERE equals(pdi.team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "bla")
+            self.assertEqual(response.results[0][1], "tim@posthog.com")
+
+    def test_query_joins_events_pdi_person(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person.id FROM events LIMIT 10",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT event, timestamp, events__pdi.distinct_id, events__pdi__person.id FROM events "
+                f"INNER JOIN (SELECT "
+                f"argMax(person_distinct_id2.person_id, version) AS person_id, "
+                f"distinct_id "
+                f"FROM person_distinct_id2 "
+                f"WHERE equals(team_id, {self.team.pk}) "
+                f"GROUP BY distinct_id "
+                f"HAVING equals(argMax(is_deleted, version), 0)"
+                f") AS events__pdi "
+                f"ON equals(events.distinct_id, events__pdi.distinct_id) "
+                f"INNER JOIN ("
+                f"SELECT id "
+                f"FROM person "
+                f"WHERE equals(team_id, {self.team.pk}) "
+                f"GROUP BY id "
+                f"HAVING equals(argMax(is_deleted, version), 0)"
+                f") AS events__pdi__person "
+                f"ON equals(events__pdi.person_id, events__pdi__person.id) "
+                f"WHERE equals(team_id, {self.team.pk}) "
+                f"LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person.id FROM events LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "random event")
+            self.assertEqual(response.results[0][2], "bla")
+            self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+
+    def test_query_joins_events_pdi_person_properties(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person.properties.email FROM events LIMIT 10",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                # TODO: properties should be extracted within the subquery
+                f"SELECT event, timestamp, events__pdi.distinct_id, replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, "
+                f"%(hogql_val_0)s), '^\"|\"$', '') FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) "
+                f"AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id "
+                f"HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) "
+                f"INNER JOIN (SELECT argMax(person.properties, version) AS properties, id FROM person WHERE equals(team_id, {self.team.pk}) "
+                f"GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, "
+                f"events__pdi__person.id) WHERE equals(team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, timestamp, pdi.distinct_id, pdi.person.properties.email FROM events LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "random event")
+            self.assertEqual(response.results[0][2], "bla")
+            self.assertEqual(response.results[0][3], "tim@posthog.com")
+
+    def test_query_joins_events_pdi_e_person_properties(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                "SELECT event, e.timestamp, pdi.distinct_id, e.pdi.person.properties.email FROM events e LIMIT 10",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, e.timestamp, e__pdi.distinct_id, replaceRegexpAll(JSONExtractRaw(e__pdi__person.properties, "
+                f"%(hogql_val_0)s), '^\"|\"$', '') FROM events AS e INNER JOIN (SELECT argMax(person_distinct_id2.person_id, "
+                f"version) AS person_id, distinct_id FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY "
+                f"distinct_id HAVING equals(argMax(is_deleted, version), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) "
+                f"INNER JOIN (SELECT argMax(person.properties, version) AS properties, id FROM person WHERE equals(team_id, "
+                f"{self.team.pk}) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS e__pdi__person ON "
+                f"equals(e__pdi.person_id, e__pdi__person.id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, e.timestamp, pdi.distinct_id, e.pdi.person.properties.email FROM events AS e LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "random event")
+            self.assertEqual(response.results[0][2], "bla")
+            self.assertEqual(response.results[0][3], "tim@posthog.com")
+
+    def test_query_joins_events_person_properties(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+
+            response = execute_hogql_query(
+                "SELECT event, e.timestamp, e.pdi.person.properties.email FROM events e LIMIT 10",
+                self.team,
+            )
+            # import pdb; pdb.set_trace()
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT e.event, e.timestamp, replaceRegexpAll(JSONExtractRaw(e__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '') "
+                f"FROM events AS e INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
+                f"FROM person_distinct_id2 WHERE equals(team_id, {self.team.pk}) GROUP BY distinct_id HAVING "
+                f"equals(argMax(is_deleted, version), 0)) AS e__pdi ON equals(e.distinct_id, e__pdi.distinct_id) "
+                f"INNER JOIN (SELECT argMax(person.properties, version) AS properties, id FROM person WHERE "
+                f"equals(team_id, {self.team.pk}) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS e__pdi__person "
+                f"ON equals(e__pdi.person_id, e__pdi__person.id) WHERE equals(e.team_id, {self.team.pk}) LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT event, e.timestamp, e.pdi.person.properties.email FROM events AS e LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "random event")
+            self.assertEqual(response.results[0][2], "tim@posthog.com")

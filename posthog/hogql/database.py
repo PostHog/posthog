@@ -69,6 +69,7 @@ class JoinedTable(BaseModel):
 
     join_function: Callable[[str, str, List[str]], Any]
     table: Table
+    from_field: str
 
 
 class PersonsTable(Table):
@@ -130,7 +131,9 @@ class PersonDistinctIdTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    person: JoinedTable = JoinedTable(table=PersonsTable(), join_function=join_with_persons_table)
+    person: JoinedTable = JoinedTable(
+        from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table
+    )
 
     def get_splash(self) -> Dict[str, DatabaseField]:
         splash: Dict[str, DatabaseField] = {}
@@ -192,7 +195,9 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
-    pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table)
+    pdi: JoinedTable = JoinedTable(
+        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    )
 
     def clickhouse_table(self):
         return "events"
@@ -216,7 +221,9 @@ class SessionRecordingEvents(Table):
     last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
     urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
 
-    pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table)
+    pdi: JoinedTable = JoinedTable(
+        from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
+    )
 
     def clickhouse_table(self):
         return "session_recording_events"
