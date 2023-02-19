@@ -293,13 +293,24 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
 
 const HogQL: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: 'select event, count() as event_count from events group by event order by event_count desc',
+    query: 'select event, count() from events where timestamp > now() - interval 1 month group by event order by count() desc',
 }
 
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
-    source: HogQL,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: `   select event,
+          pdi.person.properties.email,
+          count()
+     from events
+    where timestamp > now () - interval 1 month
+      and pdi.person.properties.email is not null
+ group by event,
+          pdi.person.properties.email
+ order by count() desc`,
+    },
 }
 
 export const examples: Record<string, Node> = {

@@ -141,6 +141,7 @@
         "resize-observer-polyfill": "^1.5.1",
         "rrweb": "^1.1.3",
         "sass": "^1.26.2",
+        "sql-formatter": "^12.1.2",
         "use-debounce": "^6.0.1",
         "use-resize-observer": "^8.0.0",
         "wildcard-match": "^5.1.2",
