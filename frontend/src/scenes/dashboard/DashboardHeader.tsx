@@ -31,6 +31,8 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NewDashboardTemplate } from './NewDashboardTemplate'
+import { newDashboardTemplateLogic } from './NewDashboardTemplateLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -50,6 +52,9 @@ export function DashboardHeader(): JSX.Element | null {
     const { setDashboardMode, triggerDashboardUpdate } = useActions(dashboardLogic)
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
+
+    const { setDashboardTemplateJSON } = useActions(newDashboardTemplateLogic)
+    const { setOpenNewDashboardTemplateModal } = useActions(newDashboardTemplateLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -82,6 +87,7 @@ export function DashboardHeader(): JSX.Element | null {
             },
         })
     }
+
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -235,6 +241,16 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
+                                            <LemonButton
+                                                onClick={() => {
+                                                    setDashboardTemplateJSON(asDashboardTemplate)
+                                                    setOpenNewDashboardTemplateModal(true)
+                                                }}
+                                                fullWidth
+                                                status="stealth"
+                                            >
+                                                Save as template
+                                            </LemonButton>
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {
@@ -352,6 +368,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }
                 delimited
             />
+            <NewDashboardTemplate />
         </>
     ) : null
 }
