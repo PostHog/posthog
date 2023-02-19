@@ -57,6 +57,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
             element: element || null,
         }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
+        editSelectorWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         setEditingFields: (editingFields: AntdFieldData[]) => ({ editingFields }),
         incrementCounter: true,
@@ -65,16 +66,20 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
         showButtonActions: true,
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
+        setElementSelector: (selector: string, index: number) => ({ selector, index }),
     },
 
     reducers: {
         actionFormElementsChains: [
-            {} as Record<string, ElementType[]>,
+            {} as Record<number, ElementType[]>,
             {
-                inspectElementSelected: (state, { element, index }) => ({
-                    ...state,
-                    [String(index)]: toElementsChain(element),
-                }),
+                inspectElementSelected: (state, { element, index }) =>
+                    index === null
+                        ? []
+                        : {
+                              ...state,
+                              [index]: toElementsChain(element),
+                          },
                 newAction: (_, { element }) => ({
                     '0': element ? toElementsChain(element) : [],
                 }),
@@ -110,6 +115,12 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
                 newAction: () => null,
             },
         ],
+        editingSelector: [
+            null as number | null,
+            {
+                editSelectorWithIndex: (_, { index }) => index,
+            },
+        ],
         editingFields: [
             null as AntdFieldData[] | null,
             {
@@ -139,6 +150,16 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     },
 
     selectors: {
+        elementsChainBeingEdited: [
+            (s) => [s.editingSelector, s.actionFormElementsChains],
+            (editingSelector, elementChains): ElementType[] => {
+                if (editingSelector === null) {
+                    return []
+                } else {
+                    return elementChains[editingSelector] || []
+                }
+            },
+        ],
         selectedAction: [
             (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
             (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
@@ -168,6 +189,16 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     },
 
     listeners: ({ actions, values }) => ({
+        setElementSelector: ({ selector, index }) => {
+            if (values.form) {
+                const fieldsValue = { ...values.form.getFieldsValue() }
+                const steps = fieldsValue.steps
+                if (steps && steps[index]) {
+                    steps[index].selector = selector
+                }
+                values.form.setFieldsValue(fieldsValue)
+            }
+        },
         selectAction: ({ id }) => {
             if (id) {
                 if (!toolbarLogic.values.buttonVisible) {

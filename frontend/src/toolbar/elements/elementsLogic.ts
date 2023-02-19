@@ -119,15 +119,8 @@ export const elementsLogic = kea<elementsLogicType>({
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
             ],
-            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) => {
-                console.log(
-                    inspectEnabledRaw,
-                    buttonActionsVisible,
-                    inspectingElement,
-                    buttonActionsVisible && inspectingElement !== null
-                )
-                return inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null)
-            },
+            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) =>
+                inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],

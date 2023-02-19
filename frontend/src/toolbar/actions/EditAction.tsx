@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -19,16 +19,26 @@ import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
 
-    const { initialValuesForForm, selectedActionId, inspectingElement, editingFields, actionFormElementsChains } =
-        useValues(actionsTabLogic)
-    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
-        useActions(actionsTabLogic)
-
-    const [modalOpen, setModalOpen] = useState(false)
+    const {
+        initialValuesForForm,
+        selectedActionId,
+        inspectingElement,
+        editingFields,
+        editingSelector,
+        elementsChainBeingEdited,
+    } = useValues(actionsTabLogic)
+    const {
+        selectAction,
+        inspectForElementWithIndex,
+        setEditingFields,
+        setForm,
+        saveAction,
+        deleteAction,
+        setElementSelector,
+        editSelectorWithIndex,
+    } = useActions(actionsTabLogic)
 
     const { getFieldValue } = form
-
-    console.log(actionFormElementsChains)
 
     useEffect(() => {
         // This sucks. We're storing the antd "form" object in kea in a reducer. Dispatching an action for it.
@@ -47,6 +57,20 @@ export function EditAction(): JSX.Element {
 
     return (
         <div>
+            <SelectorEditingModal
+                isOpen={editingSelector !== null}
+                setIsOpen={() => editSelectorWithIndex(null)}
+                activeElementChain={elementsChainBeingEdited}
+                onChange={(selector) => {
+                    if (selector && editingSelector !== null) {
+                        posthog.capture('toolbar_manual_selector_applied', {
+                            chosenSelector: selector,
+                        })
+                        setElementSelector(selector, editingSelector)
+                    }
+                }}
+            />
+
             <Button type="default" size="small" onClick={() => selectAction(null)} style={{ float: 'right' }}>
                 Cancel <CloseOutlined />
             </Button>
@@ -101,11 +125,12 @@ export function EditAction(): JSX.Element {
                                             <Button
                                                 size="small"
                                                 type={inspectingElement === index ? 'primary' : 'default'}
-                                                onClick={() =>
+                                                onClick={(e) => {
+                                                    e.stopPropagation()
                                                     inspectForElementWithIndex(
                                                         inspectingElement === index ? null : index
                                                     )
-                                                }
+                                                }}
                                             >
                                                 <SearchOutlined />{' '}
                                                 {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
@@ -133,11 +158,6 @@ export function EditAction(): JSX.Element {
                                                     label="Text"
                                                     caption="Text content inside your element"
                                                 />
-                                                <SelectorEditingModal
-                                                    isOpen={modalOpen}
-                                                    setIsOpen={setModalOpen}
-                                                    activeElementChain={actionFormElementsChains[index]}
-                                                />
                                                 <StepField
                                                     field={field}
                                                     step={step}
@@ -151,11 +171,12 @@ export function EditAction(): JSX.Element {
                                                         size={'small'}
                                                         type={'secondary'}
                                                         icon={<IconEdit />}
-                                                        onClick={() => {
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
                                                             posthog.capture('toolbar_manual_selector_modal_opened', {
                                                                 selector: step?.selector,
                                                             })
-                                                            setModalOpen(true)
+                                                            editSelectorWithIndex(index)
                                                         }}
                                                         getTooltipPopupContainer={getShadowRootPopoverContainer}
                                                     >
@@ -173,7 +194,7 @@ export function EditAction(): JSX.Element {
                                         ) : null}
 
                                         {index === fields.length - 1 ? (
-                                            <div style={{ textAlign: 'right', marginTop: 10 }}>
+                                            <div className={'text-right mt-4'}>
                                                 <Button size="small" onClick={() => add()}>
                                                     Add Another Element <PlusCircleOutlined />
                                                 </Button>
