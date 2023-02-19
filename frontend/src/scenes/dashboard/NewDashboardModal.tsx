@@ -9,16 +9,9 @@ import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { AppstoreAddOutlined } from '@ant-design/icons'
 import { Card } from 'antd'
 import { LemonButton } from '@posthog/lemon-ui'
+import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 
-function TemplateItem({
-    name,
-    description,
-    onClick,
-}: {
-    name: string
-    description: string
-    onClick: () => void
-}): JSX.Element {
+function TemplateItem({ name, onClick }: { name: string; description: string; onClick: () => void }): JSX.Element {
     return (
         <Card title={name} size="small" style={{ width: 200, cursor: 'pointer' }} onClick={onClick}>
             <div style={{ textAlign: 'center', fontSize: 40 }}>
@@ -30,7 +23,8 @@ function TemplateItem({
 
 export function DashboardTemplatePreview(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
-    const { addDashboard, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
+    const { variables } = useValues(dashboardTemplateVariablesLogic)
+    const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
 
     return (
         <div>
@@ -48,11 +42,7 @@ export function DashboardTemplatePreview(): JSX.Element {
                 </LemonButton>
                 <LemonButton
                     onClick={() => {
-                        addDashboard({
-                            name: 'Test',
-                            show: true,
-                            useTemplate: activeDashboardTemplate?.id,
-                        })
+                        activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
                     }}
                     type="primary"
                 >
@@ -119,7 +109,6 @@ export function DashboardTemplateChooser(): JSX.Element {
             >
                 <TemplateItem
                     name="Blank dashboard"
-                    description="Start from scratch"
                     onClick={() =>
                         addDashboard({
                             name: 'New Dashboard',
@@ -131,7 +120,6 @@ export function DashboardTemplateChooser(): JSX.Element {
                     <TemplateItem
                         key={index}
                         name={template.template_name}
-                        description="Start from scratch"
                         onClick={() => setActiveDashboardTemplate(template)}
                     />
                 ))}
