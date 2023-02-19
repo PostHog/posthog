@@ -38,7 +38,6 @@ def report_user_signed_up(
         "realm": get_instance_realm(),
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
-        # This will always be false when a user first signs up, but we want it for consistency so every user has the prop
         "is_email_verified": user.is_email_verified,
     }
     if user_analytics_metadata is not None:
@@ -59,7 +58,7 @@ def report_user_signed_up(
 
 def report_user_verified_email(current_user: User) -> None:
     """
-    Triggered after an already existing user joins an already existing organization.
+    Triggered after a user verifies their email address.
     """
     posthoganalytics.capture(
         current_user.distinct_id,

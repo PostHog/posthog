@@ -7,7 +7,7 @@ from typing import Any, Optional, cast
 import posthoganalytics
 import requests
 from django.conf import settings
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -183,7 +183,7 @@ class UserSerializer(serializers.ModelSerializer):
                 # we need to log the user in first, and then generate a new token. This prevents people
                 # from generating a token for an email they have access to, then changing the email to one they don't
                 # and using the first token to verify the second email.
-                # login(self.context["request"], instance, backend="django.contrib.auth.backends.ModelBackend")
+                login(self.context["request"], instance, backend="django.contrib.auth.backends.ModelBackend")
                 instance.pending_email = validated_data.pop("email", None)
                 instance.save()
                 send_email_verification.delay(instance.id)
