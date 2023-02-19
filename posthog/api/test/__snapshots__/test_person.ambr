@@ -6,6 +6,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
+  and max(created_at) < now() + interval '1 minute'
   AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
   ORDER BY max(created_at) DESC, id
   LIMIT 100
@@ -19,6 +20,7 @@
   WHERE team_id = 2
   GROUP BY id
   HAVING max(is_deleted) = 0
+  and max(created_at) < now() + interval '1 minute'
   AND has(['another@gmail.com'], "pmat_email")
   ORDER BY max(created_at) DESC, id
   LIMIT 100
@@ -37,6 +39,7 @@
          AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
+  and max(created_at) < now() + interval '1 minute'
   AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
   ORDER BY max(created_at) DESC, id
   LIMIT 100
