@@ -2,6 +2,17 @@ import { actions, kea, key, listeners, path, props, propsChanged, reducers } fro
 import { HogQLQuery } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
+import { format } from 'sql-formatter'
+
+function formatSQL(sql: string): string {
+    return format(sql, {
+        language: 'sql',
+        tabWidth: 2,
+        keywordCase: 'preserve',
+        linesBetweenQueries: 2,
+        indentStyle: 'tabularRight',
+    })
+}
 
 export interface HogQLQueryEditorLogicProps {
     key: number
@@ -15,7 +26,7 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
         if (props.query.query !== oldProps.query.query) {
-            actions.setQueryInput(props.query.query)
+            actions.setQueryInput(formatSQL(props.query.query))
         }
     }),
     actions({
@@ -23,12 +34,13 @@ export const hogQLQueryEditorLogic = kea<hogQLQueryEditorLogicType>([
         setQueryInput: (queryInput: string) => ({ queryInput }),
     }),
     reducers(({ props }) => ({
-        queryInput: [props.query.query, { setQueryInput: (_, { queryInput }) => queryInput }],
+        queryInput: [formatSQL(props.query.query), { setQueryInput: (_, { queryInput }) => queryInput }],
     })),
     listeners(({ actions, props, values }) => ({
         saveQuery: () => {
-            actions.setQueryInput(values.queryInput)
-            props.setQuery?.({ ...props.query, query: values.queryInput })
+            const formattedQuery = formatSQL(values.queryInput)
+            actions.setQueryInput(formattedQuery)
+            props.setQuery?.({ ...props.query, query: formattedQuery })
         },
     })),
 ])
