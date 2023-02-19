@@ -235,6 +235,257 @@ class TestResolver(BaseTest):
                 resolve_symbols(parse_select(query))
             self.assertIn("Unable to resolve field:", str(e.exception))
 
+    def test_resolve_lazy_pdi_person_table(self):
+        expr = parse_select("select distinct_id, person.id from person_distinct_ids")
+        resolve_symbols(expr)
+        pdi_table_symbol = ast.TableSymbol(table=database.person_distinct_ids)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["distinct_id"],
+                    symbol=ast.FieldSymbol(name="distinct_id", table=pdi_table_symbol),
+                ),
+                ast.Field(
+                    chain=["person", "id"],
+                    symbol=ast.FieldSymbol(
+                        name="id",
+                        table=ast.LazyTableSymbol(
+                            table=pdi_table_symbol, field="person", joined_table=database.person_distinct_ids.person
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["person_distinct_ids"], symbol=pdi_table_symbol),
+                symbol=pdi_table_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "distinct_id": ast.FieldSymbol(name="distinct_id", table=pdi_table_symbol),
+                    "id": ast.FieldSymbol(
+                        name="id",
+                        table=ast.LazyTableSymbol(
+                            table=pdi_table_symbol,
+                            joined_table=database.person_distinct_ids.person,
+                            field="person",
+                        ),
+                    ),
+                },
+                tables={"person_distinct_ids": pdi_table_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)
+
+    def test_resolve_lazy_events_pdi_table(self):
+        expr = parse_select("select event, pdi.person_id from events")
+        resolve_symbols(expr)
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"],
+                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                ),
+                ast.Field(
+                    chain=["pdi", "person_id"],
+                    symbol=ast.FieldSymbol(
+                        name="person_id",
+                        table=ast.LazyTableSymbol(
+                            table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                symbol=events_table_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
+                    "person_id": ast.FieldSymbol(
+                        name="person_id",
+                        table=ast.LazyTableSymbol(
+                            table=events_table_symbol,
+                            joined_table=database.events.pdi,
+                            field="pdi",
+                        ),
+                    ),
+                },
+                tables={"events": events_table_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)
+
+    def test_resolve_lazy_events_pdi_table_aliased(self):
+        expr = parse_select("select event, e.pdi.person_id from events e")
+        resolve_symbols(expr)
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"],
+                    symbol=ast.FieldSymbol(name="event", table=events_table_alias_symbol),
+                ),
+                ast.Field(
+                    chain=["e", "pdi", "person_id"],
+                    symbol=ast.FieldSymbol(
+                        name="person_id",
+                        table=ast.LazyTableSymbol(
+                            table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                alias="e",
+                symbol=events_table_alias_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "event": ast.FieldSymbol(name="event", table=events_table_alias_symbol),
+                    "person_id": ast.FieldSymbol(
+                        name="person_id",
+                        table=ast.LazyTableSymbol(
+                            table=events_table_alias_symbol,
+                            joined_table=database.events.pdi,
+                            field="pdi",
+                        ),
+                    ),
+                },
+                tables={"e": events_table_alias_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)
+
+    def test_resolve_lazy_events_pdi_person_table(self):
+        expr = parse_select("select event, pdi.person.id from events")
+        resolve_symbols(expr)
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"],
+                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                ),
+                ast.Field(
+                    chain=["pdi", "person", "id"],
+                    symbol=ast.FieldSymbol(
+                        name="id",
+                        table=ast.LazyTableSymbol(
+                            table=ast.LazyTableSymbol(
+                                table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                            ),
+                            field="person",
+                            joined_table=database.events.pdi.table.person,
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                symbol=events_table_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
+                    "id": ast.FieldSymbol(
+                        name="id",
+                        table=ast.LazyTableSymbol(
+                            table=ast.LazyTableSymbol(
+                                table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                            ),
+                            field="person",
+                            joined_table=database.events.pdi.table.person,
+                        ),
+                    ),
+                },
+                tables={"events": events_table_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)
+
+    def test_resolve_lazy_events_pdi_person_table_aliased(self):
+        expr = parse_select("select event, e.pdi.person.id from events e")
+        resolve_symbols(expr)
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"],
+                    symbol=ast.FieldSymbol(name="event", table=events_table_alias_symbol),
+                ),
+                ast.Field(
+                    chain=["e", "pdi", "person", "id"],
+                    symbol=ast.FieldSymbol(
+                        name="id",
+                        table=ast.LazyTableSymbol(
+                            table=ast.LazyTableSymbol(
+                                table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                            ),
+                            field="person",
+                            joined_table=database.events.pdi.table.person,
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                alias="e",
+                symbol=events_table_alias_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "event": ast.FieldSymbol(name="event", table=events_table_alias_symbol),
+                    "id": ast.FieldSymbol(
+                        name="id",
+                        table=ast.LazyTableSymbol(
+                            table=ast.LazyTableSymbol(
+                                table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                            ),
+                            field="person",
+                            joined_table=database.events.pdi.table.person,
+                        ),
+                    ),
+                },
+                tables={"e": events_table_alias_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)
+
 
 # "with 2 as a select 1 as a" -> "Different expressions with the same alias a:"
 # "with 2 as b, 3 as c select (select 1 as b) as a, b, c" -> "Different expressions with the same alias b:"

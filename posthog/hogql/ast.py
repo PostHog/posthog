@@ -57,32 +57,6 @@ class TableSymbol(Symbol):
             return SplashSymbol(table=self)
         if self.has_child(name):
             field = self.table.get_field(name)
-            if isinstance(field, Table):
-                return SplashSymbol(table=TableSymbol(table=field))
-            if isinstance(field, JoinedTable):
-                return LazyTableSymbol(table=self, field=name, joined_table=field)
-            return FieldSymbol(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
-
-
-class LazyTableSymbol(Symbol):
-    table: TableSymbol
-    field: str
-    joined_table: JoinedTable
-
-    def __init__(self, **data):
-        super().__init__(**data)
-
-    def has_child(self, name: str) -> bool:
-        return self.joined_table.table.has_field(name)
-
-    def get_child(self, name: str) -> Symbol:
-        if name == "*":
-            return SplashSymbol(table=self)
-        if self.has_child(name):
-            field = self.joined_table.table.get_field(name)
-            if isinstance(field, Table):
-                return SplashSymbol(table=TableSymbol(table=field))
             if isinstance(field, JoinedTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
             return FieldSymbol(name=name, table=self)
@@ -97,9 +71,37 @@ class TableAliasSymbol(Symbol):
         return self.table.has_child(name)
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return SplashSymbol(table=self)
         if self.has_child(name):
+            table: Union[TableSymbol, TableAliasSymbol] = self
+            while isinstance(table, TableAliasSymbol):
+                table = table.table
+            field = table.table.get_field(name)
+
+            if isinstance(field, JoinedTable):
+                return LazyTableSymbol(table=self, field=name, joined_table=field)
             return FieldSymbol(name=name, table=self)
-        return self.table.get_child(name)
+        raise ValueError(f"Field not found: {name}")
+
+
+class LazyTableSymbol(Symbol):
+    table: Union[TableSymbol, TableAliasSymbol, "LazyTableSymbol"]
+    field: str
+    joined_table: JoinedTable
+
+    def has_child(self, name: str) -> bool:
+        return self.joined_table.table.has_field(name)
+
+    def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return SplashSymbol(table=self)
+        if self.has_child(name):
+            field = self.joined_table.table.get_field(name)
+            if isinstance(field, JoinedTable):
+                return LazyTableSymbol(table=self, field=name, joined_table=field)
+            return FieldSymbol(name=name, table=self)
+        raise ValueError(f"Field not found: {name}")
 
 
 class SelectQuerySymbol(Symbol):
@@ -139,13 +141,12 @@ class SelectQueryAliasSymbol(Symbol):
     def get_child(self, name: str) -> Symbol:
         if self.symbol.has_child(name):
             return FieldSymbol(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
+        raise ValueError(f"Field {name} not found on query with alias {self.name}")
 
     def has_child(self, name: str) -> bool:
         return self.symbol.has_child(name)
 
 
-SelectQuerySymbol.update_forward_refs(SelectQuerySymbol=SelectQuerySymbol)
 SelectQuerySymbol.update_forward_refs(SelectQueryAliasSymbol=SelectQueryAliasSymbol)
 
 
@@ -178,8 +179,8 @@ class FieldSymbol(Symbol):
         database_field = self.resolve_database_field()
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
-        if isinstance(database_field, Table):
-            return FieldSymbol(name=name, table=TableSymbol(table=database_field))
+        if isinstance(database_field, JoinedTable):
+            return FieldSymbol(name=name, table=LazyTableSymbol(table=self, field=name, joined_table=database_field))
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertySymbol(name=name, parent=self)
         raise ValueError(

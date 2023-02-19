@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from pydantic import BaseModel, Extra
 
@@ -10,7 +10,7 @@ class DatabaseField(BaseModel):
         extra = Extra.forbid
 
     name: str
-    array: bool = False
+    array: Optional[bool]
 
 
 class IntegerDatabaseField(DatabaseField):
@@ -84,12 +84,53 @@ class PersonsTable(Table):
         return "person"
 
 
+def join_with_persons_table(from_table: str, to_table: str, requested_fields: List[str]):
+    from posthog.hogql import ast
+
+    if not requested_fields:
+        raise ValueError("No fields requested from persons table. Why are we joining it?")
+
+    # contains the list of fields we will select from this table
+    fields_to_select: List[ast.Expr] = []
+
+    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+        name="argMax", args=[field, ast.Field(chain=["version"])]
+    )
+    for field in requested_fields:
+        if field != "id":
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+
+    id = ast.Field(chain=["id"])
+
+    return ast.JoinExpr(
+        join_type="INNER JOIN",
+        table=ast.SelectQuery(
+            select=fields_to_select + [id],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["persons"])),
+            group_by=[id],
+            having=ast.CompareOperation(
+                op=ast.CompareOperationType.Eq,
+                left=argmax_version(ast.Field(chain=["is_deleted"])),
+                right=ast.Constant(value=0),
+            ),
+        ),
+        alias=to_table,
+        constraint=ast.CompareOperation(
+            op=ast.CompareOperationType.Eq,
+            left=ast.Field(chain=[from_table, "person_id"]),
+            right=ast.Field(chain=[to_table, "id"]),
+        ),
+    )
+
+
 class PersonDistinctIdTable(Table):
     team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
     distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
     person_id: StringDatabaseField = StringDatabaseField(name="person_id")
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+
+    person: JoinedTable = JoinedTable(table=PersonsTable(), join_function=join_with_persons_table)
 
     def get_splash(self) -> Dict[str, DatabaseField]:
         splash: Dict[str, DatabaseField] = {}
@@ -102,17 +143,7 @@ class PersonDistinctIdTable(Table):
         return "person_distinct_id2"
 
 
-class EventsPersonSubTable(Table):
-    id: StringDatabaseField = StringDatabaseField(name="person_id")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
-    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
-
-    def clickhouse_table(self):
-        # This is a bit of a hack to make sure person.properties.x works
-        return "events"
-
-
-def join_with_max_person_distinct_id_table(base_table_alias: str, pdi_alias: str, requested_fields: List[str]):
+def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: List[str]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -121,12 +152,12 @@ def join_with_max_person_distinct_id_table(base_table_alias: str, pdi_alias: str
     # contains the list of fields we will select from this table
     fields_to_select: List[ast.Expr] = []
 
-    max_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
+    argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
     for field in requested_fields:
         if field != "distinct_id":
-            fields_to_select.append(ast.Alias(alias=field, expr=max_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
 
     distinct_id = ast.Field(chain=["distinct_id"])
 
@@ -138,15 +169,15 @@ def join_with_max_person_distinct_id_table(base_table_alias: str, pdi_alias: str
             group_by=[distinct_id],
             having=ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
-                left=max_version(ast.Field(chain=["is_deleted"])),
+                left=argmax_version(ast.Field(chain=["is_deleted"])),
                 right=ast.Constant(value=0),
             ),
         ),
-        alias=pdi_alias,
+        alias=to_table,
         constraint=ast.CompareOperation(
             op=ast.CompareOperationType.Eq,
-            left=ast.Field(chain=[base_table_alias, "distinct_id"]),
-            right=ast.Field(chain=[pdi_alias, "distinct_id"]),
+            left=ast.Field(chain=[from_table, "distinct_id"]),
+            right=ast.Field(chain=[to_table, "distinct_id"]),
         ),
     )
 
@@ -160,7 +191,6 @@ class EventsTable(Table):
     distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    person: EventsPersonSubTable = EventsPersonSubTable()
 
     pdi: JoinedTable = JoinedTable(table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table)
 
