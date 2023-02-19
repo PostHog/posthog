@@ -6,7 +6,7 @@ import { format } from 'sql-formatter'
 
 function formatSQL(sql: string): string {
     return format(sql, {
-        language: 'sql',
+        language: 'mysql',
         tabWidth: 2,
         keywordCase: 'preserve',
         linesBetweenQueries: 2,

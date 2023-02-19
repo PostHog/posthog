@@ -26,7 +26,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                         <MonacoEditor
                             theme="vs-light"
                             className="border"
-                            language="sql"
+                            language="mysql"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height={height}
