@@ -1,4 +1,4 @@
-import { LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
@@ -12,6 +12,8 @@ export function NewDashboardTemplate(): JSX.Element {
 
     const { setOpenNewDashboardTemplateModal } = useActions(newDashboardTemplateLogic)
     const { isOpenNewDashboardTemplateModal } = useValues(newDashboardTemplateLogic)
+
+    const { createDashboardTemplate } = useActions(newDashboardTemplateLogic)
 
     // const [queryInput, setQueryInput] = useState('hello')
 
@@ -47,6 +49,17 @@ export function NewDashboardTemplate(): JSX.Element {
                 onChange={(v) => setDashboardTemplateJSON(v ?? '')}
                 height={500}
             />
+            <div className="flex justify-end">
+                <LemonButton
+                    onClick={() => {
+                        createDashboardTemplate(dashboardTemplateJSON)
+                        setOpenNewDashboardTemplateModal(false)
+                    }}
+                    // align the button right
+                >
+                    Create new template
+                </LemonButton>
+            </div>
         </LemonModal>
     )
 }

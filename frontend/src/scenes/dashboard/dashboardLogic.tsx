@@ -628,6 +628,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   }
                                   throw new Error('Unknown tile type')
                               }),
+                              variables: [],
                           },
                           undefined,
                           4
