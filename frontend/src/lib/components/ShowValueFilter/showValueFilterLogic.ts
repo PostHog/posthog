@@ -41,7 +41,7 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>([
         ],
         disabled: [
             (s) => [s.filters, s.canEditInsight],
-            ({ insight }, canEditInsight) => !canEditInsight || insight === InsightType.TRENDS,
+            ({ insight }, canEditInsight) => !canEditInsight || insight !== InsightType.TRENDS,
         ],
     }),
 
