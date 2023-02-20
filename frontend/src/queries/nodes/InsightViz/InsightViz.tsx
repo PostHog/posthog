@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import clsx from 'clsx'
 
@@ -12,25 +12,26 @@ import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
-import { ItemMode } from '~/types'
+import { InsightLogicProps, ItemMode } from '~/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+
+/** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
+export const insightVizDataNodeKey = (insightProps: InsightLogicProps): string => {
+    return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
+}
 
 type InsightVizProps = {
     query: InsightVizNode
     setQuery?: (node: InsightVizNode) => void
 }
 
-let uniqueNode = 0
-
 export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
-    // TODO use same key as insight props
-    const [key] = useState(() => `InsightViz.${uniqueNode++}`)
-
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
-    const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
-
     // get values and actions from bound insight logic
-    const { insight, hasDashboardItemId } = useValues(insightLogic)
+    const { insightProps, insight, hasDashboardItemId } = useValues(insightLogic)
     const { setInsight, setLastRefresh } = useActions(insightLogic)
+
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
+    const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
 
