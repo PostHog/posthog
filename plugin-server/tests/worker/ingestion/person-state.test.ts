@@ -2249,20 +2249,22 @@ describe('person id overrides', () => {
         const originalPostgresQuery = hub.db.postgresQuery.bind(hub.db)
         const mockPostgresQuery = jest
             .spyOn(hub.db, 'postgresQuery')
-            .mockImplementation(async (query: string, values: any[] | undefined, tag: string, ...args: any[]) => {
+            .mockImplementation(async (query: any, values: any[] | undefined, tag: string, ...args: any[]) => {
                 if (tag === 'transitivePersonOverrides') {
                     throw new Error('Conflict')
                 }
                 return await originalPostgresQuery(query, values, tag, ...args)
             })
 
-        await updatePersonStateFromEvent({
-            event: '$identify',
-            distinct_id: 'first',
-            properties: {
-                $anon_distinct_id: 'second',
-            },
-        })
+        await expect(
+            updatePersonStateFromEvent({
+                event: '$identify',
+                distinct_id: 'first',
+                properties: {
+                    $anon_distinct_id: 'second',
+                },
+            })
+        ).rejects.toThrow()
 
         // verify Postgres persons
         const personsAfterFailure = await fetchPostgresPersons()
@@ -2291,8 +2293,8 @@ describe('person id overrides', () => {
         expect(distinctIdsAfterFailure).toEqual(distinctIdsBeforeMergeAttempt)
 
         // verify Postgres person_id overrides
-        const overridesfterFailure = await fetchPersonIdOverrides()
-        expect(overridesfterFailure).toEqual(overridesBeforeMergeAttempt)
+        const overridesAfterFailure = await fetchPersonIdOverrides()
+        expect(overridesAfterFailure).toEqual(overridesBeforeMergeAttempt)
 
         // Now verify we successfully get to our target state if we do not have
         // any db errors.
@@ -2339,7 +2341,7 @@ describe('person id overrides', () => {
         })
     })
 
-    it('does not commit partial transactions on concurrent updates to personoverrides', async () => {
+    it('handles a chain of overrides being applied concurrently', async () => {
         await updatePersonStateFromEvent({
             event: 'event',
             distinct_id: 'first',
@@ -2350,121 +2352,178 @@ describe('person id overrides', () => {
             distinct_id: 'second',
         })
 
-        const [first, second] = await fetchPostgresPersons()
+        await updatePersonStateFromEvent({
+            event: 'event',
+            distinct_id: 'third',
+        })
 
-        const personsBeforeMergeAttempt = await fetchPostgresPersons()
-        const distinctIdsBeforeMergeAttempt = await fetchDistinctIds()
-        const overridesBeforeMergeAttempt = await fetchPersonIdOverrides()
+        const [first, second, third] = await fetchPostgresPersons()
 
         // We want to simulate a concurrent update to person_overrides. We do
-        // this by inserting a row into personoverrides that will cause a
-        // conflict when we try to insert a row that will cause a conflict based
-        // on the `old_person_id_different_from_override_person_id` CHECK
-        // constraint on this table.
-        const originalPostgresQuery = hub.db.postgresQuery.bind(hub.db)
-        const mockPostgresQuery = jest
-            .spyOn(hub.db, 'postgresQuery')
-            .mockImplementation(async (query: string, values: any[] | undefined, tag: string, ...args: any[]) => {
-                if (tag === 'transitivePersonOverrides') {
-                    const [teamId, oldPersonUuid, overridePersonUuid] = values || []
-                    const result = await hub.db.postgres.query(
-                        `
-                            INSERT INTO posthog_personoverride (
-                                team_id, 
-                                old_person_id, 
-                                override_person_id, 
-                                oldest_event,
-                                version
-                            ) VALUES ($1, $2, $3, $4, $5)
-                            RETURNING *;
-                        `,
-                        [teamId, overridePersonUuid, oldPersonUuid, first.created_at, 1]
-                    )
-                    console.log(result)
-                }
-                return await originalPostgresQuery(query, values, tag, ...args)
-            })
+        // this by first mocking the implementation to block at a certain point
+        // in the transaction, then running the updatePersonStateFromEvent
+        // function twice. We then wait for them to block before letting them
+        // resume.
+        let resumeExecution: (value: unknown) => void
+
+        const postgresTransaction = hub.db.postgresTransaction.bind(hub.db)
+        jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(async (tag: string, transaction: any) => {
+            if (tag === 'mergePeople') {
+                return await postgresTransaction(tag, async (client) => {
+                    if (resumeExecution) {
+                        resumeExecution(undefined)
+                    } else {
+                        await new Promise((resolve) => {
+                            resumeExecution = resolve
+                        })
+                    }
+
+                    return await transaction(client)
+                })
+            } else {
+                return await postgresTransaction(tag, transaction)
+            }
+        })
+
+        await expect(
+            Promise.all([
+                updatePersonStateFromEvent({
+                    event: '$identify',
+                    distinct_id: 'second',
+                    properties: {
+                        $anon_distinct_id: 'first',
+                    },
+                }),
+                updatePersonStateFromEvent({
+                    event: '$identify',
+                    distinct_id: 'third',
+                    properties: {
+                        $anon_distinct_id: 'second',
+                    },
+                }),
+            ])
+        ).rejects.toThrow()
+
+        await Promise.all([
+            updatePersonStateFromEvent({
+                event: '$identify',
+                distinct_id: 'second',
+                properties: {
+                    $anon_distinct_id: 'first',
+                },
+            }),
+            updatePersonStateFromEvent({
+                event: '$identify',
+                distinct_id: 'third',
+                properties: {
+                    $anon_distinct_id: 'second',
+                },
+            }),
+        ])
+
+        // verify Postgres persons
+        const personsAfterFailure = await fetchPostgresPersons()
+        expect(personsAfterFailure).toEqual([
+            expect.objectContaining({
+                id: third.id,
+                uuid: third.uuid,
+                properties: third.properties,
+                created_at: third.created_at,
+                // TODO: fix this. It seems that we update some person
+                // properties. In this case we'll raised an error,
+                // successfully updated distinct_ids and overrides but then
+                // will not send messages to Kafka. If there is logic that
+                // relies on e.g. is_identified being false, we will also
+                // end up not running the same logic even if we did have a
+                // retry.
+                // is_identified: person.is_identified,
+                // version: person.version,
+            }),
+        ])
+
+        // verify Postgres distinct_ids
+        const distinctIdsAfterFailure = await fetchDistinctIds()
+        expect(distinctIdsAfterFailure).toEqual([
+            ['first', third.id],
+            ['second', third.id],
+            ['third', third.id],
+        ])
+
+        // verify Postgres person_id overrides
+        const overridesfterFailure = await fetchPersonIdOverrides()
+        expect(overridesfterFailure).toEqual([
+            [first.uuid, third.uuid],
+            [second.uuid, third.uuid],
+        ])
+    })
+
+    it('handles a chain of overrides being applied out of order', async () => {
+        await updatePersonStateFromEvent({
+            event: 'event',
+            distinct_id: 'first',
+        })
+
+        await updatePersonStateFromEvent({
+            event: 'event',
+            distinct_id: 'second',
+        })
+
+        await updatePersonStateFromEvent({
+            event: 'event',
+            distinct_id: 'third',
+        })
+
+        const [first, second, third] = await fetchPostgresPersons()
 
         await updatePersonStateFromEvent({
             event: '$identify',
-            distinct_id: 'first',
+            distinct_id: 'third',
             properties: {
                 $anon_distinct_id: 'second',
             },
         })
 
+        await updatePersonStateFromEvent({
+            event: '$identify',
+            distinct_id: 'second',
+            properties: {
+                $anon_distinct_id: 'first',
+            },
+        })
+
         // verify Postgres persons
-        // const personsAfterFailure = await fetchPostgresPersons()
-        // expect(personsAfterFailure).toEqual(
-        //     personsBeforeMergeAttempt.map((person) =>
-        //         expect.objectContaining({
-        //             id: person.id,
-        //             uuid: person.uuid,
-        //             properties: person.properties,
-        //             created_at: person.created_at,
-        //             // TODO: fix this. It seems that we update some person
-        //             // properties. In this case we'll raised an error,
-        //             // successfully updated distinct_ids and overrides but then
-        //             // will not send messages to Kafka. If there is logic that
-        //             // relies on e.g. is_identified being false, we will also
-        //             // end up not running the same logic even if we did have a
-        //             // retry.
-        //             // is_identified: person.is_identified,
-        //             // version: person.version,
-        //         })
-        //     )
-        // )
+        const personsAfterFailure = await fetchPostgresPersons()
+        expect(personsAfterFailure).toEqual([
+            expect.objectContaining({
+                id: third.id,
+                uuid: third.uuid,
+                properties: third.properties,
+                created_at: third.created_at,
+                // TODO: fix this. It seems that we update some person
+                // properties. In this case we'll raised an error,
+                // successfully updated distinct_ids and overrides but then
+                // will not send messages to Kafka. If there is logic that
+                // relies on e.g. is_identified being false, we will also
+                // end up not running the same logic even if we did have a
+                // retry.
+                // is_identified: person.is_identified,
+                // version: person.version,
+            }),
+        ])
 
         // verify Postgres distinct_ids
-        // const distinctIdsAfterFailure = await fetchDistinctIds()
-        // expect(distinctIdsAfterFailure).toEqual(distinctIdsBeforeMergeAttempt)
+        const distinctIdsAfterFailure = await fetchDistinctIds()
+        expect(distinctIdsAfterFailure).toEqual([
+            ['first', third.id],
+            ['second', third.id],
+            ['third', third.id],
+        ])
 
         // verify Postgres person_id overrides
         const overridesfterFailure = await fetchPersonIdOverrides()
-        expect(overridesfterFailure).toEqual(overridesBeforeMergeAttempt)
-
-        // Now verify we successfully get to our target state if we do not have
-        // any db errors.
-        mockPostgresQuery.mockRestore()
-
-        // await updatePersonStateFromEvent({
-        //     event: '$identify',
-        //     distinct_id: 'first',
-        //     properties: {
-        //         $anon_distinct_id: 'second',
-        //     },
-        // })
-
-        // // verify Postgres persons
-        // const persons = await fetchPostgresPersons()
-        // expect(persons).toEqual([
-        //     expect.objectContaining({
-        //         id: expect.any(Number),
-        //         uuid: expect.any(String),
-        //         properties: {},
-        //         created_at: timestamp.toISO(),
-        //         is_identified: true,
-        //     }),
-        // ])
-
-        // // verify Postgres distinct_ids
-        // const distinctIds = await fetchDistinctIds()
-        // expect(distinctIds).toEqual([
-        //     ['first', persons[0].id],
-        //     ['second', persons[0].id],
-        // ])
-
-        // // verify Postgres person_id overrides
-        // const overrides = await fetchPersonIdOverrides()
-        // expect(overrides).toEqual([[second.uuid, first.uuid]])
-
-        // // verify running merge again doesn't change the state
-        // await updatePersonStateFromEvent({
-        //     event: '$identify',
-        //     distinct_id: 'first',
-        //     properties: {
-        //         $anon_distinct_id: 'second',
-        //     },
-        // })
+        expect(overridesfterFailure).toEqual([
+            [first.uuid, third.uuid],
+            [second.uuid, third.uuid],
+        ])
     })
 })
