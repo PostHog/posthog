@@ -187,17 +187,16 @@ export function EditableDisplay(): JSX.Element {
 }
 
 export function EditableDisplayWithPreselection(): JSX.Element {
-    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} />
-}
-
-export function WithUniquenessCheck(): JSX.Element {
     return (
         <HTMLElementsDisplay
             startingSelector={'div div.SideBar LemonButton__content span.text-default'}
             elements={elementsExample}
             highlight={false}
             editable={true}
-            checkUniqueness={true}
         />
     )
+}
+
+export function WithUniquenessCheck(): JSX.Element {
+    return <HTMLElementsDisplay elements={elementsExample} highlight={false} editable={true} checkUniqueness={true} />
 }

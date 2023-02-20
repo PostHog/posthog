@@ -1,8 +1,8 @@
 import { ElementType } from '~/types'
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
 import './SelectableElement.scss'
-type SelectedParts = Record<string, string | Set<string> | undefined>
+import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import { objectsEqual } from 'lib/utils'
 
 export function TagPart({
     tagName,
@@ -11,8 +11,8 @@ export function TagPart({
     readonly,
 }: {
     tagName: string
-    selectedParts: SelectedParts
-    onChange: (s: SelectedParts) => void
+    selectedParts: ParsedCSSSelector
+    onChange: (s: ParsedCSSSelector) => void
     readonly: boolean
 }): JSX.Element {
     const hoverSelector = readonly ? '' : 'hover:underline'
@@ -39,8 +39,8 @@ function IdPart({
     readonly,
 }: {
     id: string | undefined
-    selectedParts: SelectedParts
-    onChange: (s: SelectedParts) => void
+    selectedParts: ParsedCSSSelector
+    onChange: (s: ParsedCSSSelector) => void
     readonly: boolean
 }): JSX.Element | null {
     const hoverSelector = readonly ? '' : 'hover:underline'
@@ -70,8 +70,8 @@ function AttributeValue({
 }: {
     attribute: string
     value: string
-    selectedParts: SelectedParts
-    onChange: (s: SelectedParts) => void
+    selectedParts: ParsedCSSSelector
+    onChange: (s: ParsedCSSSelector) => void
     readonly: boolean
     allowMultipleSelections?: boolean
 }): JSX.Element {
@@ -81,22 +81,22 @@ function AttributeValue({
     const isSelected =
         !readonly &&
         (allowMultipleSelections
-            ? selectionContainer instanceof Set && selectionContainer.has(value)
+            ? Array.isArray(selectionContainer) && selectionContainer.includes(value)
             : selectionContainer === value)
 
     function multipleSelectionsOnChange(): void {
         if (!selectionContainer) {
-            onChange({ ...selectedParts, [attribute]: new Set([value]) })
-        } else if (selectionContainer instanceof Set) {
-            if (selectionContainer.has(value)) {
+            onChange({ ...selectedParts, [attribute]: [value] })
+        } else if (Array.isArray(selectionContainer)) {
+            if (selectionContainer.includes(value)) {
                 onChange({
                     ...selectedParts,
-                    [attribute]: new Set(Array.from(selectionContainer).filter((p) => p !== value)),
+                    [attribute]: selectionContainer.filter((p) => p !== value),
                 })
             } else {
                 onChange({
                     ...selectedParts,
-                    [attribute]: new Set([...Array.from(selectionContainer), value]),
+                    [attribute]: [...selectionContainer, value],
                 })
             }
         }
@@ -129,8 +129,8 @@ function AttributePart({
 }: {
     attribute: string
     values: string[]
-    selectedParts: SelectedParts
-    onChange: (s: SelectedParts) => void
+    selectedParts: ParsedCSSSelector
+    onChange: (s: ParsedCSSSelector) => void
     readonly: boolean
     allowMultipleSelections?: boolean
 }): JSX.Element {
@@ -163,46 +163,21 @@ export function SelectableElement({
     readonly,
     indent,
     highlight,
+    parsedCSSSelector,
 }: {
     element: ElementType
     isDeepestChild: boolean
-    onChange: (selector: string) => void
+    onChange: (selector: ParsedCSSSelector) => void
     readonly: boolean
     indent: string
     highlight?: boolean
+    parsedCSSSelector?: ParsedCSSSelector
 }): JSX.Element {
-    const [selectedParts, setSelectedParts] = useState<SelectedParts>({})
-
-    useEffect(() => {
-        const attributeSelectors = Object.entries(selectedParts).reduce((acc, [key, value]) => {
-            if (!!value && key !== 'tag' && key !== 'text') {
-                if (key === 'class') {
-                    if (!(value instanceof Set)) {
-                        throw new Error(`Was expecting a set here. Attribute: ${key} has a string value: ${value}`)
-                    } else if (value.size > 0) {
-                        acc.push(`.${Array.from(value).join('.')}`)
-                    }
-                } else {
-                    if (value instanceof Set) {
-                        throw new Error(
-                            `Not expecting a set here. Attribute: ${key} has a set value: ${Array.from(value).join(
-                                ', '
-                            )}`
-                        )
-                    } else {
-                        acc.push(`[${key}="${value}"]`)
-                    }
-                }
-            }
-            return acc
-        }, [] as string[])
-
-        const tagSelector = selectedParts.tag ? selectedParts.tag : ''
-        const idSelector = selectedParts.id ? `[id="${selectedParts.id}"]` : ''
-        const builtSelector = `${tagSelector}${idSelector}${attributeSelectors.join('')}`
-
-        onChange(builtSelector)
-    }, [selectedParts])
+    const setParsedCSSSelector = (newParsedCSSSelector: ParsedCSSSelector): void => {
+        if (!objectsEqual(newParsedCSSSelector, parsedCSSSelector)) {
+            onChange(newParsedCSSSelector)
+        }
+    }
 
     return (
         <pre
@@ -215,16 +190,16 @@ export function SelectableElement({
             &lt;
             <TagPart
                 tagName={element.tag_name}
-                selectedParts={selectedParts}
+                selectedParts={parsedCSSSelector || ({} as ParsedCSSSelector)}
                 readonly={readonly}
-                onChange={setSelectedParts}
+                onChange={setParsedCSSSelector}
             />
             {element.attr_id && ' '}
             <IdPart
                 id={element.attr_id}
-                selectedParts={selectedParts}
+                selectedParts={parsedCSSSelector || ({} as ParsedCSSSelector)}
                 readonly={readonly}
-                onChange={setSelectedParts}
+                onChange={setParsedCSSSelector}
             />
             {Object.entries(element.attributes ?? {})
                 .filter(([key]) => key !== 'style' && key !== 'value')
@@ -235,8 +210,8 @@ export function SelectableElement({
                             key={`${indent.length}-${element.tag_name}-${attrName}-${value}`}
                             attribute={attrName}
                             values={value.split(' ')}
-                            selectedParts={selectedParts}
-                            onChange={setSelectedParts}
+                            selectedParts={parsedCSSSelector || ({} as ParsedCSSSelector)}
+                            onChange={setParsedCSSSelector}
                             readonly={readonly}
                             allowMultipleSelections={attrName === 'class'}
                         />

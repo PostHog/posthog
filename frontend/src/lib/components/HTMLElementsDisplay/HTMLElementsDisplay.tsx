@@ -5,6 +5,7 @@ import { htmlElementsDisplayLogic } from 'lib/components/HTMLElementsDisplay/htm
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
@@ -31,19 +32,20 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
 
 function Tags({
     elements,
+    parsedCSSSelectors,
     highlight,
     editable,
     onChange,
 }: {
     elements: ElementType[]
+    parsedCSSSelectors: Record<number, ParsedCSSSelector>
     highlight: boolean
     editable: boolean
-    onChange: (i: number, s: string) => void
+    onChange: (i: number, s: ParsedCSSSelector) => void
 }): JSX.Element {
     return (
         <>
             {elements.map((element, index) => {
-                debugger
                 return (
                     <SelectableElement
                         key={`${element.tag_name}-${index}`}
@@ -53,6 +55,7 @@ function Tags({
                         readonly={!editable}
                         indent={indent(index)}
                         highlight={highlight}
+                        parsedCSSSelector={parsedCSSSelectors[index]}
                     />
                 )
             })}
@@ -93,8 +96,8 @@ export function HTMLElementsDisplay({
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
-    const { selectors, chosenSelector, messageStatus, elements } = useValues(logic)
-    const { setSelectors } = useActions(logic)
+    const { parsedSelectors, chosenSelector, messageStatus, elements } = useValues(logic)
+    const { setParsedSelectors } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-1">
@@ -121,7 +124,8 @@ export function HTMLElementsDisplay({
                             elements={elements}
                             highlight={highlight}
                             editable={editable}
-                            onChange={(index, s) => setSelectors({ ...selectors, [index]: s })}
+                            parsedCSSSelectors={parsedSelectors}
+                            onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
                         />
                         <CloseAllTags elements={elements} />
                     </>

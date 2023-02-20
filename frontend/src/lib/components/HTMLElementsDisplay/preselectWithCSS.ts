@@ -2,6 +2,34 @@ import { ElementType } from '~/types'
 
 export type ParsedCSSSelector = Record<string, string | string[] | undefined>
 
+export const parsedSelectorToSelectorString = (parsedSelector: ParsedCSSSelector): string => {
+    const attributeSelectors = Object.entries(parsedSelector).reduce((acc, [key, value]) => {
+        if (!!value && key !== 'tag' && key !== 'text') {
+            if (key === 'class') {
+                if (!Array.isArray(value)) {
+                    throw new Error(`Was expecting an array here. Attribute: ${key} has a string value: ${value}`)
+                } else if (value.length > 0) {
+                    acc.push(`.${Array.from(value).join('.')}`)
+                }
+            } else {
+                if (Array.isArray(value)) {
+                    throw new Error(
+                        `Not expecting an array here. Attribute: ${key} has an array value: ${value.join(', ')}`
+                    )
+                } else {
+                    acc.push(`[${key}="${value}"]`)
+                }
+            }
+        }
+        return acc
+    }, [] as string[])
+
+    const tagSelector = parsedSelector.tag ? parsedSelector.tag : ''
+    const idSelector = parsedSelector.id ? `[id="${parsedSelector.id}"]` : ''
+    const builtSelector = `${tagSelector}${idSelector}${attributeSelectors.join('')}`
+    return builtSelector
+}
+
 export const parseCSSSelector = (s: string): ParsedCSSSelector => {
     const parts = {} as ParsedCSSSelector
     let processing: string | undefined = undefined
@@ -106,10 +134,7 @@ export const matchesSelector = (e: ElementType, s: ParsedCSSSelector): boolean =
     return selectorKeysMatch.length >= Object.keys(s).length && selectorKeysMatch.every((m) => m)
 }
 
-export function preselect(
-    elements: ElementType[],
-    autoSelector: string
-): Record<number, Record<string, string | string[] | undefined>> {
+export function preselect(elements: ElementType[], autoSelector: string): Record<number, ParsedCSSSelector> {
     const selectors = autoSelector
         .split(' ')
         .map((selector) => {
