@@ -300,7 +300,8 @@ const HogQL: HogQLQuery = {
         '     from events\n' +
         ' group by event,\n' +
         '          properties.$geoip_country_name\n' +
-        ' order by count() desc',
+        ' order by count() desc\n' +
+        '    limit 100',
 }
 
 const HogQLTable: DataTableNode = {
