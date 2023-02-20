@@ -56,12 +56,12 @@ export function NewDashboardTemplate({ inline = false }: { inline: boolean }): J
                             },
                             dashboard_filters: {
                                 description: 'The filters of the dashboard template',
-                                type: 'object',
+                                type: 'object', // TODO: add schema for filters
                             },
                             tiles: {
                                 description: 'The tiles of the dashboard template',
                                 type: 'array',
-                                items: 'object',
+                                items: 'object', // TODO: add schema for tiles
                             },
                             variables: {
                                 description: 'The variables of the dashboard template',
@@ -84,7 +84,7 @@ export function NewDashboardTemplate({ inline = false }: { inline: boolean }): J
                                         },
                                         default: {
                                             description: 'The default value of the variable',
-                                            type: 'object',
+                                            type: 'object', // TODO: add schema for default value
                                         },
                                         description: {
                                             description: 'The description of the variable',
