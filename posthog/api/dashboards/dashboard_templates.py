@@ -40,6 +40,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             "deleted",
             "created_at",
             "created_by",
+            "image_url",
             "name",  # TODO: remove
             "url",  # TODO: remove
         ]

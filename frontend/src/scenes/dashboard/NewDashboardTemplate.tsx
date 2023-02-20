@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { newDashboardTemplateLogic } from './NewDashboardTemplateLogic'
 
-export function NewDashboardTemplate({ inline = false }: { inline: boolean }): JSX.Element {
+export function NewDashboardTemplate({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
 
     const { dashboardTemplateJSON, validationError } = useValues(newDashboardTemplateLogic)
@@ -48,6 +48,10 @@ export function NewDashboardTemplate({ inline = false }: { inline: boolean }): J
                             created_at: {
                                 description: 'When the dashboard template was created',
                                 type: 'string',
+                            },
+                            image_url: {
+                                description: 'The image of the dashboard template',
+                                type: ['string', 'null'],
                             },
                             dashboard_description: {
                                 description: 'The description of the dashboard template',

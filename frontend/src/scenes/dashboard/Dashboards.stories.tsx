@@ -9,6 +9,7 @@ import { useAvailableFeatures } from '~/mocks/features'
 import { AvailableFeature, DashboardMode } from '~/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 export default {
     title: 'Scenes-App/Dashboards',
@@ -39,12 +40,75 @@ export const List = (): JSX.Element => {
     return <App />
 }
 
+// export interface DashboardTemplateType {
+//     id?: string
+//     team_id?: number
+//     created_at?: string
+//     template_name: string
+//     dashboard_description: string
+//     dashboard_filters: Record<string, any>
+//     tiles: DashboardTile[]
+//     variables: DashboardTemplateVariableType[]
+//     tags: string[]
+//     image_url?: string
+// }
+
 export const New = (): JSX.Element => {
     useAvailableFeatures([])
     useEffect(() => {
         router.actions.push(urls.dashboards())
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
+        dashboardTemplatesLogic.mount()
+        dashboardTemplatesLogic.actions.setTemplates([
+            {
+                id: '1',
+                template_name: 'Simple Dashboard Template',
+                dashboard_description: 'A simple dashboard template',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [],
+                tags: [],
+                image_url:
+                    'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
+            },
+            {
+                id: '2',
+                template_name: 'Very long named dashboard template',
+                dashboard_description:
+                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [],
+                tags: [],
+                image_url:
+                    'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
+            },
+            {
+                id: '3',
+                template_name: 'Same again template',
+                dashboard_description:
+                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [],
+                tags: [],
+                image_url:
+                    'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
+            },
+            {
+                id: '4',
+                template_name: 'Same again template',
+                dashboard_description:
+                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [],
+                tags: [],
+                image_url:
+                    'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
+            },
+        ])
     }, [])
     return <App />
 }

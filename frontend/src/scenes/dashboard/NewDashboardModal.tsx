@@ -4,20 +4,36 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 // import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 // import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
-import { AppstoreAddOutlined } from '@ant-design/icons'
-import { Card } from 'antd'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
+import { DashboardTemplateType } from '~/types'
 
-function TemplateItem({ name, onClick }: { name: string; onClick: () => void }): JSX.Element {
+function TemplateItem({
+    template,
+    onClick,
+}: {
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
+    onClick: () => void
+}): JSX.Element {
     return (
-        <Card title={name} size="small" style={{ width: 200, cursor: 'pointer' }} onClick={onClick}>
-            <div style={{ textAlign: 'center', fontSize: 40 }}>
-                <AppstoreAddOutlined />
+        <div
+            className="cursor-pointer border-2 rounded"
+            onClick={onClick}
+            style={{
+                width: '240px',
+                height: '210px',
+            }}
+        >
+            <div className="w-full h-120 overflow-hidden">
+                <img className="w-full h-full object-cover" src={template?.image_url} alt="cover photo" />
             </div>
-        </Card>
+
+            <div className="p-2">
+                <p className="truncate mb-1">{template?.template_name}</p>
+                <p className="text-muted-alt text-xs line-clamp-2">{template?.dashboard_description ?? ' '}</p>
+            </div>
+        </div>
     )
 }
 
@@ -28,9 +44,8 @@ export function DashboardTemplatePreview(): JSX.Element {
 
     return (
         <div>
-            <h3>
-                Set up your <strong>{activeDashboardTemplate?.template_name}</strong> dashboard
-            </h3>
+            <h3>{activeDashboardTemplate?.template_name}</h3>
+            <h4>Set up the events for your dashboard.</h4>
 
             <hr />
 
@@ -46,7 +61,7 @@ export function DashboardTemplatePreview(): JSX.Element {
                     }}
                     type="primary"
                 >
-                    Create dashboard
+                    Create
                 </LemonButton>
             </div>
         </div>
@@ -58,30 +73,30 @@ export function DashboardTemplateChooser(): JSX.Element {
     // const { featureFlags } = useValues(featureFlagLogic)
     // const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
-    const { dashboardGroup } = useValues(newDashboardLogic)
-    const { setDashboardGroup, addDashboard } = useActions(newDashboardLogic)
+    // const { dashboardGroup } = useValues(newDashboardLogic)
+    // const { setDashboardGroup } = useActions(newDashboardLogic)
+    const { addDashboard } = useActions(newDashboardLogic)
 
     const { setActiveDashboardTemplate } = useActions(newDashboardLogic)
 
     // const templateGroups = ['Popular Templates', 'Team Templates', 'Your Templates', 'All Templates']
-    const templateGroups = [
-        {
-            label: 'Popular Templates',
-            key: 'popular',
-        },
-        {
-            label: 'Team Templates',
-            key: 'team',
-        },
-        {
-            label: 'All Templates',
-            key: 'all',
-        },
-    ]
+    // const templateGroups = [
+    //     {
+    //         label: 'Popular Templates',
+    //         key: 'popular',
+    //     },
+    //     {
+    //         label: 'Team Templates',
+    //         key: 'team',
+    //     },
+    //     {
+    //         label: 'All Templates',
+    //         key: 'all',
+    //     },
+    // ]
     return (
         <div>
-            <h3>Create a dashboard</h3>
-            <LemonTabs
+            {/* <LemonTabs
                 activeKey={dashboardGroup ?? 'popular'}
                 onChange={(key) => {
                     console.log(key)
@@ -93,18 +108,20 @@ export function DashboardTemplateChooser(): JSX.Element {
                     key: group.key,
                     content: <div />,
                 }))}
-            />
+            /> */}
             <div
-                className="flex justify-center items-center gap-4"
+                className="flex flex-wrap gap-4"
                 style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(3, 1fr)',
-                    gridTemplateRows: 'repeat(3, 1fr)',
-                    gap: '10px 10px',
+                    maxWidth: '780px',
                 }}
             >
                 <TemplateItem
-                    name="Blank dashboard"
+                    template={{
+                        template_name: 'Blank dashboard',
+                        dashboard_description: 'Create a blank dashboard',
+                        image_url:
+                            'https://posthog.com/static/e49bbe6af9a669f1c07617e5cd2e3229/a764f/marketing-hog.jpg',
+                    }}
                     onClick={() =>
                         addDashboard({
                             name: 'New Dashboard',
@@ -115,7 +132,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                 {allTemplates.map((template, index) => (
                     <TemplateItem
                         key={index}
-                        name={template.template_name}
+                        template={template}
                         onClick={() => setActiveDashboardTemplate(template)}
                     />
                 ))}
@@ -131,7 +148,16 @@ export function NewDashboardModal(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
 
     return (
-        <LemonModal onClose={hideNewDashboardModal} isOpen={newDashboardModalVisible} width={800}>
+        <LemonModal
+            onClose={hideNewDashboardModal}
+            isOpen={newDashboardModalVisible}
+            title={activeDashboardTemplate ? 'Set up your dashboard' : 'Create a dashboard'}
+            description={
+                activeDashboardTemplate
+                    ? 'Set up the events for your dashboard'
+                    : 'Choose a template or start with a blank slate'
+            }
+        >
             {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
         </LemonModal>
     )

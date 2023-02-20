@@ -1242,6 +1242,7 @@ export interface DashboardTemplateType {
     tiles: DashboardTile[]
     variables: DashboardTemplateVariableType[]
     tags: string[]
+    image_url?: string
 }
 
 export interface DashboardTemplateVariableType {

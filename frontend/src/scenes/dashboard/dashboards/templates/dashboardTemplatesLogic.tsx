@@ -1,4 +1,4 @@
-import { afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
@@ -9,6 +9,9 @@ import { DashboardTemplateType } from '~/types'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
+    actions({
+        setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
+    }),
     loaders({
         repository: [
             {} as Record<string, DashboardTemplatesRepositoryEntry>,
@@ -68,6 +71,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             [] as DashboardTemplateType[],
             {
                 getAllTemplatesSuccess: (_, { allTemplates }) => allTemplates,
+                setTemplates: (_, { allTemplates }) => allTemplates,
             },
         ],
     })),
