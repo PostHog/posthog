@@ -23,7 +23,12 @@ export function DashboardTemplateVariables(): JSX.Element {
     }, [activeDashboardTemplate])
 
     return (
-        <div className="mb-4">
+        <div
+            className="mb-4"
+            style={{
+                maxWidth: 600,
+            }}
+        >
             {variables.map((variable, index) => (
                 <div key={index} className="mb-6">
                     <div className="mb-2">
@@ -33,7 +38,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                         >
                             {variable.name}
                         </LemonLabel>
-                        <div className="text-sm text-muted">{variable.description}</div>
+                        <p className="text-sm text-muted">{variable.description}</p>
                     </div>
                     <div>
                         <ActionFilter

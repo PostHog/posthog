@@ -162,6 +162,19 @@ export const NewSelectVariables = (): JSX.Element => {
                 },
                 {
                     id: 'ACTIVATED',
+                    name: 'Very very long event name very very long. Very very long event name very very long',
+                    type: 'event',
+                    default: {
+                        id: '$pageview',
+                        math: 'dau',
+                        type: 'events',
+                    },
+                    required: true,
+                    description:
+                        'Very long description. Select the event which best represents when a user is activated. Select the event which best represents when a user is activated',
+                },
+                {
+                    id: 'ACTIVATED',
                     name: 'Activated event',
                     type: 'event',
                     default: {
