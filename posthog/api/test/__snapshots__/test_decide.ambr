@@ -222,12 +222,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -447,12 +449,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -593,7 +597,9 @@
 ---
 # name: TestDecide.test_flag_with_regular_cohorts.5
   '
-  SELECT ("posthog_person"."properties" -> '$some_prop_1') = '"something_1"' AS "flag_X_condition_0"
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'
+          AND "posthog_person"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null')) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id_1'
@@ -670,7 +676,9 @@
 ---
 # name: TestDecide.test_flag_with_regular_cohorts.8
   '
-  SELECT ("posthog_person"."properties" -> '$some_prop_1') = '"something_1"' AS "flag_X_condition_0"
+  SELECT (("posthog_person"."properties" -> '$some_prop_1') = '"something_1"'
+          AND "posthog_person"."properties" ? '$some_prop_1'
+          AND NOT (("posthog_person"."properties" -> '$some_prop_1') = 'null')) AS "flag_X_condition_0"
   FROM "posthog_person"
   INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
   WHERE ("posthog_persondistinctid"."distinct_id" = 'another_id'
