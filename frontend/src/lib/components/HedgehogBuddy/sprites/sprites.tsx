@@ -4,12 +4,12 @@ import hhSign from 'public/hedgehog/sprites/sign.png'
 import hhSpin from 'public/hedgehog/sprites/spin.png'
 import hhWalk from 'public/hedgehog/sprites/walk.png'
 import hhWave from 'public/hedgehog/sprites/wave.png'
-import hhFallXmas from 'public/hedgehog/sprites/fall-xmas.png'
-import hhJumpXmas from 'public/hedgehog/sprites/jump-xmas.png'
-import hhSignXmas from 'public/hedgehog/sprites/sign-xmas.png'
-import hhSpinXmas from 'public/hedgehog/sprites/spin-xmas.png'
-import hhWalkXmas from 'public/hedgehog/sprites/walk-xmas.png'
-import hhWaveXmas from 'public/hedgehog/sprites/wave-xmas.png'
+// import hhFallXmas from 'public/hedgehog/sprites/fall-xmas.png'
+// import hhJumpXmas from 'public/hedgehog/sprites/jump-xmas.png'
+// import hhSignXmas from 'public/hedgehog/sprites/sign-xmas.png'
+// import hhSpinXmas from 'public/hedgehog/sprites/spin-xmas.png'
+// import hhWalkXmas from 'public/hedgehog/sprites/walk-xmas.png'
+// import hhWaveXmas from 'public/hedgehog/sprites/wave-xmas.png'
 
 export const SPRITE_SIZE = 64
 export const SPRITE_SHEET_WIDTH = 512
@@ -68,49 +68,49 @@ export const standardAnimations: { [key: string]: SpriteInfo } = {
     },
 }
 
-// Copy-paste but its only for xmas sooo...
-export const xmasAnimations: { [key: string]: SpriteInfo } = {
-    stop: {
-        img: hhWaveXmas,
-        frames: 1,
-        maxIteration: 50,
-        randomChance: 1,
-    },
-    fall: {
-        img: hhFallXmas,
-        frames: 9,
-        forceDirection: 'left',
-        randomChance: 0,
-    },
-    jump: {
-        img: hhJumpXmas,
-        frames: 10,
-        maxIteration: 10,
-        randomChance: 2,
-    },
-    sign: {
-        img: hhSignXmas,
-        frames: 33,
-        maxIteration: 1,
-        forceDirection: 'right',
-        randomChance: 1,
-    },
-    spin: {
-        img: hhSpinXmas,
-        frames: 9,
-        maxIteration: 3,
-        randomChance: 2,
-    },
-    walk: {
-        img: hhWalkXmas,
-        frames: 11,
-        maxIteration: 20,
-        randomChance: 10,
-    },
-    wave: {
-        img: hhWaveXmas,
-        frames: 27,
-        maxIteration: 1,
-        randomChance: 2,
-    },
-}
+// NOTE: Xmas animations are currently disabled, but leaving this here for next Xmas
+// export const xmasAnimations: { [key: string]: SpriteInfo } = {
+//     stop: {
+//         img: hhWaveXmas,
+//         frames: 1,
+//         maxIteration: 50,
+//         randomChance: 1,
+//     },
+//     fall: {
+//         img: hhFallXmas,
+//         frames: 9,
+//         forceDirection: 'left',
+//         randomChance: 0,
+//     },
+//     jump: {
+//         img: hhJumpXmas,
+//         frames: 10,
+//         maxIteration: 10,
+//         randomChance: 2,
+//     },
+//     sign: {
+//         img: hhSignXmas,
+//         frames: 33,
+//         maxIteration: 1,
+//         forceDirection: 'right',
+//         randomChance: 1,
+//     },
+//     spin: {
+//         img: hhSpinXmas,
+//         frames: 9,
+//         maxIteration: 3,
+//         randomChance: 2,
+//     },
+//     walk: {
+//         img: hhWalkXmas,
+//         frames: 11,
+//         maxIteration: 20,
+//         randomChance: 10,
+//     },
+//     wave: {
+//         img: hhWaveXmas,
+//         frames: 27,
+//         maxIteration: 1,
+//         randomChance: 2,
+//     },
+// }
