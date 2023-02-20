@@ -500,7 +500,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         kafka_topic = settings.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW_TOPIC
     else:
         # If OVERFLOW is not enabled, we always produce to regular topic, as there will
-        # be no consumer to consume from it.
+        # be no consumer to consume from the overflow topic.
         kafka_topic = settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
     candidate_partition_key = f"{team_id}:{distinct_id}"
