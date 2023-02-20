@@ -44,7 +44,7 @@ def print_ast(
         # TODO: add joins to person and group tables
         pass
 
-    return Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
 @dataclass
@@ -53,7 +53,7 @@ class JoinExprResponse:
     where: Optional[ast.Expr] = None
 
 
-class Printer(Visitor):
+class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
@@ -327,7 +327,10 @@ class Printer(Visitor):
         raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
 
     def visit_alias(self, node: ast.Alias):
-        return f"{self.visit(node.expr)} AS {self._print_identifier(node.alias)}"
+        inside = self.visit(node.expr)
+        if isinstance(node.expr, ast.Alias):
+            inside = f"({inside})"
+        return f"{inside} AS {self._print_identifier(node.alias)}"
 
     def visit_table_symbol(self, symbol: ast.TableSymbol):
         return self._print_identifier(symbol.table.clickhouse_table())
@@ -349,10 +352,10 @@ class Printer(Visitor):
             if isinstance(resolved_field, Table):
                 # :KLUDGE: only works for events.person.* printing now
                 if isinstance(symbol.table, ast.TableSymbol):
-                    return self.visit(ast.SplashSymbol(table=ast.TableSymbol(table=resolved_field)))
+                    return self.visit(ast.AsteriskSymbol(table=ast.TableSymbol(table=resolved_field)))
                 else:
                     return self.visit(
-                        ast.SplashSymbol(
+                        ast.AsteriskSymbol(
                             table=ast.TableAliasSymbol(
                                 table=ast.TableSymbol(table=resolved_field), name=symbol.table.name
                             )
@@ -465,17 +468,17 @@ class Printer(Visitor):
     def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return self._print_identifier(symbol.name)
 
-    def visit_splash_symbol(self, symbol: ast.SplashSymbol):
+    def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
         table = symbol.table
         while isinstance(table, ast.TableAliasSymbol):
             table = table.table
         if not isinstance(table, ast.TableSymbol):
-            raise ValueError(f"Unknown SplashSymbol table type: {type(table).__name__}")
-        splash_fields = table.table.get_splash()
+            raise ValueError(f"Unknown AsteriskSymbol table type: {type(table).__name__}")
+        asterisk_fields = table.table.get_asterisk()
         prefix = (
             f"{self._print_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
         )
-        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field)}' for field in splash_fields)})"
+        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field)}' for field in asterisk_fields)})"
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")
