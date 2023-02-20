@@ -1,3 +1,4 @@
+import { monaco } from '@monaco-editor/react'
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -18,12 +19,27 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
         createDashboardTemplate: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
         setDashboardTemplateId: (id: string) => ({ id }),
         closeNewDashboardTemplateModal: true,
+        updateValidationErrors: (markers: monaco.editor.IMarker[] | undefined) => ({ markers }),
     }),
     reducers({
         dashboardTemplateJSON: [
             '' as string,
             {
                 setDashboardTemplateJSON: (_, { dashboardTemplateJSON }) => dashboardTemplateJSON,
+            },
+        ],
+        validationError: [
+            '' as string,
+            {
+                updateValidationErrors: (_, { markers }) => {
+                    if (!markers || markers.length === 0) {
+                        console.log('returning undefined')
+                        return ''
+                    } else {
+                        console.log('updated with markers', markers)
+                        return markers.map((marker) => marker.message).join(', ')
+                    }
+                },
             },
         ],
         isOpenNewDashboardTemplateModal: [
