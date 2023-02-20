@@ -86,6 +86,16 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     def list(self, request: request.Request, **kwargs) -> response.Response:
         return response.Response(DashboardTemplate.objects.filter(team_id=None).values())
 
+    def retrieve(self, request: request.Request, pk: str, **kwargs) -> response.Response:
+        template = DashboardTemplate.objects.get(team_id=None, id=pk)
+
+        if template.team_id is not None:
+            return response.Response(
+                status=status.HTTP_401_UNAUTHORIZED
+            )  # TODO check if should be unauthorized or is not found
+
+        return response.Response(DashboardTemplateSerializer(DashboardTemplate.objects.get(team_id=None, id=pk)).data)
+
     @timed("dashboard_templates.api_repository_load")
     @action(methods=["GET"], detail=False)
     def repository(self, request: request.Request, **kwargs) -> response.Response:

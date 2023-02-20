@@ -115,8 +115,6 @@ variable_template = {
 }
 
 
-
-
 class TestDashboardTemplates(APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -147,6 +145,25 @@ class TestDashboardTemplates(APIBaseTest):
 
         for key in keys_to_check:
             assert response.json()[0][key] == variable_template[key], f"key {key} failed"
+
+    def test_get_dashboard_template_by_id(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, f"{response} {response.json()}")
+
+        assert DashboardTemplate.objects.count() == 1
+        id = DashboardTemplate.objects.first().id
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{id}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        keys_to_check = ["template_name", "dashboard_description", "tags", "variables", "tiles", "dashboard_filters"]
+
+        for key in keys_to_check:
+            assert response.json()[key] == variable_template[key], f"key {key} failed"
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
