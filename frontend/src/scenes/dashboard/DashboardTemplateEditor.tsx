@@ -23,6 +23,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
         if (!monaco) {
             return
         }
+        // Would be better if this was dynamic and link to the dashboard template type or the backend
         monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
             validate: true,
             schemas: [
