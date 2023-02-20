@@ -24,13 +24,15 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
             status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
             const [hub, closeHub] = await createHub(config, threadId)
+
+            process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
+            process.on('uncaughtException', (error: Error) => processUnhandledRejections(error, hub))
+
             await setupPlugins(hub)
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 process.on(signal, closeHub)
             }
-
-            process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
 
             return createTaskRunner(hub)
         }
