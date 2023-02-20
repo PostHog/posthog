@@ -1,13 +1,15 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, kea, path, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplateType } from '~/types'
+import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 import type { newDashboardTemplateLogicType } from './NewDashboardTemplateLogicType'
 
 export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
     path(['scenes', 'dashboard', 'NewDashboardTemplateLogic']),
+    connect(dashboardTemplatesLogic),
     actions({
         setDashboardTemplateJSON: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
         setOpenNewDashboardTemplateModal: (openNewDashboardTemplateModal: boolean) => ({
@@ -63,6 +65,7 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
                         `/api/projects/@current/dashboard_templates/${id}`,
                         JSON.parse(values.dashboardTemplateJSON)
                     )
+
                     lemonToast.success('Dashboard template updated')
                     return JSON.stringify(response, null, 4)
                 },
@@ -75,5 +78,16 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
                 },
             },
         ],
+    })),
+    listeners(({}) => ({
+        createDashboardTemplateSuccess: async () => {
+            dashboardTemplatesLogic.actions.getAllTemplates()
+        },
+        updateDashboardTemplateSuccess: async () => {
+            dashboardTemplatesLogic.actions.getAllTemplates()
+        },
+        deleteDashboardTemplateSuccess: async () => {
+            dashboardTemplatesLogic.actions.getAllTemplates()
+        },
     })),
 ])
