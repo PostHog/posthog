@@ -215,7 +215,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
             // TRICKY: as soon as I comment in the block below, the subscription doesn't work any more,
             // i.e. when `response` changes, this method isn't called
-            // // TODO: remember why I guarded against !hasDashboardItemId here
+
             // actions.setInsight(
             //     {
             //         ...values.insight,
@@ -225,6 +225,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             //     },
             //     {}
             // )
+
             //     setLastRefresh(lastRefresh)
         },
     })),
