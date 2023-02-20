@@ -27,10 +27,10 @@ import {
     isLifecycleQuery,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { getBreakdown, getDisplay } from '~/queries/nodes/InsightViz/utils'
+import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
@@ -89,12 +89,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isLifecycle: [(s) => [s.querySource], (q) => isLifecycleQuery(q)],
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)],
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
+        supportsCompare: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
 
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
 
         dateRange: [(s) => [s.querySource], (q) => q.dateRange],
         breakdown: [(s) => [s.querySource], (q) => getBreakdown(q)],
         display: [(s) => [s.querySource], (q) => getDisplay(q)],
+        compare: [(s) => [s.querySource], (q) => getCompare(q)],
+        series: [(s) => [s.querySource], (q) => getSeries(q)],
+        interval: [(s) => [s.querySource], (q) => getInterval(q)],
 
         insightFilter: [(s) => [s.querySource], (q) => filterForQuery(q)],
         trendsFilter: [(s) => [s.querySource], (q) => (isTrendsQuery(q) ? q.trendsFilter : null)],
@@ -103,6 +107,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
         pathsFilter: [(s) => [s.querySource], (q) => (isPathsQuery(q) ? q.pathsFilter : null)],
         stickinessFilter: [(s) => [s.querySource], (q) => (isStickinessQuery(q) ? q.stickinessFilter : null)],
         lifecycleFilter: [(s) => [s.querySource], (q) => (isLifecycleQuery(q) ? q.lifecycleFilter : null)],
+
+        isNonTimeSeriesDisplay: [
+            (s) => [s.display],
+            (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
+        ],
     }),
 
     listeners(({ actions, values }) => ({

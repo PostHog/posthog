@@ -26,7 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
-    url?: string
+    url?: string | null
     urlsIndex?: number
     urls?: {
         label: string | JSX.Element
