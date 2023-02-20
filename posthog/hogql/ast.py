@@ -105,7 +105,6 @@ class SelectQueryAliasSymbol(Symbol):
         return self.symbol.has_child(name)
 
 
-SelectQuerySymbol.update_forward_refs(SelectQuerySymbol=SelectQuerySymbol)
 SelectQuerySymbol.update_forward_refs(SelectQueryAliasSymbol=SelectQueryAliasSymbol)
 
 
