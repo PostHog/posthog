@@ -26,7 +26,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
-import { ShowValuesFilter } from 'lib/components/ShowValueFilter'
+import { ShowValuesFilter } from 'lib/components/ShowValueFilter/ShowValueFilter'
 
 interface InsightDisplayConfigProps {
     filters: FilterType

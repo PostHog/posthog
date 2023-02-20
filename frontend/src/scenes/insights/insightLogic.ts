@@ -1008,7 +1008,6 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         saveInsight: async ({ redirectToViewMode }) => {
-            console.log('saveInsight', values.insight)
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
             const { name, description, favorited, filters, deleted, dashboards, tags } = values.insight

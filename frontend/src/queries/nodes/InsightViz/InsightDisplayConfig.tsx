@@ -14,7 +14,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { UnitPicker } from 'lib/components/UnitPicker/UnitPicker'
 import { ChartFilter } from 'lib/components/ChartFilter'
 import { FunnelDisplayLayoutPickerDataExploration } from 'scenes/insights/views/Funnels/FunnelDisplayLayoutPicker'
-import { ShowValuesFilter } from 'lib/components/ShowValueFilter'
+import { ShowValuesFilter } from 'lib/components/ShowValueFilter/ShowValueFilter'
 
 // import { FunnelBinsPicker } from 'scenes/insights/views/Funnels/FunnelBinsPicker'
 
