@@ -53,13 +53,6 @@ def _filter_persons(filter: Filter, team: Team):
 class TestFilters(PGTestFilters):
     maxDiff = None
 
-    def test_simplify_show_values_on_series(self):
-        filter = Filter(data={"show_values_on_series": True})
-        self.assertEqual(filter.simplify(self.team).show_values_on_series, True)
-
-        filter = Filter(data={"show_values_on_series": False})
-        self.assertEqual(filter.simplify(self.team).show_values_on_series, False)
-
     def test_simplify_cohorts(self):
         cohort = Cohort.objects.create(
             team=self.team,
