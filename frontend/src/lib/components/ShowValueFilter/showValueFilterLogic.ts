@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, selectors, listeners } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import { InsightLogicProps, InsightType, TrendsFilterType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -10,11 +10,11 @@ import { filterForQuery } from '~/queries/utils'
 
 import type { showValueFilterLogicType } from './showValueFilterLogicType'
 
-export const showValueFilterLogic = kea<showValueFilterLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['lib', 'components', 'ShowValueFilter', 'showValueFilterLogic', key],
-    connect: (props: InsightLogicProps) => ({
+export const showValueFilterLogic = kea<showValueFilterLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['lib', 'components', 'ShowValueFilter', 'showValueFilterLogic', key]),
+    connect((props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateInsightFilter']],
         values: [
             insightLogic(props),
@@ -22,14 +22,14 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>({
             insightDataLogic(props),
             ['querySource'],
         ],
-    }),
+    })),
 
-    actions: () => ({
+    actions(() => ({
         setShowValue: (showValue: boolean) => ({ showValue }),
         toggleShowValue: true,
-    }),
+    })),
 
-    selectors: {
+    selectors({
         filters: [
             (s) => [s.inflightFilters],
             (inflightFilters): Partial<TrendsFilterType> =>
@@ -43,9 +43,9 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>({
             (s) => [s.filters, s.canEditInsight],
             ({ insight }, canEditInsight) => !canEditInsight || insight === InsightType.TRENDS,
         ],
-    },
+    }),
 
-    listeners: ({ values, actions }) => ({
+    listeners(({ values, actions }) => ({
         setShowValue: ({ showValue }) => {
             if (!objectsEqual(showValue, values.showValue)) {
                 const newFilters: Partial<TrendsFilterType> = { ...values.filters, show_values_on_series: showValue }
@@ -61,5 +61,5 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>({
         toggleShowValue: () => {
             actions.setShowValue(!values.showValue)
         },
-    }),
-})
+    })),
+])
