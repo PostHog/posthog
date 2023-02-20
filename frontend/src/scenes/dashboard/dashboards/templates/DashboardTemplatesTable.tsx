@@ -1,6 +1,6 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { useActions, useValues } from 'kea'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
+import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { DashboardTemplateType } from '~/types'
@@ -16,79 +16,85 @@ export const DashboardTemplatesTable = (): JSX.Element => {
     const { setOpenNewDashboardTemplateModal, setDashboardTemplateId, getDashboardTemplate, deleteDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
 
+    const columns: LemonTableColumns<DashboardTemplateType> = [
+        {
+            title: 'Name',
+            dataIndex: 'template_name',
+            render: (_, { template_name }) => {
+                return <>{template_name}</>
+            },
+        },
+        {
+            title: 'Description',
+            dataIndex: 'dashboard_description',
+            render: (_, { dashboard_description }) => {
+                return <>{dashboard_description}</>
+            },
+        },
+        {
+            title: 'Source',
+            dataIndex: 'team_id',
+            render: (_, { team_id }) => {
+                if (team_id === null) {
+                    return <LemonSnack>Official</LemonSnack>
+                } else {
+                    return <LemonSnack>Team</LemonSnack>
+                }
+            },
+        },
+        {
+            width: 0,
+            render: (_, { id }: DashboardTemplateType) => {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        if (id === undefined) {
+                                            console.error('Dashboard template id not defined')
+                                            return
+                                        }
+                                        setDashboardTemplateId(id)
+                                        getDashboardTemplate(id)
+                                        setOpenNewDashboardTemplateModal(true)
+                                        console.log('open the modal')
+                                    }}
+                                    fullWidth
+                                >
+                                    Edit
+                                </LemonButton>
+
+                                <LemonDivider />
+                                <LemonButton
+                                    onClick={() => {
+                                        if (id === undefined) {
+                                            console.error('Dashboard template id not defined')
+                                            return
+                                        }
+                                        deleteDashboardTemplate(id)
+                                    }}
+                                    fullWidth
+                                    status="danger"
+                                >
+                                    Delete dashboard
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
     return (
         <>
             <LemonTable
                 data-attr="dashboards-template-table"
                 pagination={{ pageSize: 10 }}
                 dataSource={Object.values(allTemplates)}
-                columns={[
-                    {
-                        title: 'Name',
-                        dataIndex: 'template_name',
-                        render: (name: string) => <>{name}</>,
-                    },
-                    {
-                        title: 'Description',
-                        dataIndex: 'dashboard_description',
-                        render: (description: string) => <>{description}</>,
-                    },
-                    {
-                        title: 'Source',
-                        dataIndex: 'team_id',
-                        render: (teamId: number) => {
-                            if (teamId === null) {
-                                return <LemonSnack>Official</LemonSnack>
-                            } else {
-                                return <LemonSnack>Team</LemonSnack>
-                            }
-                        },
-                    },
-                    {
-                        width: 0,
-                        render: (_, { id }: DashboardTemplateType) => {
-                            return (
-                                <More
-                                    overlay={
-                                        <>
-                                            <LemonButton
-                                                status="stealth"
-                                                onClick={() => {
-                                                    if (id === undefined) {
-                                                        console.error('Dashboard template id not defined')
-                                                        return
-                                                    }
-                                                    setDashboardTemplateId(id)
-                                                    getDashboardTemplate(id)
-                                                    setOpenNewDashboardTemplateModal(true)
-                                                    console.log('open the modal')
-                                                }}
-                                                fullWidth
-                                            >
-                                                Edit
-                                            </LemonButton>
-
-                                            <LemonDivider />
-                                            <LemonButton
-                                                onClick={() => {
-                                                    if (id === undefined) {
-                                                        console.error('Dashboard template id not defined')
-                                                        return
-                                                    }
-                                                    deleteDashboardTemplate(id)
-                                                }}
-                                                fullWidth
-                                                status="danger"
-                                            >
-                                                Delete dashboard
-                                            </LemonButton>
-                                        </>
-                                    }
-                                />
-                            )
-                        },
-                    },
-                ]}
+                columns={columns}
                 loading={repositoryLoading}
                 defaultSorting={{
                     columnKey: 'name',

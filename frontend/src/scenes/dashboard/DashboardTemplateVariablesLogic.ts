@@ -17,11 +17,14 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             [] as DashboardTemplateVariableType[],
             {
                 setVariables: (_, { variables }) => variables,
-                updateVariable: (variables: DashboardTemplateVariableType, { variable_name, filterGroup }) => {
+                updateVariable: (
+                    variables: DashboardTemplateVariableType[],
+                    { variable_name, filterGroup }
+                ): DashboardTemplateVariableType[] => {
                     // TODO: handle actions too
                     console.log('reducer', variable_name, filterGroup)
                     return variables.map((v: DashboardTemplateVariableType) => {
-                        if (v.name === variable_name) {
+                        if (v.name === variable_name && filterGroup?.events?.length && filterGroup.events[0]) {
                             v.default = filterGroup.events[0]
                         }
                         return v
