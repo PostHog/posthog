@@ -11,7 +11,7 @@ export function EmptyDisplay(): JSX.Element {
     return <HTMLElementsDisplay elements={[] as ElementType[]} />
 }
 
-const elementsExample = [
+export const elementsExample = [
     {
         text: 'Insights',
         tag_name: 'span',
@@ -188,12 +188,17 @@ export function EditableDisplay(): JSX.Element {
 
 export function EditableDisplayWithPreselection(): JSX.Element {
     return (
-        <HTMLElementsDisplay
-            startingSelector={'div div.SideBar LemonButton__content span.text-default'}
-            elements={elementsExample}
-            highlight={false}
-            editable={true}
-        />
+        <>
+            <h4>
+                preselect using <pre>'div div.SideBar .LemonButton__content span.text-default'</pre>
+            </h4>
+            <HTMLElementsDisplay
+                startingSelector={'div div.SideBar .LemonButton__content span.text-default'}
+                elements={elementsExample}
+                highlight={false}
+                editable={true}
+            />
+        </>
     )
 }
 

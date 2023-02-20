@@ -23,8 +23,10 @@ export interface ChosenSelector {
     selectorMatchCount: number | null
 }
 
-const elementsChain = (providedElements: ElementType[]): ElementType[] =>
-    [...(providedElements || [])].reverse().slice(Math.max(providedElements.length - 10, 1))
+export const elementsChain = (providedElements: ElementType[] | undefined): ElementType[] => {
+    const safeElements = [...(providedElements || [])]
+    return safeElements.reverse().slice(Math.max(safeElements.length - 10, 1))
+}
 
 export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     path(['lib', 'components', 'HtmlElementsDisplay', 'htmlElementsDisplayLogic']),
@@ -69,7 +71,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     selectors(() => ({
         // each element in the chain has a parsed selector it uses to track which things are selected
         parsedSelectors: [
-            (s) => [s.parsedSelectorsRaw, (_, props) => props.startingSelector, (_, props) => props.providedElements],
+            (s) => [s.parsedSelectorsRaw, (_, props) => props.startingSelector, s.elements],
             (parsedSelectorsRaw, startingSelector, providedElements): Record<number, ParsedCSSSelector> =>
                 startingSelector && Object.keys(parsedSelectorsRaw).length === 0
                     ? preselect(providedElements, startingSelector)

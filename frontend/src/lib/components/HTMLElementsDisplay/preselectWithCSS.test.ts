@@ -1,6 +1,7 @@
 import { ElementType } from '~/types'
 import { parseCSSSelector, matchesSelector, preselect } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
-import { expect } from '../../../../../playwright/fixtures/storybook'
+import { elementsExample } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
+import { elementsChain } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 
 const elements = [
     {
@@ -67,7 +68,7 @@ describe('can preselect selectors for editing', () => {
         })
         test('can grab a class from a simple class only selector', () => {
             expect(parseCSSSelector('.Something__something--something')).toEqual({
-                class: 'Something__something--something',
+                class: ['Something__something--something'],
             })
         })
         test('can grab an attribute from a simple attribute only selector', () => {
@@ -77,7 +78,7 @@ describe('can preselect selectors for editing', () => {
         })
         test('can ignore pseudo-selectors', () => {
             expect(parseCSSSelector('.Something__something--something:first-of-type')).toEqual({
-                class: 'Something__something--something',
+                class: ['Something__something--something'],
             })
         })
         test('can grab multiple from a complex selector', () => {
@@ -124,11 +125,23 @@ describe('can preselect selectors for editing', () => {
             const selector = parseCSSSelector('span')
             expect(matchesSelector(el, selector)).toBe(false)
         })
+
         test('a simple class match', () => {
             const el = {
                 tag_name: 'span',
                 attributes: {
                     class: 'something',
+                },
+            } as ElementType
+            const selector = parseCSSSelector('.something')
+            expect(matchesSelector(el, selector)).toBe(true)
+        })
+
+        test('a simple class match with attr__ prefix', () => {
+            const el = {
+                tag_name: 'span',
+                attributes: {
+                    attr__class: 'something',
                 },
             } as ElementType
             const selector = parseCSSSelector('.something')
@@ -236,7 +249,7 @@ describe('can preselect selectors for editing', () => {
         expect(preselect(elements, autoSelector)).toEqual({
             0: {
                 tag: 'div',
-                class: 'SideBar--hidden',
+                class: ['SideBar--hidden'],
             },
         })
     })
@@ -246,13 +259,13 @@ describe('can preselect selectors for editing', () => {
 
         const expectedSelectedElements = {
             4: {
-                class: 'top-list-container-horizontal',
+                class: ['top-list-container-horizontal'],
             },
             5: {
-                class: 'top-list',
+                class: ['top-list'],
             },
             8: {
-                class: 'LemonButton',
+                class: ['LemonButton'],
             },
         }
 
@@ -265,10 +278,10 @@ describe('can preselect selectors for editing', () => {
 
         const expectedSelectedElements = {
             4: {
-                class: 'top-list-container-horizontal',
+                class: ['top-list-container-horizontal'],
             },
             5: {
-                class: 'top-list',
+                class: ['top-list'],
             },
             8: {
                 class: ['LemonButton', 'LemonButton--status-primary'],
@@ -284,10 +297,10 @@ describe('can preselect selectors for editing', () => {
 
         const expectedSelectedElements = {
             4: {
-                class: 'top-list-container-horizontal',
+                class: ['top-list-container-horizontal'],
             },
             5: {
-                class: 'top-list',
+                class: ['top-list'],
             },
             8: {
                 class: ['LemonButton', 'LemonButton--status-primary'],
@@ -343,15 +356,36 @@ describe('can preselect selectors for editing', () => {
         expect(preselect(elements, selector)).toEqual({
             1: {
                 tag: 'div',
-                class: 'parent',
+                class: ['parent'],
             },
             4: {
                 tag: 'div',
-                class: 'child',
+                class: ['child'],
             },
             5: {
                 tag: 'div',
-                class: 'grandchild',
+                class: ['grandchild'],
+            },
+        })
+    })
+
+    test('fixing the storybook example', () => {
+        const selector = 'div div.SideBar .LemonButton__content span.text-default'
+
+        expect(preselect(elementsChain(elementsExample), selector)).toEqual({
+            '0': {
+                tag: 'div',
+            },
+            '1': {
+                class: ['SideBar'],
+                tag: 'div',
+            },
+            '8': {
+                class: ['LemonButton__content'],
+            },
+            '9': {
+                class: ['text-default'],
+                tag: 'span',
             },
         })
     })

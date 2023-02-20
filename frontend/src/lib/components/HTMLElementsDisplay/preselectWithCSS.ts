@@ -39,11 +39,11 @@ export const parseCSSSelector = (s: string): ParsedCSSSelector => {
     function closeItem(): void {
         if (current.length > 0 && processing) {
             const existing = parts[processing]
-            if (existing) {
+            if (existing || processing === 'class') {
                 if (Array.isArray(existing)) {
                     existing.push(current)
                 } else {
-                    parts[processing] = [existing, current]
+                    parts[processing] = [existing, current].filter((x) => !!x) as string[]
                 }
             } else {
                 parts[processing] = current
@@ -68,10 +68,7 @@ export const parseCSSSelector = (s: string): ParsedCSSSelector => {
             closeItem()
             processing = 'ignore'
         } else if (char === '.') {
-            if (current.length > 0 && processing) {
-                parts[processing] = current
-                current = ''
-            }
+            closeItem()
             // don't add the dot to the class
             processing = 'class'
         } else if (char === '[') {
@@ -122,7 +119,9 @@ export const matchesSelector = (e: ElementType, s: ParsedCSSSelector): boolean =
                 if (
                     !!keysToMatch &&
                     keysToMatch.every((c) => {
-                        return c && e.attributes && e.attributes[key]?.includes(c)
+                        const haystack =
+                            e.attributes && e.attributes?.[key] ? e.attributes[key] : e.attributes?.[`attr__${key}`]
+                        return c && !!haystack && haystack?.includes(c)
                     })
                 ) {
                     selectorKeysMatch.push(true)
