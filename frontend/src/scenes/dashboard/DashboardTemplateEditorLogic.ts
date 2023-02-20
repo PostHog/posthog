@@ -6,9 +6,9 @@ import api from 'lib/api'
 import { DashboardTemplateType } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-import type { newDashboardTemplateLogicType } from './NewDashboardTemplateLogicType'
+import type { dashboardTemplateEditorLogicType } from './DashboardTemplateEditorLogicType'
 
-export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
+export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'NewDashboardTemplateLogic']),
     connect(dashboardTemplatesLogic),
     actions({

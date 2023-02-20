@@ -31,8 +31,8 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { NewDashboardTemplate } from './NewDashboardTemplate'
-import { newDashboardTemplateLogic } from './NewDashboardTemplateLogic'
+import { DashboardTemplateEditor } from './DashboardTemplateEditor'
+import { dashboardTemplateEditorLogic } from './DashboardTemplateEditorLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -53,8 +53,8 @@ export function DashboardHeader(): JSX.Element | null {
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
-    const { setDashboardTemplateJSON } = useActions(newDashboardTemplateLogic)
-    const { setOpenNewDashboardTemplateModal } = useActions(newDashboardTemplateLogic)
+    const { setDashboardTemplateJSON } = useActions(dashboardTemplateEditorLogic)
+    const { setOpenNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -368,7 +368,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }
                 delimited
             />
-            <NewDashboardTemplate />
+            <DashboardTemplateEditor />
         </>
     ) : null
 }

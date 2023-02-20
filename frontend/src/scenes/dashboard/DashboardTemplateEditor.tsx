@@ -2,20 +2,20 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
-import { newDashboardTemplateLogic } from './NewDashboardTemplateLogic'
+import { dashboardTemplateEditorLogic } from './DashboardTemplateEditorLogic'
 
-export function NewDashboardTemplate({ inline = false }: { inline?: boolean }): JSX.Element {
+export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
 
-    const { dashboardTemplateJSON, validationError } = useValues(newDashboardTemplateLogic)
-    const { setDashboardTemplateJSON, updateValidationErrors } = useActions(newDashboardTemplateLogic)
+    const { dashboardTemplateJSON, validationError } = useValues(dashboardTemplateEditorLogic)
+    const { setDashboardTemplateJSON, updateValidationErrors } = useActions(dashboardTemplateEditorLogic)
 
-    const { setOpenNewDashboardTemplateModal } = useActions(newDashboardTemplateLogic)
-    const { isOpenNewDashboardTemplateModal } = useValues(newDashboardTemplateLogic)
+    const { setOpenNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
+    const { isOpenNewDashboardTemplateModal } = useValues(dashboardTemplateEditorLogic)
 
-    const { createDashboardTemplate, updateDashboardTemplate } = useActions(newDashboardTemplateLogic)
+    const { createDashboardTemplate, updateDashboardTemplate } = useActions(dashboardTemplateEditorLogic)
 
-    const { id } = useValues(newDashboardTemplateLogic)
+    const { id } = useValues(dashboardTemplateEditorLogic)
 
     // const [queryInput, setQueryInput] = useState('hello')
 
@@ -118,7 +118,7 @@ export function NewDashboardTemplate({ inline = false }: { inline?: boolean }): 
 
     return (
         <LemonModal
-            title="New Dashboard Template"
+            title={id ? 'Edit dashboard template' : 'New dashboard template'}
             isOpen={isOpenNewDashboardTemplateModal}
             width={1000}
             onClose={() => {
