@@ -1,10 +1,10 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
 import { InsightLogicProps, InsightType, TrendsFilterType } from '~/types'
-import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { FunnelsFilter, TrendsFilter } from '~/queries/schema'
+import { TrendsFilter } from '~/queries/schema'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { filterForQuery } from '~/queries/utils'
 
@@ -33,19 +33,15 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>({
         filters: [
             (s) => [s.inflightFilters],
             (inflightFilters): Partial<TrendsFilterType> =>
-                inflightFilters && (isTrendsFilter(inflightFilters) || isFunnelsFilter(inflightFilters))
-                    ? inflightFilters
-                    : {},
+                inflightFilters && isTrendsFilter(inflightFilters) ? inflightFilters : {},
         ],
         showValue: [
             (s) => [s.filters],
-            (filters) =>
-                filters && (isTrendsFilter(filters) || isFunnelsFilter(filters)) && !!filters.show_values_on_series,
+            (filters) => filters && isTrendsFilter(filters) && !!filters.show_values_on_series,
         ],
         disabled: [
             (s) => [s.filters, s.canEditInsight],
-            ({ insight }, canEditInsight) =>
-                !canEditInsight || (!!insight && ![InsightType.TRENDS, InsightType.FUNNELS].includes(insight)),
+            ({ insight }, canEditInsight) => !canEditInsight || insight === InsightType.TRENDS,
         ],
     },
 
@@ -53,11 +49,10 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>({
         setShowValue: ({ showValue }) => {
             if (!objectsEqual(showValue, values.showValue)) {
                 const newFilters: Partial<TrendsFilterType> = { ...values.filters, show_values_on_series: showValue }
-                console.log('setting filter in filter logic', newFilters)
                 actions.setFilters(newFilters)
             }
 
-            const currentShowValue = (filterForQuery(values.querySource) as TrendsFilter | FunnelsFilter | undefined)
+            const currentShowValue = (filterForQuery(values.querySource) as TrendsFilter | undefined)
                 ?.show_values_on_series
             if (currentShowValue !== showValue) {
                 actions.updateInsightFilter({ show_values_on_series: showValue })
