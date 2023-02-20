@@ -8,13 +8,57 @@ import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 import { DashboardTemplateType } from '~/types'
+import { useEffect, useState } from 'react'
+
+function FallbackCoverImage({ src, alt, index }: { src: string; alt: string; index: number }): JSX.Element {
+    const [hasError, setHasError] = useState(false)
+    const [color, setColor] = useState('#ff0000')
+
+    const handleImageError = (): void => {
+        setHasError(true)
+    }
+
+    const css_rainbow_colors = [
+        '#ff0000',
+        '#ffa500',
+        '#ffff00',
+        '#008000',
+        '#0000ff',
+        '#4b0082',
+        '#ee82ee',
+        '#800080',
+        '#ffc0cb',
+    ]
+
+    useEffect(() => {
+        setColor(css_rainbow_colors[(index * 3) % css_rainbow_colors.length])
+    }, [index])
+
+    return (
+        <>
+            {hasError ? (
+                <div
+                    className="w-full h-full"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        background: `radial-gradient(circle at 70% 30%, ${color}, #000000)`,
+                    }}
+                />
+            ) : (
+                <img className="w-full h-full object-cover" src={src} alt={alt} onError={handleImageError} />
+            )}
+        </>
+    )
+}
 
 function TemplateItem({
     template,
     onClick,
+    index,
 }: {
     template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
     onClick: () => void
+    index: number
 }): JSX.Element {
     return (
         <div
@@ -26,7 +70,7 @@ function TemplateItem({
             }}
         >
             <div className="w-full h-120 overflow-hidden">
-                <img className="w-full h-full object-cover" src={template?.image_url} alt="cover photo" />
+                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
             </div>
 
             <div className="p-2">
@@ -128,12 +172,14 @@ export function DashboardTemplateChooser(): JSX.Element {
                             show: true,
                         })
                     }
+                    index={0}
                 />
                 {allTemplates.map((template, index) => (
                     <TemplateItem
                         key={index}
                         template={template}
                         onClick={() => setActiveDashboardTemplate(template)}
+                        index={index + 1}
                     />
                 ))}
             </div>

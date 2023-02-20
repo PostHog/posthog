@@ -108,6 +108,28 @@ export const New = (): JSX.Element => {
                 image_url:
                     'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
             },
+            {
+                id: '4',
+                template_name: 'Broken image',
+                dashboard_description:
+                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [],
+                tags: [],
+                image_url: 'broken-image.png',
+            },
+            {
+                id: '5',
+                template_name: 'Broken image 2',
+                dashboard_description:
+                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
+                dashboard_filters: {},
+                tiles: [],
+                variables: [],
+                tags: [],
+                image_url: 'broken-image.png',
+            },
         ])
     }, [])
     return <App />
