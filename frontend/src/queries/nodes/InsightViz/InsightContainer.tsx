@@ -2,7 +2,7 @@ import { Card, Col, Row } from 'antd'
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import {
-    // ChartDisplayType,
+    ChartDisplayType,
     // ExporterFormat,
     // FunnelVizType,
     InsightType,
@@ -11,12 +11,8 @@ import {
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { PathsDataExploration } from 'scenes/paths/Paths'
-import {
-    // BindLogic,
-    useValues,
-} from 'kea'
-// import { trendsLogic } from 'scenes/trends/trendsLogic'
-// import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import { useValues } from 'kea'
+import { InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -47,6 +43,7 @@ import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/Funn
 import { FunnelsQuery } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -72,7 +69,7 @@ export function InsightContainer({
 }): JSX.Element {
     const {
         insightProps,
-        // canEditInsight,
+        canEditInsight,
         insightLoading,
         activeView,
         loadedView,
@@ -91,6 +88,7 @@ export function InsightContainer({
     const { querySource } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { isTrends, display, trendsFilter } = useValues(insightDataLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
     const isValidFunnel = true
@@ -129,70 +127,65 @@ export function InsightContainer({
         return null
     })()
 
-    // function renderTable(): JSX.Element | null {
-    //     if (
-    //         isFunnelsFilter(filters) &&
-    //         !showErrorMessage &&
-    //         !showTimeoutMessage &&
-    //         areFiltersValid &&
-    //         isValidFunnel &&
-    //         filters.funnel_viz_type === FunnelVizType.Steps &&
-    //         !disableTable
-    //     ) {
-    //         return (
-    //             <>
-    //                 <h2 className="my-4 mx-0">Detailed results</h2>
-    //                 <FunnelStepsTable />
-    //             </>
-    //         )
-    //     }
+    function renderTable(): JSX.Element | null {
+        //     if (
+        //         isFunnelsFilter(filters) &&
+        //         !showErrorMessage &&
+        //         !showTimeoutMessage &&
+        //         areFiltersValid &&
+        //         isValidFunnel &&
+        //         filters.funnel_viz_type === FunnelVizType.Steps &&
+        //         !disableTable
+        //     ) {
+        //         return (
+        //             <>
+        //                 <h2 className="my-4 mx-0">Detailed results</h2>
+        //                 <FunnelStepsTable />
+        //             </>
+        //         )
+        //     }
 
-    //     // InsightsTable is loaded for all trend views (except below), plus the sessions view.
-    //     // Exclusions:
-    //     // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
-    //     // 2. Bar value chart. Because this view displays data in completely different dimensions.
-    //     if (
-    //         isTrendsFilter(filters) &&
-    //         (!filters.display ||
-    //             (filters?.display !== ChartDisplayType.ActionsTable &&
-    //                 filters?.display !== ChartDisplayType.ActionsBarValue)) &&
-    //         !disableTable
-    //     ) {
-    //         return (
-    //             <>
-    //                 {exporterResourceParams && (
-    //                     <div className="flex items-center justify-between my-4 mx-0">
-    //                         <h2 className="m-0">Detailed results</h2>
-    //                         <Tooltip title="Export this table in CSV format" placement="left">
-    //                             <ExportButton
-    //                                 type="secondary"
-    //                                 status="primary"
-    //                                 items={[
-    //                                     {
-    //                                         export_format: ExporterFormat.CSV,
-    //                                         export_context: exporterResourceParams,
-    //                                     },
-    //                                 ]}
-    //                             />
-    //                         </Tooltip>
-    //                     </div>
-    //                 )}
-    //                 <BindLogic logic={trendsLogic} props={insightProps}>
-    //                     <InsightsTable
-    //                         isLegend
-    //                         filterKey={isTrendsFilter(filters) ? `trends_${activeView}` : ''}
-    //                         canEditSeriesNameInline={
-    //                             isTrendsFilter(filters) && !filters.formula && insightMode === ItemMode.Edit
-    //                         }
-    //                         canCheckUncheckSeries={canEditInsight}
-    //                     />
-    //                 </BindLogic>
-    //             </>
-    //         )
-    //     }
+        // InsightsTable is loaded for all trend views (except below), plus the sessions view.
+        // Exclusions:
+        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 2. Bar value chart. Because this view displays data in completely different dimensions.
+        if (
+            isTrends &&
+            (!display || (display !== ChartDisplayType.ActionsTable && display !== ChartDisplayType.ActionsBarValue)) &&
+            !disableTable
+        ) {
+            return (
+                <>
+                    {/* {exporterResourceParams && (
+                                 <div className="flex items-center justify-between my-4 mx-0">
+                                     <h2 className="m-0">Detailed results</h2>
+                                     <Tooltip title="Export this table in CSV format" placement="left">
+                                         <ExportButton
+                                             type="secondary"
+                                             status="primary"
+                                             items={[
+                                                 {
+                                                     export_format: ExporterFormat.CSV,
+                                                     export_context: exporterResourceParams,
+                                                 },
+                                             ]}
+                                         />
+                                     </Tooltip>
+                                 </div>
+                             )} */}
 
-    //     return null
-    // }
+                    <InsightsTableDataExploration
+                        isLegend
+                        filterKey="trends_TRENDS"
+                        canEditSeriesNameInline={!trendsFilter?.formula && insightMode === ItemMode.Edit}
+                        canCheckUncheckSeries={canEditInsight}
+                    />
+                </>
+            )
+        }
+
+        return null
+    }
 
     return (
         <>
@@ -243,7 +236,7 @@ export function InsightContainer({
                     )}
                 </div>
             </Card>
-            {/* {renderTable()} */}
+            {renderTable()}
             {/* {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
                 <FunnelCorrelation />
             )} */}
