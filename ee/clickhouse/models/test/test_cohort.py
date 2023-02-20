@@ -571,6 +571,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
+            p2.delete()
             _create_person(
                 uuid=p2.uuid,
                 team_id=self.team.pk,
