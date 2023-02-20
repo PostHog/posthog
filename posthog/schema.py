@@ -513,7 +513,6 @@ class FunnelsFilter(BaseModel):
     funnel_window_interval_unit: Optional[FunnelConversionWindowTimeUnit] = None
     hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
     layout: Optional[FunnelLayout] = None
-    show_values_on_series: Optional[bool] = None
 
 
 class GroupPropertyFilter(BaseModel):
@@ -1134,7 +1133,6 @@ class AnyPartialFilterTypeItem2(BaseModel):
         ]
     ] = None
     sample_results: Optional[bool] = None
-    show_values_on_series: Optional[bool] = None
 
 
 class AnyPartialFilterTypeItem3(BaseModel):

@@ -555,9 +555,6 @@
                         },
                         "sample_results": {
                             "type": ["boolean", "null"]
-                        },
-                        "show_values_on_series": {
-                            "type": "boolean"
                         }
                     },
                     "type": "object"
@@ -1879,9 +1876,6 @@
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"
-                },
-                "show_values_on_series": {
-                    "type": "boolean"
                 }
             },
             "type": "object"
