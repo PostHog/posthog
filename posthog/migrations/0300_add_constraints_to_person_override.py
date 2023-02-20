@@ -3,7 +3,6 @@
 import django.db.models.expressions
 from django.db import migrations, models
 
-
 # NOTE: I've moved these here to make sure that the migration is self-contained
 # such that the state of the database is predictable.
 #

@@ -2,20 +2,14 @@ import contextlib
 import datetime as dt
 from threading import Thread
 from uuid import uuid4
-from django.db.utils import ConnectionHandler
 
 import pytest
-from django.db.utils import IntegrityError
+from django.db.utils import DEFAULT_DB_ALIAS, ConnectionHandler, IntegrityError
+
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-
 from posthog.models import PersonOverride, Team
 from posthog.models.person.person import Person
-
-
-from django.db.utils import DEFAULT_DB_ALIAS, load_backend
-from django.test.utils import CaptureQueriesContext
-
 
 pytestmark = pytest.mark.django_db
 
@@ -350,29 +344,29 @@ def _merge_people(team, cursor, old_person_id, override_person_id, oldest_event)
 
     cursor.execute(
         """
-            DELETE FROM 
-                posthog_person 
-            WHERE 
+            DELETE FROM
+                posthog_person
+            WHERE
                 uuid = %(old_person_id)s;
 
             INSERT INTO posthog_personoverride(
-                team_id, 
-                old_person_id, 
-                override_person_id, 
-                oldest_event, 
+                team_id,
+                old_person_id,
+                override_person_id,
+                oldest_event,
                 version
             )
             VALUES (
-                %(team_id)s, 
-                %(old_person_id)s, 
+                %(team_id)s,
+                %(old_person_id)s,
                 %(override_person_id)s,
-                %(oldest_event)s, 
+                %(oldest_event)s,
                 1
             );
-            
-            UPDATE 
+
+            UPDATE
                 posthog_personoverride
-            SET 
+            SET
                 override_person_id = %(override_person_id)s,
                 version = version + 1
             WHERE override_person_id = %(old_person_id)s;
