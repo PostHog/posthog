@@ -35,6 +35,7 @@ import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { subscriptions } from 'kea-subscriptions'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
     const filters = insightProps.cachedInsight?.filters
@@ -58,6 +59,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     connect((props: InsightLogicProps) => ({
         values: [
+            insightLogic,
+            ['insight'],
             featureFlagLogic,
             ['featureFlags'],
             trendsLogic,
@@ -204,6 +207,25 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 const query = queryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        response: (response, oldResponse) => {
+            console.log('response changed: ', { response, oldResponse })
+
+            // TRICKY: as soon as I comment in the block below, the subscription doesn't work any more,
+            // i.e. when `response` changes, this method isn't called
+            // // TODO: remember why I guarded against !hasDashboardItemId here
+            // actions.setInsight(
+            //     {
+            //         ...values.insight,
+            //         result: response.result,
+            //         next: response.next,
+            //         // filters: queryNodeToFilter(query.source),
+            //     },
+            //     {}
+            // )
+            //     setLastRefresh(lastRefresh)
         },
     })),
 ])

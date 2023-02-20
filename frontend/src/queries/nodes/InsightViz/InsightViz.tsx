@@ -35,26 +35,26 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
 
     const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
 
-    // TODO: use connected logic instead of useEffect?
-    useEffect(() => {
-        // TODO: this is hacky - we prevent overwriting the insight in case
-        // of a saved insight. instead we should handle loading a saved insight
-        // in a query as well. needs discussion around api and node schema.
-        const typedResponse: Record<string, any> | undefined | null = response
-        if (typedResponse && !hasDashboardItemId) {
-            setInsight(
-                {
-                    ...insight,
-                    result: typedResponse.result,
-                    next: typedResponse.next,
-                    timezone: typedResponse.timezone,
-                    filters: queryNodeToFilter(query.source),
-                },
-                {}
-            )
-            setLastRefresh(lastRefresh)
-        }
-    }, [response])
+    // // TODO: use connected logic instead of useEffect?
+    // useEffect(() => {
+    //     // TODO: this is hacky - we prevent overwriting the insight in case
+    //     // of a saved insight. instead we should handle loading a saved insight
+    //     // in a query as well. needs discussion around api and node schema.
+    //     const typedResponse: Record<string, any> | undefined | null = response
+    //     if (typedResponse && !hasDashboardItemId) {
+    //         setInsight(
+    //             {
+    //                 ...insight,
+    //                 result: typedResponse.result,
+    //                 next: typedResponse.next,
+    //                 timezone: typedResponse.timezone,
+    //                 filters: queryNodeToFilter(query.source),
+    //             },
+    //             {}
+    //         )
+    //         setLastRefresh(lastRefresh)
+    //     }
+    // }, [response])
 
     const isFunnels = isFunnelsQuery(query.source)
 
