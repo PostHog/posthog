@@ -46,7 +46,7 @@ def print_ast(
         # TODO: add joins to person and group tables
         pass
 
-    return Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
 @dataclass
@@ -55,7 +55,7 @@ class JoinExprResponse:
     where: Optional[ast.Expr] = None
 
 
-class Printer(Visitor):
+class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
