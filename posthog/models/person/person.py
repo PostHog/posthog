@@ -120,10 +120,17 @@ class PersonOverride(models.Model):
     This model has a set of constraints to ensure correctness:
     1. Unique constraint on (team_id, old_person_id) pairs.
     2. Check that old_person_id is different to override_person_id for every row.
-    3. Exclude rows that overlap across old_person_id and override_person_id (e.g. if
-        a row exists with old_person_id=123 then we would not allow a row with
+    3. Same person id cannot be used as an old_person_id and an override_person_id (per team)
+       (e.g. if a row exists with old_person_id=123 then we would not allow a row with
         override_person_id=123 to exist, as that would require a self join to figure
         out the ultimate override_person_id required for old_person_id=123).
+        To accomplish this:
+        3.1. Ensuring old_person_id doesn't exist in person table
+                This is done in code where any time we add an entry to person overrides table
+                we delete the old person in the person table in the same transaction
+                or roll both of those changes back.
+        3.2. Ensuring any override_person_id exists in person table
+                Override person field is a foreign key into the person table.
     """
 
     class Meta:
@@ -138,11 +145,8 @@ class PersonOverride(models.Model):
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
-    # We don't want to delete rows before we had a chance to propagate updates to the events table.
-    # To reduce potential side-effects, these are not ForeingKeys.
     old_person_id = models.UUIDField(db_index=True)
-    # override_person_id = models.UUIDField(db_index=True)
-    override_person = models.ForeignKey(Person, to_field="uuid", on_delete=models.DO_NOTHING)
+    override_person = models.ForeignKey(Person, to_field="uuid", on_delete=models.DO_NOTHING, null=True)
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)

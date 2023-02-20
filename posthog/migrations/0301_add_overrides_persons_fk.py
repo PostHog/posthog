@@ -32,8 +32,7 @@ class Migration(migrations.Migration):
             model_name="personoverride",
             name="override_person",
             field=models.ForeignKey(
-                default=0, on_delete=django.db.models.deletion.DO_NOTHING, to="posthog.person", to_field="uuid"
+                null=True, on_delete=django.db.models.deletion.DO_NOTHING, to="posthog.person", to_field="uuid"
             ),
-            preserve_default=False,
         ),
     ]

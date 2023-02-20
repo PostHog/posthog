@@ -14,6 +14,68 @@ from posthog.models.person.person import Person
 pytestmark = pytest.mark.django_db
 
 
+def test_person_override_disallows_overriding_to_itself():
+    """Test old_person_id cannot match override_person_id.
+
+    This is enforced by a CHECK constraint old_person_id_different_from_override_person_id
+    """
+    organization = create_organization(name="test")
+    team = create_team(organization=organization)
+
+    oldest_event = dt.datetime.now(dt.timezone.utc)
+    person_id = uuid4()
+
+    Person.objects.create(
+        team_id=team.pk,
+        uuid=person_id,
+    )
+
+    # TODO: This should fail and it does not, why?
+    # with pytest.raises(IntegrityError):
+    x = PersonOverride.objects.create(
+        team=team,
+        old_person_id=person_id,
+        override_person_id=person_id,
+        oldest_event=oldest_event,
+        version=0,
+    ).save()
+    # print(x)
+    y = PersonOverride.objects.first()
+    # print(y.__dict__)
+    assert 1 == 0
+    assert x == y
+
+
+def test_person_override_allows_duplicate_override_person_id():
+    """Test duplicate override_person_ids with different old_person_ids are allowed."""
+    organization = create_organization(name="test")
+    team = create_team(organization=organization)
+
+    oldest_event = dt.datetime.now(dt.timezone.utc)
+    override_person_id = uuid4()
+    n_person_overrides = 2
+    created = []
+
+    Person.objects.create(uuid=override_person_id, team=team)
+
+    for _ in range(n_person_overrides):
+        old_person_id = uuid4()
+
+        person_override = PersonOverride.objects.create(
+            team=team,
+            old_person_id=old_person_id,
+            override_person_id=override_person_id,
+            oldest_event=oldest_event,
+            version=1,
+        )
+        person_override.save()
+
+        created.append(person_override)
+
+    assert all(p.override_person_id == override_person_id for p in created)
+    assert len(set(p.old_person_id for p in created)) == n_person_overrides
+
+
 def test_person_override_disallows_same_old_person_id():
     """Test a new old_person_id cannot match an existing old_person_id.
 
@@ -153,9 +215,36 @@ def test_person_override_allows_override_person_id_as_old_person_id_in_different
     assert p1.team != p2.team
 
 
+def test_person_override_must_exist_in_person_table():
+    """This is guaranteed by the foreign key constraint."""
+    organization = create_organization(name="test")
+    team = create_team(organization=organization)
+
+    oldest_event = dt.datetime.now(dt.timezone.utc)
+    person_id = uuid4()
+
+    Person.objects.create(
+        team_id=team.pk,
+        uuid=person_id,
+    )
+
+    with pytest.raises(IntegrityError):
+        PersonOverride.objects.create(
+            team=team,
+            old_person_id=person_id,
+            override_person_id=person_id,
+            oldest_event=oldest_event,
+            version=0,
+        ).save()
+
+
 @pytest.mark.django_db(transaction=True)
 def test_person_override_disallows_old_person_id_as_override_person_id_race_conditions():
     """Test a new override_person_id cannot match an existing old_person_id.
+
+    Under the assumption: an entry to overrides table is added only in a transaction
+    that also deletes the old person.
+    We want to guarantee that the same person id can't exist both as old and override id.
 
     We re-use the old_person_id from the first model created as the override_person_id
     of the second model. We expect an exception on saving this second model.
@@ -262,34 +351,45 @@ def test_person_override_old_person_id_as_override_person_id_in_different_teams(
     assert p1.team != p2.team
 
 
-def test_person_override_allows_duplicate_override_person_id():
-    """Test duplicate override_person_ids with different old_person_ids are allowed."""
+def test_person_deletion_allowed_and_overrides_not_changed():
+    """Person deletion would result in the override person referring to non-accessible
+    Person deletions are used in various places across our code base.
+    TODO: since this fails we should look into all of them and fix them
+    ideally this wouldn't block person deletions
+    TODO: update person deletions on the model
+    TODO: still need to verify that on the plugin-server the person deletion does the same
+    """
     organization = create_organization(name="test")
     team = create_team(organization=organization)
 
     oldest_event = dt.datetime.now(dt.timezone.utc)
+    old_person_id = uuid4()
     override_person_id = uuid4()
-    n_person_overrides = 2
-    created = []
 
-    Person.objects.create(uuid=override_person_id, team=team)
+    override_person = Person.objects.create(
+        team_id=team.pk,
+        uuid=override_person_id,
+    )
 
-    for _ in range(n_person_overrides):
-        old_person_id = uuid4()
+    PersonOverride.objects.create(
+        team=team,
+        old_person_id=old_person_id,
+        override_person_id=override_person_id,
+        oldest_event=oldest_event,
+        version=0,
+    ).save()
 
-        person_override = PersonOverride.objects.create(
-            team=team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
-            oldest_event=oldest_event,
-            version=1,
-        )
-        person_override.save()
-
-        created.append(person_override)
-
-    assert all(p.override_person_id == override_person_id for p in created)
-    assert len(set(p.old_person_id for p in created)) == n_person_overrides
+    override_person.delete()
+    override = PersonOverride.objects.filter(team_id=team.pk).first()
+    # print(override.__dict__)
+    # print(override.override_person) # results in posthog.models.person.person.Person.DoesNotExist: Person matching query does not exist.
+    # TODO: that's likely not something we'll want to deal with during the merge code path
+    p = Person.objects.filter(team_id=team.pk).first()
+    # print(p.__dict__)
+    assert p == 5
+    assert override.old_person_id == old_person_id
+    assert override.override_person_id == override_person_id
+    assert override.team.id == team.pk
 
 
 @contextlib.contextmanager
