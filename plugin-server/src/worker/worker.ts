@@ -25,8 +25,11 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
 
             const [hub, closeHub] = await createHub(config, threadId)
 
-            process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
-            process.on('uncaughtException', (error: Error) => processUnhandledRejections(error, hub))
+            ;['unhandledRejection', 'uncaughtException'].forEach((event) => {
+                process.on(event, (error: Error) => {
+                    processUnhandledException(error, hub, event)
+                })
+            })
 
             await setupPlugins(hub)
 
@@ -90,7 +93,7 @@ export const createTaskRunner =
             }
         )
 
-export function processUnhandledRejections(error: Error, server: Hub): void {
+export function processUnhandledException(error: Error, server: Hub, kind: string): void {
     let pluginConfig: PluginConfig | undefined = undefined
 
     if (error instanceof TimeoutError) {
@@ -107,10 +110,10 @@ export function processUnhandledRejections(error: Error, server: Hub): void {
 
     Sentry.captureException(error, {
         extra: {
-            type: 'Unhandled promise error in worker',
+            type: `${kind} in worker`,
         },
     })
 
-    status.error('🤮', `Unhandled Promise Error!`)
+    status.error('🤮', `${kind}!`)
     status.error('🤮', error)
 }
