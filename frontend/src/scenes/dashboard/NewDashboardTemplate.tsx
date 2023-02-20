@@ -32,7 +32,6 @@ export function NewDashboardTemplate({ inline = false }: { inline: boolean }): J
                     schema: {
                         type: 'object',
                         required: ['template_name', 'dashboard_description', 'dashboard_filters', 'tiles', 'variables'],
-                        additionalProperties: false,
                         properties: {
                             id: {
                                 description: 'The id of the dashboard template',
@@ -68,7 +67,7 @@ export function NewDashboardTemplate({ inline = false }: { inline: boolean }): J
                                 type: 'array',
                                 items: {
                                     type: 'object',
-                                    required: ['id', 'name', 'type', 'default', 'description'],
+                                    required: ['id', 'name', 'type', 'default', 'description', 'required'],
                                     properties: {
                                         id: {
                                             description: 'The id of the variable',
@@ -89,6 +88,10 @@ export function NewDashboardTemplate({ inline = false }: { inline: boolean }): J
                                         description: {
                                             description: 'The description of the variable',
                                             type: 'string',
+                                        },
+                                        required: {
+                                            description: 'Whether the variable is required',
+                                            type: 'boolean',
                                         },
                                     },
                                 },
