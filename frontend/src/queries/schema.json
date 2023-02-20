@@ -352,6 +352,9 @@
                         "show_legend": {
                             "type": "boolean"
                         },
+                        "show_values_on_series": {
+                            "type": "boolean"
+                        },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
                         },
@@ -2627,6 +2630,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "shown_as": {

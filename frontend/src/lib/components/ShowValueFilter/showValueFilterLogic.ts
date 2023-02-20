@@ -1,6 +1,6 @@
 import { kea, props, key, path, connect, actions, selectors, listeners } from 'kea'
 import { objectsEqual } from 'lib/utils'
-import { ChartDisplayType, InsightLogicProps, TrendsFilterType } from '~/types'
+import { InsightLogicProps, TrendsFilterType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
@@ -38,16 +38,6 @@ export const showValueFilterLogic = kea<showValueFilterLogicType>([
         showValue: [
             (s) => [s.filters],
             (filters) => filters && isTrendsFilter(filters) && !!filters.show_values_on_series,
-        ],
-        disabled: [
-            (s) => [s.filters, s.canEditInsight],
-            (filters, canEditInsight) =>
-                !canEditInsight ||
-                !isTrendsFilter(filters) ||
-                (filters.display &&
-                    [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber, ChartDisplayType.ActionsTable].includes(
-                        filters.display
-                    )),
         ],
     }),
 

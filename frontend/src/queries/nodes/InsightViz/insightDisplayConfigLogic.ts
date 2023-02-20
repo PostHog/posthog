@@ -70,13 +70,19 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         showFunnelDisplayLayout: [(s) => [s.isStepsFunnel], (isStepsFunnel) => !!isStepsFunnel],
         showFunnelBins: [(s) => [s.isTimeToConvertFunnel], (isTimeToConvertFunnel) => !!isTimeToConvertFunnel],
         showValuesOnSeries: [
-            (s) => [s.isTrends, s.display],
-            (isTrends, display) =>
-                isTrends &&
-                !!display &&
-                ![ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber, ChartDisplayType.ActionsTable].includes(
-                    display
-                ),
+            (s) => [s.isTrends, s.display, s.isStickiness],
+            (isTrends, display, isStickiness) => {
+                const chartsThatDoNotSupportValuesOnSeries = [
+                    ChartDisplayType.WorldMap,
+                    ChartDisplayType.BoldNumber,
+                    ChartDisplayType.ActionsTable,
+                ]
+
+                console.log('show values on series', { isTrends, isStickiness, display })
+                return (
+                    (isTrends || isStickiness) && !!display && !chartsThatDoNotSupportValuesOnSeries.includes(display)
+                )
+            },
         ],
     }),
 ])

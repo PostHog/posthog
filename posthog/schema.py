@@ -401,6 +401,7 @@ class StickinessFilter(BaseModel):
     display: Optional[ChartDisplayType] = None
     hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
@@ -1061,6 +1062,7 @@ class AnyPartialFilterTypeItem1(BaseModel):
     ] = None
     sample_results: Optional[bool] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 

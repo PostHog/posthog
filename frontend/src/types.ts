@@ -1507,6 +1507,7 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
     // whether to label values on the graph series
     show_values_on_series?: boolean
 }
@@ -1517,6 +1518,9 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    // whether to label values on the graph series
+    show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
