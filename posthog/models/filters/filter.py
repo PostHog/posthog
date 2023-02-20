@@ -30,6 +30,7 @@ from posthog.models.filters.mixins.common import (
     SearchMixin,
     SelectorMixin,
     ShownAsMixin,
+    ShowValuesOnSeriesMixin,
     SmoothingIntervalsMixin,
 )
 from posthog.models.filters.mixins.funnel import (
@@ -67,6 +68,7 @@ class Filter(
     BreakdownValueMixin,
     FilterTestAccountsMixin,
     CompareMixin,
+    ShowValuesOnSeriesMixin,
     InsightMixin,
     OffsetMixin,
     LimitMixin,

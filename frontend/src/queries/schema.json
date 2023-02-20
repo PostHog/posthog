@@ -219,6 +219,9 @@
                         "show_legend": {
                             "type": "boolean"
                         },
+                        "show_values_on_series": {
+                            "type": "boolean"
+                        },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
                         },
@@ -552,6 +555,9 @@
                         },
                         "sample_results": {
                             "type": ["boolean", "null"]
+                        },
+                        "show_values_on_series": {
+                            "type": "boolean"
                         }
                     },
                     "type": "object"
@@ -1873,6 +1879,9 @@
                 },
                 "layout": {
                     "$ref": "#/definitions/FunnelLayout"
+                },
+                "show_values_on_series": {
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -2753,6 +2762,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "shown_as": {

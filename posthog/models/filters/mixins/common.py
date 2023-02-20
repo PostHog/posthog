@@ -324,6 +324,17 @@ class CompareMixin(BaseParamMixin):
         return {"compare": self.compare} if self.compare else {}
 
 
+class ShowValuesOnSeriesMixin(BaseParamMixin):
+    @cached_property
+    def show_values_on_series(self) -> bool:
+        _show_values_on_series = self._data.get("show_values_on_series", None)
+        return process_bool(_show_values_on_series)
+
+    @include_dict
+    def show_values_on_series_to_dict(self):
+        return {"show_values_on_series": self.show_values_on_series} if self.show_values_on_series else {}
+
+
 class DateMixin(BaseParamMixin):
     date_from_delta_mapping: Optional[Dict[str, int]]
     date_to_delta_mapping: Optional[Dict[str, int]]
