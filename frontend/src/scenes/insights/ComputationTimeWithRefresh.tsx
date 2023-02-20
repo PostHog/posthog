@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { dayjs } from 'lib/dayjs'
 import { usePeriodicRerender } from 'lib/hooks/usePeriodicRerender'
-import { Button, Tooltip } from 'antd'
+import { Button } from 'antd'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh, insightRefreshButtonDisabledReason } = useValues(insightLogic)
@@ -15,17 +16,15 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
             Computed {lastRefresh ? dayjs(lastRefresh).fromNow() : 'a while ago'}
             <span className="px-1">•</span>
             <Tooltip title={insightRefreshButtonDisabledReason}>
-                <span>
-                    <Button
-                        type="link"
-                        size="small"
-                        onClick={() => loadResults(true)}
-                        disabled={!!insightRefreshButtonDisabledReason}
-                        className="p-0 z-0"
-                    >
-                        <span className="text-sm">Refresh</span>
-                    </Button>
-                </span>
+                <Button
+                    type="link"
+                    size="small"
+                    onClick={() => loadResults(true)}
+                    disabled={!!insightRefreshButtonDisabledReason}
+                    className="p-0"
+                >
+                    <span className="text-sm">Refresh</span>
+                </Button>
             </Tooltip>
         </div>
     )

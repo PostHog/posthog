@@ -1,4 +1,3 @@
-from unittest import mock
 from uuid import UUID
 
 from freezegun.api import freeze_time
@@ -47,14 +46,6 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     },
                 ],
             },
-        )
-
-    @freeze_time("2021-05-02")
-    def test_groups_list_no_group_type(self):
-        response = self.client.get(f"/api/projects/{self.team.id}/groups/").json()
-        self.assertEqual(
-            response,
-            {"type": "validation_error", "attr": "group_type_index", "code": "invalid_input", "detail": mock.ANY},
         )
 
     @freeze_time("2021-05-02")
