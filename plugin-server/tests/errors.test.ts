@@ -9,6 +9,8 @@ import { getErrorForPluginConfig, resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 
+// useless comment
+
 const extraServerConfig: Partial<PluginsServerConfig> = {
     WORKER_CONCURRENCY: 2,
     LOG_LEVEL: LogLevel.Log,
