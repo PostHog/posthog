@@ -57,8 +57,6 @@ describe('EventsProcessor#createEvent()', () => {
         person = await hub.db.createPerson(
             DateTime.fromISO(timestamp).toUTC(),
             { foo: 'onPerson', pprop: 5 },
-            {},
-            {},
             2,
             null,
             false,
@@ -101,16 +99,7 @@ describe('EventsProcessor#createEvent()', () => {
     })
 
     it('emits event with group columns', async () => {
-        await eventsProcessor.db.insertGroup(
-            2,
-            0,
-            'group_key',
-            { group_prop: 'value' },
-            DateTime.fromISO(timestamp),
-            {},
-            {},
-            1
-        )
+        await eventsProcessor.db.insertGroup(2, 0, 'group_key', { group_prop: 'value' }, DateTime.fromISO(timestamp), 1)
 
         await eventsProcessor.createEvent({ ...preIngestionEvent, properties: { $group_0: 'group_key' } }, person)
 
@@ -146,8 +135,6 @@ describe('EventsProcessor#createEvent()', () => {
             is_user_id: 0,
             is_identified: false,
             uuid: uuid,
-            properties_last_updated_at: {},
-            properties_last_operation: {},
         }
         await eventsProcessor.createEvent({ ...preIngestionEvent, distinctId: 'no-such-person' }, nonExistingPerson)
         await eventsProcessor.kafkaProducer.flush()

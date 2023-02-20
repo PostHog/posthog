@@ -29,7 +29,7 @@ describe('properties-updater', () => {
         db = hub.db
 
         team = await getFirstTeam(hub)
-        await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
+        await db.createPerson(PAST_TIMESTAMP, {}, team.id, null, false, uuid, [distinctId])
 
         jest.spyOn(hub.db, 'updateGroup')
         jest.spyOn(hub.db, 'insertGroup')

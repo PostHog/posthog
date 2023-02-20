@@ -1,14 +1,6 @@
 import { DateTime } from 'luxon'
 
-import {
-    ClickHouseTimestamp,
-    Cohort,
-    Hub,
-    Person,
-    PropertyOperator,
-    PropertyUpdateOperation,
-    Team,
-} from '../../src/types'
+import { ClickHouseTimestamp, Cohort, Hub, Person, PropertyOperator, Team } from '../../src/types'
 import { DB, GroupId } from '../../src/utils/db/db'
 import { createHub } from '../../src/utils/db/hub'
 import { generateKafkaPersonUpdateMessage } from '../../src/utils/db/utils'
@@ -284,24 +276,20 @@ describe('DB', () => {
         })
 
         test('without properties', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
+            const person = await db.createPerson(TIMESTAMP, {}, team.id, null, false, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
 
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
             expect(fetched_person!.uuid).toEqual(uuid)
             expect(fetched_person!.team_id).toEqual(team.id)
         })
 
         test('without properties indentified true', async () => {
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [distinctId])
+            const person = await db.createPerson(TIMESTAMP, {}, team.id, null, true, uuid, [distinctId])
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person!.is_identified).toEqual(true)
             expect(fetched_person!.properties).toEqual({})
-            expect(fetched_person!.properties_last_operation).toEqual({})
-            expect(fetched_person!.properties_last_updated_at).toEqual({})
             expect(fetched_person!.uuid).toEqual(uuid)
             expect(fetched_person!.team_id).toEqual(team.id)
         })
@@ -310,8 +298,6 @@ describe('DB', () => {
             const person = await db.createPerson(
                 TIMESTAMP,
                 { a: 123, b: false, c: 'bbb' },
-                { a: TIMESTAMP.toISO(), b: TIMESTAMP.toISO(), c: TIMESTAMP.toISO() },
-                { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set, c: PropertyUpdateOperation.SetOnce },
                 team.id,
                 null,
                 false,
@@ -321,16 +307,6 @@ describe('DB', () => {
             const fetched_person = await fetchPersonByPersonId(team.id, person.id)
             expect(fetched_person!.is_identified).toEqual(false)
             expect(fetched_person!.properties).toEqual({ a: 123, b: false, c: 'bbb' })
-            expect(fetched_person!.properties_last_operation).toEqual({
-                a: PropertyUpdateOperation.Set,
-                b: PropertyUpdateOperation.Set,
-                c: PropertyUpdateOperation.SetOnce,
-            })
-            expect(fetched_person!.properties_last_updated_at).toEqual({
-                a: TIMESTAMP.toISO(),
-                b: TIMESTAMP.toISO(),
-                c: TIMESTAMP.toISO(),
-            })
             expect(fetched_person!.uuid).toEqual(uuid)
             expect(fetched_person!.team_id).toEqual(team.id)
         })
@@ -343,7 +319,7 @@ describe('DB', () => {
             const uuid = new UUIDT().toString()
             const distinctId = 'distinct_id1'
             // Note that we update the person badly in case of concurrent updates, but lets make sure we're consistent
-            const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, {}, {}, team.id, null, false, uuid, [
+            const personDbBefore = await db.createPerson(TIMESTAMP, { c: 'aaa' }, team.id, null, false, uuid, [
                 distinctId,
             ])
             const providedPersonTs = DateTime.fromISO('2000-04-04T11:42:06.502Z').toUTC()
@@ -382,7 +358,7 @@ describe('DB', () => {
         it('deletes person from postgres', async () => {
             const team = await getFirstTeam(hub)
             // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
-            const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+            const person = await db.createPerson(TIMESTAMP, {}, team.id, null, true, uuid, [])
 
             await db.deletePerson(person)
 
@@ -409,7 +385,7 @@ describe('DB', () => {
             it('marks person as deleted in clickhouse', async () => {
                 const team = await getFirstTeam(hub)
                 // :TRICKY: We explicitly don't create distinct_ids here to keep the deletion process simpler.
-                const person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, true, uuid, [])
+                const person = await db.createPerson(TIMESTAMP, {}, team.id, null, true, uuid, [])
                 await delayUntilEventIngested(fetchPersonsRows, 1)
 
                 // We do an update to verify
@@ -470,7 +446,7 @@ describe('DB', () => {
         it('returns person object if person exists', async () => {
             const team = await getFirstTeam(hub)
             const uuid = new UUIDT().toString()
-            const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, {}, {}, team.id, null, true, uuid, [
+            const createdPerson = await db.createPerson(TIMESTAMP, { foo: 'bar' }, team.id, null, true, uuid, [
                 'some_id',
             ])
 
@@ -523,16 +499,7 @@ describe('DB', () => {
 
     describe('fetchGroup(), insertGroup() and updateGroup()', () => {
         it('returns undefined if no group type exists', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
+            await db.insertGroup(2, 0, 'group_key', { prop: 'val' }, TIMESTAMP, 1)
 
             expect(await db.fetchGroup(3, 0, 'group_key')).toEqual(undefined)
             expect(await db.fetchGroup(2, 1, 'group_key')).toEqual(undefined)
@@ -540,16 +507,7 @@ describe('DB', () => {
         })
 
         it('allows inserts and fetches', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
+            await db.insertGroup(2, 0, 'group_key', { prop: 'val' }, TIMESTAMP, 1)
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
                 id: expect.any(Number),
@@ -558,63 +516,26 @@ describe('DB', () => {
                 group_key: 'group_key',
                 group_properties: { prop: 'val' },
                 created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: TIMESTAMP.toISO() },
-                properties_last_operation: { prop: PropertyUpdateOperation.Set },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
                 version: 1,
             })
         })
 
         it('insertGroup raises RaceConditionErrors if inserting in parallel', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
+            await db.insertGroup(2, 0, 'group_key', { prop: 'val' }, TIMESTAMP, 1)
 
-            await expect(
-                db.insertGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'newval' },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1
-                )
-            ).rejects.toEqual(new RaceConditionError('Parallel posthog_group inserts, retry'))
+            await expect(db.insertGroup(2, 0, 'group_key', { prop: 'newval' }, TIMESTAMP, 1)).rejects.toEqual(
+                new RaceConditionError('Parallel posthog_group inserts, retry')
+            )
         })
 
         it('handles updates', async () => {
-            await db.insertGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'val' },
-                TIMESTAMP,
-                { prop: TIMESTAMP.toISO() },
-                { prop: PropertyUpdateOperation.Set },
-                1
-            )
+            await db.insertGroup(2, 0, 'group_key', { prop: 'val' }, TIMESTAMP, 1)
 
             const originalGroup = await db.fetchGroup(2, 0, 'group_key')
 
-            const timestamp2 = DateTime.fromISO('2000-10-14T12:42:06.502Z').toUTC()
-            await db.updateGroup(
-                2,
-                0,
-                'group_key',
-                { prop: 'newVal', prop2: 2 },
-                TIMESTAMP,
-                { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
-                { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                2
-            )
+            await db.updateGroup(2, 0, 'group_key', { prop: 'newVal', prop2: 2 }, TIMESTAMP, 2)
 
             expect(await db.fetchGroup(2, 0, 'group_key')).toEqual({
                 id: originalGroup!.id,
@@ -623,8 +544,8 @@ describe('DB', () => {
                 group_key: 'group_key',
                 group_properties: { prop: 'newVal', prop2: 2 },
                 created_at: TIMESTAMP,
-                properties_last_updated_at: { prop: timestamp2.toISO(), prop2: timestamp2.toISO() },
-                properties_last_operation: { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
+                properties_last_updated_at: {},
+                properties_last_operation: {},
                 version: 2,
             })
         })
@@ -633,34 +554,14 @@ describe('DB', () => {
             it('insertGroup() and updateGroup() update cache', async () => {
                 expect(await fetchGroupCache(2, 0, 'group_key')).toEqual(null)
 
-                await db.insertGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'val' },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set },
-                    1,
-                    undefined,
-                    { cache: true }
-                )
+                await db.insertGroup(2, 0, 'group_key', { prop: 'val' }, TIMESTAMP, 1, undefined, { cache: true })
 
                 expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
                     created_at: CLICKHOUSE_TIMESTAMP,
                     properties: { prop: 'val' },
                 })
 
-                await db.updateGroup(
-                    2,
-                    0,
-                    'group_key',
-                    { prop: 'newVal', prop2: 2 },
-                    TIMESTAMP,
-                    { prop: TIMESTAMP.toISO(), prop2: TIMESTAMP.toISO() },
-                    { prop: PropertyUpdateOperation.Set, prop2: PropertyUpdateOperation.Set },
-                    2
-                )
+                await db.updateGroup(2, 0, 'group_key', { prop: 'newVal', prop2: 2 }, TIMESTAMP, 2)
 
                 expect(await fetchGroupCache(2, 0, 'group_key')).toEqual({
                     created_at: CLICKHOUSE_TIMESTAMP,
@@ -708,7 +609,7 @@ describe('DB', () => {
             })
 
             it('tries to fetch data from Postgres if Redis is down', async () => {
-                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
+                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, 0, undefined, {
                     cache: false,
                 })
 
@@ -724,7 +625,7 @@ describe('DB', () => {
             })
 
             it('tries to fetch data from Postgres if there is no cached data', async () => {
-                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, {}, {}, 0, undefined, {
+                await db.insertGroup(2, 0, 'group_key', { foo: 'bar' }, TIMESTAMP, 0, undefined, {
                     cache: false,
                 })
 
@@ -762,18 +663,9 @@ describe('DB', () => {
                 }
 
                 for (const [groupTypeIndex, groupKey] of groupIds) {
-                    await db.insertGroup(
-                        2,
-                        groupTypeIndex,
-                        groupKey,
-                        { cached: false },
-                        TIMESTAMP,
-                        {},
-                        {},
-                        0,
-                        undefined,
-                        { cache: false }
-                    )
+                    await db.insertGroup(2, groupTypeIndex, groupKey, { cached: false }, TIMESTAMP, 0, undefined, {
+                        cache: false,
+                    })
                 }
                 const result = await db.getGroupsColumns(2, [
                     [0, '0'],
@@ -909,28 +801,12 @@ describe('DB', () => {
 
         beforeEach(async () => {
             team = await getFirstTeam(hub)
-            const sourcePerson = await db.createPerson(
-                TIMESTAMP,
-                {},
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                new UUIDT().toString(),
-                ['source_person']
-            )
-            const targetPerson = await db.createPerson(
-                TIMESTAMP,
-                {},
-                {},
-                {},
-                team.id,
-                null,
-                false,
-                new UUIDT().toString(),
-                ['target_person']
-            )
+            const sourcePerson = await db.createPerson(TIMESTAMP, {}, team.id, null, false, new UUIDT().toString(), [
+                'source_person',
+            ])
+            const targetPerson = await db.createPerson(TIMESTAMP, {}, team.id, null, false, new UUIDT().toString(), [
+                'target_person',
+            ])
             sourcePersonID = sourcePerson.id
             targetPersonID = targetPerson.id
         })
@@ -1064,7 +940,7 @@ describe('DB', () => {
                 team_id: team.id,
                 version: 10,
             })
-            person = await db.createPerson(TIMESTAMP, {}, {}, {}, team.id, null, false, new UUIDT().toString(), [])
+            person = await db.createPerson(TIMESTAMP, {}, team.id, null, false, new UUIDT().toString(), [])
         })
 
         it('returns false if person does not belong to cohort', async () => {

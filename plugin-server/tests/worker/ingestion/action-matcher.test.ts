@@ -722,8 +722,6 @@ describe('ActionMatcher', () => {
             const nonCohortPerson = await hub.db.createPerson(
                 DateTime.local(),
                 {},
-                {},
-                {},
                 actionDefinition.team_id,
                 null,
                 true,
@@ -733,8 +731,6 @@ describe('ActionMatcher', () => {
 
             const cohortPerson = await hub.db.createPerson(
                 DateTime.local(),
-                {},
-                {},
                 {},
                 actionDefinition.team_id,
                 null,

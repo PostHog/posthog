@@ -14,7 +14,7 @@ describe('PersonManager.isNewPerson', () => {
     const check = (distinctId: string) => personManager.isNewPerson(hub.db, 2, distinctId)
     const createPerson = async (distinctId: string) => {
         const uuid = new UUIDT().toString()
-        await hub.db.createPerson(DateTime.utc(), {}, {}, {}, 2, null, false, uuid, [distinctId])
+        await hub.db.createPerson(DateTime.utc(), {}, 2, null, false, uuid, [distinctId])
     }
 
     beforeEach(async () => {

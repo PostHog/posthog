@@ -40,8 +40,6 @@ export async function upsertGroup(
                         groupKey,
                         propertiesUpdate.properties,
                         createdAt,
-                        {},
-                        {},
                         version,
                         client
                     )
@@ -53,8 +51,6 @@ export async function upsertGroup(
                         groupKey,
                         propertiesUpdate.properties,
                         createdAt,
-                        {},
-                        {},
                         version,
                         client
                     )

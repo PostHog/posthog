@@ -35,8 +35,6 @@ class TestChangesBetweenPersons(unittest.TestCase):
         return Person(
             id=kwargs.get("id", 2),
             created_at=kwargs.get("created_at", parser.parse("12th April 2003")),
-            properties_last_updated_at=kwargs.get("properties_last_updated_at", parser.parse("12th April 2003")),
-            properties_last_operation=kwargs.get("properties_last_operation", {}),
             team=kwargs.get("team", Team()),
             properties=kwargs.get("properties", {}),
             is_user=kwargs.get("is_user", User()),
