@@ -76,7 +76,6 @@ export function InsightContainer({
         filters,
         timedOutQueryId,
         erroredQueryId,
-        exporterResourceParams,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
     // const {
@@ -88,7 +87,7 @@ export function InsightContainer({
     const { querySource } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
-    const { isTrends, display, trendsFilter } = useValues(insightDataLogic(insightProps))
+    const { isTrends, display, trendsFilter, exportContext } = useValues(insightDataLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
     const isValidFunnel = true
@@ -156,7 +155,7 @@ export function InsightContainer({
         ) {
             return (
                 <>
-                    {exporterResourceParams && (
+                    {exportContext && (
                         <div className="flex items-center justify-between my-4 mx-0">
                             <h2 className="m-0">Detailed results</h2>
                             <Tooltip title="Export this table in CSV format" placement="left">
@@ -166,7 +165,7 @@ export function InsightContainer({
                                     items={[
                                         {
                                             export_format: ExporterFormat.CSV,
-                                            export_context: exporterResourceParams,
+                                            export_context: exportContext,
                                         },
                                     ]}
                                 />
