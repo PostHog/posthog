@@ -17,6 +17,7 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
         }),
         createDashboardTemplate: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
         setDashboardTemplateId: (id: string) => ({ id }),
+        closeNewDashboardTemplateModal: true,
     }),
     reducers({
         dashboardTemplateJSON: [
@@ -30,6 +31,7 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
             {
                 setOpenNewDashboardTemplateModal: (_, { openNewDashboardTemplateModal }) =>
                     openNewDashboardTemplateModal,
+                closeNewDashboardTemplateModal: () => false,
             },
         ],
         id: [
@@ -79,12 +81,13 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
             },
         ],
     })),
-    listeners(({}) => ({
+    listeners(({ actions }) => ({
         createDashboardTemplateSuccess: async () => {
             dashboardTemplatesLogic.actions.getAllTemplates()
         },
         updateDashboardTemplateSuccess: async () => {
             dashboardTemplatesLogic.actions.getAllTemplates()
+            actions.closeNewDashboardTemplateModal()
         },
         deleteDashboardTemplateSuccess: async () => {
             dashboardTemplatesLogic.actions.getAllTemplates()
