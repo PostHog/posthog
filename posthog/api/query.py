@@ -14,7 +14,7 @@ from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
-from posthog.models.event.query_event_list import run_events_query
+from posthog.models.event.events_query import run_events_query_v3
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery
@@ -46,7 +46,7 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             query_kind = query_json.get("kind")
             if query_kind == "EventsQuery":
                 events_query = EventsQuery.parse_obj(query_json)
-                response = run_events_query(query=events_query, team=team)
+                response = run_events_query_v3(query=events_query, team=team)
                 return self._response_to_json_response(response)
             elif query_kind == "HogQLQuery":
                 hogql_query = HogQLQuery.parse_obj(query_json)
