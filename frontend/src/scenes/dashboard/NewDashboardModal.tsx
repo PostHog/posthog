@@ -1,14 +1,24 @@
 import { useActions, useValues } from 'kea'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
-// import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-// import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 import { DashboardTemplateType } from '~/types'
 import { useEffect, useState } from 'react'
+
+import { Field } from 'lib/forms/Field'
+import { AvailableFeature } from '~/types'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
+import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
+import { Form } from 'kea-forms'
+import { userLogic } from 'scenes/userLogic'
 
 function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
     const [hasError, setHasError] = useState(false)
@@ -150,7 +160,105 @@ export function DashboardTemplateChooser(): JSX.Element {
     )
 }
 
-export function NewDashboardModal(): JSX.Element {
+export function OriginalNewDashboardModal(): JSX.Element {
+    const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
+    const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { templatesList } = useValues(dashboardTemplatesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+
+    const templates = dashboardTemplates
+        ? templatesList
+        : [
+              {
+                  value: 'DEFAULT_APP',
+                  label: 'Product analytics',
+                  'data-attr': 'dashboard-select-default-app',
+              },
+          ]
+
+    return (
+        <LemonModal
+            title="New dashboard"
+            description="Use dashboards to compose multiple insights into a single view."
+            onClose={hideNewDashboardModal}
+            isOpen={newDashboardModalVisible}
+            footer={
+                <>
+                    <LemonButton
+                        form="new-dashboard-form"
+                        type="secondary"
+                        data-attr="dashboard-cancel"
+                        disabled={isNewDashboardSubmitting}
+                        onClick={hideNewDashboardModal}
+                    >
+                        Cancel
+                    </LemonButton>
+                    <LemonButton
+                        form="new-dashboard-form"
+                        type="secondary"
+                        data-attr="dashboard-submit-and-go"
+                        disabled={isNewDashboardSubmitting}
+                        onClick={createAndGoToDashboard}
+                    >
+                        Create and go to dashboard
+                    </LemonButton>
+                    <LemonButton
+                        form="new-dashboard-form"
+                        htmlType="submit"
+                        type="primary"
+                        data-attr="dashboard-submit"
+                        loading={isNewDashboardSubmitting}
+                        disabled={isNewDashboardSubmitting}
+                    >
+                        Create
+                    </LemonButton>
+                </>
+            }
+        >
+            <Form
+                logic={newDashboardLogic}
+                formKey="newDashboard"
+                id="new-dashboard-form"
+                enableFormOnSubmit
+                className="space-y-2"
+            >
+                <Field name="name" label="Name">
+                    <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
+                </Field>
+                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
+                    <Field name="description" label="Description" showOptional>
+                        <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
+                    </Field>
+                ) : null}
+                <Field name="useTemplate" label="Template" showOptional>
+                    <LemonSelect
+                        placeholder="Optionally start from template"
+                        allowClear
+                        options={templates}
+                        fullWidth
+                        data-attr="copy-from-template"
+                    />
+                </Field>
+                <Field name="restrictionLevel" label="Collaboration settings">
+                    {({ value, onChange }) => (
+                        <PayGateMini feature={AvailableFeature.DASHBOARD_PERMISSIONING}>
+                            <LemonSelect
+                                value={value}
+                                onChange={onChange}
+                                options={DASHBOARD_RESTRICTION_OPTIONS}
+                                fullWidth
+                            />
+                        </PayGateMini>
+                    )}
+                </Field>
+            </Form>
+        </LemonModal>
+    )
+}
+
+export function UpdatedNewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal } = useActions(newDashboardLogic)
     const { newDashboardModalVisible } = useValues(newDashboardLogic)
 
@@ -171,5 +279,19 @@ export function NewDashboardModal(): JSX.Element {
         >
             {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
         </LemonModal>
+    )
+}
+
+export function NewDashboardModal(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return (
+        <>
+            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] ? (
+                <UpdatedNewDashboardModal />
+            ) : (
+                <OriginalNewDashboardModal />
+            )}
+        </>
     )
 }
