@@ -167,7 +167,7 @@ class Resolver(TraversingVisitor):
             if table_count > 1:
                 raise ResolverException("Cannot use '*' when there are multiple tables in the query")
             table = scope.anonymous_tables[0] if len(scope.anonymous_tables) > 0 else list(scope.tables.values())[0]
-            symbol = ast.SplashSymbol(table=table)
+            symbol = ast.AsteriskSymbol(table=table)
 
         if not symbol:
             symbol = lookup_field_by_name(scope, name)

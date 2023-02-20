@@ -118,7 +118,7 @@ class ConstantSymbol(Symbol):
     value: Any
 
 
-class SplashSymbol(Symbol):
+class AsteriskSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 

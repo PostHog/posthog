@@ -48,16 +48,16 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
-    def get_splash(self) -> List[str]:
+    def get_asterisk(self) -> List[str]:
         list: List[str] = []
         for field in self.__fields__.values():
             database_field = field.default
             if isinstance(database_field, DatabaseField):
                 list.append(database_field.name)
             elif isinstance(database_field, Table):
-                list.extend(database_field.get_splash())
+                list.extend(database_field.get_asterisk())
             else:
-                raise ValueError(f"Unknown field type {type(database_field).__name__} for splash")
+                raise ValueError(f"Unknown field type {type(database_field).__name__} for asterisk")
         return list
 
 
