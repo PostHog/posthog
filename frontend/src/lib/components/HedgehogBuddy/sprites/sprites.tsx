@@ -15,10 +15,15 @@ export const SPRITE_SIZE = 64
 export const SPRITE_SHEET_WIDTH = 512
 
 type SpriteInfo = {
+    /** Number of frames in this sprite sheet */
     frames: number
+    /** Path to the sprite sheet */
     img: string
+    /** How many times to loop through the sprite sheet before stopping. If not set, will loop forever (so needs custom logic to decide when to end) */
     maxIteration?: number
+    /** If set, will force the sprite to always face this direction */
     forceDirection?: 'left' | 'right'
+    /** How likely this animation is to be chosen. Higher numbers are more likely. */
     randomChance?: number
 }
 
