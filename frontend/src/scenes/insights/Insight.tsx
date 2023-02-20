@@ -53,7 +53,6 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     setQuery = (query: any) => {
         if (insightVizSetQuery) {
-            console.log('wat is query being set in insight', query)
             insightVizSetQuery(query)
         }
     }
