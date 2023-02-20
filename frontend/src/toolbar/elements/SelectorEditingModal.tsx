@@ -45,7 +45,7 @@ export const SelectorEditingModal = ({
             }
             onClose={() => setIsOpen(false)}
             isOpen={isOpen}
-            title="Manually override the selector"
+            title="Edit the selector"
         >
             <HTMLElementsDisplay
                 editable={true}
