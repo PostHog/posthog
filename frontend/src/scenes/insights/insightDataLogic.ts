@@ -210,21 +210,22 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
     })),
     subscriptions(({ values, actions }) => ({
-        response: (response, oldResponse) => {
-            console.log('response changed: ', { response, oldResponse })
+        /**
+         * This subscription updates the insight for all visualizations
+         * that haven't been refactored to use the data exploration yet.
+         */
+        response: (response) => {
+            const typedResponse: Record<string, any> | null = response
 
-            // TRICKY: as soon as I comment in the block below, the subscription doesn't work any more,
-            // i.e. when `response` changes, this method isn't called
-
-            // actions.setInsight(
-            //     {
-            //         ...values.insight,
-            //         result: response.result,
-            //         next: response.next,
-            //         // filters: queryNodeToFilter(query.source),
-            //     },
-            //     {}
-            // )
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    result: typedResponse?.result,
+                    next: typedResponse?.next,
+                    // filters: queryNodeToFilter(query.source),
+                },
+                {}
+            )
         },
     })),
 ])
