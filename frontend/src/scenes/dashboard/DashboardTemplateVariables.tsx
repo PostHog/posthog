@@ -18,7 +18,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     return (
         <div className="mt-4 mb-6">
             {variables.map((variable, index) => (
-                <div key={index}>
+                <div key={index} className="mt-4">
                     <div key={variable.name}>
                         <strong>{variable.name}</strong>{' '}
                         {variable.required !== undefined && (
