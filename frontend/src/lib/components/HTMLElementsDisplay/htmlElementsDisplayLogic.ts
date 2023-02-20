@@ -1,10 +1,14 @@
-import { actions, kea, reducers, path, props, listeners, key } from 'kea'
+import { actions, kea, reducers, path, props, listeners, key, propsChanged } from 'kea'
 
 import type { htmlElementsDisplayLogicType } from './htmlElementsDisplayLogicType'
+import { ElementType } from '~/types'
+import { objectsEqual } from 'lib/utils'
 
 export interface HtmlElementDisplayLogicProps {
     checkUniqueness: boolean
     onChange?: (selector: string, isUnique?: boolean) => void
+    startingSelector?: string
+    providedElements: ElementType[]
     key: string
 }
 
@@ -12,6 +16,9 @@ export interface ChosenSelector {
     processedSelector: string
     selectorMatchCount: number | null
 }
+
+const elementsChain = (providedElements: ElementType[]): ElementType[] =>
+    [...(providedElements || [])].reverse().slice(Math.max(providedElements.length - 10, 1))
 
 export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     path(['lib', 'components', 'HtmlElementsDisplay', 'htmlElementsDisplayLogic']),
@@ -22,9 +29,14 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
         chooseSelector: (chosenSelector: { processedSelector: string; selectorMatchCount: number | null }) => ({
             chosenSelector,
         }),
+        setElements: (providedElements: ElementType[]) => ({ providedElements }),
     }),
-    reducers({
-        selectors: [
+    reducers(({ props }) => ({
+        elements: [
+            elementsChain(props.providedElements),
+            { setElements: (_, { providedElements }) => elementsChain(providedElements) },
+        ],
+        internallySetSelectors: [
             {},
             {
                 setSelectors: (_, { selectors }) => selectors,
@@ -48,7 +60,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                 },
             },
         ],
-    }),
+    })),
     listeners(({ props, actions }) => ({
         setSelectors: ({ selectors }) => {
             let lastKey = -2
@@ -84,11 +96,15 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
             actions.chooseSelector({ processedSelector: builtSelector, selectorMatchCount })
         },
         chooseSelector: ({ chosenSelector }) => {
-            console.log('calling onChange with ', chosenSelector)
             props.onChange?.(
                 chosenSelector.processedSelector,
                 props.checkUniqueness ? chosenSelector.selectorMatchCount === 1 : undefined
             )
         },
     })),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.providedElements && !objectsEqual(props.providedElements, oldProps.providedElements)) {
+            actions.setElements(props.providedElements)
+        }
+    }),
 ])

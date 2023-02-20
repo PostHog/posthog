@@ -43,6 +43,7 @@ function Tags({
     return (
         <>
             {elements.map((element, index) => {
+                debugger
                 return (
                     <SelectableElement
                         key={`${element.tag_name}-${index}`}
@@ -61,26 +62,38 @@ function Tags({
 
 let uniqueNode = 0
 
+interface HTMLElementsDisplayPropsBase {
+    elements: ElementType[]
+    highlight?: boolean
+}
+
+type HTMLElementsDisplayProps =
+    | (HTMLElementsDisplayPropsBase & {
+          editable: true
+          // if provided the matching elements will be highlighted as a starting state
+          startingSelector?: string
+          checkUniqueness?: boolean
+          onChange?: (selector: string, isUnique?: boolean) => void
+      })
+    | (HTMLElementsDisplayPropsBase & {
+          editable?: false
+          startingSelector?: never
+          checkUniqueness?: never
+          onChange?: never
+      })
+
 export function HTMLElementsDisplay({
+    startingSelector,
     elements: providedElements,
     onChange,
     highlight = true,
     editable = false,
     checkUniqueness = false,
-}: {
-    elements: ElementType[]
-    highlight?: boolean
-    editable?: boolean
-    checkUniqueness?: boolean
-    onChange?: (selector: string, isUnique?: boolean) => void
-}): JSX.Element {
+}: HTMLElementsDisplayProps): JSX.Element {
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
-    let elements = [...(providedElements || [])].reverse()
-    elements = elements.slice(Math.max(elements.length - 10, 1))
-
-    const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key })
-    const { selectors, chosenSelector, messageStatus } = useValues(logic)
+    const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
+    const { selectors, chosenSelector, messageStatus, elements } = useValues(logic)
     const { setSelectors } = useActions(logic)
 
     return (
