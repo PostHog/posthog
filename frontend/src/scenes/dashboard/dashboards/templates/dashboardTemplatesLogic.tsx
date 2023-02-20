@@ -35,7 +35,9 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             [] as DashboardTemplateType[],
             {
                 getAllTemplates: async () => {
-                    return await api.get('api/projects/@current/dashboard_templates/')
+                    return await api
+                        .get('api/projects/@current/dashboard_templates/')
+                        .then((response) => response.results)
                 },
             },
         ],

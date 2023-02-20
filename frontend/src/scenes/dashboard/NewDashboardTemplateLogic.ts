@@ -1,3 +1,4 @@
+import { lemonToast } from '@posthog/lemon-ui'
 import { actions, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
@@ -13,6 +14,7 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
             openNewDashboardTemplateModal,
         }),
         createDashboardTemplate: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
+        setDashboardTemplateId: (id: string) => ({ id }),
     }),
     reducers({
         dashboardTemplateJSON: [
@@ -28,6 +30,12 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
                     openNewDashboardTemplateModal,
             },
         ],
+        id: [
+            undefined as string | undefined,
+            {
+                setDashboardTemplateId: (_, { id }) => id,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         dashboardTemplate: [
@@ -38,7 +46,32 @@ export const newDashboardTemplateLogic = kea<newDashboardTemplateLogicType>([
                         '/api/projects/@current/dashboard_templates',
                         JSON.parse(values.dashboardTemplateJSON)
                     )
+                    lemonToast.success('Dashboard template created')
                     return response
+                },
+            },
+        ],
+        dashboardTemplateJSON: [
+            '' as string,
+            {
+                getDashboardTemplate: async (id: string): Promise<string> => {
+                    const response = await api.get(`/api/projects/@current/dashboard_templates/${id}`)
+                    return JSON.stringify(response, null, 4)
+                },
+                updateDashboardTemplate: async (id: string): Promise<string> => {
+                    const response = await api.update(
+                        `/api/projects/@current/dashboard_templates/${id}`,
+                        JSON.parse(values.dashboardTemplateJSON)
+                    )
+                    lemonToast.success('Dashboard template updated')
+                    return JSON.stringify(response, null, 4)
+                },
+                deleteDashboardTemplate: async (id: string): Promise<string> => {
+                    await api.update(`/api/projects/@current/dashboard_templates/${id}`, {
+                        deleted: true,
+                    })
+                    lemonToast.success('Dashboard template deleted')
+                    return ''
                 },
             },
         ],

@@ -11,7 +11,7 @@ import { Card } from 'antd'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 
-function TemplateItem({ name, onClick }: { name: string; description: string; onClick: () => void }): JSX.Element {
+function TemplateItem({ name, onClick }: { name: string; onClick: () => void }): JSX.Element {
     return (
         <Card title={name} size="small" style={{ width: 200, cursor: 'pointer' }} onClick={onClick}>
             <div style={{ textAlign: 'center', fontSize: 40 }}>
@@ -72,10 +72,6 @@ export function DashboardTemplateChooser(): JSX.Element {
         {
             label: 'Team Templates',
             key: 'team',
-        },
-        {
-            label: 'Your Templates',
-            key: 'your',
         },
         {
             label: 'All Templates',

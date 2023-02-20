@@ -13,7 +13,9 @@ export function NewDashboardTemplate(): JSX.Element {
     const { setOpenNewDashboardTemplateModal } = useActions(newDashboardTemplateLogic)
     const { isOpenNewDashboardTemplateModal } = useValues(newDashboardTemplateLogic)
 
-    const { createDashboardTemplate } = useActions(newDashboardTemplateLogic)
+    const { createDashboardTemplate, updateDashboardTemplate } = useActions(newDashboardTemplateLogic)
+
+    const { id } = useValues(newDashboardTemplateLogic)
 
     // const [queryInput, setQueryInput] = useState('hello')
 
@@ -50,15 +52,24 @@ export function NewDashboardTemplate(): JSX.Element {
                 height={500}
             />
             <div className="flex justify-end">
-                <LemonButton
-                    onClick={() => {
-                        createDashboardTemplate(dashboardTemplateJSON)
-                        setOpenNewDashboardTemplateModal(false)
-                    }}
-                    // align the button right
-                >
-                    Create new template
-                </LemonButton>
+                {id ? (
+                    <LemonButton
+                        onClick={() => {
+                            updateDashboardTemplate(id)
+                        }}
+                    >
+                        Update template
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        onClick={() => {
+                            createDashboardTemplate(dashboardTemplateJSON)
+                            setOpenNewDashboardTemplateModal(false)
+                        }}
+                    >
+                        Create new template
+                    </LemonButton>
+                )}
             </div>
         </LemonModal>
     )
