@@ -1,4 +1,4 @@
-import { kea, props, key, path, selectors, connect } from 'kea'
+import { connect, kea, key, path, props, selectors } from 'kea'
 import { ChartDisplayType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
@@ -69,6 +69,14 @@ export const insightDisplayConfigLogic = kea<insightDisplayConfigLogicType>([
         showPaths: [(s) => [s.isPaths], (isPaths) => !!isPaths],
         showFunnelDisplayLayout: [(s) => [s.isStepsFunnel], (isStepsFunnel) => !!isStepsFunnel],
         showFunnelBins: [(s) => [s.isTimeToConvertFunnel], (isTimeToConvertFunnel) => !!isTimeToConvertFunnel],
-        showValuesOnSeries: [(s) => [s.isTrends], (isTrends) => isTrends],
+        showValuesOnSeries: [
+            (s) => [s.isTrends, s.display],
+            (isTrends, display) =>
+                isTrends &&
+                !!display &&
+                ![ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber, ChartDisplayType.ActionsTable].includes(
+                    display
+                ),
+        ],
     }),
 ])
