@@ -135,6 +135,51 @@ export const New = (): JSX.Element => {
     return <App />
 }
 
+export const NewSelectVariables = (): JSX.Element => {
+    useAvailableFeatures([])
+    useEffect(() => {
+        router.actions.push(urls.dashboards())
+        newDashboardLogic.mount()
+        newDashboardLogic.actions.showNewDashboardModal()
+        newDashboardLogic.actions.setActiveDashboardTemplate({
+            id: '1',
+            template_name: 'Dashboard name',
+            dashboard_description: 'The dashboard description',
+            dashboard_filters: {},
+            tiles: [],
+            variables: [
+                {
+                    id: 'SIGN_UP',
+                    name: 'Sign up page viewed',
+                    type: 'event',
+                    default: {
+                        id: '$pageview',
+                        math: 'dau',
+                        type: 'events',
+                    },
+                    required: true,
+                    description: 'Add the current_url filter that matches your sign up page',
+                },
+                {
+                    id: 'ACTIVATED',
+                    name: 'Activated event',
+                    type: 'event',
+                    default: {
+                        id: '$pageview',
+                        math: 'dau',
+                        type: 'events',
+                    },
+                    required: false,
+                    description: 'Select the event which best represents when a user is activated',
+                },
+            ],
+            tags: [],
+            image_url: 'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
+        })
+    }, [])
+    return <App />
+}
+
 export const NewTemplate = (): JSX.Element => {
     useAvailableFeatures([])
     useEffect(() => {

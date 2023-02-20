@@ -10,7 +10,7 @@ import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLog
 import { DashboardTemplateType } from '~/types'
 import { useEffect, useState } from 'react'
 
-function FallbackCoverImage({ src, alt, index }: { src: string; alt: string; index: number }): JSX.Element {
+function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
     const [hasError, setHasError] = useState(false)
     const [color, setColor] = useState('#ff0000')
 
@@ -18,30 +18,21 @@ function FallbackCoverImage({ src, alt, index }: { src: string; alt: string; ind
         setHasError(true)
     }
 
-    const css_rainbow_colors = [
-        '#ff0000',
-        '#ffa500',
-        '#ffff00',
-        '#008000',
-        '#0000ff',
-        '#4b0082',
-        '#ee82ee',
-        '#800080',
-        '#ffc0cb',
-    ]
+    const colors = ['#ff0000', '#ffa500', '#ffff00', '#008000', '#0000ff', '#4b0082', '#ee82ee', '#800080', '#ffc0cb']
 
     useEffect(() => {
-        setColor(css_rainbow_colors[(index * 3) % css_rainbow_colors.length])
+        setColor(colors[(index * 3) % colors.length])
     }, [index])
 
     return (
         <>
-            {hasError ? (
+            {hasError || !src ? (
                 <div
                     className="w-full h-full"
+                    // dynamic color based on index
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        background: `radial-gradient(circle at 70% 30%, ${color}, #000000)`,
+                        background: `${color}`,
                     }}
                 />
             ) : (
@@ -88,11 +79,6 @@ export function DashboardTemplatePreview(): JSX.Element {
 
     return (
         <div>
-            <h3>{activeDashboardTemplate?.template_name}</h3>
-            <h4>Set up the events for your dashboard.</h4>
-
-            <hr />
-
             <DashboardTemplateVariables />
 
             <div className="flex justify-between my-4">
@@ -178,7 +164,17 @@ export function DashboardTemplateChooser(): JSX.Element {
                     <TemplateItem
                         key={index}
                         template={template}
-                        onClick={() => setActiveDashboardTemplate(template)}
+                        onClick={() => {
+                            if (template.variables.length === 0) {
+                                addDashboard({
+                                    name: template.template_name,
+                                    show: true,
+                                })
+                                return
+                            } else {
+                                setActiveDashboardTemplate(template)
+                            }
+                        }}
                         index={index + 1}
                     />
                 ))}
@@ -197,10 +193,12 @@ export function NewDashboardModal(): JSX.Element {
         <LemonModal
             onClose={hideNewDashboardModal}
             isOpen={newDashboardModalVisible}
-            title={activeDashboardTemplate ? 'Set up your dashboard' : 'Create a dashboard'}
+            title={activeDashboardTemplate ? 'Setup your events' : 'Create a dashboard'}
             description={
                 activeDashboardTemplate
-                    ? 'Set up the events for your dashboard'
+                    ? `The dashboard template you selected requires you to set up ${
+                          activeDashboardTemplate.variables.length
+                      } event${activeDashboardTemplate.variables.length > 1 ? 's' : ''}.`
                     : 'Choose a template or start with a blank slate'
             }
         >

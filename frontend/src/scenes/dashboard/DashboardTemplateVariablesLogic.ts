@@ -18,6 +18,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             {
                 setVariables: (_, { variables }) => variables,
                 updateVariable: (variables: DashboardTemplateVariableType, { variable_name, filterGroup }) => {
+                    // TODO: handle actions too
                     console.log('reducer', variable_name, filterGroup)
                     return variables.map((v: DashboardTemplateVariableType) => {
                         if (v.name === variable_name) {

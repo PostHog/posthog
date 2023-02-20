@@ -1250,7 +1250,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Optional<FilterType, 'type'>
+    default: Record<string, any> | null | undefined
     required: boolean
 }
 
