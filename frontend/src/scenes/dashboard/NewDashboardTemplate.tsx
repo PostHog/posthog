@@ -120,13 +120,27 @@ export function NewDashboardTemplate({ inline = false }: { inline?: boolean }): 
         <LemonModal
             title="New Dashboard Template"
             isOpen={isOpenNewDashboardTemplateModal}
-            width={800}
+            width={1000}
             onClose={() => {
                 setOpenNewDashboardTemplateModal(false)
             }}
             inline={inline}
         >
-            <div>
+            <MonacoEditor
+                theme="vs-light"
+                className="border"
+                language="json"
+                value={dashboardTemplateJSON}
+                onChange={(v) => {
+                    setDashboardTemplateJSON(v ?? '')
+                }}
+                onValidate={(markers) => {
+                    console.log('on validate', markers)
+                    updateValidationErrors(markers)
+                }}
+                height={600}
+            />
+            <div className="flex justify-end mt-4">
                 {id ? (
                     <LemonButton
                         onClick={() => {
@@ -148,20 +162,6 @@ export function NewDashboardTemplate({ inline = false }: { inline?: boolean }): 
                     </LemonButton>
                 )}
             </div>
-            <MonacoEditor
-                theme="vs-light"
-                className="border"
-                language="json"
-                value={dashboardTemplateJSON}
-                onChange={(v) => {
-                    setDashboardTemplateJSON(v ?? '')
-                }}
-                height={500}
-                onValidate={(markers) => {
-                    console.log('on validate', markers)
-                    updateValidationErrors(markers)
-                }}
-            />
         </LemonModal>
     )
 }
