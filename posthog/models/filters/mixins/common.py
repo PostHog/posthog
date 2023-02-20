@@ -330,7 +330,6 @@ class ShowValuesOnSeriesMixin(BaseParamMixin):
         _show_values_on_series = self._data.get("show_values_on_series", None)
         return process_bool(_show_values_on_series)
 
-    @include_dict
     def show_values_on_series_to_dict(self):
         return {"show_values_on_series": self.show_values_on_series} if self.show_values_on_series else {}
 

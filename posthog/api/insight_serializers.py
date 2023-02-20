@@ -157,6 +157,10 @@ class TrendSerializer(GenericInsightsSerializer, BreakdownMixin):
         help_text="For each returned result show the current period and the previous period. The result will contain `compare:true` and a `compare_label` with either `current` or `previous`.",
         required=False,
     )
+    show_values_on_series = serializers.BooleanField(
+        help_text="Configure the graph to show the values on the series (or not) as well as the tooltip.",
+        required=False,
+    )
 
 
 class FunnelExclusionSerializer(serializers.Serializer):
