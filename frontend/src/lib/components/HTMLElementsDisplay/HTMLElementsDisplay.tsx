@@ -96,24 +96,23 @@ export function HTMLElementsDisplay({
     const [key] = useState(() => `HtmlElementsDisplay.${uniqueNode++}`)
 
     const logic = htmlElementsDisplayLogic({ checkUniqueness, onChange, key, startingSelector, providedElements })
-    const { parsedSelectors, chosenSelector, messageStatus, elements } = useValues(logic)
+    const { parsedSelectors, chosenSelector, chosenSelectorMatchCount, messageStatus, elements } = useValues(logic)
     const { setParsedSelectors } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-1">
             {editable && !!elements.length && (
                 <div>
-                    Selector:{' '}
-                    <CodeSnippet copyDescription={'chosen selector'}>{chosenSelector.processedSelector}</CodeSnippet>
+                    Selector: <CodeSnippet copyDescription={'chosen selector'}>{chosenSelector}</CodeSnippet>
                 </div>
             )}
             {checkUniqueness && (
                 // TODO use the SelectorCount element here?
                 <AlertMessage type={messageStatus}>
-                    {chosenSelector.selectorMatchCount === null ? (
+                    {chosenSelectorMatchCount === null ? (
                         <>Choose parts of the HTML below to build a selector</>
                     ) : (
-                        <>Matches: {chosenSelector.selectorMatchCount} elements in the page</>
+                        <>Matches: {chosenSelectorMatchCount} elements in the page</>
                     )}
                 </AlertMessage>
             )}

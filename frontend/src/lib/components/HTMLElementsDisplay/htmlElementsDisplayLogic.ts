@@ -18,11 +18,6 @@ export interface HtmlElementDisplayLogicProps {
     key: string
 }
 
-export interface ChosenSelector {
-    processedSelector: string
-    selectorMatchCount: number | null
-}
-
 export const elementsChain = (providedElements: ElementType[] | undefined): ElementType[] => {
     const safeElements = [...(providedElements || [])]
     return safeElements.reverse().slice(Math.max(safeElements.length - 10, 1))
@@ -79,8 +74,8 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
         ],
         // contains the selector string built from the parsed selectors
         chosenSelector: [
-            (s) => [s.parsedSelectors, (_, props) => props.checkUniqueness],
-            (parsedSelectors, checkUniqueness): ChosenSelector => {
+            (s) => [s.parsedSelectors],
+            (parsedSelectors): string => {
                 let lastKey = -2
                 let builtSelector = ''
 
@@ -103,28 +98,29 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
 
                 builtSelector = !!builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
 
+                return builtSelector
+            },
+        ],
+        chosenSelectorMatchCount: [
+            (s) => [s.chosenSelector, (_, props) => props.checkUniqueness],
+            (chosenSelector, checkUniqueness): number | null => {
                 let selectorMatchCount: number | null = null
-                if (checkUniqueness && builtSelector !== 'no selectors chosen') {
+                if (checkUniqueness && chosenSelector !== 'no selectors chosen') {
                     try {
-                        selectorMatchCount = Array.from(document.querySelectorAll(builtSelector)).length
+                        selectorMatchCount = Array.from(document.querySelectorAll(chosenSelector)).length
                     } catch (e) {
                         console.error(e)
                         selectorMatchCount = 0
                     }
                 }
-                return { processedSelector: builtSelector, selectorMatchCount }
+                return selectorMatchCount
             },
         ],
     })),
-    subscriptions(({ props }) => ({
-        chosenSelector: (value: ChosenSelector, oldValue: ChosenSelector): void => {
-            console.log('chosenSelector', { value, oldValue })
-            if (value.processedSelector !== oldValue.processedSelector) {
-                console.log('calling externally provided onChange with ', value.processedSelector)
-                props.onChange?.(
-                    value.processedSelector,
-                    props.checkUniqueness ? value.selectorMatchCount === 1 : undefined
-                )
+    subscriptions(({ props, values }) => ({
+        chosenSelector: (value: string, oldValue: string): void => {
+            if (value !== oldValue) {
+                props.onChange?.(value, props.checkUniqueness ? values.chosenSelectorMatchCount === 1 : undefined)
             }
         },
     })),
