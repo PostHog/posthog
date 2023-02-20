@@ -81,7 +81,6 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
         chosenSelector: [
             (s) => [s.parsedSelectors, (_, props) => props.checkUniqueness],
             (parsedSelectors, checkUniqueness): ChosenSelector => {
-                console.log('reacting to parsed selectors change', parsedSelectors)
                 let lastKey = -2
                 let builtSelector = ''
 
@@ -92,7 +91,6 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                         const selector = !!parsedSelectors[key]
                             ? parsedSelectorToSelectorString(parsedSelectors[key])
                             : ''
-                        console.log('usig selector', selector, 'from', selectors[key], 'from', parsedSelectors)
                         if (!!selector.trim().length) {
                             if (lastKey === key - 1 && !!builtSelector.trim().length) {
                                 builtSelector += ` > ${selector}`
@@ -104,7 +102,7 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     })
 
                 builtSelector = !!builtSelector.trim().length ? builtSelector.trim() : 'no selectors chosen'
-                console.log('built selector', builtSelector)
+
                 let selectorMatchCount: number | null = null
                 if (checkUniqueness && builtSelector !== 'no selectors chosen') {
                     try {
@@ -120,7 +118,9 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     })),
     subscriptions(({ props }) => ({
         chosenSelector: (value: ChosenSelector, oldValue: ChosenSelector): void => {
+            console.log('chosenSelector', { value, oldValue })
             if (value.processedSelector !== oldValue.processedSelector) {
+                console.log('calling externally provided onChange with ', value.processedSelector)
                 props.onChange?.(
                     value.processedSelector,
                     props.checkUniqueness ? value.selectorMatchCount === 1 : undefined

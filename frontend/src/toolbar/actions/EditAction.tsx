@@ -26,6 +26,7 @@ export function EditAction(): JSX.Element {
         editingFields,
         editingSelector,
         elementsChainBeingEdited,
+        editingSelectorValue,
     } = useValues(actionsTabLogic)
     const {
         selectAction,
@@ -61,6 +62,7 @@ export function EditAction(): JSX.Element {
                 isOpen={editingSelector !== null}
                 setIsOpen={() => editSelectorWithIndex(null)}
                 activeElementChain={elementsChainBeingEdited}
+                startingSelector={editingSelectorValue}
                 onChange={(selector) => {
                     if (selector && editingSelector !== null) {
                         posthog.capture('toolbar_manual_selector_applied', {

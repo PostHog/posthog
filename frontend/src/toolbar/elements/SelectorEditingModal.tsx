@@ -10,11 +10,13 @@ export const SelectorEditingModal = ({
     setIsOpen,
     activeElementChain,
     onChange,
+    startingSelector,
 }: {
     isOpen: boolean
     setIsOpen: (open: boolean) => void
     activeElementChain: ElementType[]
     onChange?: (selector: string | null) => void
+    startingSelector?: string | null
 }): JSX.Element => {
     const [chosenSelector, setChosenSelector] = useState<string | null>(null)
 
@@ -32,6 +34,7 @@ export const SelectorEditingModal = ({
                         type="primary"
                         onClick={(e) => {
                             e.stopPropagation()
+                            console.log('calling onChange from modal with ', chosenSelector)
                             onChange?.(chosenSelector)
                             setIsOpen(false)
                         }}
@@ -50,6 +53,7 @@ export const SelectorEditingModal = ({
                 elements={activeElementChain}
                 checkUniqueness={true}
                 onChange={setChosenSelector}
+                startingSelector={startingSelector ?? undefined}
             />
         </LemonModal>
     )

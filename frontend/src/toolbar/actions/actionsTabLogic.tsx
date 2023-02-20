@@ -150,6 +150,17 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     },
 
     selectors: {
+        editingSelectorValue: [
+            (s) => [s.editingSelector, s.form],
+            (editingSelector, form: ActionFormInstance): string | null => {
+                if (editingSelector === null) {
+                    return null
+                } else {
+                    const selector = form.getFieldValue(`steps`)[editingSelector].selector
+                    return selector || null
+                }
+            },
+        ],
         elementsChainBeingEdited: [
             (s) => [s.editingSelector, s.actionFormElementsChains],
             (editingSelector, elementChains): ElementType[] => {
