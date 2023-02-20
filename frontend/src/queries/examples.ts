@@ -293,7 +293,14 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
 
 const HogQL: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: 'select event, count() as event_count from events group by event order by event_count desc',
+    query:
+        '   select event,\n' +
+        '          properties.$geoip_country_name as `Country Name`,\n' +
+        '          count() as `Event count`\n' +
+        '     from events\n' +
+        ' group by event,\n' +
+        '          properties.$geoip_country_name\n' +
+        ' order by count() desc',
 }
 
 const HogQLTable: DataTableNode = {
