@@ -59,10 +59,12 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
+import { dayjs, now } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
+const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
     // if the current _global_ value is true respect that over any local preference
@@ -130,6 +132,7 @@ export const insightLogic = kea<insightLogicType>([
             view: InsightType
             scene: Scene | null
             lastRefresh: string | null
+            nextAllowedRefresh: string | null
             exception?: Record<string, any>
             response?: { cached: boolean; apiResponseBytes: number; apiUrl: string }
         }) => payload,
@@ -140,10 +143,11 @@ export const insightLogic = kea<insightLogicType>([
             exception?: Record<string, any>
         }) => payload,
         markInsightTimedOut: (timedOutQueryId: string | null) => ({ timedOutQueryId }),
-        marktInsightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
+        markInsightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
+        setNextAllowedRefresh: (nextAllowedRefresh: string | null) => ({ nextAllowedRefresh }),
         setNotFirstLoad: true,
         setInsight: (insight: Partial<InsightModel>, options: SetInsightOptions) => ({
             insight,
@@ -156,7 +160,6 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
         saveInsightSuccess: true,
         saveInsightFailure: true,
-        setTagLoading: (tagLoading: boolean) => ({ tagLoading }),
         fetchedResults: (filters: Partial<FilterType>) => ({ filters }),
         loadInsight: (shortId: InsightShortId) => ({
             shortId,
@@ -364,6 +367,7 @@ export const insightLogic = kea<insightLogicType>([
                             view: insight,
                             scene: scene,
                             lastRefresh: null,
+                            nextAllowedRefresh: null,
                             exception: e,
                         })
                         if (dashboardItemId && dashboardsModel.isMounted()) {
@@ -388,6 +392,7 @@ export const insightLogic = kea<insightLogicType>([
                         view: (values.filters.insight as InsightType) || InsightType.TRENDS,
                         scene: scene,
                         lastRefresh: response.last_refresh,
+                        nextAllowedRefresh: response.next_allowed_client_refresh,
                         response: {
                             cached: response?.is_cached,
                             apiResponseBytes: getResponseBytes(fetchResponse),
@@ -506,7 +511,10 @@ export const insightLogic = kea<insightLogicType>([
                 }),
             },
         ],
-        timedOutQueryId: [null as string | null, { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
+        timedOutQueryId: [
+            null as string | null,
+            { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId, setActiveView: () => null },
+        ],
         maybeShowTimeoutMessage: [
             false,
             {
@@ -517,7 +525,10 @@ export const insightLogic = kea<insightLogicType>([
                 setActiveView: () => false,
             },
         ],
-        erroredQueryId: [null as string | null, { marktInsightErrored: (_, { erroredQueryId }) => erroredQueryId }],
+        erroredQueryId: [
+            null as string | null,
+            { markInsightErrored: (_, { erroredQueryId }) => erroredQueryId, setActiveView: () => null },
+        ],
         maybeShowErrorMessage: [
             false,
             {
@@ -538,6 +549,14 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
                 loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
+                setActiveView: () => null,
+            },
+        ],
+        nextAllowedRefresh: [
+            null as string | null,
+            {
+                setNextAllowedRefresh: (_, { nextAllowedRefresh }) => nextAllowedRefresh,
+                loadInsightSuccess: (_, { insight }) => insight.next_allowed_client_refresh || null,
                 setActiveView: () => null,
             },
         ],
@@ -563,12 +582,6 @@ export const insightLogic = kea<insightLogicType>([
             {} as Record<string, number>,
             {
                 startQuery: (state, { queryId }) => ({ ...state, [queryId]: performance.now() }),
-            },
-        ],
-        tagLoading: [
-            false,
-            {
-                setTagLoading: (_, { tagLoading }) => tagLoading,
             },
         ],
         insightSaving: [
@@ -774,6 +787,31 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
+        insightRefreshButtonDisabledReason: [
+            (s) => [s.nextAllowedRefresh, s.lastRefresh],
+            (nextAllowedRefresh: string | null, lastRefresh: string | null): string => {
+                let disabledReason = ''
+
+                if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
+                    // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
+                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
+                } else if (
+                    !!lastRefresh &&
+                    now()
+                        .subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                        .isBefore(lastRefresh)
+                ) {
+                    // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
+                    // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
+                    // refreshing the page though, as there's no cache layer on the backend
+                    disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
+                        .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
+                        .fromNow()}`
+                }
+
+                return disabledReason
+            },
+        ],
     }),
     listeners(({ actions, selectors, values, cache }) => ({
         setFiltersMerge: ({ filters }) => {
@@ -830,7 +868,7 @@ export const insightLogic = kea<insightLogicType>([
             // will not be called. This should be fixed when we refactor insightLogic, but the logic is a bit tangled
             // right now
             if (values.insight.id) {
-                api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
+                return api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/${values.insight.id}/viewed`)
             }
         },
         reportInsightViewed: async ({ filters, previousFilters }, breakpoint) => {
@@ -873,18 +911,22 @@ export const insightLogic = kea<insightLogicType>([
         },
         startQuery: ({ queryId }) => {
             actions.markInsightTimedOut(null)
-            actions.marktInsightErrored(null)
+            actions.markInsightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
                 window.setTimeout(() => {
-                    if (values && view == values.activeView) {
-                        actions.markInsightTimedOut(queryId)
-                        const tags = {
-                            insight: values.activeView,
-                            scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                    try {
+                        if (values && view == values.activeView) {
+                            actions.markInsightTimedOut(queryId)
+                            const tags = {
+                                insight: values.activeView,
+                                scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
+                            }
+                            posthog.capture('insight timeout message shown', tags)
                         }
-                        posthog.capture('insight timeout message shown', tags)
+                    } catch (e) {
+                        console.warn('Error setting insight timeout', e)
                     }
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
@@ -897,32 +939,37 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         abortQuery: async ({ queryId }) => {
-            const { currentTeamId } = values
+            try {
+                const { currentTeamId } = values
 
-            await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
 
-            const duration = performance.now() - values.queryStartTimes[queryId]
-            await captureTimeToSeeData(values.currentTeamId, {
-                type: 'insight_load',
-                context: 'insight',
-                primary_interaction_id: queryId,
-                query_id: queryId,
-                status: 'cancelled',
-                time_to_see_data_ms: Math.floor(duration),
-                insights_fetched: 0,
-                insights_fetched_cached: 0,
-                api_response_bytes: 0,
-                insight: values.activeView,
-            })
+                const duration = performance.now() - values.queryStartTimes[queryId]
+                await captureTimeToSeeData(values.currentTeamId, {
+                    type: 'insight_load',
+                    context: 'insight',
+                    primary_interaction_id: queryId,
+                    query_id: queryId,
+                    status: 'cancelled',
+                    time_to_see_data_ms: Math.floor(duration),
+                    insights_fetched: 0,
+                    insights_fetched_cached: 0,
+                    api_response_bytes: 0,
+                    insight: values.activeView,
+                })
+            } catch (e) {
+                console.warn('Failed cancelling query', e)
+            }
         },
-        endQuery: ({ queryId, view, lastRefresh, scene, exception, response }) => {
+        endQuery: ({ queryId, view, lastRefresh, scene, exception, response, nextAllowedRefresh }) => {
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
             if (view === values.activeView && values.currentTeamId) {
                 actions.markInsightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
-                actions.marktInsightErrored(values.maybeShowErrorMessage ? queryId : null)
+                actions.markInsightErrored(values.maybeShowErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
+                actions.setNextAllowedRefresh(nextAllowedRefresh || null)
                 actions.setIsLoading(false)
 
                 const duration = performance.now() - values.queryStartTimes[queryId]
@@ -956,8 +1003,6 @@ export const insightLogic = kea<insightLogicType>([
         },
         setActiveView: ({ type }) => {
             actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
-            actions.markInsightTimedOut(null)
-            actions.marktInsightErrored(null)
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }

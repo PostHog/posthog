@@ -41,6 +41,7 @@ import {
     selectorOperatorMap,
     stringOperatorMap,
     toParams,
+    shortTimeZone,
 } from './utils'
 import {
     ActionFilter,
@@ -821,4 +822,12 @@ describe('range', () => {
     it('creates offset range', () => {
         expect(range(1, 5)).toEqual([1, 2, 3, 4])
     })
+})
+
+test('shortTimezone', () => {
+    expect(shortTimeZone('UTC')).toEqual('UTC')
+    // All timezones below don't observe DST for simplicity
+    expect(shortTimeZone('America/Phoenix')).toEqual('MST')
+    expect(shortTimeZone('Europe/Moscow')).toEqual('UTC+3')
+    expect(shortTimeZone('Asia/Tokyo')).toEqual('UTC+9')
 })
