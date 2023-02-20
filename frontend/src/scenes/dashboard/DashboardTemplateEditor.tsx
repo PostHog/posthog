@@ -10,7 +10,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
     const { dashboardTemplateJSON, validationError } = useValues(dashboardTemplateEditorLogic)
     const { setDashboardTemplateJSON, updateValidationErrors } = useActions(dashboardTemplateEditorLogic)
 
-    const { setOpenNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
+    const { closeNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
     const { isOpenNewDashboardTemplateModal } = useValues(dashboardTemplateEditorLogic)
 
     const { createDashboardTemplate, updateDashboardTemplate } = useActions(dashboardTemplateEditorLogic)
@@ -114,15 +114,13 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
         })
     }, [monaco])
 
-    // disable the new dashboard template button if there's a monaco validation error
-
     return (
         <LemonModal
             title={id ? 'Edit dashboard template' : 'New dashboard template'}
             isOpen={isOpenNewDashboardTemplateModal}
             width={1000}
             onClose={() => {
-                setOpenNewDashboardTemplateModal(false)
+                closeNewDashboardTemplateModal()
             }}
             inline={inline}
         >
@@ -154,7 +152,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                     <LemonButton
                         onClick={() => {
                             createDashboardTemplate(dashboardTemplateJSON)
-                            setOpenNewDashboardTemplateModal(false)
+                            closeNewDashboardTemplateModal()
                         }}
                         disabledReason={validationError ? validationError : undefined}
                     >

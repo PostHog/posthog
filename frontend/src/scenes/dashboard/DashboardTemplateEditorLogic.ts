@@ -17,7 +17,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             openNewDashboardTemplateModal,
         }),
         createDashboardTemplate: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
-        setDashboardTemplateId: (id: string) => ({ id }),
+        setDashboardTemplateId: (id: string | undefined) => ({ id }),
         closeNewDashboardTemplateModal: true,
         updateValidationErrors: (markers: monaco.editor.IMarker[] | undefined) => ({ markers }),
     }),
@@ -107,6 +107,10 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         },
         deleteDashboardTemplateSuccess: async () => {
             dashboardTemplatesLogic.actions.getAllTemplates()
+        },
+        closeNewDashboardTemplateModal: () => {
+            actions.setDashboardTemplateJSON('')
+            actions.setDashboardTemplateId(undefined)
         },
     })),
 ])
