@@ -1,5 +1,3 @@
-// import IMarker from monaco
-
 import { editor } from 'monaco-editor'
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
