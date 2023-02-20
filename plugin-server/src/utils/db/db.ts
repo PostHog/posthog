@@ -6,15 +6,10 @@ import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
+import { Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
 
 import { CELERY_DEFAULT_QUEUE } from '../../config/constants'
-import {
-    KAFKA_GROUPS,
-    KAFKA_PERSON_DISTINCT_ID,
-    KAFKA_PERSON_OVERRIDE,
-    KAFKA_PLUGIN_LOG_ENTRIES,
-} from '../../config/kafka-topics'
+import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from '../../config/kafka-topics'
 import {
     Action,
     ActionStep,
@@ -193,7 +188,7 @@ export class DB {
     // Postgres
 
     public postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-        queryString: string,
+        queryString: string | QueryConfig<I>,
         values: I | undefined,
         tag: string,
         client?: PoolClient
@@ -201,7 +196,11 @@ export class DB {
         return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
             let fullQuery = ''
             try {
-                fullQuery = getFinalPostgresQuery(queryString, values as any[])
+                if (typeof queryString === 'string') {
+                    fullQuery = getFinalPostgresQuery(queryString, values as any[])
+                } else {
+                    fullQuery = getFinalPostgresQuery(queryString.text, queryString.values as any[])
+                }
             } catch {}
             const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
                 queryString,
@@ -209,13 +208,20 @@ export class DB {
                 fullQuery,
             })
 
-            // Annotate query string to give context when looking at DB logs
-            queryString = `/* plugin-server:${tag} */ ${queryString}`
+            const queryConfig =
+                typeof queryString === 'string'
+                    ? {
+                          // Annotate query string to give context when looking at DB logs
+                          text: `/* plugin-server:${tag} */ ${queryString}`,
+                          values,
+                      }
+                    : queryString
+
             try {
                 if (client) {
-                    return await client.query(queryString, values)
+                    return await client.query(queryConfig, values)
                 } else {
-                    return await this.postgres.query(queryString, values)
+                    return await this.postgres.query(queryConfig, values)
                 }
             } catch (error) {
                 if (
@@ -250,6 +256,7 @@ export class DB {
                 if (e.message && POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => e.message.includes(message))) {
                     throw new DependencyUnavailableError(e.message, 'Postgres', e)
                 }
+
                 throw e
             } finally {
                 client.release()
