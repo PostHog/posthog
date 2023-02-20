@@ -214,14 +214,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
          * This subscription updates the insight for all visualizations
          * that haven't been refactored to use the data exploration yet.
          */
-        response: (response) => {
-            const typedResponse: Record<string, any> | null = response
-
+        response: (response: Record<string, any> | null) => {
             actions.setInsight(
                 {
                     ...values.insight,
-                    result: typedResponse?.result,
-                    next: typedResponse?.next,
+                    result: response?.result,
+                    next: response?.next,
                     // filters: queryNodeToFilter(query.source),
                 },
                 {}
