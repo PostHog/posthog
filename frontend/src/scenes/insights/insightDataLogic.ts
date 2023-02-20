@@ -225,8 +225,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             //     },
             //     {}
             // )
-
-            //     setLastRefresh(lastRefresh)
         },
     })),
 ])

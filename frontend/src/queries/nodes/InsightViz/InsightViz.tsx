@@ -35,7 +35,6 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
 
     const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
 
-    // // TODO: use connected logic instead of useEffect?
     // useEffect(() => {
     //     // TODO: this is hacky - we prevent overwriting the insight in case
     //     // of a saved insight. instead we should handle loading a saved insight
