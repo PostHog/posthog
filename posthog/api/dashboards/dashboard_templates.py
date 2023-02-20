@@ -3,29 +3,49 @@ from typing import Dict, List
 
 import requests
 import structlog
-from rest_framework import request, response, serializers, status, viewsets
+from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
+from rest_framework.request import Request
 
+from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.logging.timing import timed
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 logger = structlog.get_logger(__name__)
 
 
-class DashboardTemplateSerializer(serializers.Serializer):
+class OnlyStaffCanEditDashboardTemplate(BasePermission):
+    message = "You don't have edit permissions for this dashboard template."
+
+    def has_permission(self, request: Request, view) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        return request.user.is_staff
+
+
+class DashboardTemplateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardTemplate
+        fields = [
+            "id",
+            "template_name",
+            "dashboard_description",
+            "dashboard_filters",
+            "tags",
+            "tiles",
+            "variables",
+            "deleted",
+            "created_at",
+            "created_by",
+            "name",  # TODO: remove
+            "url",  # TODO: remove
+        ]
+
     name: serializers.CharField = serializers.CharField(write_only=True, required=False)
     url: serializers.CharField = serializers.CharField(write_only=True, required=False)
-
-    template_name: serializers.CharField = serializers.CharField(required=False)
-    dashboard_description: serializers.CharField = serializers.CharField(required=False)
-    dashboard_filters: serializers.JSONField = serializers.JSONField(required=False)
-    tags: serializers.ListField = serializers.ListField(required=False)
-    tiles: serializers.JSONField = serializers.JSONField(required=False)
-    variables: serializers.JSONField = serializers.JSONField(required=False)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> DashboardTemplate:
         if "url" in validated_data:
@@ -67,34 +87,12 @@ class DashboardTemplateSerializer(serializers.Serializer):
             )
 
 
-class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
-    permission_classes = [
-        IsAuthenticated,
-        ProjectMembershipNecessaryPermissions,
-    ]
+class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, OnlyStaffCanEditDashboardTemplate]
     serializer_class = DashboardTemplateSerializer
 
-    def create(self, request: request.Request, **kwargs) -> response.Response:
-        if not request.user.is_staff:
-            return response.Response(status=status.HTTP_403_FORBIDDEN)
-
-        serializer = DashboardTemplateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return response.Response(data="", status=status.HTTP_200_OK)
-
-    def list(self, request: request.Request, **kwargs) -> response.Response:
-        return response.Response(DashboardTemplate.objects.filter(team_id=None).values())
-
-    def retrieve(self, request: request.Request, pk: str, **kwargs) -> response.Response:
-        template = DashboardTemplate.objects.get(team_id=None, id=pk)
-
-        if template.team_id is not None:
-            return response.Response(
-                status=status.HTTP_401_UNAUTHORIZED
-            )  # TODO check if should be unauthorized or is not found
-
-        return response.Response(DashboardTemplateSerializer(DashboardTemplate.objects.get(team_id=None, id=pk)).data)
+    def get_queryset(self):
+        return DashboardTemplate.objects.filter(team_id=None)
 
     @timed("dashboard_templates.api_repository_load")
     @action(methods=["GET"], detail=False)

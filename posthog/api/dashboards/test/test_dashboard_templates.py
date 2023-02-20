@@ -130,7 +130,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, f"{response} {response.json()}")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
 
         assert DashboardTemplate.objects.count() == 1
         assert DashboardTemplate.objects.filter(team_id__isnull=True).count() == 1
@@ -144,14 +144,29 @@ class TestDashboardTemplates(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response)
 
         for key in keys_to_check:
-            assert response.json()[0][key] == variable_template[key], f"key {key} failed"
+            assert response.json()["results"][0][key] == variable_template[key], f"key {key} failed"
+
+    @patch("posthog.api.dashboards.dashboard_templates.requests.get")
+    def test_non_staff_user_cannot_create_dashboard(self, patched_requests) -> None:
+        self._patch_request_get(patched_requests, website_traffic_template_listing)
+
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response)
+
+        assert DashboardTemplate.objects.count() == 0
 
     def test_get_dashboard_template_by_id(self) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.pk}/dashboard_templates",
             variable_template,
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, f"{response} {response.json()}")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
 
         assert DashboardTemplate.objects.count() == 1
         id = DashboardTemplate.objects.first().id
@@ -164,6 +179,68 @@ class TestDashboardTemplates(APIBaseTest):
 
         for key in keys_to_check:
             assert response.json()[key] == variable_template[key], f"key {key} failed"
+
+    def test_delete_dashboard_template_by_id(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
+
+        assert DashboardTemplate.objects.count() == 1
+        id = DashboardTemplate.objects.first().id
+
+        response = self.client.patch(f"/api/projects/{self.team.pk}/dashboard_templates/{id}", {"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        assert response.json()["results"] == [], response.json()
+
+    def test_non_staff_user_cannot_delete_dashboard_template_by_id(self) -> None:
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
+
+        assert DashboardTemplate.objects.count() == 1
+        id = DashboardTemplate.objects.first().id
+
+        self.user.is_staff = False
+        self.user.save()
+
+        response = self.client.patch(f"/api/projects/{self.team.pk}/dashboard_templates/{id}", {"deleted": True})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response)
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        assert response.json()["results"] != [], response.json()
+
+    def test_update_dashboard_template_by_id(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/dashboard_templates",
+            variable_template,
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        assert DashboardTemplate.objects.count() == 1
+        id = DashboardTemplate.objects.first().id
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
+            {"template_name": "new name"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+
+        assert DashboardTemplate.objects.count() == 1
+        assert DashboardTemplate.objects.first().template_name == "new name"
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
@@ -188,7 +265,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
 
         patched_requests.assert_called_with("a github url")
 
@@ -232,7 +309,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
 
         patched_requests.assert_called_with("a github url")
 
@@ -249,7 +326,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url", "tiles": website_traffic_template_listing["tiles"]},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
 
         patched_requests.assert_called_with("a github url")
 
@@ -274,7 +351,7 @@ class TestDashboardTemplates(APIBaseTest):
             f"/api/projects/{self.team.pk}/dashboard_templates",
             {"name": "Website traffic", "url": "a github url"},
         )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response)
 
         assert DashboardTemplate.objects.count() == 1
         assert DashboardTemplate.objects.first().tags == ["updated"]  # type: ignore

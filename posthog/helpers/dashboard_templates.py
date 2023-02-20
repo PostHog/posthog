@@ -418,19 +418,20 @@ def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> 
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
+
 def _create_from_template_json(dashboard: Dashboard, template: any) -> None:
-    dashboard.name = template['template_name']
-    dashboard.filters = template['dashboard_filters']
-    dashboard.description = template['dashboard_description']
+    dashboard.name = template["template_name"]
+    dashboard.filters = template["dashboard_filters"]
+    dashboard.description = template["dashboard_description"]
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        for template_tag in template['tags']:
+        for template_tag in template["tags"]:
             tag, _ = Tag.objects.get_or_create(
                 name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
             )
             dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save()
 
-    for template_tile in template['tiles']:
+    for template_tile in template["tiles"]:
         if template_tile["type"] == "INSIGHT":
             _create_tile_for_insight(
                 dashboard,
