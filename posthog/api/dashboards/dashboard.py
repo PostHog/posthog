@@ -450,9 +450,6 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         # load template from string into json
         template = request.data["template"]
-        tiles = template["tiles"]
-
-        team = Team.objects.get(id=self.team_id)
 
         dashboard = Dashboard.objects.create(team_id=self.team_id)
         _create_from_template_json(dashboard, template)

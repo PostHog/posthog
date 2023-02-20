@@ -241,16 +241,18 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
-                                            <LemonButton
-                                                onClick={() => {
-                                                    setDashboardTemplateJSON(asDashboardTemplate)
-                                                    setOpenNewDashboardTemplateModal(true)
-                                                }}
-                                                fullWidth
-                                                status="stealth"
-                                            >
-                                                Save as template
-                                            </LemonButton>
+                                            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && (
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        setDashboardTemplateJSON(asDashboardTemplate)
+                                                        setOpenNewDashboardTemplateModal(true)
+                                                    }}
+                                                    fullWidth
+                                                    status="stealth"
+                                                >
+                                                    Save as template
+                                                </LemonButton>
+                                            )}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {
