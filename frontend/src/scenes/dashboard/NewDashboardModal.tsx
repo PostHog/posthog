@@ -36,7 +36,7 @@ export function DashboardTemplatePreview(): JSX.Element {
 
             <DashboardTemplateVariables />
 
-            <div className="flex justify-between m-4">
+            <div className="flex justify-between my-4">
                 <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
                     Back
                 </LemonButton>
