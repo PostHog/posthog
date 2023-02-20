@@ -329,7 +329,10 @@ class _Printer(Visitor):
         raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
 
     def visit_alias(self, node: ast.Alias):
-        return f"{self.visit(node.expr)} AS {self._print_identifier(node.alias)}"
+        inside = self.visit(node.expr)
+        if isinstance(node.expr, ast.Alias):
+            inside = f"({inside})"
+        return f"{inside} AS {self._print_identifier(node.alias)}"
 
     def visit_table_symbol(self, symbol: ast.TableSymbol):
         return self._print_identifier(symbol.table.clickhouse_table())
