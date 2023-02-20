@@ -18,7 +18,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '../../models/groupsModel'
-import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 
 interface Props {
     id?: string
@@ -159,7 +158,6 @@ function DashboardScene(): JSX.Element {
                         )}
                     </div>
                     {placement !== DashboardPlacement.Export && <LemonDivider className="my-4" />}
-                    <DashboardTemplateVariables />
                     <DashboardItems />
                 </div>
             )}
