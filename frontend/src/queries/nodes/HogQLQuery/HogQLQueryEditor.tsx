@@ -19,14 +19,14 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
     const { setQueryInput, saveQuery } = useActions(hogQLQueryEditorLogic(hogQLQueryEditorLogicProps))
 
     return (
-        <div className={'flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-40 w-full'}>
+        <div className={'flex flex-col p-2 bg-border space-y-2 resize-y overflow-auto h-80 w-full'}>
             <div className="flex-1">
                 <AutoSizer disableWidth>
                     {({ height }) => (
                         <MonacoEditor
                             theme="vs-light"
                             className="border"
-                            language="sql"
+                            language="mysql"
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height={height}
