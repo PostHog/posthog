@@ -100,45 +100,12 @@ export function DashboardTemplatePreview(): JSX.Element {
 
 export function DashboardTemplateChooser(): JSX.Element {
     const { allTemplates } = useValues(dashboardTemplatesLogic)
-    // const { featureFlags } = useValues(featureFlagLogic)
-    // const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
-
-    // const { dashboardGroup } = useValues(newDashboardLogic)
-    // const { setDashboardGroup } = useActions(newDashboardLogic)
     const { addDashboard } = useActions(newDashboardLogic)
 
     const { setActiveDashboardTemplate } = useActions(newDashboardLogic)
 
-    // const templateGroups = ['Popular Templates', 'Team Templates', 'Your Templates', 'All Templates']
-    // const templateGroups = [
-    //     {
-    //         label: 'Popular Templates',
-    //         key: 'popular',
-    //     },
-    //     {
-    //         label: 'Team Templates',
-    //         key: 'team',
-    //     },
-    //     {
-    //         label: 'All Templates',
-    //         key: 'all',
-    //     },
-    // ]
     return (
         <div>
-            {/* <LemonTabs
-                activeKey={dashboardGroup ?? 'popular'}
-                onChange={(key) => {
-                    console.log(key)
-                    setDashboardGroup(key)
-                    console.log(dashboardGroup)
-                }}
-                tabs={templateGroups.map((group) => ({
-                    label: group.label,
-                    key: group.key,
-                    content: <div />,
-                }))}
-            /> */}
             <div
                 className="flex flex-wrap gap-4"
                 style={{

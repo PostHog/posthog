@@ -1,4 +1,4 @@
-import { DashboardTemplateVariable, DashboardTemplateVariableType } from './../../types'
+import { DashboardTemplateVariableType } from './../../types'
 import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
@@ -63,10 +63,9 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
         hideNewDashboardModal: true,
         addDashboard: (form: Partial<NewDashboardForm>) => ({ form }),
         createAndGoToDashboard: true,
-        setDashboardGroup: (group: string) => ({ group }),
         setActiveDashboardTemplate: (template: DashboardTemplateType) => ({ template }),
         clearActiveDashboardTemplate: true,
-        createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariable[]) => ({
+        createDashboardFromTemplate: (template: DashboardTemplateType, variables: DashboardTemplateVariableType[]) => ({
             template,
             variables,
         }),
@@ -77,12 +76,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             {
                 showNewDashboardModal: () => true,
                 hideNewDashboardModal: () => false,
-            },
-        ],
-        dashboardGroup: [
-            undefined,
-            {
-                setDashboardGroup: (_, { group }) => group,
             },
         ],
         activeDashboardTemplate: [
