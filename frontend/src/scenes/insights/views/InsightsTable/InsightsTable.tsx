@@ -1,34 +1,29 @@
-import { Dropdown, Menu } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
-import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { ChartDisplayType, IntervalType, ItemMode, TrendResult } from '~/types'
-import { average, median, capitalizeFirstLetter } from 'lib/utils'
-import { InsightLabel } from 'lib/components/InsightLabel'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { ChartDisplayType, IntervalType, ItemMode, TrendsFilterType } from '~/types'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined } from '@ant-design/icons'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DateDisplay } from 'lib/components/DateDisplay'
-import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
 import { IndexedTrendResult } from 'scenes/trends/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { entityFilterLogic } from '../../filters/ActionFilter/entityFilterLogic'
 import './InsightsTable.scss'
-import clsx from 'clsx'
 import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
-import stringWithWBR from 'lib/utils/stringWithWBR'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconEdit } from 'lib/lemon-ui/icons'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
-import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+
+import { SeriesCheckColumnTitle, SeriesCheckColumnItem } from './columns/SeriesCheckColumn'
+import { SeriesColumnItem } from './columns/SeriesColumn'
+import { BreakdownColumnTitle, BreakdownColumnItem } from './columns/BreakdownColumn'
+import { WorldMapColumnTitle, WorldMapColumnItem } from './columns/WorldMapColumn'
+import { AggregationColumnItem, AggregationColumnTitle } from './columns/AggregationColumn'
+import { ValueColumnItem, ValueColumnTitle } from './columns/ValueColumn'
+import { AggregationType, insightsTableDataLogic } from './insightsTableDataLogic'
+import { BreakdownFilter, TrendsFilter } from '~/queries/schema'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -44,45 +39,45 @@ interface InsightsTableProps {
     isMainInsightView?: boolean
 }
 
-const CALC_COLUMN_LABELS: Record<CalcColumnState, string> = {
-    total: 'Total Sum',
-    average: 'Average',
-    median: 'Median',
-}
-
-/**
- * InsightsTable for use in a dashboard.
- */
-export function DashboardInsightsTable(): JSX.Element {
+export function InsightsTableDataExploration({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
     const { insightProps } = useValues(insightLogic)
+    const { isNonTimeSeriesDisplay, compare, isTrends, display, interval, breakdown, trendsFilter } = useValues(
+        insightDataLogic(insightProps)
+    )
+    const { aggregation, allowAggregation } = useValues(insightsTableDataLogic(insightProps))
+    const { setAggregationType } = useActions(insightsTableDataLogic(insightProps))
+
+    const handleSeriesEditClick = (item: IndexedTrendResult): void => {
+        const typeKey = `${filterKey}_data_exploration`
+        const entityFilter = entityFilterLogic.findMounted({
+            typeKey,
+        })
+        if (entityFilter) {
+            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.showModal()
+        }
+    }
     return (
-        <BindLogic logic={trendsLogic} props={insightProps}>
-            <InsightsTable
-                filterKey={`dashboard_${insightProps.dashboardItemId}`}
-                embedded
-                canCheckUncheckSeries={false}
-            />
-        </BindLogic>
+        <InsightsTableComponent
+            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            compare={!!compare}
+            isTrends={isTrends}
+            trendsFilter={trendsFilter}
+            display={display}
+            interval={interval}
+            breakdown={breakdown}
+            allowAggregation={allowAggregation}
+            aggregation={aggregation}
+            setAggregationType={(state: CalcColumnState) => setAggregationType(state as AggregationType)}
+            handleSeriesEditClick={handleSeriesEditClick}
+            {...rest}
+        />
     )
 }
 
-export function InsightsTable({
-    isLegend = false,
-    embedded = false,
-    filterKey,
-    canEditSeriesNameInline = false,
-    canCheckUncheckSeries = true,
-    isMainInsightView = false,
-}: InsightsTableProps): JSX.Element | null {
-    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
-    const { insightMode } = useValues(insightSceneLogic)
-    const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
-    const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
-    const { cohorts } = useValues(cohortsModel)
-    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
-
-    const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
-
+export function InsightsTable({ filterKey, ...rest }: InsightsTableProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
     const hasMathUniqueFilter = !!(
         filters.actions?.find(({ math }) => math === 'dau') || filters.events?.find(({ math }) => math === 'dau')
     )
@@ -90,110 +85,121 @@ export function InsightsTable({
     const { calcColumnState, showTotalCount } = useValues(logic)
     const { setCalcColumnState } = useActions(logic)
 
-    const showCountedByTag = !!indexedResults.find(({ action }) => action?.math && action.math !== 'total')
+    const isNonTimeSeriesDisplay =
+        isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
-    const handleEditClick = (item: IndexedTrendResult): void => {
-        if (canEditSeriesNameInline) {
-            const entityFilter = entityFilterLogic.findMounted({
-                setFilters,
-                filters,
-                typeKey: filterKey,
-            })
-            if (entityFilter) {
-                entityFilter.actions.selectFilter(item.action)
-                entityFilter.actions.showModal()
-            }
+    const handleSeriesEditClick = (item: IndexedTrendResult): void => {
+        const typeKey = filterKey
+        const entityFilter = entityFilterLogic.findMounted({
+            typeKey,
+        })
+        if (entityFilter) {
+            entityFilter.actions.selectFilter(item.action)
+            entityFilter.actions.showModal()
         }
     }
 
-    const isDisplayModeNonTimeSeries: boolean =
-        isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
-
-    const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
-        <Menu>
-            {Object.keys(CALC_COLUMN_LABELS).map((key) => (
-                <Menu.Item
-                    key={key}
-                    onClick={(e) => {
-                        setCalcColumnState(key as CalcColumnState)
-                        reportInsightsTableCalcToggled(key)
-                        e.domEvent.stopPropagation() // Prevent click here from affecting table sorting
-                    }}
-                >
-                    {CALC_COLUMN_LABELS[key as CalcColumnState]}
-                </Menu.Item>
-            ))}
-        </Menu>
+    return (
+        <InsightsTableComponent
+            isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+            compare={isTrendsFilter(filters) && !!filters.compare}
+            isTrends={isTrendsFilter(filters)}
+            trendsFilter={{
+                aggregation_axis_format: (filters as TrendsFilterType).aggregation_axis_format,
+                aggregation_axis_prefix: (filters as TrendsFilterType).aggregation_axis_prefix,
+                aggregation_axis_postfix: (filters as TrendsFilterType).aggregation_axis_postfix,
+            }}
+            display={(filters as TrendsFilterType).display}
+            interval={(filters as TrendsFilterType).interval}
+            breakdown={{
+                breakdown: filters.breakdown,
+            }}
+            allowAggregation={!!showTotalCount}
+            aggregation={calcColumnState}
+            setAggregationType={setCalcColumnState}
+            handleSeriesEditClick={handleSeriesEditClick}
+            {...rest}
+        />
     )
+}
+
+export type InsightsTableComponentProps = Omit<InsightsTableProps, 'filterKey'> & {
+    isTrends: boolean
+    trendsFilter?: TrendsFilter | null
+    display?: ChartDisplayType
+    interval?: IntervalType
+    breakdown?: BreakdownFilter
+    isNonTimeSeriesDisplay: boolean
+    compare?: boolean
+    allowAggregation: boolean
+    aggregation: CalcColumnState
+    setAggregationType: (state: CalcColumnState) => void
+    handleSeriesEditClick: (item: IndexedTrendResult) => void
+}
+
+export function InsightsTableComponent({
+    isLegend = false,
+    embedded = false,
+    canEditSeriesNameInline = false,
+    canCheckUncheckSeries = true,
+    isMainInsightView = false,
+    isNonTimeSeriesDisplay,
+    isTrends,
+    trendsFilter,
+    display,
+    interval,
+    breakdown,
+    compare,
+    allowAggregation,
+    aggregation,
+    setAggregationType,
+    handleSeriesEditClick,
+}: InsightsTableComponentProps): JSX.Element | null {
+    const { insightProps, isInDashboardContext, insight } = useValues(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic)
+    const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const { indexedResults, hiddenLegendKeys, resultsLoading } = useValues(trendsLogic(insightProps))
+    const { toggleVisibility } = useActions(trendsLogic(insightProps))
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
-    const compare = isTrendsFilter(filters) && !!filters.compare
 
     if (isLegend) {
-        const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
-        const areAllSeriesChecked = isAnySeriesChecked && indexedResults.every((series) => !hiddenLegendKeys[series.id])
         columns.push({
             title: (
-                <LemonCheckbox
-                    checked={areAllSeriesChecked || (isAnySeriesChecked ? 'indeterminate' : false)}
-                    onChange={(checked) =>
-                        indexedResults.forEach((i) => {
-                            if (checked && hiddenLegendKeys[i.id]) {
-                                toggleVisibility(i.id)
-                            } else if (!checked && !hiddenLegendKeys[i.id]) {
-                                toggleVisibility(i.id)
-                            }
-                        })
-                    }
-                    disabled={!canCheckUncheckSeries}
+                <SeriesCheckColumnTitle
+                    indexedResults={indexedResults}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    hiddenLegendKeys={hiddenLegendKeys}
+                    toggleVisibility={toggleVisibility}
                 />
             ),
-            render: function RenderCheckbox(_, item: IndexedTrendResult) {
-                return (
-                    <LemonCheckbox
-                        color={getSeriesColor(item.seriesIndex, compare)}
-                        checked={!hiddenLegendKeys[item.id]}
-                        onChange={() => toggleVisibility(item.id)}
-                        disabled={!canCheckUncheckSeries}
-                    />
-                )
-            },
+            render: (_, item) => (
+                <SeriesCheckColumnItem
+                    item={item}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    hiddenLegendKeys={hiddenLegendKeys}
+                    compare={compare}
+                    toggleVisibility={toggleVisibility}
+                />
+            ),
             width: 0,
         })
     }
 
     columns.push({
         title: 'Series',
-        render: function RenderLabel(_, item: IndexedTrendResult): JSX.Element {
-            return (
-                <div className="series-name-wrapper-col">
-                    <InsightLabel
-                        seriesColor={getSeriesColor(item.seriesIndex, compare)}
-                        action={item.action}
-                        fallbackName={item.breakdown_value === '' ? 'None' : item.label}
-                        hasMultipleSeries={indexedResults.length > 1}
-                        showCountedByTag={showCountedByTag}
-                        breakdownValue={item.breakdown_value === '' ? 'None' : item.breakdown_value?.toString()}
-                        hideBreakdown
-                        hideIcon
-                        className={clsx({
-                            editable: canEditSeriesNameInline,
-                        })}
-                        pillMaxWidth={165}
-                        compareValue={compare ? formatCompareLabel(item) : undefined}
-                        onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
-                    />
-                    {canEditSeriesNameInline && (
-                        <LemonButton
-                            onClick={() => handleEditClick(item)}
-                            title="Rename graph series"
-                            icon={<IconEdit className="edit-icon" />}
-                        />
-                    )}
-                </div>
-            )
-        },
+        render: (_, item) => (
+            <SeriesColumnItem
+                item={item}
+                indexedResults={indexedResults}
+                canEditSeriesNameInline={canEditSeriesNameInline}
+                compare={compare}
+                handleEditClick={handleSeriesEditClick}
+            />
+        ),
         key: 'label',
         sorter: (a, b) => {
             const labelA = a.action?.name || a.label || ''
@@ -202,98 +208,67 @@ export function InsightsTable({
         },
     })
 
-    if (filters.breakdown) {
+    if (breakdown?.breakdown) {
+        const formatItemBreakdownLabel = (item: IndexedTrendResult): string =>
+            formatBreakdownLabel(
+                cohorts,
+                formatPropertyValueForDisplay,
+                item.breakdown_value,
+                item.filter?.breakdown,
+                item.filter?.breakdown_type,
+                item.filter && isTrendsFilter(item.filter) && item.filter?.breakdown_histogram_bin_count !== undefined
+            )
+
         columns.push({
-            title: (
-                <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
+            title: <BreakdownColumnTitle breakdown={breakdown?.breakdown} />,
+            render: (_, item) => (
+                <BreakdownColumnItem
+                    item={item}
+                    canCheckUncheckSeries={canCheckUncheckSeries}
+                    isMainInsightView={isMainInsightView}
+                    toggleVisibility={toggleVisibility}
+                    formatItemBreakdownLabel={formatItemBreakdownLabel}
+                />
             ),
-            render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
-                const breakdownLabel = formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    item.breakdown_value,
-                    item.filter?.breakdown,
-                    item.filter?.breakdown_type,
-                    item.filter &&
-                        isTrendsFilter(item.filter) &&
-                        item.filter?.breakdown_histogram_bin_count !== undefined
-                )
-                return (
-                    <SeriesToggleWrapper
-                        id={item.id}
-                        toggleVisibility={!isMainInsightView && canCheckUncheckSeries ? toggleVisibility : undefined}
-                    >
-                        {breakdownLabel && <div title={breakdownLabel}>{stringWithWBR(breakdownLabel, 20)}</div>}
-                    </SeriesToggleWrapper>
-                )
-            },
             key: 'breakdown',
             sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    a.breakdown_value,
-                    a.filter?.breakdown,
-                    a.filter?.breakdown_type,
-                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
-                )
-                const labelB = formatBreakdownLabel(
-                    cohorts,
-                    formatPropertyValueForDisplay,
-                    b.breakdown_value,
-                    b.filter?.breakdown,
-                    b.filter?.breakdown_type,
-                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
-                )
+                const labelA = formatItemBreakdownLabel(a)
+                const labelB = formatItemBreakdownLabel(b)
                 return labelA.localeCompare(labelB)
             },
         })
-        if (isTrendsFilter(filters) && filters.display === ChartDisplayType.WorldMap) {
+        if (isTrends && display === ChartDisplayType.WorldMap) {
             columns.push({
-                title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
-                render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
+                title: <WorldMapColumnTitle />,
+                render: (_, item: IndexedTrendResult) => <WorldMapColumnItem item={item} />,
                 key: 'breakdown_addendum',
                 sorter: (a, b) => {
-                    return countryCodeToName[a.breakdown_value as string].localeCompare(b.breakdown_value as string)
+                    const labelA = countryCodeToName[a.breakdown_value as string]
+                    const labelB = countryCodeToName[b.breakdown_value as string]
+                    return labelA.localeCompare(labelB)
                 },
             })
         }
     }
 
-    if (showTotalCount) {
+    if (allowAggregation) {
         columns.push({
-            title: calcColumnMenu ? (
-                <Dropdown overlay={calcColumnMenu}>
-                    <span className="cursor-pointer">
-                        {CALC_COLUMN_LABELS[calcColumnState]}
-                        <DownOutlined className="ml-1" />
-                    </span>
-                </Dropdown>
-            ) : (
-                CALC_COLUMN_LABELS.total
+            title: (
+                <AggregationColumnTitle
+                    isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                    aggregation={aggregation}
+                    setAggregationType={setAggregationType}
+                />
             ),
-            render: function RenderCalc(_: any, item: IndexedTrendResult) {
-                let value: number | undefined = undefined
-                if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
-                    value = item.count ?? item.aggregated_value
-                    if (item.aggregated_value > item.count) {
-                        value = item.aggregated_value
-                    }
-                } else if (calcColumnState === 'average') {
-                    value = average(item.data)
-                } else if (calcColumnState === 'median') {
-                    value = median(item.data)
-                }
+            render: (_: any, item: IndexedTrendResult) => (
+                <AggregationColumnItem
+                    item={item}
+                    isNonTimeSeriesDisplay={isNonTimeSeriesDisplay}
+                    aggregation={aggregation}
+                    trendsFilter={trendsFilter}
+                />
+            ),
 
-                return value !== undefined
-                    ? formatAggregationValue(
-                          item.action?.math_property,
-                          value,
-                          (value) => formatAggregationAxisValue(filters, value),
-                          formatPropertyValueForDisplay
-                      )
-                    : 'Unknown'
-            },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
             align: 'right',
@@ -301,27 +276,19 @@ export function InsightsTable({
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
         const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
             (__, index: number) => ({
                 title: (
-                    <DateDisplay
-                        interval={(filters.interval as IntervalType) || 'day'}
-                        date={(indexedResults[0].dates || indexedResults[0].days)[index]} // current
-                        secondaryDate={
-                            !!previousResult ? (previousResult.dates || previousResult.days)[index] : undefined
-                        } // previous
-                        hideWeekRange
+                    <ValueColumnTitle
+                        index={index}
+                        indexedResults={indexedResults}
+                        compare={compare}
+                        interval={interval}
                     />
                 ),
-                render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return formatAggregationValue(
-                        item.action?.math_property,
-                        item.data[index],
-                        (value) => formatAggregationAxisValue(filters, value),
-                        formatPropertyValueForDisplay
-                    )
-                },
+                render: (_, item: IndexedTrendResult) => (
+                    <ValueColumnItem index={index} item={item} trendsFilter={trendsFilter} />
+                ),
                 key: `data-${index}`,
                 sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
                 align: 'right',
@@ -330,8 +297,6 @@ export function InsightsTable({
 
         columns.push(...valueColumns)
     }
-
-    const useURLForSorting = insightMode !== ItemMode.Edit
 
     return (
         <LemonTable
@@ -347,13 +312,7 @@ export function InsightsTable({
             emptyState="No insight results"
             data-attr="insights-table-graph"
             className="insights-table"
-            useURLForSorting={useURLForSorting}
+            useURLForSorting={insightMode !== ItemMode.Edit}
         />
     )
-}
-
-export function formatCompareLabel(trendResult: TrendResult): string {
-    // label splitting ensures backwards compatibility for api results that don't contain the new compare_label
-    const labels = trendResult.label.split(' - ')
-    return capitalizeFirstLetter(trendResult.compare_label ?? labels?.[labels.length - 1] ?? 'current')
 }
