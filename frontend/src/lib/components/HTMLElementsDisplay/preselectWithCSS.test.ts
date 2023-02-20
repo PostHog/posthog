@@ -1,5 +1,10 @@
 import { ElementType } from '~/types'
-import { parseCSSSelector, matchesSelector, preselect } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import {
+    parseCSSSelector,
+    matchesSelector,
+    preselect,
+    parsedSelectorToSelectorString,
+} from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
 import { elementsExample } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay.stories'
 import { elementsChain } from 'lib/components/HTMLElementsDisplay/htmlElementsDisplayLogic'
 
@@ -62,49 +67,54 @@ const elements = [
     },
 ] as ElementType[]
 describe('can preselect selectors for editing', () => {
-    describe('can parse parts out of a single selector', () => {
-        test('can grab a tag from a simple tag only selector', () => {
-            expect(parseCSSSelector('div')).toEqual({ tag: 'div' })
-        })
-        test('can grab a class from a simple class only selector', () => {
-            expect(parseCSSSelector('.Something__something--something')).toEqual({
-                class: ['Something__something--something'],
-            })
-        })
-        test('can grab an attribute from a simple attribute only selector', () => {
-            expect(parseCSSSelector('[key="value"]')).toEqual({
-                key: 'value',
-            })
-        })
-        test('can ignore pseudo-selectors', () => {
-            expect(parseCSSSelector('.Something__something--something:first-of-type')).toEqual({
-                class: ['Something__something--something'],
-            })
-        })
-        test('can grab multiple from a complex selector', () => {
-            expect(
-                parseCSSSelector('span.Something__something--something:first-of-type[href="wat"].second-class')
-            ).toEqual({
-                class: ['Something__something--something', 'second-class'],
-                href: 'wat',
-                tag: 'span',
-            })
-        })
-        test('treats # as an id attr', () => {
-            expect(parseCSSSelector('div#wat')).toEqual({
-                id: 'wat',
-                tag: 'div',
-            })
-        })
+    describe('can parse parts out of a single selector and they are mostly reversible', () => {
+        const testcases = [
+            { selector: 'div', expected: { tag: 'div' } },
+            { selector: '.Something__something--something', expected: { class: ['Something__something--something'] } },
+            {
+                selector: '.Something__something--something:first-of-type',
+                expectedSelector: '.Something__something--something',
+                expected: { class: ['Something__something--something'] },
+            },
+            { selector: '[key="value"]', expected: { key: 'value' } },
+            {
+                selector: 'span.Something__something--something:first-of-type[href="wat"].second-class',
+                expectedSelector: 'span.Something__something--something.second-class[href="wat"]',
+                expected: {
+                    class: ['Something__something--something', 'second-class'],
+                    href: 'wat',
+                    tag: 'span',
+                },
+            },
+            {
+                selector: 'div#wat',
+                expectedSelector: 'div[id="wat"]',
+                expected: {
+                    id: 'wat',
+                    tag: 'div',
+                },
+            },
+            {
+                selector: '>',
+                expected: {
+                    combinator: '>',
+                },
+            },
+            {
+                selector: '+',
+                expectedSelector: '',
+                expected: {},
+            },
+        ]
 
-        test('can handle direct child combinators', () => {
-            expect(parseCSSSelector('>')).toEqual({
-                combinator: '>',
+        testcases.forEach((testcase) => {
+            test(`can parse ${testcase.selector}`, () => {
+                expect(parseCSSSelector(testcase.selector)).toEqual(testcase.expected)
+                expect(parsedSelectorToSelectorString(testcase.expected)).toEqual(
+                    // some selectors are not reversible since we throw away some information
+                    testcase.expectedSelector === undefined ? testcase.selector : testcase.expectedSelector
+                )
             })
-        })
-
-        test('can ignore adjacent sibling combinators', () => {
-            expect(parseCSSSelector('+')).toEqual({})
         })
     })
 

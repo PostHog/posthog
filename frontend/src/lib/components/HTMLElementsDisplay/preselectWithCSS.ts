@@ -4,13 +4,15 @@ export type ParsedCSSSelector = Record<string, string | string[] | undefined>
 
 export const parsedSelectorToSelectorString = (parsedSelector: ParsedCSSSelector): string => {
     const attributeSelectors = Object.entries(parsedSelector).reduce((acc, [key, value]) => {
-        if (!!value && key !== 'tag' && key !== 'text') {
+        if (!!value && key !== 'tag' && key !== 'text' && key !== 'id') {
             if (key === 'class') {
                 if (!Array.isArray(value)) {
                     throw new Error(`Was expecting an array here. Attribute: ${key} has a string value: ${value}`)
                 } else if (value.length > 0) {
                     acc.push(`.${Array.from(value).join('.')}`)
                 }
+            } else if (key === 'combinator') {
+                acc.push(`${value}`)
             } else {
                 if (Array.isArray(value)) {
                     throw new Error(
