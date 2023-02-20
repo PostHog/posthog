@@ -1305,7 +1305,7 @@ class TestCapture(BaseTest):
         self.assertEqual(key, None)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_overriden_keys_do_not_go_to_overflow_events_topic(self, kafka_produce):
+    def test_events_go_to_normal_ingestion_topic_if_overflow_disabled(self, kafka_produce):
         """Assert events without an overriden key are not sent to OVERLFOW when not enabled.
 
         If ingestion overflow is not enabled, regarldess of key, events should never be sent to
