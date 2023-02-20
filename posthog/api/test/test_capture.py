@@ -31,7 +31,11 @@ from token_bucket import Limiter, MemoryStorage
 from posthog.api import capture
 from posthog.api.capture import get_distinct_id, is_randomly_partitioned
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
-from posthog.kafka_client.topics import KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW, KAFKA_SESSION_RECORDING_EVENTS
+from posthog.kafka_client.topics import (
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+    KAFKA_SESSION_RECORDING_EVENTS,
+)
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -1286,7 +1290,7 @@ class TestCapture(BaseTest):
             "api_key": self.team.api_token,
         }
 
-        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key]):
+        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key], INGESTION_OVERFLOW_ENABLED=True):
             response = self.client.post(
                 "/track/",
                 event,
@@ -1297,6 +1301,39 @@ class TestCapture(BaseTest):
 
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_overriden_keys_do_not_go_to_overflow_events_topic(self, kafka_produce):
+        """Assert events without an overriden key are not sent to OVERLFOW when not enabled.
+
+        If ingestion overflow is not enabled, regarldess of key, events should never be sent to
+        the OVERFLOW topic.
+        """
+        distinct_id = "pageview123"
+        override_key = f"{self.team.pk}:{distinct_id}"
+
+        event = {
+            "event": "$pageview",
+            "properties": {
+                "timestamp": datetime.utcnow(),
+                "distinct_id": distinct_id,
+            },
+            "api_key": self.team.api_token,
+        }
+
+        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[override_key], INGESTION_OVERFLOW_ENABLED=False):
+            response = self.client.post(
+                "/track/",
+                event,
+                content_type="application/json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+        self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION)
         key = kafka_produce.call_args_list[0][1]["key"]
         self.assertEqual(key, None)
 

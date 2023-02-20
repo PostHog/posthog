@@ -93,18 +93,17 @@ def parse_kafka_event_data(
     }
 
 
-def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    # To allow for different quality of service on session recordings and
-    # `$performance_event` and other events, we push to a different topic.
-    # TODO: split `$performance_event` out to it's own topic.
-    kafka_topic = (
-        KAFKA_SESSION_RECORDING_EVENTS
-        if event_name in SESSION_RECORDING_EVENT_NAMES
-        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-        if partition_key
-        else settings.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW_TOPIC
-    )
+def log_event(data: Dict, event_name: str, kafka_topic: str, partition_key: Optional[str]):
+    """Log and produce an event to Kafka.
 
+    Args:
+        data: The event data.
+        event_name: The event name. Used only for logging. This is contained in the data,
+            so with a stricter typing we could get rid of this argument.
+        kafka_topic: The Kafka topic where the event will be produced to.
+        partition_key: A partition key to be used by Kafka. If None, the event will be
+            randomly partitioned
+    """
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
@@ -487,15 +486,35 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
 
-    if event["event"] in ("$snapshot", "$performance_event"):
-        return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+    if event["event"] in SESSION_RECORDING_EVENT_NAMES:
+        # To allow for different quality of service on session recordings and
+        # `$performance_event` and other events, we push to a different topic.
+        return log_event(
+            parsed_event,
+            event["event"],
+            kafka_topic=KAFKA_SESSION_RECORDING_EVENTS,
+            partition_key=kafka_partition_key,
+        )
+
+    if settings.INGESTION_OVERFLOW_ENABLED:
+        kafka_topic = settings.KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW_TOPIC
+    else:
+        # If OVERFLOW is not enabled, we always produce to regular topic, as there will
+        # be no consumer to consume from it.
+        kafka_topic = settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
     candidate_partition_key = f"{team_id}:{distinct_id}"
 
     if is_randomly_partitioned(candidate_partition_key) is False:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+        kafka_topic = settings.KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 
-    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+    return log_event(
+        parsed_event,
+        event["event"],
+        kafka_topic=kafka_topic,
+        partition_key=kafka_partition_key,
+    )
 
 
 def is_randomly_partitioned(candidate_partition_key: str) -> bool:
