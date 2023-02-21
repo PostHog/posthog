@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../../config/kafka-topics'
@@ -61,22 +60,10 @@ export async function ingestEvent(
 
     checkAndPause?.()
 
-    // Eventually no events will have a team_id as that will be determined and
-    // populated in the plugin server rather than the capture endpoint. However,
-    // we support both paths during the transitional period.
-    if (event.team_id) {
-        server.statsd?.increment('kafka_queue_ingest_event_hit', {
-            pipeline: 'runEventPipeline',
-            team_id: event.team_id.toString(),
-        })
-        // we've confirmed team_id exists so can assert event as PluginEvent
-        await workerMethods.runEventPipeline(event as PluginEvent)
-    } else {
-        server.statsd?.increment('kafka_queue_ingest_event_hit', {
-            pipeline: 'runLightweightCaptureEndpointEventPipeline',
-        })
-        await workerMethods.runLightweightCaptureEndpointEventPipeline(event)
-    }
+    server.statsd?.increment('kafka_queue_ingest_event_hit', {
+        pipeline: 'runLightweightCaptureEndpointEventPipeline',
+    })
+    await workerMethods.runLightweightCaptureEndpointEventPipeline(event)
 
     server.statsd?.timing('kafka_queue.each_event', eachEventStartTimer)
 

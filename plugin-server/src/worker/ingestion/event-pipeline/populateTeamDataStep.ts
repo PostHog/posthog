@@ -11,17 +11,18 @@ export const inconsistentTeamCounter = new Counter({
     labelNames: ['token', 'captured_team_id', 'resolved_team_id'],
 })
 
-/*
-This step populates event.team_id and deletes event.ip if needed.
-If the event already has a team_id we will not run this step and
-the capture endpoint will have handled this process. This is
-temporary as this step will become the default for all events
-when we fully remove this functionality from the capture endpoint.
-*/
 export async function populateTeamDataStep(
     runner: EventPipelineRunner,
     event: PipelineEvent
 ): Promise<PluginEvent | null> {
+    /**
+     * Implements team_id resolution and applies the team's ingestion settings (dropping event.ip if requested).
+     *
+     * If the event already has a team_id field set by capture, it is used, but plugin-server still runs
+     * the resolution logic to confirm no inconsistency exists. Once team_id resolution is fully removed
+     * from capture, that section should be resolved, and team_id not trusted anymore.
+     */
+
     // Events ingested with no token are dropped, they should be blocked by capture
     if (!event.token) {
         eventDroppedCounter
