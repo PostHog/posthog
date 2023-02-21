@@ -16,6 +16,7 @@ from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person, PersonDistinctId
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property
+from posthog.models.utils import execute_with_timeout
 from posthog.queries.base import match_property, properties_to_Q
 
 from .feature_flag import (
@@ -26,6 +27,8 @@ from .feature_flag import (
 )
 
 __LONG_SCALE__ = float(0xFFFFFFFFFFFFFFF)
+
+FLAG_MATCHING_QUERY_TIMEOUT_MS = 3 * 1000  # 3 seconds. Any longer and we'll just error out.
 
 
 class FeatureFlagMatchReason(str, Enum):
@@ -65,11 +68,17 @@ class FeatureFlagMatch:
 class FlagsMatcherCache:
     def __init__(self, team_id: int):
         self.team_id = team_id
+        self.failed_to_fetch_flags = False
 
     @cached_property
     def group_types_to_indexes(self) -> Dict[GroupTypeName, GroupTypeIndex]:
-        group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
-        return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+        try:
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+                group_type_mapping_rows = GroupTypeMapping.objects.filter(team_id=self.team_id)
+                return {row.group_type: row.group_type_index for row in group_type_mapping_rows}
+        except DatabaseError:
+            self.failed_to_fetch_flags = True
+            return {}
 
     @cached_property
     def group_type_index_to_name(self) -> Dict[GroupTypeIndex, GroupTypeName]:
@@ -100,6 +109,9 @@ class FeatureFlagMatcher:
     def get_match(self, feature_flag: FeatureFlag) -> FeatureFlagMatch:
         # If aggregating flag by groups and relevant group type is not passed - flag is off!
         if self.hashed_identifier(feature_flag) is None:
+            if self.cache.failed_to_fetch_flags:
+                raise DatabaseError("Failed to get group type mapping for team")
+
             return FeatureFlagMatch(match=False, reason=FeatureFlagMatchReason.NO_GROUP_TYPE)
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
@@ -233,77 +245,85 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            team_id = self.feature_flags[0].team_id
+            person_query: QuerySet = Person.objects.filter(
+                team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
+            )
+            basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
+            group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
+            # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
+            # If no groups for a group type are passed in, we can skip querying for that group type,
+            # since the result will always be `false`.
+            for group_type, group_key in self.groups.items():
+                group_type_index = self.cache.group_types_to_indexes.get(group_type)
+                if group_type_index is not None:
+                    # a tuple of querySet and field names
+                    group_query_per_group_type_mapping[group_type_index] = (
+                        basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
+                        [],
+                    )
 
-        team_id = self.feature_flags[0].team_id
-        person_query: QuerySet = Person.objects.filter(
-            team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
-        )
-        basic_group_query: QuerySet = Group.objects.filter(team_id=team_id)
-        group_query_per_group_type_mapping: Dict[GroupTypeIndex, Tuple[QuerySet, List[str]]] = {}
-        # :TRICKY: Create a queryset for each group type that uniquely identifies a group, based on the groups passed in.
-        # If no groups for a group type are passed in, we can skip querying for that group type,
-        # since the result will always be `false`.
-        for group_type, group_key in self.groups.items():
-            group_type_index = self.cache.group_types_to_indexes.get(group_type)
-            if group_type_index is not None:
-                # a tuple of querySet and field names
-                group_query_per_group_type_mapping[group_type_index] = (
-                    basic_group_query.filter(group_type_index=group_type_index, group_key=group_key),
-                    [],
-                )
+            person_fields = []
 
-        person_fields = []
-
-        for feature_flag in self.feature_flags:
-            for index, condition in enumerate(feature_flag.conditions):
-                key = f"flag_{feature_flag.pk}_condition_{index}"
-                expr: Any = None
-                if len(condition.get("properties", {})) > 0:
-                    # Feature Flags don't support OR filtering yet
-                    target_properties = self.property_value_overrides
-                    if feature_flag.aggregation_group_type_index is not None:
-                        target_properties = self.group_property_value_overrides.get(
-                            self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
+            for feature_flag in self.feature_flags:
+                for index, condition in enumerate(feature_flag.conditions):
+                    key = f"flag_{feature_flag.pk}_condition_{index}"
+                    expr: Any = None
+                    if len(condition.get("properties", {})) > 0:
+                        # Feature Flags don't support OR filtering yet
+                        target_properties = self.property_value_overrides
+                        if feature_flag.aggregation_group_type_index is not None:
+                            target_properties = self.group_property_value_overrides.get(
+                                self.cache.group_type_index_to_name[feature_flag.aggregation_group_type_index], {}
+                            )
+                        expr = properties_to_Q(
+                            Filter(data=condition).property_groups.flat,
+                            override_property_values=target_properties,
                         )
-                    expr = properties_to_Q(
-                        Filter(data=condition).property_groups.flat,
-                        override_property_values=target_properties,
-                    )
 
-                if feature_flag.aggregation_group_type_index is None:
-                    person_query = person_query.annotate(
-                        **{key: ExpressionWrapper(expr if expr else RawSQL("true", []), output_field=BooleanField())}
-                    )
-                    person_fields.append(key)
-                else:
-                    if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
-                        # ignore flags that didn't have the right groups passed in
-                        continue
-                    group_query, group_fields = group_query_per_group_type_mapping[
-                        feature_flag.aggregation_group_type_index
-                    ]
-                    group_query = group_query.annotate(
-                        **{key: ExpressionWrapper(expr if expr else RawSQL("true", []), output_field=BooleanField())}
-                    )
-                    group_fields.append(key)
-                    group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
-                        group_query,
-                        group_fields,
-                    )
+                    if feature_flag.aggregation_group_type_index is None:
+                        person_query = person_query.annotate(
+                            **{
+                                key: ExpressionWrapper(
+                                    expr if expr else RawSQL("true", []), output_field=BooleanField()
+                                )
+                            }
+                        )
+                        person_fields.append(key)
+                    else:
+                        if feature_flag.aggregation_group_type_index not in group_query_per_group_type_mapping:
+                            # ignore flags that didn't have the right groups passed in
+                            continue
+                        group_query, group_fields = group_query_per_group_type_mapping[
+                            feature_flag.aggregation_group_type_index
+                        ]
+                        group_query = group_query.annotate(
+                            **{
+                                key: ExpressionWrapper(
+                                    expr if expr else RawSQL("true", []), output_field=BooleanField()
+                                )
+                            }
+                        )
+                        group_fields.append(key)
+                        group_query_per_group_type_mapping[feature_flag.aggregation_group_type_index] = (
+                            group_query,
+                            group_fields,
+                        )
 
-        all_conditions = {}
-        if len(person_fields) > 0:
-            person_query = person_query.values(*person_fields)
-            if len(person_query) > 0:
-                all_conditions = {**person_query[0]}
+            all_conditions = {}
+            if len(person_fields) > 0:
+                person_query = person_query.values(*person_fields)
+                if len(person_query) > 0:
+                    all_conditions = {**person_query[0]}
 
-        for group_query, group_fields in group_query_per_group_type_mapping.values():
-            group_query = group_query.values(*group_fields)
-            if len(group_query) > 0:
-                assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
-                all_conditions = {**all_conditions, **group_query[0]}
+            for group_query, group_fields in group_query_per_group_type_mapping.values():
+                group_query = group_query.values(*group_fields)
+                if len(group_query) > 0:
+                    assert len(group_query) == 1, f"Expected 1 group query result, got {len(group_query)}"
+                    all_conditions = {**all_conditions, **group_query[0]}
 
-        return all_conditions
+            return all_conditions
 
     def hashed_identifier(self, feature_flag: FeatureFlag) -> Optional[str]:
         """
@@ -364,10 +384,11 @@ class FeatureFlagMatcher:
 
 def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
-    for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
-        person_id=person_id, team=team_id
-    ).values_list("feature_flag_key", "hash_key"):
-        feature_flag_to_key_overrides[feature_flag] = override
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+        for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
+            person_id=person_id, team=team_id
+        ).values_list("feature_flag_key", "hash_key"):
+            feature_flag_to_key_overrides[feature_flag] = override
 
     return feature_flag_to_key_overrides
 
@@ -434,11 +455,12 @@ def get_all_feature_flags(
         )
 
     try:
-        person_id = (
-            PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
-            .values_list("person_id", flat=True)
-            .first()
-        )
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            person_id = (
+                PersonDistinctId.objects.filter(distinct_id=distinct_id, team_id=team_id)
+                .values_list("person_id", flat=True)
+                .first()
+            )
     except DatabaseError:
         # database is down, we can't handle experience continuity flags.
         # Treat this same as if there are no experience continuity flags.
@@ -463,11 +485,12 @@ def get_all_feature_flags(
             # existing person. If, because of race conditions, a person merge is called for later,
             # then https://github.com/PostHog/posthog/blob/master/plugin-server/src/worker/ingestion/person-state.ts#L421
             # will take care of it^.
-            person_id = (
-                PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
-                .values_list("person_id", flat=True)
-                .first()
-            )
+            with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+                person_id = (
+                    PersonDistinctId.objects.filter(distinct_id=hash_key_override, team_id=team_id)
+                    .values_list("person_id", flat=True)
+                    .first()
+                )
             # If even this old person doesn't exist yet, we're facing severe ingestion delays
             # and there's not much we can do, since all person properties based feature flags
             # would fail server side anyway.
@@ -499,11 +522,12 @@ def set_feature_flag_hash_key_overrides(
     feature_flags: List[FeatureFlag], team_id: int, person_id: int, hash_key_override: str
 ) -> None:
 
-    existing_flag_overrides = set(
-        FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
-            "feature_flag_key", flat=True
+    with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+        existing_flag_overrides = set(
+            FeatureFlagHashKeyOverride.objects.filter(team_id=team_id, person_id=person_id).values_list(
+                "feature_flag_key", flat=True
+            )
         )
-    )
     new_overrides = []
     for feature_flag in feature_flags:
         if feature_flag.ensure_experience_continuity and feature_flag.key not in existing_flag_overrides:
@@ -519,4 +543,5 @@ def set_feature_flag_hash_key_overrides(
         # / we got multiple requests for the same person
         # at the same time. In this case, we can safely ignore the error.
         # We don't want to return an error response for `/decide` just because of this.
-        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
+        with execute_with_timeout(FLAG_MATCHING_QUERY_TIMEOUT_MS):
+            FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)

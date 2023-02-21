@@ -212,6 +212,8 @@ def run_events_query(
         if expr == "*":
             expr = f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
         hogql_context.found_aggregation = False
+        if expr == "*":
+            expr = f'tuple({", ".join(SELECT_STAR_FROM_EVENTS_FIELDS)})'
         clickhouse_sql = translate_hogql(expr, hogql_context)
         select_columns.append(clickhouse_sql)
         if not hogql_context.found_aggregation:
@@ -275,13 +277,6 @@ def run_events_query(
             results[index] = list(result)
             results[index][star] = convert_star_select_to_dict(result[star])
 
-    # Convert person field from tuple to dict in each result
-    if "person" in select:
-        person = select.index("person")
-        for index, result in enumerate(results):
-            results[index] = list(result)
-            results[index][person] = convert_person_select_to_dict(result[person])
-
     received_extra_row = len(results) == limit  # limit was +=1'd above
 
     return EventsQueryResponse(
@@ -298,12 +293,3 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
-
-
-def convert_person_select_to_dict(select: Tuple[str, str, str, str, str]) -> Dict[str, Any]:
-    return {
-        "id": select[1],
-        "created_at": select[2],
-        "properties": {"name": select[3], "email": select[4]},
-        "distinct_ids": [select[0]],
-    }

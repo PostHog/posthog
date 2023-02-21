@@ -1,4 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
+import { format } from 'sql-formatter'
 import { HogQLQuery } from '~/queries/schema'
 
 import type { hogQLQueryEditorLogicType } from './hogQLQueryEditorLogicType'
@@ -14,6 +15,15 @@ function formatSQL(sql: string): string {
     })
 }
 
+function formatSQL(sql: string): string {
+    return format(sql, {
+        language: 'mysql',
+        tabWidth: 2,
+        keywordCase: 'preserve',
+        linesBetweenQueries: 2,
+        indentStyle: 'tabularRight',
+    })
+}
 export interface HogQLQueryEditorLogicProps {
     key: number
     query: HogQLQuery

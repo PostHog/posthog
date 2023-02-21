@@ -106,7 +106,7 @@ class TraversingVisitor(Visitor):
     def visit_select_query_alias_symbol(self, node: ast.SelectQueryAliasSymbol):
         self.visit(node.symbol)
 
-    def visit_splash_symbol(self, node: ast.SplashSymbol):
+    def visit_asterisk_symbol(self, node: ast.AsteriskSymbol):
         self.visit(node.table)
 
     def visit_call_symbol(self, node: ast.CallSymbol):

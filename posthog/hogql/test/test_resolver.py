@@ -485,17 +485,3 @@ class TestResolver(BaseTest):
         self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.symbol, expected.symbol)
         self.assertEqual(expr, expected)
-
-
-# "with 2 as a select 1 as a" -> "Different expressions with the same alias a:"
-# "with 2 as b, 3 as c select (select 1 as b) as a, b, c" -> "Different expressions with the same alias b:"
-# "select a, b, e.c from (select 1 as a, 2 as b, 3 as c) as e" -> 1, 2, 3
-
-# # good
-# SELECT t.x FROM (SELECT 1 AS x) AS t;
-# SELECT t.x FROM (SELECT x FROM tbl) AS t;
-# SELECT x FROM (SELECT x FROM tbl) AS t;
-# SELECT 1 AS x, x, x + 1;
-# SELECT x, x + 1, 1 AS x;
-# SELECT x, 1 + (2 + (3 AS x));
-# "SELECT x IN (SELECT 1 AS x) FROM (SELECT 1 AS x)",

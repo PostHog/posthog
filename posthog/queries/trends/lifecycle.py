@@ -154,6 +154,9 @@ class LifecycleEventQuery(EventQuery):
         created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
+
+        sample_clause = f"SAMPLE {self._filter.sample_factor}" if self._filter.sample_factor else ""
+
         return (
             LIFECYCLE_EVENTS_QUERY.format(
                 event_table_alias=self.EVENT_TABLE_ALIAS,
@@ -168,6 +171,7 @@ class LifecycleEventQuery(EventQuery):
                 null_person_filter=null_person_filter,
                 entity_prop_query=entity_prop_query,
                 interval=self._filter.interval,
+                sample_clause=sample_clause,
             ),
             self.params,
         )

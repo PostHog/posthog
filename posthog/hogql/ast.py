@@ -54,13 +54,13 @@ class TableSymbol(Symbol):
 
     def get_child(self, name: str) -> Symbol:
         if name == "*":
-            return SplashSymbol(table=self)
+            return AsteriskSymbol(table=self)
         if self.has_child(name):
             field = self.table.get_field(name)
             if isinstance(field, JoinedTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
             return FieldSymbol(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
+        raise ValueError(f'Field "{name}" not found on table {type(self.table).__name__}')
 
 
 class TableAliasSymbol(Symbol):
@@ -72,13 +72,12 @@ class TableAliasSymbol(Symbol):
 
     def get_child(self, name: str) -> Symbol:
         if name == "*":
-            return SplashSymbol(table=self)
+            return AsteriskSymbol(table=self)
         if self.has_child(name):
             table: Union[TableSymbol, TableAliasSymbol] = self
             while isinstance(table, TableAliasSymbol):
                 table = table.table
             field = table.table.get_field(name)
-
             if isinstance(field, JoinedTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
             return FieldSymbol(name=name, table=self)
@@ -95,7 +94,7 @@ class LazyTableSymbol(Symbol):
 
     def get_child(self, name: str) -> Symbol:
         if name == "*":
-            return SplashSymbol(table=self)
+            return AsteriskSymbol(table=self)
         if self.has_child(name):
             field = self.joined_table.table.get_field(name)
             if isinstance(field, JoinedTable):
@@ -126,6 +125,8 @@ class SelectQuerySymbol(Symbol):
         return None
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if name in self.columns:
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Column not found: {name}")
@@ -139,6 +140,8 @@ class SelectQueryAliasSymbol(Symbol):
     symbol: SelectQuerySymbol
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if self.symbol.has_child(name):
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field {name} not found on query with alias {self.name}")
@@ -159,7 +162,7 @@ class ConstantSymbol(Symbol):
     value: Any
 
 
-class SplashSymbol(Symbol):
+class AsteriskSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 
