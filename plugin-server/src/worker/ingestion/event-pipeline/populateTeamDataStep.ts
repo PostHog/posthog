@@ -10,6 +10,12 @@ export const inconsistentTeamCounter = new Counter({
     help: 'Count of events with an inconsistent team resolution between capture and plugin-server, should be zero.',
 })
 
+export const tokenOrTeamPresentCounter = new Counter({
+    name: 'ingestion_event_hasauthinfo_total',
+    help: 'Count of events by presence of the team_id and token field.',
+    labelNames: ['team_id_present', 'token_present'],
+})
+
 export async function populateTeamDataStep(
     runner: EventPipelineRunner,
     event: PipelineEvent
@@ -22,7 +28,30 @@ export async function populateTeamDataStep(
      * from capture, that section should be resolved, and team_id not trusted anymore.
      */
 
-    // Events ingested with no token are dropped, they should be blocked by capture
+    // Collect statistics on the shape of events we are ingesting
+    tokenOrTeamPresentCounter
+        .labels({
+            team_id_present: event.team_id ? 'true' : 'false',
+            token_present: event.token ? 'true' : 'false',
+        })
+        .inc()
+
+    // If a team_id is present (resolved at capture, or injected by an app), trust it but
+    // try resolving from the token if present, and compare results to detect inconsistencies.
+    // TODO: remove after lightweight capture is fully rolled-out and the
+    //       ingestion_event_hasauthinfo_total metric confirms all incoming events have a token.
+    if (event.team_id) {
+        if (event.token) {
+            const team = await runner.hub.teamManager.getTeamByToken(event.token)
+            if (team?.id || event.team_id) {
+                inconsistentTeamCounter.inc()
+                runner.hub.statsd?.increment('ingestion_inconsistent_team_resolution_total')
+            }
+        }
+        return event as PluginEvent
+    }
+
+    // Events with no token or team_id are dropped, they should be blocked by capture
     if (!event.token) {
         eventDroppedCounter
             .labels({
@@ -37,17 +66,6 @@ export async function populateTeamDataStep(
     // Team lookup is cached, but will fail if PG is unavailable and the key expired.
     // We should retry processing this event.
     const team = await runner.hub.teamManager.getTeamByToken(event.token)
-
-    // Short-circuit the logic if capture already resolved the team ID,
-    // just compare the lookup result to confirm data quality.
-    // TODO: remove after lightweight capture is fully rolled-out
-    if (event.team_id) {
-        if (team?.id || event.team_id) {
-            inconsistentTeamCounter.inc()
-            runner.hub.statsd?.increment('ingestion_inconsistent_team_resolution_total')
-        }
-        return event as PluginEvent
-    }
 
     // If the token does not resolve to an existing team, drop the events.
     if (!team) {
