@@ -625,10 +625,6 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
-        loadedView: [
-            (s) => [s.insight, s.activeView],
-            ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
-        ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
             (insight, savedInsight, filters): boolean =>
