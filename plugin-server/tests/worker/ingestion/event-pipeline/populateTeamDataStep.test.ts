@@ -94,11 +94,7 @@ describe('populateTeamDataStep()', () => {
         expect(response.team_id).toEqual(43)
         expect(await getMetricValues('ingestion_inconsistent_team_resolution_total')).toEqual([
             {
-                labels: {
-                    captured_team_id: 43,
-                    resolved_team_id: 2,
-                    token: 'unknown',
-                },
+                labels: {},
                 value: 1,
             },
         ])
