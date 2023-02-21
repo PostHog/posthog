@@ -416,6 +416,10 @@ class _Printer(Visitor):
         else:
             field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+            if field_sql.endswith("__pdi__person.properties"):
+                materialized_column = self._get_materialized_column("person", symbol.name, "properties")
+                if materialized_column:
+                    property_sql = self._print_identifier(materialized_column)
 
         return property_sql
 
