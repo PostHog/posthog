@@ -30,20 +30,14 @@ def test_person_override_disallows_overriding_to_itself():
         uuid=person_id,
     )
 
-    # TODO: This should fail and it does not, why?
-    # with pytest.raises(IntegrityError):
-    x = PersonOverride.objects.create(
-        team=team,
-        old_person_id=person_id,
-        override_person_id=person_id,
-        oldest_event=oldest_event,
-        version=0,
-    ).save()
-    # print(x)
-    y = PersonOverride.objects.first()
-    # print(y.__dict__)
-    assert 1 == 0
-    assert x == y
+    with pytest.raises(IntegrityError):
+        PersonOverride.objects.create(
+            team=team,
+            old_person_id=person_id,
+            override_person_id=person_id,
+            oldest_event=oldest_event,
+            version=0,
+        ).save()
 
 
 def test_person_override_allows_duplicate_override_person_id():
@@ -351,13 +345,10 @@ def test_person_override_old_person_id_as_override_person_id_in_different_teams(
     assert p1.team != p2.team
 
 
-def test_person_deletion_allowed_and_overrides_not_changed():
-    """Person deletion would result in the override person referring to non-accessible
-    Person deletions are used in various places across our code base.
-    TODO: since this fails we should look into all of them and fix them
-    ideally this wouldn't block person deletions
-    TODO: update person deletions on the model
-    TODO: still need to verify that on the plugin-server the person deletion does the same
+@pytest.mark.django_db(transaction=True)
+def test_person_deletion_disallowed_when_override_exists():
+    """Person deletion would result in an error if the override exists
+    TODO: fix all person deletions
     """
     organization = create_organization(name="test")
     team = create_team(organization=organization)
@@ -370,7 +361,6 @@ def test_person_deletion_allowed_and_overrides_not_changed():
         team_id=team.pk,
         uuid=override_person_id,
     )
-
     PersonOverride.objects.create(
         team=team,
         old_person_id=old_person_id,
@@ -379,17 +369,8 @@ def test_person_deletion_allowed_and_overrides_not_changed():
         version=0,
     ).save()
 
-    override_person.delete()
-    override = PersonOverride.objects.filter(team_id=team.pk).first()
-    # print(override.__dict__)
-    # print(override.override_person) # results in posthog.models.person.person.Person.DoesNotExist: Person matching query does not exist.
-    # TODO: that's likely not something we'll want to deal with during the merge code path
-    p = Person.objects.filter(team_id=team.pk).first()
-    # print(p.__dict__)
-    assert p == 5
-    assert override.old_person_id == old_person_id
-    assert override.override_person_id == override_person_id
-    assert override.team.id == team.pk
+    with pytest.raises(IntegrityError):
+        override_person.delete()
 
 
 @contextlib.contextmanager

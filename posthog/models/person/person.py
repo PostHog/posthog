@@ -146,7 +146,7 @@ class PersonOverride(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     old_person_id = models.UUIDField(db_index=True)
-    override_person = models.ForeignKey(Person, to_field="uuid", on_delete=models.DO_NOTHING, null=True)
+    override_person = models.ForeignKey(Person, to_field="uuid", on_delete=models.DO_NOTHING)
 
     oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
