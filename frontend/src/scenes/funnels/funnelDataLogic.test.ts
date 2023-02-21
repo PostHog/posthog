@@ -13,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 // import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 // import { insightLogic } from 'scenes/insights/insightLogic'
 import {
+    FunnelVizType,
     // AvailableFeature,
     // CorrelationConfigType,
     // FunnelCorrelation,
@@ -25,7 +26,7 @@ import {
     // InsightType,
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
-import { NodeKind } from '~/queries/schema'
+import { FunnelsQuery, NodeKind } from '~/queries/schema'
 // import { userLogic } from 'scenes/userLogic'
 // import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 // import { router } from 'kea-router'
@@ -369,24 +370,88 @@ describe('funnelDataLogic', () => {
         beforeEach(async () => {
             await initFunnelDataLogic()
         })
-        // by default is xx
-        // when non funnel insight
-        // predicates
 
-        it('for non-funnel insight is null', async () => {
-            await expectLogic(logic)
-                // .toDispatchActions(['loadResults'])
-                .toMatchValues({
-                    querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
-                    isStepsFunnel: null,
-                    isTimeToConvertFunnel: null,
-                    isTrendsFunnel: null,
-                })
+        it('with non-funnel insight', async () => {
+            await expectLogic(logic).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
+                isStepsFunnel: null,
+                isTimeToConvertFunnel: null,
+                isTrendsFunnel: null,
+            })
         })
 
-        // it('by default is ', () => {
+        it('with missing funnelsFilter', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+            }
 
-        // });
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: true,
+                isTimeToConvertFunnel: false,
+                isTrendsFunnel: false,
+            })
+        })
+
+        it('for steps viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: true,
+                isTimeToConvertFunnel: false,
+                isTrendsFunnel: false,
+            })
+        })
+
+        it('for time to convert viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: false,
+                isTimeToConvertFunnel: true,
+                isTrendsFunnel: false,
+            })
+        })
+
+        it('for trends viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Trends,
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                isStepsFunnel: false,
+                isTimeToConvertFunnel: false,
+                isTrendsFunnel: true,
+            })
+        })
     })
 
     // describe('core assumptions', () => {
