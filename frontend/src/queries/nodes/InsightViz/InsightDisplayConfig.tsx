@@ -39,7 +39,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center space-x-2 flex-wrap my-2">
+            <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
                 {showDateRange && !disableTable && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={disableDateRange} />
