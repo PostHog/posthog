@@ -79,7 +79,11 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                                 if (Object.values(ServerLibraries).includes(library)) {
                                     setImplementationStep(ImplementationSteps.LocalEvaluation)
                                 } else {
-                                    setImplementationStep(ImplementationSteps.Bootstrapping)
+                                    if ([AllLibraries.Android, AllLibraries.iOS].includes(library)) {
+                                        setImplementationStep(ImplementationSteps.Summary)
+                                    } else {
+                                        setImplementationStep(ImplementationSteps.Bootstrapping)
+                                    }
                                 }
                             }}
                         >
