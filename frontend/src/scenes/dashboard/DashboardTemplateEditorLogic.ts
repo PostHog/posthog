@@ -6,8 +6,6 @@ import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
-
 import type { dashboardTemplateEditorLogicType } from './DashboardTemplateEditorLogicType'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
