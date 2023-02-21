@@ -4,6 +4,8 @@ from django.test.testcases import TestCase
 
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.hogql import translate_hogql
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
 
 
 class TestPrinter(TestCase):
@@ -14,10 +16,8 @@ class TestPrinter(TestCase):
         return translate_hogql(query, context or HogQLContext(), dialect)
 
     # Helper to always translate HogQL with a blank context,
-    def _select(
-        self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
-    ) -> str:
-        return translate_hogql(query, context or HogQLContext(select_team_id=42), dialect)
+    def _select(self, query: str, context: Optional[HogQLContext] = None) -> str:
+        return print_ast(parse_select(query), context or HogQLContext(select_team_id=42), "clickhouse")
 
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
         with self.assertRaises(ValueError) as context:
@@ -26,9 +26,9 @@ class TestPrinter(TestCase):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
-    def _assert_select_error(self, statement, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
+    def _assert_select_error(self, statement, expected_error):
         with self.assertRaises(ValueError) as context:
-            self._select(statement, None, dialect)
+            self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
