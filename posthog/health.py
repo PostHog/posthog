@@ -38,7 +38,7 @@ from posthog.kafka_client.client import can_connect as can_connect_to_kafka
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker"]
+ServiceRole = Literal["events", "web", "worker", "decide"]
 
 service_dependencies: Dict[ServiceRole, List[str]] = {
     "events": ["http", "kafka_connected"],
@@ -58,6 +58,7 @@ service_dependencies: Dict[ServiceRole, List[str]] = {
     # of reading from a durable queue rather that being required to perform
     # request/response, we are more resilient to service downtime.
     "worker": ["http", "postgres", "postgres_migrations_uptodate", "clickhouse", "celery_broker"],
+    "decide": ["http", "cache"],
 }
 
 

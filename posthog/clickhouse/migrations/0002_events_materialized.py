@@ -1,3 +1,3 @@
-from infi.clickhouse_orm import migrations
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 
-operations = [migrations.RunSQL("SELECT 1")]
+operations = [run_sql_with_exceptions("SELECT 1")]

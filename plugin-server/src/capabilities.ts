@@ -9,6 +9,7 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case null:
             return {
                 ingestion: true,
+                ingestionOverflow: true,
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncHandlers: true,
@@ -16,6 +17,8 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
             }
         case 'ingestion':
             return { ingestion: true, ...sharedCapabilities }
+        case 'ingestion-overflow':
+            return { ingestionOverflow: true, ...sharedCapabilities }
         case 'async':
             return {
                 processPluginJobs: true,

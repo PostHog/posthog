@@ -6,6 +6,7 @@ from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 import dateutil.parser
 from django.db.models import Q
 from django.utils import timezone
+from sentry_sdk import capture_exception
 
 from posthog.cache_utils import cache_for
 from posthog.models.organization import Organization, OrganizationUsageInfo
@@ -88,15 +89,19 @@ def sync_org_quota_limits(organization: Organization):
     if not organization.usage:
         return None
 
-    team_tokens = list(organization.teams.values_list("api_token", flat=True))
+    team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+
+    if not team_tokens:
+        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        return
 
     for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
         rate_limited_until = org_quota_limited_until(organization, resource)
 
         if rate_limited_until:
-            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens if x})
+            add_limited_team_tokens(resource, {x: rate_limited_until for x in team_tokens})
         else:
-            remove_limited_team_tokens(resource, [x for x in team_tokens if x])
+            remove_limited_team_tokens(resource, team_tokens)
 
 
 def set_org_usage_summary(
