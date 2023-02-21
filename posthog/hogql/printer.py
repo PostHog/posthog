@@ -79,14 +79,14 @@ class _Printer(Visitor):
         # We will add extra clauses onto this from the joined tables
         where = node.where
 
-        select_from = []
+        joined_tables = []
         next_join = node.select_from
         while isinstance(next_join, ast.JoinExpr):
             if next_join.symbol is None:
                 raise ValueError("Printing queries with a FROM clause is not permitted before symbol resolution")
 
             visited_join = self.visit_join_expr(next_join)
-            select_from.append(visited_join.printed_sql)
+            joined_tables.append(visited_join.printed_sql)
 
             # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
@@ -113,7 +113,7 @@ class _Printer(Visitor):
 
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
-            f"FROM {' '.join(select_from)}" if len(select_from) > 0 else None,
+            f"FROM {' '.join(joined_tables)}" if len(joined_tables) > 0 else None,
             "PREWHERE " + prewhere if prewhere else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
@@ -149,9 +149,9 @@ class _Printer(Visitor):
         # return constraints we must place on the select query
         extra_where: Optional[ast.Expr] = None
 
-        select_from = []
+        join_strings = []
         if node.join_type is not None:
-            select_from.append(node.join_type)
+            join_strings.append(node.join_type)
 
         if isinstance(node.symbol, ast.TableAliasSymbol):
             table_symbol = node.symbol.table
@@ -159,37 +159,37 @@ class _Printer(Visitor):
                 raise ValueError(f"Table alias {node.symbol.name} does not resolve!")
             if not isinstance(table_symbol, ast.TableSymbol):
                 raise ValueError(f"Table alias {node.symbol.name} does not resolve to a table!")
-            select_from.append(self._print_identifier(table_symbol.table.clickhouse_table()))
+            join_strings.append(self._print_identifier(table_symbol.table.clickhouse_table()))
             if node.alias is not None:
-                select_from.append(f"AS {self._print_identifier(node.alias)}")
+                join_strings.append(f"AS {self._print_identifier(node.alias)}")
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.TableSymbol):
-            select_from.append(self._print_identifier(node.symbol.table.clickhouse_table()))
+            join_strings.append(self._print_identifier(node.symbol.table.clickhouse_table()))
 
             if self.dialect == "clickhouse":
                 # TODO: do this in a separate pass before printing, along with person joins and other transforms
                 extra_where = team_id_guard_for_table(node.symbol, self.context)
 
         elif isinstance(node.symbol, ast.SelectQuerySymbol):
-            select_from.append(self.visit(node.table))
+            join_strings.append(self.visit(node.table))
 
         elif isinstance(node.symbol, ast.SelectQueryAliasSymbol) and node.alias is not None:
-            select_from.append(self.visit(node.table))
-            select_from.append(f"AS {self._print_identifier(node.alias)}")
+            join_strings.append(self.visit(node.table))
+            join_strings.append(f"AS {self._print_identifier(node.alias)}")
         else:
             raise ValueError("Only selecting from a table or a subquery is supported")
 
         if node.table_final:
-            select_from.append("FINAL")
+            join_strings.append("FINAL")
 
         if node.constraint is not None:
-            select_from.append(f"ON {self.visit(node.constraint)}")
+            join_strings.append(f"ON {self.visit(node.constraint)}")
 
-        return JoinExprResponse(printed_sql=" ".join(select_from), where=extra_where)
+        return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def visit_binary_operation(self, node: ast.BinaryOperation):
         if node.op == ast.BinaryOperationType.Add:
