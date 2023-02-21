@@ -423,7 +423,7 @@ def _create_from_template_json(dashboard: Dashboard, template: any) -> None:
     dashboard.name = template["template_name"]
     dashboard.filters = template["dashboard_filters"]
     dashboard.description = template["dashboard_description"]
-    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
+    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING) and "tags" in template:
         for template_tag in template["tags"]:
             tag, _ = Tag.objects.get_or_create(
                 name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}

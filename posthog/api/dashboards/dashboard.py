@@ -179,17 +179,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return dashboard
 
-    @staticmethod
-    def create_from_template_json(template_json: Dict, team: Team, user: User) -> Dashboard:
-        """
-        Creates a dashboard from a template JSON object.
-        """
-        dashboard = Dashboard.objects.create(team=team, created_by=user, **template_json["dashboard"])
-        for tile in template_json["tiles"]:
-            DashboardTile.objects.create(dashboard=dashboard, **tile)
-
-        return dashboard
-
     def _deep_duplicate_tiles(self, dashboard: Dashboard, existing_tile: DashboardTile) -> None:
         if existing_tile.insight:
             new_data = {
@@ -452,7 +441,15 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         template = request.data["template"]
 
         dashboard = Dashboard.objects.create(team_id=self.team_id)
-        _create_from_template_json(dashboard, template)
+
+        try:
+            _create_from_template_json(dashboard, template)
+        except Exception as e:
+            dashboard.delete()
+            if type(e) == KeyError:
+                return Response({"detail": f"Invalid template, missing key {e.args[0]}"}, status=400)
+            else:
+                raise e
 
         return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 

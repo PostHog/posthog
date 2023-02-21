@@ -967,7 +967,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     "description": "Shows the number of unique users that use your app every day.",
                 },
             ],
-            "tags": ["popular"],
+            # purposely missing tags as they are not required
         }
 
         response = self.client.post(
@@ -983,6 +983,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(dashboard["name"], template["template_name"], dashboard)
         self.assertEqual(dashboard["description"], template["dashboard_description"])
-        self.assertEqual(dashboard["tags"], template["tags"])
 
         self.assertEqual(len(dashboard["tiles"]), 1)
+
+    def test_invalid_template_receives_400_response(self) -> None:
+        invalid_template = {"template_name": "Sign up conversion template with variables", "not_tiles": []}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            json.dumps({"template": invalid_template}),
+            content_type="application/json",
+        )
+        assert response.status_code == 400, response.status_code
