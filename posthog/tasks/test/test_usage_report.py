@@ -274,7 +274,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "organization_user_count": 1,
                     "team_count": 2,
                     "teams": {
-                        self.org_1_team_1.id: {
+                        str(self.org_1_team_1.id): {
                             "event_count_lifetime": 32,
                             "event_count_in_period": 12,
                             "event_count_in_month": 22,
@@ -289,7 +289,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                             "ff_count": 2,
                             "ff_active_count": 1,
                         },
-                        self.org_1_team_2.id: {
+                        str(self.org_1_team_2.id): {
                             "event_count_lifetime": 10,
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
@@ -346,7 +346,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
                     "organization_user_count": 0,
                     "team_count": 1,
                     "teams": {
-                        self.org_2_team_3.id: {
+                        str(self.org_2_team_3.id): {
                             "event_count_lifetime": 10,
                             "event_count_in_period": 10,
                             "event_count_in_month": 10,
@@ -412,6 +412,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
             ),
         ]
 
+        assert mock_posthog.capture.call_count == 2
         mock_posthog.capture.assert_has_calls(calls, any_order=True)
 
 
