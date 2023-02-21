@@ -125,12 +125,11 @@ class PersonOverride(models.Model):
         override_person_id=123 to exist, as that would require a self join to figure
         out the ultimate override_person_id required for old_person_id=123).
         To accomplish this:
-        3.1. Ensuring old_person_id doesn't exist in person table
-                This is done in code where any time we add an entry to person overrides table
-                we delete the old person in the person table in the same transaction
-                or roll both of those changes back.
-        3.2. Ensuring any override_person_id exists in person table
-                Override person field is a foreign key into the person table.
+        3.1. Ensuring old_person_id doesn't exist in person table (assumption about code)
+            - during person merges we update the override_ids to point to the new merged person
+            - during person deletions we delete the overide table entries (they aren't needed anymore)
+        3.2. Ensuring any override_person_id exists in person table (db level check)
+            Override person field is a foreign key into the person table.
     """
 
     class Meta:
@@ -146,6 +145,8 @@ class PersonOverride(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     old_person_id = models.UUIDField(db_index=True)
+    # During person deletion we need to manually delete overrides, we can't cascade here as during
+    # merges we want to make sure we didn't miss any concurrently added entries
     override_person = models.ForeignKey(Person, to_field="uuid", on_delete=models.DO_NOTHING)
 
     oldest_event: models.DateTimeField = models.DateTimeField()

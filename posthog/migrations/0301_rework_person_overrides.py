@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.DeleteModel("personoverride"),
-        migrations.RunSQL(DROP_FUNCTION_FOR_CONSTRAINT_SQL),
+        migrations.RunSQL(DROP_FUNCTION_FOR_CONSTRAINT_SQL, ""),
         migrations.CreateModel(
             name="PersonOverride",
             fields=[
