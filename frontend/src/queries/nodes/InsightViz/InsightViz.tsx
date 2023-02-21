@@ -1,5 +1,4 @@
-import { useEffect } from 'react'
-import { BindLogic, useActions, useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import clsx from 'clsx'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -7,7 +6,6 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'
@@ -26,34 +24,10 @@ type InsightVizProps = {
 }
 
 export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
-    // get values and actions from bound insight logic
-    const { insightProps, insight, hasDashboardItemId } = useValues(insightLogic)
-    const { setInsight, setLastRefresh } = useActions(insightLogic)
-
+    const { insightProps } = useValues(insightLogic)
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key: insightVizDataNodeKey(insightProps) }
-    const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
 
-    const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
-
-    // useEffect(() => {
-    //     // TODO: this is hacky - we prevent overwriting the insight in case
-    //     // of a saved insight. instead we should handle loading a saved insight
-    //     // in a query as well. needs discussion around api and node schema.
-    //     const typedResponse: Record<string, any> | undefined | null = response
-    //     if (typedResponse && !hasDashboardItemId) {
-    //         setInsight(
-    //             {
-    //                 ...insight,
-    //                 result: typedResponse.result,
-    //                 next: typedResponse.next,
-    //                 timezone: typedResponse.timezone,
-    //                 filters: queryNodeToFilter(query.source),
-    //             },
-    //             {}
-    //         )
-    //         setLastRefresh(lastRefresh)
-    //     }
-    // }, [response])
+    const { insightMode } = useValues(insightSceneLogic)
 
     const isFunnels = isFunnelsQuery(query.source)
 
