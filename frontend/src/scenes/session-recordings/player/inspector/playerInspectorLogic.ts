@@ -14,7 +14,6 @@ import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '.
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -94,8 +93,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -211,22 +208,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         allItems: [
-            (s) => [
-                s.recordingTimeInfo,
-                s.performanceEvents,
-                s.consoleLogs,
-                s.sessionEventsData,
-                s.featureFlags,
-                s.matchingEvents,
-            ],
-            (
-                recordingTimeInfo,
-                performanceEvents,
-                consoleLogs,
-                eventsData,
-                featureFlags,
-                matchingEvents
-            ): InspectorListItem[] => {
+            (s) => [s.recordingTimeInfo, s.performanceEvents, s.consoleLogs, s.sessionEventsData, s.matchingEvents],
+            (recordingTimeInfo, performanceEvents, consoleLogs, eventsData, matchingEvents): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
