@@ -378,6 +378,7 @@ export function LineGraph_({
                     },
                     formatter: (value: number) => formatAggregationAxisValue(filters, value),
                     borderWidth: 2,
+                    borderRadius: 4,
                     borderColor: 'white',
                 },
                 legend: {
