@@ -140,10 +140,12 @@ function CodeInstructions({
     featureFlagKey,
     options,
     headerPrompt,
+    selectedLanguage,
 }: {
     featureFlagKey: string
     options: InstructionOption[]
     headerPrompt: string
+    selectedLanguage?: string
 }): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
@@ -161,7 +163,7 @@ function CodeInstructions({
             <FeatureFlagInstructionsHeader
                 options={options}
                 headerPrompt={headerPrompt}
-                selectedOptionValue={selectedOption.value}
+                selectedOptionValue={selectedLanguage || selectedOption.value}
                 selectOption={selectOption}
             />
             <LemonDivider />
@@ -174,12 +176,19 @@ function CodeInstructions({
     )
 }
 
-export function FeatureFlagInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
+export function FeatureFlagInstructions({
+    featureFlagKey,
+    language,
+}: {
+    featureFlagKey: string
+    language?: string
+}): JSX.Element {
     return (
         <CodeInstructions
             featureFlagKey={featureFlagKey}
             headerPrompt="Learn how to use feature flags in your code"
             options={OPTIONS}
+            selectedLanguage={language}
         />
     )
 }

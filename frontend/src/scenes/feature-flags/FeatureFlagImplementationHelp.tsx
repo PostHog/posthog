@@ -11,10 +11,10 @@ export enum ClientLibraries {
 }
 
 export enum ServerLibraries {
-    Node = 'Node',
+    Node = 'Node.js',
     Python = 'Python',
     Ruby = 'Ruby',
-    Go = 'Go',
+    Golang = 'Golang',
     PHP = 'PHP',
 }
 
@@ -160,7 +160,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                 <div>
                     <h3>Summary</h3>
                     Library: {library}
-                    <FeatureFlagInstructions featureFlagKey={'my-flag'} />
+                    <FeatureFlagInstructions featureFlagKey={'my-flag'} language={library} />
                     {shouldLocalEval && <div />}
                     {shouldBootstrap && <div>bootstrapping instructions</div>}
                 </div>
