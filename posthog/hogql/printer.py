@@ -380,12 +380,11 @@ class _Printer(Visitor):
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-hogql queries, such as insights.
-            if (
-                field_sql == "events__pdi__person.properties"
-                and self.context.part_of_legacy_query
-                and not self.context.using_person_on_events
-            ):
-                field_sql = "person_props"
+            if field_sql == "events__pdi__person.properties" and self.context.part_of_legacy_query:
+                if self.context.using_person_on_events:
+                    field_sql = "person_properties"
+                else:
+                    field_sql = "person_props"
 
         else:
             raise ValueError(f"Unknown FieldSymbol table type: {type(symbol.table).__name__}")
