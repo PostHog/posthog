@@ -77,7 +77,7 @@ export function InsightDisplayConfig({ disableTable }: InsightDisplayConfigProps
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-4 flex-wrap my-2">
+            <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {showUnit && (
                     <ConfigFilter>
                         <UnitPicker filters={filters} setFilters={setFilters} />

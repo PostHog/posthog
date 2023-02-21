@@ -178,7 +178,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-4 flex-wrap my-2">
+            <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {isFilterWithDisplay(filters) && (
                     <>
                         {isTrendsFilter(filters) && (
