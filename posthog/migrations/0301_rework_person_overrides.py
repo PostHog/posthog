@@ -5,6 +5,15 @@ from django.db import migrations, models
 
 # The previous migration attempted to add a constraint to the personoverride
 # table. We want to remove that constraint, as the ForeignKey replaces this.
+# The function was never used, but to make migrations work we need these two
+DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as_old_person"
+CREATE_FUNCTION_FOR_CONSTRAINT_SQL = f"""
+CREATE OR REPLACE FUNCTION is_override_person_not_used_as_old_person(team_id bigint, override_person_id uuid, old_person_id uuid)
+RETURNS BOOLEAN AS $$
+  SELECT false;
+$$ LANGUAGE SQL;
+"""
+
 DROP_FUNCTION_FOR_CONSTRAINT_SQL = "DROP FUNCTION is_override_person_not_used_as_old_person"
 
 
@@ -16,7 +25,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.DeleteModel("personoverride"),
-        migrations.RunSQL(DROP_FUNCTION_FOR_CONSTRAINT_SQL, ""),
+        migrations.RunSQL(DROP_FUNCTION_FOR_CONSTRAINT_SQL, CREATE_FUNCTION_FOR_CONSTRAINT_SQL),
         migrations.CreateModel(
             name="PersonOverride",
             fields=[
