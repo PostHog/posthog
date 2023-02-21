@@ -191,3 +191,22 @@ export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): 
         </>
     )
 }
+
+export function JSBootstrappingSnippet(): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`posthog.init('{project_api_key}', {
+    api_host: 'https://app.posthog.com',
+    bootstrap: {
+        distinctID: 'your-anonymous-id',
+        featureFlags: {
+            'flag-1': true,
+            'variant-flag': 'control',
+            'other-flag': false
+        }
+    }
+})
+            `}
+        </CodeSnippet>
+    )
+}

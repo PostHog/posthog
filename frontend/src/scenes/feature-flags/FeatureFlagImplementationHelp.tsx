@@ -1,7 +1,11 @@
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { IconArrowLeft } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
-import { FeatureFlagInstructions, FeatureFlagLocalEvaluationInstructions } from './FeatureFlagInstructions'
+import {
+    FeatureFlagBootstrappingInstructions,
+    FeatureFlagInstructions,
+    FeatureFlagLocalEvaluationInstructions,
+} from './FeatureFlagInstructions'
 
 export enum ClientLibraries {
     JavaScript = 'JavaScript',
@@ -201,7 +205,18 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                             <FeatureFlagLocalEvaluationInstructions featureFlagKey={'my-flag'} language={library} />
                         </div>
                     )}
-                    {shouldBootstrap && <div>Bootstrapping instructions</div>}
+                    {shouldBootstrap && (
+                        <div className="mt-4">
+                            <h4>Bootstrapping instructions</h4>
+                            <div className="mb-4">
+                                There is a delay between loading the library and feature flags becoming available to
+                                use. For some cases, like redirecting users to a different page based on a feature flag
+                                this won't work because flags load after the redirect logic occurs. In cases where you
+                                want flags to be immediately available on page load, you can bootstrap them.
+                            </div>
+                            <FeatureFlagBootstrappingInstructions language={library} />
+                        </div>
+                    )}
                 </div>
             )}
         </div>

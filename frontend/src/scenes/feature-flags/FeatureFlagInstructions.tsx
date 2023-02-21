@@ -26,6 +26,7 @@ import {
     PHPLocalEvaluationSnippet,
     RubyLocalEvaluationSnippet,
     PythonLocalEvaluationSnippet,
+    JSBootstrappingSnippet,
 } from 'scenes/feature-flags/FeatureFlagSnippets'
 
 import './FeatureFlagInstructions.scss'
@@ -34,6 +35,7 @@ import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/Fea
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
 const LOCAL_EVAL_ANCHOR = '#local-evaluation'
+const BOOTSTRAPPING_ANCHOR = '#bootstrapping-flags'
 
 interface InstructionOption {
     value: string
@@ -117,6 +119,15 @@ const LOCAL_EVALUATION_OPTIONS: InstructionOption[] = [
         documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
         Icon: IconPython,
         Snippet: PythonLocalEvaluationSnippet,
+    },
+]
+
+const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
+    {
+        value: 'JavaScript',
+        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
+        Icon: IconJavascript,
+        Snippet: JSBootstrappingSnippet,
     },
 ]
 
@@ -250,8 +261,19 @@ export function FeatureFlagLocalEvaluationInstructions({
     return (
         <CodeInstructions
             featureFlagKey={featureFlagKey}
-            headerPrompt="Learn how to use local evaluation in your code"
+            headerPrompt="Learn how to use local evaluation"
             options={LOCAL_EVALUATION_OPTIONS}
+            selectedLanguage={language}
+        />
+    )
+}
+
+export function FeatureFlagBootstrappingInstructions({ language }: { language: string }): JSX.Element {
+    return (
+        <CodeInstructions
+            featureFlagKey={''}
+            headerPrompt="Learn how to use bootstrapping"
+            options={BOOTSTRAPPING_OPTIONS}
             selectedLanguage={language}
         />
     )
