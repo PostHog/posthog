@@ -18,7 +18,8 @@ export enum ServerLibraries {
     PHP = 'PHP',
 }
 
-const allLibraries = { ...ClientLibraries, ...ServerLibraries }
+const AllLibraries = { ...ClientLibraries, ...ServerLibraries }
+type AllLibraries = ClientLibraries | ServerLibraries
 
 enum ImplementationSteps {
     LibrarySelection = 1,
@@ -29,7 +30,7 @@ enum ImplementationSteps {
 
 export function FeatureFlagImplementationHelp(): JSX.Element {
     const [implementationStep, setImplementationStep] = useState(ImplementationSteps.LibrarySelection)
-    const [library, setLibrary] = useState(allLibraries.JavaScript)
+    const [library, setLibrary] = useState<AllLibraries>(AllLibraries.JavaScript)
     const [shouldBootstrap, setShouldBootstrap] = useState(false)
     const [shouldLocalEval, setShouldLocalEval] = useState(false)
 
@@ -41,9 +42,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                     <LemonSelect
                         className="mt-4"
                         dropdownMaxContentWidth
-                        onSelect={(val) => {
-                            setLibrary(val)
-                        }}
+                        onSelect={(val) => setLibrary(val)}
                         options={[
                             {
                                 title: 'Client libraries',
@@ -73,7 +72,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                         <LemonButton
                             type="primary"
                             onClick={() => {
-                                if (library in ServerLibraries) {
+                                if (Object.values(ServerLibraries).includes(library)) {
                                     setImplementationStep(ImplementationSteps.LocalEvaluation)
                                 } else {
                                     setImplementationStep(ImplementationSteps.Bootstrapping)
