@@ -684,23 +684,3 @@ body {
         display: none;
     }
 }
-
-.line-clamp-2 {
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
-}
-
-.object-cover {
-    object-fit: cover;
-    object-position: center;
-}
-
-.h-120 {
-    height: 120px;
-}
-
-.h-100 {
-    height: 100px;
-}

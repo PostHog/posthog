@@ -47,7 +47,7 @@ export function PrimaryDashboardModal(): JSX.Element {
                         className="mb-4"
                     />
                     <LemonDivider />
-                    <div className="space-y-2 min-h-100">
+                    <div className="space-y-2 min-h-24">
                         {dashboards.map((dashboard: DashboardType) => {
                             const isPrimary = dashboard.id === primaryDashboardId
                             const rowContents = (

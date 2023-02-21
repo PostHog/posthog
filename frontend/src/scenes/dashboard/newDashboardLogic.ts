@@ -27,7 +27,7 @@ const defaultFormValues: NewDashboardForm = {
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
-export function template(obj: any, variables: DashboardTemplateVariableType[]): any {
+export function applyTemplate(obj: any, variables: DashboardTemplateVariableType[]): any {
     if (typeof obj === 'string') {
         if (obj.startsWith('{') && obj.endsWith('}')) {
             const variableId = obj.substring(1, obj.length - 1)
@@ -39,12 +39,12 @@ export function template(obj: any, variables: DashboardTemplateVariableType[]): 
         }
     }
     if (Array.isArray(obj)) {
-        return obj.map((item) => template(item, variables))
+        return obj.map((item) => applyTemplate(item, variables))
     }
     if (typeof obj === 'object') {
         const newObject: any = {}
         for (const [key, value] of Object.entries(obj)) {
-            newObject[key] = template(value, variables)
+            newObject[key] = applyTemplate(value, variables)
         }
         return newObject
     }
@@ -52,7 +52,7 @@ export function template(obj: any, variables: DashboardTemplateVariableType[]): 
 }
 
 function makeTilesUsingVariables(tiles: any, variables: DashboardTemplateVariableType[]): any {
-    return tiles.map((tile: any) => template(tile, variables))
+    return tiles.map((tile: any) => applyTemplate(tile, variables))
 }
 
 export const newDashboardLogic = kea<newDashboardLogicType>([

@@ -8,7 +8,7 @@ import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 import { DashboardTemplateType } from '~/types'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { Field } from 'lib/forms/Field'
 import { AvailableFeature } from '~/types'
@@ -20,20 +20,14 @@ import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { Form } from 'kea-forms'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
+import { getSeriesColor } from 'lib/colors'
 
 function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
     const [hasError, setHasError] = useState(false)
-    const [color, setColor] = useState('#ff0000')
 
     const handleImageError = (): void => {
         setHasError(true)
     }
-
-    const colors = ['#ff0000', '#ffa500', '#ffff00', '#008000', '#0000ff', '#4b0082', '#ee82ee', '#800080', '#ffc0cb']
-
-    useEffect(() => {
-        setColor(colors[(index * 3) % colors.length])
-    }, [index])
 
     return (
         <>
@@ -43,11 +37,16 @@ function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt:
                     // dynamic color based on index
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        background: `${color}`,
+                        background: getSeriesColor(index),
                     }}
                 />
             ) : (
-                <img className="w-full h-full object-cover" src={src} alt={alt} onError={handleImageError} />
+                <img
+                    className="w-full h-full object-cover object-center"
+                    src={src}
+                    alt={alt}
+                    onError={handleImageError}
+                />
             )}
         </>
     )
@@ -71,7 +70,7 @@ function TemplateItem({
                 height: '210px',
             }}
         >
-            <div className="w-full h-120 overflow-hidden">
+            <div className="w-full h-28 overflow-hidden">
                 <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
             </div>
 

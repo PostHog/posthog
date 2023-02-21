@@ -10,7 +10,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
 
     const { variables } = useValues(dashboardTemplateVariablesLogic)
-    const { setVariables, updateVariable } = useActions(dashboardTemplateVariablesLogic)
+    const { setVariables, setVariable } = useActions(dashboardTemplateVariablesLogic)
 
     const FALLBACK_EVENT = {
         id: '$pageview',
@@ -48,7 +48,7 @@ export function DashboardTemplateVariables(): JSX.Element {
                             }}
                             setFilters={(filters: FilterType) => {
                                 console.log(variable.name, filters)
-                                updateVariable(variable.name, filters)
+                                setVariable(variable.name, filters)
                             }}
                             typeKey={'variable_' + variable.name}
                             buttonCopy={''}

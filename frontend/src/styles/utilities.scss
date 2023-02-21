@@ -957,3 +957,21 @@
 .sticky {
     position: sticky;
 }
+.line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+.object-cover {
+    object-fit: cover;
+}
+.object-center {
+    object-position: center;
+}
+.h-28 {
+    height: 120px;
+}
+.h-24 {
+    height: 100px;
+}

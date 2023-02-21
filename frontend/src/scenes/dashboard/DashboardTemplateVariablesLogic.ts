@@ -7,7 +7,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
-        updateVariable: (variable_name: string, filterGroup: Optional<FilterType, 'type'>) => ({
+        setVariable: (variable_name: string, filterGroup: Optional<FilterType, 'type'>) => ({
             variable_name,
             filterGroup,
         }),
@@ -17,7 +17,7 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             [] as DashboardTemplateVariableType[],
             {
                 setVariables: (_, { variables }) => variables,
-                updateVariable: (
+                setVariable: (
                     variables: DashboardTemplateVariableType[],
                     { variable_name, filterGroup }
                 ): DashboardTemplateVariableType[] => {

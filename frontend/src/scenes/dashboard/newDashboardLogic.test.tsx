@@ -1,9 +1,9 @@
-import { template } from './newDashboardLogic'
+import { applyTemplate } from './newDashboardLogic'
 
 describe('template function in newDashboardLogic', () => {
-    it('template works', () => {
+    it('ignores unused variables', () => {
         expect(
-            template({ a: 'hello', b: 'hi' }, [
+            applyTemplate({ a: 'hello', b: 'hi' }, [
                 {
                     id: 'VARIABLE_1',
                     name: 'a',
@@ -16,9 +16,10 @@ describe('template function in newDashboardLogic', () => {
                 },
             ])
         ).toEqual({ a: 'hello', b: 'hi' })
-
+    })
+    it('uses identified variables', () => {
         expect(
-            template({ a: '{VARIABLE_1}', b: 'hi' }, [
+            applyTemplate({ a: '{VARIABLE_1}', b: 'hi' }, [
                 {
                     id: 'VARIABLE_1',
                     name: 'a',
