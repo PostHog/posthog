@@ -99,7 +99,7 @@ class OrgReport(UsageReportCounters):
     organization_created_at: str
     organization_user_count: int
     team_count: int
-    teams: Dict[int, UsageReportCounters]
+    teams: Dict[str, UsageReportCounters]
 
 
 @dataclasses.dataclass
