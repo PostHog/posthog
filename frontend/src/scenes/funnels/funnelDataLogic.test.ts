@@ -25,6 +25,7 @@ import {
     // InsightType,
 } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
+import { NodeKind } from '~/queries/schema'
 // import { userLogic } from 'scenes/userLogic'
 // import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 // import { router } from 'kea-router'
@@ -376,6 +377,7 @@ describe('funnelDataLogic', () => {
             await expectLogic(logic)
                 // .toDispatchActions(['loadResults'])
                 .toMatchValues({
+                    querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
                     isStepsFunnel: null,
                     isTimeToConvertFunnel: null,
                     isTrendsFunnel: null,
