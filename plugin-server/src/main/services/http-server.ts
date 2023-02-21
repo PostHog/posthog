@@ -1,15 +1,14 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
+import { IngestionConsumer } from 'main/ingestion-queues/kafka-queue'
 import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
-import { ServerInstance } from '../pluginsServer'
-import { Hub } from './../../types'
 
 export const HTTP_SERVER_PORT = 6738
 
 prometheus.collectDefaultMetrics()
 
-export function createHttpServer(hub: Hub, serverInstance: ServerInstance): Server {
+export function createHttpServer(analyticsEventsIngestionConsumer?: IngestionConsumer): Server {
     const server = createServer((req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
             status.info('💚', 'Server liveness check succeeded')
@@ -17,7 +16,7 @@ export function createHttpServer(hub: Hub, serverInstance: ServerInstance): Serv
         } else if (req.url === '/_ready' && req.method === 'GET') {
             // Check that, if the server should have a kafka queue,
             // the Kafka consumer is ready to consume messages
-            if (!serverInstance.queue || serverInstance.queue.consumerReady) {
+            if (!analyticsEventsIngestionConsumer || analyticsEventsIngestionConsumer.consumerReady) {
                 status.info('💚', 'Server readiness check succeeded')
                 const responseBody = {
                     status: 'ok',

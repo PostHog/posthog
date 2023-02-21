@@ -224,8 +224,6 @@ class TestPrinter(TestCase):
             "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
         self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
-        # TODO: fix
-        # self._assert_expr_error("event makes little sense", "event AS makes AS little AS sense")
         self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
@@ -360,6 +358,8 @@ class TestPrinter(TestCase):
             self._select("select 1 as `-- select team_id` from events"),
             "SELECT 1 AS `-- select team_id` FROM events WHERE equals(team_id, 42) LIMIT 65535",
         )
+        # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
+        self.assertEqual(self._expr("event makes little sense"), "((event AS makes) AS little) AS sense")
 
     def test_select(self):
         self.assertEqual(self._select("select 1"), "SELECT 1 LIMIT 65535")

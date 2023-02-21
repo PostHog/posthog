@@ -107,8 +107,8 @@ export function PieChart({
                 },
                 layout: {
                     padding: {
-                        top: 8,
-                        bottom: 8,
+                        top: 12, // 12 px so that the label isn't cropped
+                        bottom: 20, // 12 px so that the label isn't cropped + 8 px of padding against the number below
                     },
                 },
                 borderWidth: 0,
@@ -141,6 +141,10 @@ export function PieChart({
                             const paddingY = value < 10 ? 2 : 4
                             const paddingX = value < 10 ? 5 : 4
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
+                        },
+                        formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                        font: {
+                            weight: 500,
                         },
                         borderRadius: 25,
                         borderWidth: 2,

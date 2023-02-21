@@ -8,7 +8,7 @@ from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
-from posthog.hogql.transforms import expand_splashes
+from posthog.hogql.transforms import expand_asterisks
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
@@ -41,13 +41,13 @@ def print_ast(
 
     # modify the cloned tree as needed
     if dialect == "clickhouse":
-        expand_splashes(node)
+        expand_asterisks(node)
 
         # TODO: add team_id checks (currently done in the printer)
         # TODO: add joins to person and group tables
         pass
 
-    return Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
 @dataclass
@@ -56,7 +56,7 @@ class JoinExprResponse:
     where: Optional[ast.Expr] = None
 
 
-class Printer(Visitor):
+class _Printer(Visitor):
     # NOTE: Call "print_ast()", not this class directly.
 
     def __init__(
@@ -330,7 +330,10 @@ class Printer(Visitor):
         raise ValueError(f"Found a Placeholder {{{node.field}}} in the tree. Can't generate query!")
 
     def visit_alias(self, node: ast.Alias):
-        return f"{self.visit(node.expr)} AS {self._print_identifier(node.alias)}"
+        inside = self.visit(node.expr)
+        if isinstance(node.expr, ast.Alias):
+            inside = f"({inside})"
+        return f"{inside} AS {self._print_identifier(node.alias)}"
 
     def visit_table_symbol(self, symbol: ast.TableSymbol):
         return self._print_identifier(symbol.table.clickhouse_table())
@@ -352,10 +355,10 @@ class Printer(Visitor):
             if isinstance(resolved_field, Table):
                 # :KLUDGE: only works for events.person.* printing now
                 if isinstance(symbol.table, ast.TableSymbol):
-                    return self.visit(ast.SplashSymbol(table=ast.TableSymbol(table=resolved_field)))
+                    return self.visit(ast.AsteriskSymbol(table=ast.TableSymbol(table=resolved_field)))
                 else:
                     return self.visit(
-                        ast.SplashSymbol(
+                        ast.AsteriskSymbol(
                             table=ast.TableAliasSymbol(
                                 table=ast.TableSymbol(table=resolved_field), name=symbol.table.name
                             )
@@ -468,8 +471,8 @@ class Printer(Visitor):
     def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return self._print_identifier(symbol.name)
 
-    def visit_splash_symbol(self, symbol: ast.SplashSymbol):
-        raise ValueError("Unexpected splash (*). It's only allowed in a SELECT column.")
+    def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
+        raise ValueError("Unexpected asterisk (*). It's only allowed in a SELECT column.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

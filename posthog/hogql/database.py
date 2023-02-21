@@ -48,17 +48,17 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
-    def get_splash(self) -> Dict[str, DatabaseField]:
-        splash: Dict[str, DatabaseField] = {}
+    def get_asterisk(self) -> Dict[str, DatabaseField]:
+        asterisk: Dict[str, DatabaseField] = {}
         for key, field in self.__fields__.items():
             database_field = field.default
             if isinstance(database_field, DatabaseField):
-                splash[key] = database_field
+                asterisk[key] = database_field
             elif isinstance(database_field, Table):
                 pass  # ignore virtual tables for now
             else:
-                raise ValueError(f"Unknown field type {type(database_field).__name__} for splash")
-        return splash
+                raise ValueError(f"Unknown field type {type(database_field).__name__} for asterisk")
+        return asterisk
 
 
 class PersonsTable(Table):
