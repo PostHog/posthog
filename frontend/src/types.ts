@@ -1511,6 +1511,8 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1519,6 +1521,8 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
@@ -1572,7 +1576,9 @@ export interface RetentionFilterType extends FilterType {
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
+    show_values_on_series?: boolean
 }
+
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType

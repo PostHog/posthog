@@ -16,7 +16,13 @@ import {
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import { BIN_COUNT_AUTO, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import {
+    BIN_COUNT_AUTO,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    FEATURE_FLAGS,
+    RETENTION_FIRST_TIME,
+    ShownAsValue,
+} from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -277,6 +283,23 @@ export function cleanFilters(
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+            ...(filters.show_values_on_series ? { show_values_on_series: filters.show_values_on_series } : {}),
+        }
+
+        if (
+            'show_values_on_series' in cleanSearchParams &&
+            !!cleanSearchParams.display &&
+            NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(cleanSearchParams.display)
+        ) {
+            delete cleanSearchParams.show_values_on_series
+        }
+
+        if (
+            !!cleanSearchParams.display &&
+            cleanSearchParams.display === ChartDisplayType.ActionsPie &&
+            cleanSearchParams.show_values_on_series === undefined
+        ) {
+            cleanSearchParams.show_values_on_series = true
         }
 
         cleanBreakdownParams(cleanSearchParams, filters, featureFlags || {})

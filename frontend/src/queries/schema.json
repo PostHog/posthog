@@ -219,6 +219,9 @@
                         "show_legend": {
                             "type": "boolean"
                         },
+                        "show_values_on_series": {
+                            "type": "boolean"
+                        },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
                         },
@@ -347,6 +350,9 @@
                             "type": ["boolean", "null"]
                         },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -940,6 +946,9 @@
                         },
                         "sample_results": {
                             "type": ["boolean", "null"]
+                        },
+                        "show_values_on_series": {
+                            "type": "boolean"
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
@@ -2054,6 +2063,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2626,6 +2638,9 @@
                 "show_legend": {
                     "type": "boolean"
                 },
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2753,6 +2768,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "shown_as": {
