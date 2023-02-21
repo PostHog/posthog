@@ -6,6 +6,8 @@ import { FilterType, InsightType } from '~/types'
 import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
 
+import './DashboardTemplateVariables.scss'
+
 export function DashboardTemplateVariables(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
 
@@ -23,12 +25,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     }, [activeDashboardTemplate])
 
     return (
-        <div
-            className="mb-4"
-            style={{
-                maxWidth: 600,
-            }}
-        >
+        <div className="mb-4 DashboardTemplateVariables">
             {variables.map((variable, index) => (
                 <div key={index} className="mb-6">
                     <div className="mb-2">

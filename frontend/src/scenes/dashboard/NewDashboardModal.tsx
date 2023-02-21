@@ -22,6 +22,8 @@ import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
 
+import './NewDashboardModal.scss'
+
 function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
     const [hasError, setHasError] = useState(false)
 
@@ -62,14 +64,7 @@ function TemplateItem({
     index: number
 }): JSX.Element {
     return (
-        <div
-            className="cursor-pointer border-2 rounded"
-            onClick={onClick}
-            style={{
-                width: '240px',
-                height: '210px',
-            }}
-        >
+        <div className="cursor-pointer border-2 rounded TemplateItem" onClick={onClick}>
             <div className="w-full h-28 overflow-hidden">
                 <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
             </div>
@@ -116,12 +111,7 @@ export function DashboardTemplateChooser(): JSX.Element {
 
     return (
         <div>
-            <div
-                className="flex flex-wrap gap-4 justify-center"
-                style={{
-                    maxWidth: '780px',
-                }}
-            >
+            <div className="flex flex-wrap gap-4 justify-center DashboardTemplateChooser">
                 <TemplateItem
                     template={{
                         template_name: 'Blank dashboard',
