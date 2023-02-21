@@ -399,11 +399,11 @@ class TestPrinter(TestCase):
     def test_select_prewhere(self):
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2"),
-            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2) LIMIT 65535",
+            "SELECT 1 FROM events PREWHERE equals(1, 2) WHERE equals(team_id, 42) LIMIT 65535",
         )
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2) WHERE equals(2, 3) LIMIT 65535",
+            "SELECT 1 FROM events PREWHERE equals(1, 2) WHERE and(equals(team_id, 42), equals(2, 3)) LIMIT 65535",
         )
 
     def test_select_order_by(self):
