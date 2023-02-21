@@ -18,7 +18,7 @@ class AST(BaseModel):
 
     def accept(self, visitor):
         camel_case_name = camel_case_pattern.sub("_", self.__class__.__name__).lower()
-        method_name = "visit_{}".format(camel_case_name)
+        method_name = f"visit_{camel_case_name}"
         if hasattr(visitor, method_name):
             visit = getattr(visitor, method_name)
             return visit(self)
