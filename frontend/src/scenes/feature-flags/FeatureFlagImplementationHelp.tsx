@@ -34,7 +34,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
     const [shouldLocalEval, setShouldLocalEval] = useState(false)
 
     return (
-        <div className="mb-4">
+        <div className="mb-4 p-2">
             {implementationStep === ImplementationSteps.LibrarySelection && (
                 <div className="LibrarySelection">
                     Which library will you be implementing this feature flag in?
@@ -43,11 +43,6 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                         dropdownMaxContentWidth
                         onSelect={(val) => {
                             setLibrary(val)
-                            if (val in ServerLibraries) {
-                                setImplementationStep(ImplementationSteps.LocalEvaluation)
-                            } else {
-                                setImplementationStep(ImplementationSteps.Bootstrapping)
-                            }
                         }}
                         options={[
                             {
@@ -74,23 +69,39 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                             },
                         ]}
                     />
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="primary"
+                            onClick={() => {
+                                if (library in ServerLibraries) {
+                                    setImplementationStep(ImplementationSteps.LocalEvaluation)
+                                } else {
+                                    setImplementationStep(ImplementationSteps.Bootstrapping)
+                                }
+                            }}
+                        >
+                            Next
+                        </LemonButton>
+                    </div>
                 </div>
             )}
             {implementationStep === ImplementationSteps.LocalEvaluation && (
                 <div>
                     <LemonButton
                         icon={<IconArrowLeft />}
+                        className="mb-4"
                         size="small"
                         onClick={() => setImplementationStep(ImplementationSteps.LibrarySelection)}
                     >
                         Library selection
                     </LemonButton>
-                    <div>
+                    <div className="pl-2">
+                        <h3>Local evaluation</h3>
                         <span>
                             For server libraries, we recommend implementing <b>local evaluation</b>. This improves
-                            performance as it doesn't rely on additional network requests.
+                            performance by reducing additional network requests.
                         </span>
-                        <ul>
+                        <ul className="mb-2">
                             This requires:
                             <li>
                                 1. Initializing the library with your personal API key (found in user account settings)
@@ -101,7 +112,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                             href={'https://posthog.com/manual/feature-flags#server-side-local-evaluation'}
                             target="_blank"
                         >
-                            Code example details
+                            <b>Read more</b>
                         </a>
                     </div>
                     <div className="flex justify-between mt-4">
@@ -130,10 +141,21 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
             )}
             {implementationStep === ImplementationSteps.Bootstrapping && (
                 <div>
+                    <LemonButton
+                        icon={<IconArrowLeft />}
+                        size="small"
+                        className="mb-4"
+                        onClick={() => setImplementationStep(ImplementationSteps.LibrarySelection)}
+                    >
+                        Library selection
+                    </LemonButton>
                     <div>
-                        If you need to have your feature flags immediately available as there's a delay between initial
-                        loading of the library and feature flags becoming available to use, we recommend{' '}
-                        <b>bootstrapping</b>.
+                        <h3>Bootstrapping</h3>
+                        <div>
+                            If you need to have your feature flags immediately available, we recommend{' '}
+                            <b>bootstrapping</b>. There's a delay between initial loading of the library and feature
+                            flags becoming available to use.
+                        </div>
                     </div>
                     <div className="flex justify-between mt-4">
                         <LemonButton
@@ -158,11 +180,10 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
             )}
             {implementationStep === ImplementationSteps.Summary && (
                 <div>
-                    <h3>Summary</h3>
-                    Library: {library}
+                    <h4>Summary</h4>
                     <FeatureFlagInstructions featureFlagKey={'my-flag'} language={library} />
-                    {shouldLocalEval && <div />}
-                    {shouldBootstrap && <div>bootstrapping instructions</div>}
+                    {shouldLocalEval && <div>Local eval instructions</div>}
+                    {shouldBootstrap && <div>Bootstrapping instructions</div>}
                 </div>
             )}
         </div>
