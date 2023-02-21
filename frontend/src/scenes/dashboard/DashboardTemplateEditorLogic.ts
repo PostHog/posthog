@@ -9,7 +9,7 @@ import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplat
 import type { dashboardTemplateEditorLogicType } from './DashboardTemplateEditorLogicType'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
-    path(['scenes', 'dashboard', 'NewDashboardTemplateLogic']),
+    path(['scenes', 'dashboard', 'DashboardTemplateEditorLogic']),
     connect(dashboardTemplatesLogic),
     actions({
         setEditorValue: (value: string) => ({ value }),
