@@ -83,6 +83,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 ) => Noun
             ): Noun => aggregationLabel(querySource.aggregation_group_type_index),
         ],
+
         results: [
             (s) => [s.insight],
             ({ filters, result }): FunnelAPIResponse => {
