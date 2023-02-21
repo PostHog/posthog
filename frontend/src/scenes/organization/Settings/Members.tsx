@@ -16,9 +16,12 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { LemonInput, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonInput, LemonModal, LemonSwitch } from '@posthog/lemon-ui'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { Row } from 'antd'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { useState } from 'react'
+import { Setup2FA } from 'scenes/authentication/Setup2FA'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -139,6 +142,7 @@ export function Members({ user }: MembersProps): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { setSearch } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
+    const [is2FAModalVisible, set2FAModalVisible] = useState(false)
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -182,9 +186,38 @@ export function Members({ user }: MembersProps): JSX.Element {
             key: 'is_2fa_enabled',
             render: function LevelRender(_, member) {
                 return (
-                    <LemonTag data-attr="2fa-enabled" type={member.is_2fa_enabled ? 'success' : 'warning'}>
-                        {member.is_2fa_enabled ? '2FA enabled' : '2FA not enabled'}
-                    </LemonTag>
+                    <>
+                        {member.user.uuid == user.uuid && is2FAModalVisible && (
+                            <LemonModal title="Set up or manage 2FA" onClose={() => set2FAModalVisible(false)}>
+                                <Setup2FA
+                                    onSuccess={() => {
+                                        set2FAModalVisible(false)
+                                        userLogic.actions.updateUser({})
+                                        membersLogic.actions.loadMembers()
+                                    }}
+                                />
+                            </LemonModal>
+                        )}
+                        <Tooltip
+                            title={
+                                member.user.uuid == user.uuid && !member.is_2fa_enabled
+                                    ? 'Click to setup 2FA for your account'
+                                    : ''
+                            }
+                        >
+                            <LemonTag
+                                onClick={
+                                    member.user.uuid == user.uuid && !member.is_2fa_enabled
+                                        ? () => set2FAModalVisible(true)
+                                        : undefined
+                                }
+                                data-attr="2fa-enabled"
+                                type={member.is_2fa_enabled ? 'success' : 'warning'}
+                            >
+                                {member.is_2fa_enabled ? '2FA enabled' : '2FA not enabled'}
+                            </LemonTag>
+                        </Tooltip>
+                    </>
                 )
             },
             sorter: (a, b) => (a.is_2fa_enabled != b.is_2fa_enabled ? 1 : 0),

@@ -39,7 +39,7 @@ export function Login2FA(): JSX.Element {
                     </Field>
                     <LemonButton
                         htmlType="submit"
-                        data-attr="password-login"
+                        data-attr="2fa-login"
                         fullWidth
                         type="primary"
                         center

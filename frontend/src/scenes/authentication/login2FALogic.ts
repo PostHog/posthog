@@ -6,6 +6,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { handleLoginRedirect } from './loginLogic'
 
+import type { login2FALogicType } from './login2FALogicType'
+
 export interface AuthenticateResponseType {
     success: boolean
     errorCode?: string
@@ -32,7 +34,7 @@ export enum LoginStep {
     TWO_FACTOR = 'two_factor',
 }
 
-export const login2FALogic = kea([
+export const login2FALogic = kea<login2FALogicType>([
     //<login2FALogicType>([
     path(['scenes', 'authentication', 'login2FALogic']),
     connect({

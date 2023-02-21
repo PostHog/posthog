@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { useValues } from 'kea'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
+import './Setup2FA.scss'
 
 export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element | null {
     const { startSetupLoading, generalError } = useValues(setup2FALogic({ onSuccess }))
@@ -13,8 +14,8 @@ export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element 
 
     return (
         <>
-            <Form logic={setup2FALogic} formKey="token" enableFormOnSubmit className="space-y-4">
-                <img src="/account/two_factor/qrcode/" style={{ minWidth: 215, minHeight: 215, margin: 0 }} />
+            <Form logic={setup2FALogic} formKey="token" enableFormOnSubmit className="flex flex-col space-y-4">
+                <img src="/account/two_factor/qrcode/" className="Setup2FA__image" />
                 {generalError && <AlertMessage type="error">{generalError.detail}</AlertMessage>}
                 <Field name="token" label="Authenticator token">
                     <LemonInput
@@ -26,14 +27,7 @@ export function Setup2FA({ onSuccess }: { onSuccess: () => void }): JSX.Element 
                         autoComplete="one-time-code"
                     />
                 </Field>
-                <LemonButton
-                    htmlType="submit"
-                    data-attr="password-login"
-                    fullWidth
-                    type="primary"
-                    center
-                    loading={false}
-                >
+                <LemonButton htmlType="submit" data-attr="2fa-setup" fullWidth type="primary" center loading={false}>
                     Login
                 </LemonButton>
             </Form>

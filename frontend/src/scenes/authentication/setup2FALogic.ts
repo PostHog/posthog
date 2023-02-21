@@ -6,11 +6,13 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { lemonToast } from '@posthog/lemon-ui'
 
+import type { setup2FALogicType } from './setup2FALogicType'
+
 export interface TwoFactorForm {
     token: number | null
 }
 
-export const setup2FALogic = kea([
+export const setup2FALogic = kea<setup2FALogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
     connect({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],

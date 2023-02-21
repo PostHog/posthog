@@ -20,6 +20,7 @@ import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonModal } from '@posthog/lemon-ui'
 import { Setup2FA } from './authentication/Setup2FA'
+import { membersLogic } from './organization/Settings/membersLogic'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -162,6 +163,7 @@ function AppScene(): JSX.Element | null {
                     <Setup2FA
                         onSuccess={() => {
                             userLogic.actions.loadUser()
+                            membersLogic.actions.loadMembers()
                         }}
                     />
                 </LemonModal>

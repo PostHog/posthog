@@ -117,32 +117,11 @@ export const loginLogic = kea<loginLogicType>([
                 }
             },
         },
-        twofactortoken: {
-            defaults: { token: null } as TwoFactorForm,
-            errors: ({ token }) => ({
-                token: !token ? 'Please enter a token to continued' : undefined,
-            }),
-            submit: async ({ token }, breakpoint) => {
-                await breakpoint()
-                try {
-                    return await api.create('api/login/token', { token })
-                } catch (e) {
-                    const { code } = e as Record<string, any>
-                    const { detail } = e as Record<string, any>
-                    actions.setGeneralError(code, detail)
-                    throw e
-                }
-            },
-        },
     })),
     listeners({
         submitLoginSuccess: () => {
             handleLoginRedirect()
             // Reload the page after login to ensure POSTHOG_APP_CONTEXT is set correctly.
-            window.location.reload()
-        },
-        submitTwofactortokenSuccess: () => {
-            handleLoginRedirect()
             window.location.reload()
         },
     }),
