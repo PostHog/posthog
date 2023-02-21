@@ -687,7 +687,7 @@ def clickhouse_mark_all_materialized():
 def send_org_usage_reports():
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
-    send_all_org_usage_reports()
+    send_all_org_usage_reports.delay()
 
 
 @app.task(ignore_result=True)

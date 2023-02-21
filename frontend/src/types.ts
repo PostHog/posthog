@@ -138,6 +138,7 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+    is_2fa_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -181,6 +182,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
+    enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
 }
 
@@ -204,11 +206,13 @@ export interface BaseMemberType {
     user: UserBasicType
     joined_at: string
     updated_at: string
+    is_2fa_enabled: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
+    is_2fa_enabled: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {

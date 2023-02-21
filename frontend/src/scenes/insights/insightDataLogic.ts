@@ -32,6 +32,7 @@ import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { queryExportContext } from '~/queries/query'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
     const filters = insightProps.cachedInsight?.filters
@@ -54,7 +55,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [featureFlagLogic, ['featureFlags'], trendsLogic, ['toggledLifecycles as trendsLifecycles']],
+        values: [
+            insightLogic,
+            ['insight'],
+            featureFlagLogic,
+            ['featureFlags'],
+            trendsLogic,
+            ['toggledLifecycles as trendsLifecycles'],
+        ],
         actions: [
             insightLogic,
             ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
@@ -111,6 +119,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
+        ],
+
+        exportContext: [
+            (s) => [s.query, s.insight],
+            (query, insight) => {
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+                return { ...queryExportContext(query), filename }
+            },
         ],
     }),
 
