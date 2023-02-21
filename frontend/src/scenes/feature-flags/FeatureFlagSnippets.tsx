@@ -22,8 +22,19 @@ export function JSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.JavaScript} wrap>
-                {`if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-    // run your activation code here
+                {`// Ensure flags are loaded before usage.
+// You'll only need to call this on the code for when the first time a user visits.
+
+posthog.onFeatureFlags(function() {
+    // feature flags should be available at this point
+    if (posthog.isFeatureEnabled('new-beta-feature')) {
+        // do something
+    }
+})
+
+// Otherwise, you can just do
+    if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
+        // do something
 }`}
             </CodeSnippet>
         </>
