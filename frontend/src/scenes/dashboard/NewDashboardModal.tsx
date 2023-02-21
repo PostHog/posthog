@@ -117,7 +117,7 @@ export function DashboardTemplateChooser(): JSX.Element {
     return (
         <div>
             <div
-                className="flex flex-wrap gap-4"
+                className="flex flex-wrap gap-4 justify-center"
                 style={{
                     maxWidth: '780px',
                 }}
