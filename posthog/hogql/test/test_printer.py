@@ -407,7 +407,7 @@ class TestPrinter(TestCase):
         )
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
-            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2)  WHERE equals(2, 3) LIMIT 65535",
+            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2) WHERE equals(2, 3) LIMIT 65535",
         )
 
     def test_select_order_by(self):
