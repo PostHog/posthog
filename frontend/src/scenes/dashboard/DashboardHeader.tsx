@@ -32,7 +32,7 @@ import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogi
 import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
-import { dashboardTemplateEditorLogic } from './DashboardTemplateEditorLogic'
+import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."

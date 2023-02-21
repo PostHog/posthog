@@ -6,7 +6,7 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { DashboardTemplateType } from '~/types'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { dashboardTemplateEditorLogic } from 'scenes/dashboard/DashboardTemplateEditorLogic'
+import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
 import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
 
 export const DashboardTemplatesTable = (): JSX.Element => {

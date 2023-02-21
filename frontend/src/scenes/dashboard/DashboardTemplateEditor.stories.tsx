@@ -1,7 +1,7 @@
 import { ComponentMeta } from '@storybook/react'
 import { useEffect } from 'react'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
-import { dashboardTemplateEditorLogic } from './DashboardTemplateEditorLogic'
+import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export default {
     title: 'Scenes-App/Dashboards',
