@@ -386,7 +386,7 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
 
 
 @app.task(ignore_result=True, retries=0)
-def capture_report(capture_event_name: str, org_id: str, full_report_dict: dict, at_date=Optional[datetime]):
+def capture_report(capture_event_name: str, org_id: str, full_report_dict: dict, at_date=Optional[datetime]) -> None:
     pha_client = Client("sTMFPsFhdP1Ssg")
     try:
         capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
