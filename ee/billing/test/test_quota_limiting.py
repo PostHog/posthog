@@ -6,7 +6,7 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 
 from ee.billing.quota_limiting import (
-    RATE_LIMITER_CACHE_KEY,
+    QUOTA_LIMITER_CACHE_KEY,
     QuotaResource,
     list_limited_team_tokens,
     org_quota_limited_until,
@@ -47,8 +47,8 @@ class TestQuotaLimiting(BaseTest):
         assert result["events"] == {}
         assert result["recordings"] == {}
 
-        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == []
-        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
 
     def test_billing_rate_limit(self) -> None:
         with self.settings(USE_TZ=False):
@@ -77,10 +77,10 @@ class TestQuotaLimiting(BaseTest):
         assert result["events"] == {org_id: 1612137599}
         assert result["recordings"] == {}
 
-        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == [
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}events", 0, -1) == [
             self.team.api_token.encode("UTF-8")
         ]
-        assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []
+        assert self.redis_client.zrange(f"{QUOTA_LIMITER_CACHE_KEY}recordings", 0, -1) == []
 
         self.organization.refresh_from_db()
         assert self.organization.usage == {
