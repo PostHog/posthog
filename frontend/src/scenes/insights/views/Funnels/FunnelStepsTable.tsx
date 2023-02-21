@@ -30,9 +30,9 @@ import { BreakdownFilter } from '~/queries/schema'
 export function FunnelStepsTableDataExploration(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdown } = useValues(insightDataLogic(insightProps))
-    const {} = useValues(funnelDataLogic(insightProps))
+    const { steps } = useValues(funnelDataLogic(insightProps))
 
-    return <FunnelStepsTableComponent insightLoading={insightLoading} breakdownFilter={breakdown} />
+    return <FunnelStepsTableComponent insightLoading={insightLoading} breakdownFilter={breakdown} steps={steps} />
 }
 
 export function FunnelStepsTable(): JSX.Element | null {
