@@ -19,6 +19,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { Form } from 'kea-forms'
 import { userLogic } from 'scenes/userLogic'
+import { pluralize } from 'lib/utils'
 
 function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
     const [hasError, setHasError] = useState(false)
@@ -142,7 +143,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                         key={index}
                         template={template}
                         onClick={() => {
-                            if (template.variables.length === 0) {
+                            if (template.variables?.length === 0) {
                                 addDashboard({
                                     name: template.template_name,
                                     show: true,
@@ -271,9 +272,12 @@ export function UpdatedNewDashboardModal(): JSX.Element {
             title={activeDashboardTemplate ? 'Setup your events' : 'Create a dashboard'}
             description={
                 activeDashboardTemplate
-                    ? `The dashboard template you selected requires you to set up ${
-                          activeDashboardTemplate.variables.length
-                      } event${activeDashboardTemplate.variables.length > 1 ? 's' : ''}.`
+                    ? `The dashboard template you selected requires you to set up ${pluralize(
+                          (activeDashboardTemplate.variables || []).length,
+                          'event',
+                          'events',
+                          true
+                      )}.`
                     : 'Choose a template or start with a blank slate'
             }
         >
