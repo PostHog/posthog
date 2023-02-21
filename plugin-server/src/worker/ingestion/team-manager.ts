@@ -20,15 +20,14 @@ export class TeamManager {
         this.statsd = statsd
 
         this.teamCache = new LRU({
-            max: 10000,
+            max: 10_000,
             maxAge: 2 * ONE_MINUTE,
-            // being explicit about the fact that we want to update
-            // the team cache every 2min, irrespective of the last access
-            updateAgeOnGet: false,
+            updateAgeOnGet: false, // Make default behaviour explicit
         })
         this.tokenToTeamIdCache = new LRU({
-            // TODO: add `maxAge` to ensure we avoid negatively caching teamId as null.
-            max: 100_000,
+            max: 1_000_000, // Entries are small, keep a high limit to reduce risk of bad requests evicting good tokens
+            maxAge: 5 * ONE_MINUTE, // Expiration for negative lookups, positive lookups will expire via teamCache first
+            updateAgeOnGet: false, // Make default behaviour explicit
         })
         this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
     }
@@ -50,26 +49,41 @@ export class TeamManager {
     }
 
     public async getTeamByToken(token: string): Promise<Team | null> {
+        /**
+         * Validates and resolves the api token from an incoming event.
+         *
+         * Caching is added to reduce the load on Postgres, not to be resilient
+         * to failures. If PG is unavailable, this function will trow and the
+         * lookup must be retried later.
+         *
+         * Returns null if the token is invalid.
+         */
+
         const cachedTeamId = this.tokenToTeamIdCache.get(token)
 
-        // tokenToTeamIdCache.get returns `undefined` if the value doesn't
-        // exist so we check for the value being `null` as that means we've
-        // explictly cached that the team does not exist
+        // Negative lookups (`null` instead of `undefined`) return fast,
+        // but will be retried after that cache key expires.
+        // A new token can potentially get caught here for up to 5 minutes
+        // if a bad request in the past used that token.
         if (cachedTeamId === null) {
             return null
-        } else if (cachedTeamId) {
+        }
+
+        // Positive lookups hit both tokenToTeamIdCache and teamCache before returning without PG lookup.
+        // A revoked token will still be accepted until the teamCache entry expires (up to 2 minutes)
+        if (cachedTeamId) {
             const cachedTeam = this.teamCache.get(cachedTeamId)
             if (cachedTeam) {
                 return cachedTeam
             }
         }
 
-        const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
+        // Query PG if token is not in cache. This will throw if PG is unavailable.
+        const timeout = timeoutGuard(`Still running "fetchTeamByToken". Timeout warning after 30 sec!`)
         try {
             const team = await this.db.fetchTeamByToken(token)
             if (!team) {
-                // explicitly cache a null to avoid
-                // unnecessary lookups in the future
+                // Cache `null` for unknown tokens to reduce PG load, cache TTL will lead to retries later.
                 this.tokenToTeamIdCache.set(token, null)
                 return null
             }
