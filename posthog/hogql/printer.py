@@ -141,8 +141,11 @@ class _Printer(Visitor):
                 clauses.append("WITH TIES")
 
         response = " ".join([clause for clause in clauses if clause])
+
+        # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
         if len(self.stack) > 1:
             response = f"({response})"
+
         return response
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
