@@ -17,6 +17,7 @@ class Command(BaseCommand):
             "--skip-capture-event", type=str, help="Skip the posthog capture events - for retrying to billing service"
         )
         parser.add_argument("--organization-id", type=str, help="Only send the report for this organization ID")
+        parser.add_argument("--async", type=bool, help="Run the task asynchronously")
 
     def handle(self, *args, **options):
         dry_run = options["dry_run"]
@@ -24,18 +25,23 @@ class Command(BaseCommand):
         event_name = options["event_name"]
         skip_capture_event = options["skip_capture_event"]
         organization_id = options["organization_id"]
+        run_async = options["async"]
 
-        results = send_all_org_usage_reports(
-            dry_run, date, event_name, skip_capture_event=skip_capture_event, only_organization_id=organization_id
-        )
-
-        if options["print_reports"]:
-            print("")  # noqa T201
-            pprint.pprint(results)  # noqa T203
-            print("")  # noqa T201
-
-        if dry_run:
-            print("Dry run so not sent.")  # noqa T201
+        if run_async:
+            results = send_all_org_usage_reports.delay(
+                dry_run, date, event_name, skip_capture_event=skip_capture_event, only_organization_id=organization_id
+            )
         else:
-            print(f"{len(results)} Reports sent!")  # noqa T201
-            print("Done!")  # noqa T201
+            results = send_all_org_usage_reports(
+                dry_run, date, event_name, skip_capture_event=skip_capture_event, only_organization_id=organization_id
+            )
+            if options["print_reports"]:
+                print("")  # noqa T201
+                pprint.pprint(results)  # noqa T203
+                print("")  # noqa T201
+
+            if dry_run:
+                print("Dry run so not sent.")  # noqa T201
+            else:
+                print(f"{len(results)} Reports sent!")  # noqa T201
+        print("Done!")  # noqa T201
