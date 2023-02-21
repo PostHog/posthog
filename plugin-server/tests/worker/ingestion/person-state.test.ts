@@ -1868,6 +1868,7 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
                 hub.statsd,
                 hub.personManager,
                 personContainer,
+                poEEmbraceJoin,
                 uuid
             )
         }
