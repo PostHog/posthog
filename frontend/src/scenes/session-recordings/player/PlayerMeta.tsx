@@ -121,14 +121,24 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                                     />
                                     {!isFullScreen ? iconProperties['$os'] : null}
                                 </span>
-                                <span className="flex items-center gap-1 whitespace-nowrap">
-                                    <PropertyIcon
-                                        noTooltip={!isFullScreen}
-                                        property="$geoip_country_code"
-                                        value={iconProperties['$geoip_country_code']}
-                                    />
-                                    {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
-                                </span>
+                                {iconProperties['$geoip_country_code'] && (
+                                    <span className="flex items-center gap-1 whitespace-nowrap">
+                                        <PropertyIcon
+                                            noTooltip={!isFullScreen}
+                                            property="$geoip_country_code"
+                                            value={iconProperties['$geoip_country_code']}
+                                        />
+                                        {
+                                            isFullScreen &&
+                                                [
+                                                    iconProperties['$geoip_city_name'],
+                                                    iconProperties['$geoip_subdivision_1_code'],
+                                                ]
+                                                    .filter((x) => x)
+                                                    .join(', ') /* [city, state] */
+                                        }
+                                    </span>
+                                )}
                             </div>
                         ) : null}
                     </div>
