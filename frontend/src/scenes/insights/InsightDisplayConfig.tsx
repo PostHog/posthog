@@ -4,7 +4,15 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, TrendsFilterType } from '~/types'
+import {
+    ChartDisplayType,
+    ChartDisplayTypesThatDoNotShowValuesOnSeries,
+    FilterType,
+    FunnelVizType,
+    InsightType,
+    ItemMode,
+    TrendsFilterType,
+} from '~/types'
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
@@ -78,14 +86,11 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
-const chartsThatDoNotSupportValuesOnSeries = [
-    ChartDisplayType.WorldMap,
-    ChartDisplayType.BoldNumber,
-    ChartDisplayType.ActionsTable,
-]
 const showValueOnSeriesFilter = (filters: FilterType): boolean => {
     if (isTrendsFilter(filters) || isStickinessFilter(filters)) {
-        return !chartsThatDoNotSupportValuesOnSeries.includes(filters.display || ChartDisplayType.ActionsLineGraph)
+        return !ChartDisplayTypesThatDoNotShowValuesOnSeries.includes(
+            filters.display || ChartDisplayType.ActionsLineGraph
+        )
     } else if (isLifecycleFilter(filters)) {
         return true
     } else {
@@ -166,10 +171,14 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                         <ValueOnSeriesFilter
                             checked={
                                 !!(
-                                    (isTrendsFilter(filters) ||
+                                    ((isTrendsFilter(filters) ||
                                         isStickinessFilter(filters) ||
                                         isLifecycleFilter(filters)) &&
-                                    filters.show_values_on_series
+                                        filters.show_values_on_series) ||
+                                    // pie charts have value checked by default
+                                    (isTrendsFilter(filters) &&
+                                        filters.display === ChartDisplayType.ActionsPie &&
+                                        filters.show_values_on_series === undefined)
                                 )
                             }
                             onChange={(checked) => {

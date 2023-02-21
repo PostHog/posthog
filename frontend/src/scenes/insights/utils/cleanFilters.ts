@@ -1,6 +1,7 @@
 import {
     AnyFilterType,
     ChartDisplayType,
+    ChartDisplayTypesThatDoNotShowValuesOnSeries,
     Entity,
     EntityTypes,
     FilterType,
@@ -277,6 +278,23 @@ export function cleanFilters(
                 ? { hidden_legend_keys: filters.hidden_legend_keys }
                 : {}),
             ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
+            ...(filters.show_values_on_series ? { show_values_on_series: filters.show_values_on_series } : {}),
+        }
+
+        if (
+            'show_values_on_series' in cleanSearchParams &&
+            !!cleanSearchParams.display &&
+            ChartDisplayTypesThatDoNotShowValuesOnSeries.includes(cleanSearchParams.display)
+        ) {
+            delete cleanSearchParams.show_values_on_series
+        }
+
+        if (
+            !!cleanSearchParams.display &&
+            cleanSearchParams.display === ChartDisplayType.ActionsPie &&
+            cleanSearchParams.show_values_on_series === undefined
+        ) {
+            cleanSearchParams.show_values_on_series = true
         }
 
         cleanBreakdownParams(cleanSearchParams, filters, featureFlags || {})
