@@ -7,7 +7,7 @@ import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
 
-    const { dashboardTemplateJSON, validationError } = useValues(dashboardTemplateEditorLogic)
+    const { dashboardTemplateJSON, validationErrors } = useValues(dashboardTemplateEditorLogic)
     const { setDashboardTemplateJSON, updateValidationErrors } = useActions(dashboardTemplateEditorLogic)
 
     const { closeNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
@@ -145,7 +145,11 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                         onClick={() => {
                             updateDashboardTemplate(id)
                         }}
-                        disabledReason={validationError ? validationError : undefined}
+                        disabledReason={
+                            validationErrors.length
+                                ? `There are ${validationErrors.length} errors to resolve`
+                                : undefined
+                        }
                     >
                         Update template
                     </LemonButton>
@@ -155,7 +159,11 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                             createDashboardTemplate(dashboardTemplateJSON)
                             closeNewDashboardTemplateModal()
                         }}
-                        disabledReason={validationError ? validationError : undefined}
+                        disabledReason={
+                            validationErrors.length
+                                ? `There are ${validationErrors.length} errors to resolve`
+                                : undefined
+                        }
                     >
                         Create new template
                     </LemonButton>

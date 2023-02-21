@@ -28,16 +28,16 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                 setDashboardTemplateJSON: (_, { dashboardTemplateJSON }) => dashboardTemplateJSON,
             },
         ],
-        validationError: [
-            '' as string,
+        validationErrors: [
+            [] as string[],
             {
-                updateValidationErrors: (_, { markers }) => {
+                updateValidationErrors: (_, { markers }): string[] => {
                     if (!markers || markers.length === 0) {
                         console.log('returning undefined')
-                        return ''
+                        return []
                     } else {
                         console.log('updated with markers', markers)
-                        return markers.map((marker) => marker.message).join(', ')
+                        return markers.map((marker) => marker.message)
                     }
                 },
             },
