@@ -8,7 +8,6 @@ import { EventPipelineRunner } from './runner'
 export const inconsistentTeamCounter = new Counter({
     name: 'ingestion_inconsistent_team_resolution_total',
     help: 'Count of events with an inconsistent team resolution between capture and plugin-server, should be zero.',
-    labelNames: ['token', 'captured_team_id', 'resolved_team_id'],
 })
 
 export async function populateTeamDataStep(
@@ -44,13 +43,7 @@ export async function populateTeamDataStep(
     // TODO: remove after lightweight capture is fully rolled-out
     if (event.team_id) {
         if (team?.id || event.team_id) {
-            inconsistentTeamCounter
-                .labels({
-                    token: event.token,
-                    captured_team_id: event.team_id,
-                    resolved_team_id: team?.id,
-                })
-                .inc()
+            inconsistentTeamCounter.inc()
             runner.hub.statsd?.increment('ingestion_inconsistent_team_resolution_total')
         }
         return event as PluginEvent
