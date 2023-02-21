@@ -100,9 +100,31 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+
+    def test_user_session_recording_version(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"], False)
+
+        # don't access models directly as that doesn't update the cache.
+        self._update_team({"session_recording_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
+        )
+
+        self._update_team({"session_recording_version": "v2"})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
+        )
 
     def test_user_console_log_opt_in(self):
         # :TRICKY: Test for regression around caching
@@ -115,7 +137,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
         )
 
     def test_user_performance_opt_in(self):
@@ -140,7 +162,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="https://random.example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
@@ -159,7 +181,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="https://example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
@@ -169,7 +191,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
 
     @snapshot_postgres_queries
@@ -1369,7 +1391,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
+        )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
@@ -1379,7 +1404,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with connection.execute_wrapper(QueryTimeoutWrapper()):
             response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-            self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
+            self.assertEqual(
+                response["sessionRecording"],
+                {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
+            )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
@@ -82,6 +82,32 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         updateCurrentTeam({ capture_performance_opt_in: checked })
                     }}
                     label="Capture network performance"
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
+                    bordered={!inModal}
+                    fullWidth={inModal}
+                    checked={
+                        !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
+                    }
+                    disabled={!currentTeam?.session_recording_opt_in}
+                />
+                <p>
+                    This setting controls if performance and network information will be captured alongside recordings.
+                    The network requests and timings will be shown in the recording player to help you debug any issues.
+                </p>
+            </div>
+
+            <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="opt-in-capture-performance-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({ capture_performance_opt_in: checked })
+                    }}
+                    label={
+                        <span className="flex items-center gap-2">
+                            Use Recorder V2
+                            <LemonTag type="warning">Beta</LemonTag>
+                        </span>
+                    }
                     labelClassName={inModal ? 'text-base font-semibold' : ''}
                     bordered={!inModal}
                     fullWidth={inModal}

@@ -41,6 +41,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -97,35 +98,68 @@
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
   '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  '
+---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
+  '
   SELECT (1) AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
-  '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
-  '
----
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
+  '
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
+  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  '
+---
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -151,7 +185,7 @@
   LIMIT 21
   '
 ---
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
+# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
   '
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -170,22 +204,6 @@
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
          AND "posthog_featureflag"."team_id" = 2)
-  '
----
-# name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.8
-  '
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 2)
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.9
@@ -247,6 +265,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -311,23 +330,45 @@
 ---
 # name: TestDecide.test_web_app_queries.4
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDecide.test_web_app_queries.5
   '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
+  SELECT "posthog_asyncmigration"."id",
+         "posthog_asyncmigration"."name",
+         "posthog_asyncmigration"."description",
+         "posthog_asyncmigration"."progress",
+         "posthog_asyncmigration"."status",
+         "posthog_asyncmigration"."current_operation_index",
+         "posthog_asyncmigration"."current_query_id",
+         "posthog_asyncmigration"."celery_task_id",
+         "posthog_asyncmigration"."started_at",
+         "posthog_asyncmigration"."finished_at",
+         "posthog_asyncmigration"."posthog_min_version",
+         "posthog_asyncmigration"."posthog_max_version",
+         "posthog_asyncmigration"."parameters"
+  FROM "posthog_asyncmigration"
+  WHERE ("posthog_asyncmigration"."name" = '0007_persons_and_groups_on_events_backfill'
+         AND "posthog_asyncmigration"."status" = 2)
+  ORDER BY "posthog_asyncmigration"."id" ASC
   LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
@@ -358,22 +399,6 @@
   '
 ---
 # name: TestDecide.test_web_app_queries.7
-  '
-  SELECT "posthog_pluginconfig"."id",
-         "posthog_pluginconfig"."web_token",
-         "posthog_pluginsourcefile"."updated_at",
-         "posthog_plugin"."updated_at",
-         "posthog_pluginconfig"."updated_at"
-  FROM "posthog_pluginconfig"
-  INNER JOIN "posthog_plugin" ON ("posthog_pluginconfig"."plugin_id" = "posthog_plugin"."id")
-  INNER JOIN "posthog_pluginsourcefile" ON ("posthog_plugin"."id" = "posthog_pluginsourcefile"."plugin_id")
-  WHERE ("posthog_pluginconfig"."enabled"
-         AND "posthog_pluginsourcefile"."filename" = 'site.ts'
-         AND "posthog_pluginsourcefile"."status" = 'TRANSPILED'
-         AND "posthog_pluginconfig"."team_id" = 2)
-  '
----
-# name: TestDecide.test_web_app_queries.8
   '
   SELECT "posthog_pluginconfig"."id",
          "posthog_pluginconfig"."web_token",
