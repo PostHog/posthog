@@ -114,3 +114,80 @@ export function APISnippet(): JSX.Element {
         </>
     )
 }
+
+export function PythonLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Python} wrap>
+                {`posthog.get_feature_flag(
+    ${flagKey},
+    'distinct id',
+    person_properties={'is_authorized': True}
+)
+
+`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function RubyLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Ruby} wrap>
+                {`posthog.get_feature_flag(
+    ${flagKey},
+    'distinct id',
+    person_properties: {'is_authorized': true}
+)
+
+`}
+            </CodeSnippet>
+        </>
+    )
+}
+
+export function NodeLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.JavaScript} wrap>
+            {`await client.getFeatureFlag(
+    ${flagKey},
+    'distinct id',
+    {
+        personProperties: {'is_authorized': true}
+    }
+)`}
+        </CodeSnippet>
+    )
+}
+
+export function PHPLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <CodeSnippet language={Language.PHP} wrap>
+            {`PostHog::getFeatureFlag(
+    ${flagKey},
+    'distinct id',
+    [], // group properties
+    ["is_authorized" => true] // person properties
+)
+            `}
+        </CodeSnippet>
+    )
+}
+
+export function GolangLocalEvaluationSnippet({ flagKey }: { flagKey: string }): JSX.Element {
+    return (
+        <>
+            <CodeSnippet language={Language.Go} wrap>
+                {`enabledVariant, err := client.GetFeatureFlag(
+        FeatureFlagPayload{
+            Key:        ${flagKey},
+            DistinctId: "distinct-id",
+      PersonProperties: posthog.NewProperties().
+        Set("is_authorized", true),
+        },
+)`}
+            </CodeSnippet>
+        </>
+    )
+}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { Card, Select, Row } from 'antd'
 import {
@@ -22,6 +22,10 @@ import {
     PHPSnippet,
     RubySnippet,
     GolangSnippet,
+    NodeLocalEvaluationSnippet,
+    PHPLocalEvaluationSnippet,
+    RubyLocalEvaluationSnippet,
+    PythonLocalEvaluationSnippet,
 } from 'scenes/feature-flags/FeatureFlagSnippets'
 
 import './FeatureFlagInstructions.scss'
@@ -29,6 +33,7 @@ import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/Fea
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
+const LOCAL_EVAL_ANCHOR = '#local-evaluation'
 
 interface InstructionOption {
     value: string
@@ -82,16 +87,51 @@ const OPTIONS: InstructionOption[] = [
     },
 ]
 
+const LOCAL_EVALUATION_OPTIONS: InstructionOption[] = [
+    {
+        value: 'Node.js',
+        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Icon: IconNodeJS,
+        Snippet: NodeLocalEvaluationSnippet,
+    },
+    {
+        value: 'PHP',
+        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Icon: IconPHP,
+        Snippet: PHPLocalEvaluationSnippet,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Icon: IconRuby,
+        Snippet: RubyLocalEvaluationSnippet,
+    },
+    {
+        value: 'Golang',
+        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Icon: IconGolang,
+        Snippet: GolangSnippet,
+    },
+    {
+        value: 'Python',
+        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Icon: IconPython,
+        Snippet: PythonLocalEvaluationSnippet,
+    },
+]
+
 function FeatureFlagInstructionsHeader({
     selectedOptionValue,
     selectOption,
     headerPrompt,
     options,
+    disabled = false,
 }: {
     selectedOptionValue: string
     selectOption: (selectedValue: string) => void
     headerPrompt: string
     options: InstructionOption[]
+    disabled: boolean
 }): JSX.Element {
     return (
         <Row className="FeatureFlagInstructionsHeader" justify="space-between" align="middle">
@@ -105,6 +145,7 @@ function FeatureFlagInstructionsHeader({
                 value={selectedOptionValue}
                 style={{ width: 140 }}
                 onChange={selectOption}
+                disabled={disabled}
             >
                 {options.map(({ value, Icon }, index) => (
                     <Select.Option
@@ -157,14 +198,20 @@ function CodeInstructions({
             setSelectedOption(option)
         }
     }
+    useEffect(() => {
+        if (selectedLanguage) {
+            selectOption(selectedLanguage)
+        }
+    }, [selectedLanguage])
 
     return (
         <Card size="small">
             <FeatureFlagInstructionsHeader
                 options={options}
                 headerPrompt={headerPrompt}
-                selectedOptionValue={selectedLanguage || selectedOption.value}
+                selectedOptionValue={selectedOption.value}
                 selectOption={selectOption}
+                disabled={!!selectedLanguage}
             />
             <LemonDivider />
             <div className="mt mb">
@@ -188,6 +235,23 @@ export function FeatureFlagInstructions({
             featureFlagKey={featureFlagKey}
             headerPrompt="Learn how to use feature flags in your code"
             options={OPTIONS}
+            selectedLanguage={language}
+        />
+    )
+}
+
+export function FeatureFlagLocalEvaluationInstructions({
+    featureFlagKey,
+    language,
+}: {
+    featureFlagKey: string
+    language?: string
+}): JSX.Element {
+    return (
+        <CodeInstructions
+            featureFlagKey={featureFlagKey}
+            headerPrompt="Learn how to use local evaluation in your code"
+            options={LOCAL_EVALUATION_OPTIONS}
             selectedLanguage={language}
         />
     )

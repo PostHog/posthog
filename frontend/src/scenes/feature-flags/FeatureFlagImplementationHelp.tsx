@@ -1,7 +1,7 @@
 import { LemonButton, LemonSelect } from '@posthog/lemon-ui'
 import { IconArrowLeft } from 'lib/lemon-ui/icons'
 import { useState } from 'react'
-import { FeatureFlagInstructions } from './FeatureFlagInstructions'
+import { FeatureFlagInstructions, FeatureFlagLocalEvaluationInstructions } from './FeatureFlagInstructions'
 
 export enum ClientLibraries {
     JavaScript = 'JavaScript',
@@ -179,9 +179,28 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
             )}
             {implementationStep === ImplementationSteps.Summary && (
                 <div>
-                    <h4>Summary</h4>
+                    <h3>Summary</h3>
                     <FeatureFlagInstructions featureFlagKey={'my-flag'} language={library} />
-                    {shouldLocalEval && <div>Local eval instructions</div>}
+                    {shouldLocalEval && (
+                        <div className="mt-4">
+                            <h4>Local evaluation</h4>
+                            <div className="mb-4">
+                                <p>
+                                    All feature flag evaluation requires an API request to your PostHog servers to get a
+                                    response. However, where latency matters, you can evaluate flags locally.
+                                </p>
+                                <p>This is much faster, and requires two things to work:</p>
+                                <ul>
+                                    <li>
+                                        1. Initializing the library with your personal API key (found in user account
+                                        settings)
+                                    </li>
+                                    <li>2. Passing in all the person and group properties the flag relies on</li>
+                                </ul>
+                            </div>
+                            <FeatureFlagLocalEvaluationInstructions featureFlagKey={'my-flag'} language={library} />
+                        </div>
+                    )}
                     {shouldBootstrap && <div>Bootstrapping instructions</div>}
                 </div>
             )}
