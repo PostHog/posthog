@@ -20,6 +20,8 @@ class HogQLContext:
     found_aggregation: bool = False
     # Do we need to join the persons table or not
     using_person_on_events: bool = True
+    # swap person property access with "person_props" table in legacy hogql queries
+    part_of_legacy_query: bool = False
     # If set, allows printing full SELECT queries in ClickHouse
     select_team_id: Optional[int] = None
     # Do we apply a limit of MAX_SELECT_RETURNED_ROWS=65535 to the topmost select query?
