@@ -1238,7 +1238,7 @@ export interface DashboardTemplateType {
     created_at?: string
     template_name: string
     dashboard_description: string
-    dashboard_filters: Record<string, any>
+    dashboard_filters: Record<string, JsonType>
     tiles: DashboardTile[]
     variables: DashboardTemplateVariableType[]
     tags: string[]
@@ -1250,7 +1250,7 @@ export interface DashboardTemplateVariableType {
     name: string
     description: string
     type: 'event'
-    default: Record<string, any> | null | undefined
+    default: Record<string, JsonType> | null | undefined
     required: boolean
 }
 

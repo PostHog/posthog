@@ -37,6 +37,7 @@ import {
     SessionRecordingType,
     PerformanceEvent,
     RecentPerformancePageView,
+    DashboardTemplateType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -301,6 +302,18 @@ class ApiRequest {
         teamId?: TeamType['id']
     ): ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
+    }
+
+    // # Dashboard templates
+    public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
+    }
+
+    public dashboardTemplatesDetail(
+        dashboardTemplateId: DashboardTemplateType['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
     }
 
     // # Roles

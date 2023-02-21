@@ -1,4 +1,4 @@
-import { DashboardTemplateVariableType } from './../../types'
+import { DashboardTemplateVariableType, DashboardTile, JsonType } from './../../types'
 import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
@@ -27,12 +27,13 @@ const defaultFormValues: NewDashboardForm = {
     restrictionLevel: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
 }
 
-export function applyTemplate(obj: any, variables: DashboardTemplateVariableType[]): any {
+// Currently this is a very generic recursive function incase we want to add template variables to aspects beyond events
+export function applyTemplate(obj: DashboardTile | JsonType, variables: DashboardTemplateVariableType[]): JsonType {
     if (typeof obj === 'string') {
         if (obj.startsWith('{') && obj.endsWith('}')) {
             const variableId = obj.substring(1, obj.length - 1)
             const variable = variables.find((variable) => variable.id === variableId)
-            if (variable) {
+            if (variable && variable.default) {
                 return variable.default
             }
             return obj
@@ -41,8 +42,8 @@ export function applyTemplate(obj: any, variables: DashboardTemplateVariableType
     if (Array.isArray(obj)) {
         return obj.map((item) => applyTemplate(item, variables))
     }
-    if (typeof obj === 'object') {
-        const newObject: any = {}
+    if (typeof obj === 'object' && obj !== null) {
+        const newObject: JsonType = {}
         for (const [key, value] of Object.entries(obj)) {
             newObject[key] = applyTemplate(value, variables)
         }
@@ -51,8 +52,8 @@ export function applyTemplate(obj: any, variables: DashboardTemplateVariableType
     return obj
 }
 
-function makeTilesUsingVariables(tiles: any, variables: DashboardTemplateVariableType[]): any {
-    return tiles.map((tile: any) => applyTemplate(tile, variables))
+function makeTilesUsingVariables(tiles: DashboardTile[], variables: DashboardTemplateVariableType[]): JsonType[] {
+    return tiles.map((tile: DashboardTile) => applyTemplate(tile, variables))
 }
 
 export const newDashboardLogic = kea<newDashboardLogicType>([
