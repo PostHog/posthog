@@ -217,7 +217,7 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
 
 
 @app.task(ignore_result=True, retries=3)
-def send_report_to_billing_service(organization: Organization, report: Dict[str, Any]) -> None:
+def send_report_to_billing_service(org_id: str, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
 
@@ -229,6 +229,10 @@ def send_report_to_billing_service(organization: Organization, report: Dict[str,
     try:
         license = License.objects.first_valid()
         if not license or not license.is_v2_license:
+            return
+
+        organization = Organization.objects.get(id=org_id)
+        if not organization:
             return
 
         token = build_billing_token(license, organization)
@@ -250,6 +254,8 @@ def send_report_to_billing_service(organization: Organization, report: Dict[str,
     except Exception as err:
         logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
         capture_exception(err)
+        pha_client = Client("sTMFPsFhdP1Ssg")
+        capture_event(pha_client, f"organization usage report to billing service failure", org_id, {"err": str(err)})
 
 
 def capture_event(
@@ -458,7 +464,6 @@ def send_all_org_usage_reports(
     )
 
     org_reports: Dict[str, OrgReport] = {}
-    orgs_by_id: Dict[str, Organization] = {}
 
     for team in teams:
         team_report = UsageReportCounters(
@@ -488,8 +493,6 @@ def send_all_org_usage_reports(
         org_id = str(team.organization.id)
 
         if org_id not in org_reports:
-            orgs_by_id[org_id] = team.organization
-
             org_report = OrgReport(
                 date=period_start.strftime("%Y-%m-%d"),
                 organization_id=org_id,
@@ -497,13 +500,13 @@ def send_all_org_usage_reports(
                 organization_created_at=team.organization.created_at.isoformat(),
                 organization_user_count=get_org_user_count(org_id),
                 team_count=1,
-                teams={team.id: team_report},
+                teams={str(team.id): team_report},
                 **dataclasses.asdict(team_report),  # Clone the team report as the basis
             )
             org_reports[org_id] = org_report
         else:
             org_report = org_reports[org_id]
-            org_report.teams[team.id] = team_report
+            org_report.teams[str(team.id)] = team_report
             org_report.team_count += 1
 
             # Iterate on all fields of the UsageReportCounters and add the values from the team report to the org report
@@ -538,5 +541,5 @@ def send_all_org_usage_reports(
             capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
 
         # Then capture the events to Billing
-        send_report_to_billing_service.delay(orgs_by_id[org_id], full_report_dict)
+        send_report_to_billing_service.delay(org_id, full_report_dict)
     return all_reports
