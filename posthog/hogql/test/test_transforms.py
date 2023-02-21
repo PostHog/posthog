@@ -19,7 +19,6 @@ class TestTransforms(BaseTest):
                 ast.Field(chain=["event"], symbol=ast.FieldSymbol(name="event", table=events_table_symbol)),
                 ast.Field(chain=["properties"], symbol=ast.FieldSymbol(name="properties", table=events_table_symbol)),
                 ast.Field(chain=["timestamp"], symbol=ast.FieldSymbol(name="timestamp", table=events_table_symbol)),
-                ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=events_table_symbol)),
                 ast.Field(chain=["distinct_id"], symbol=ast.FieldSymbol(name="distinct_id", table=events_table_symbol)),
                 ast.Field(
                     chain=["elements_chain"], symbol=ast.FieldSymbol(name="elements_chain", table=events_table_symbol)
@@ -45,7 +44,6 @@ class TestTransforms(BaseTest):
                 ast.Field(
                     chain=["timestamp"], symbol=ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
                 ),
-                ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=events_table_alias_symbol)),
                 ast.Field(
                     chain=["distinct_id"], symbol=ast.FieldSymbol(name="distinct_id", table=events_table_alias_symbol)
                 ),

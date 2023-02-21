@@ -135,12 +135,13 @@ class PersonDistinctIdTable(Table):
         from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table
     )
 
-    def get_splash(self) -> Dict[str, DatabaseField]:
-        splash: Dict[str, DatabaseField] = {}
-        for key, value in super().get_splash().items():
+    # Remove the "is_deleted" and "version" columns from "select *"
+    def get_asterisk(self) -> Dict[str, DatabaseField]:
+        asterisk: Dict[str, DatabaseField] = {}
+        for key, value in super().get_asterisk().items():
             if key != "is_deleted" and key != "version":
-                splash[key] = value
-        return splash
+                asterisk[key] = value
+        return asterisk
 
     def clickhouse_table(self):
         return "person_distinct_id2"
