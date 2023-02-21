@@ -772,6 +772,7 @@ def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIde
     for prop in props:
         if prop.type == "hogql":
             context = HogQLContext()
+            # TODO: Refactor this. Currently it prints and discards a query, just to check the properties.
             translate_hogql(prop.key, context)
             for field_access in context.field_access_logs:
                 if field_access.type == "event.properties":

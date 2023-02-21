@@ -207,7 +207,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
-    (SELECT if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') AS value,
+    (SELECT if(less(toInt64OrNull(mat_int_value), 10), 'le%ss', 'more') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -249,13 +249,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') as breakdown_value
+                            if(less(toInt64OrNull(mat_int_value), 10), 'le%ss', 'more') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') in (['more', 'le%ss'])
+             AND if(less(toInt64OrNull(mat_int_value), 10), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -395,8 +395,8 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(greater(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd')))
-               AND (like("pmat_fish", '%fish%')))
+          AND ((and(greater(toInt64OrNull(mat_int_value), 10), notEquals('bla', 'a%sd')))
+               AND (like(pmat_fish, '%fish%')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -479,8 +479,8 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(less(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd'))
-               AND like("pmat_fish", '%fish%'))
+          AND (and(less(toInt64OrNull(mat_int_value), 10), notEquals('bla', 'a%sd'))
+               AND like(pmat_fish, '%fish%'))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -790,7 +790,7 @@
          "posthog_insightcachingstate"."created_at",
          "posthog_insightcachingstate"."updated_at"
   FROM "posthog_insightcachingstate"
-  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_8927b6bdeed5f8af7eeba3673259bf59'
+  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_2dfd15f76fb6ac02f0972f7b0203a789'
          AND "posthog_insightcachingstate"."insight_id" = 2
          AND "posthog_insightcachingstate"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '

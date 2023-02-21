@@ -483,14 +483,14 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals("mat_$browser", 'Chrome')
-                      AND equals("pmat_email", 'bla'))) as count_event_match_0 ,
+                 AND (equals(`mat_$browser`, 'Chrome')
+                      AND equals(pmat_email, 'bla'))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals("mat_$browser", 'Chrome')
-                                    AND equals("pmat_email", 'bla'))) as matching_events_0
+                               AND (equals(`mat_$browser`, 'Chrome')
+                                    AND equals(pmat_email, 'bla'))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,
@@ -562,12 +562,12 @@
          any(session_recordings.duration) as duration,
          any(session_recordings.distinct_id) as distinct_id ,
          countIf(event = '$pageview'
-                 AND (equals("mat_$browser", 'Firefox'))) as count_event_match_0 ,
+                 AND (equals(`mat_$browser`, 'Firefox'))) as count_event_match_0 ,
          groupUniqArrayIf(100)((events.timestamp,
                                 events.uuid,
                                 events.session_id,
                                 events.window_id), event = '$pageview'
-                               AND (equals("mat_$browser", 'Firefox'))) as matching_events_0
+                               AND (equals(`mat_$browser`, 'Firefox'))) as matching_events_0
   FROM
     (SELECT uuid,
             distinct_id,

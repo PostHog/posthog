@@ -4,6 +4,8 @@ from django.test.testcases import TestCase
 
 from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.hogql import translate_hogql
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import print_ast
 
 
 class TestPrinter(TestCase):
@@ -14,10 +16,8 @@ class TestPrinter(TestCase):
         return translate_hogql(query, context or HogQLContext(), dialect)
 
     # Helper to always translate HogQL with a blank context,
-    def _select(
-        self, query: str, context: Optional[HogQLContext] = None, dialect: Literal["hogql", "clickhouse"] = "clickhouse"
-    ) -> str:
-        return translate_hogql(query, context or HogQLContext(select_team_id=42), dialect)
+    def _select(self, query: str, context: Optional[HogQLContext] = None) -> str:
+        return print_ast(parse_select(query), context or HogQLContext(select_team_id=42), "clickhouse")
 
     def _assert_expr_error(self, expr, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
         with self.assertRaises(ValueError) as context:
@@ -26,9 +26,9 @@ class TestPrinter(TestCase):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
 
-    def _assert_select_error(self, statement, expected_error, dialect: Literal["hogql", "clickhouse"] = "clickhouse"):
+    def _assert_select_error(self, statement, expected_error):
         with self.assertRaises(ValueError) as context:
-            self._select(statement, None, dialect)
+            self._select(statement, None)
         if expected_error not in str(context.exception):
             raise AssertionError(f"Expected '{expected_error}' in '{str(context.exception)}'")
         self.assertTrue(expected_error in str(context.exception))
@@ -109,14 +109,17 @@ class TestPrinter(TestCase):
         )
 
         context = HogQLContext()
-        self.assertEqual(self._expr("person_id", context), "person_id")
-        self.assertEqual(context.field_access_logs, [HogQLFieldAccess(["person_id"], "person", "id", "person_id")])
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("person.created_at", context), "person_created_at")
+        self.assertEqual(self._expr("person.id", context), "events.person_id")
         self.assertEqual(
             context.field_access_logs,
-            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "person_created_at")],
+            [HogQLFieldAccess(["person", "id"], "person", "id", "events.person_id")],
+        )
+
+        context = HogQLContext()
+        self.assertEqual(self._expr("person.created_at", context), "events.person_created_at")
+        self.assertEqual(
+            context.field_access_logs,
+            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "events.person_created_at")],
         )
 
     def test_hogql_properties(self):
@@ -169,10 +172,19 @@ class TestPrinter(TestCase):
             self.assertEqual(1 + 2, 3)
             return
         materialize("events", "$browser")
-        self.assertEqual(self._expr("properties['$browser']"), '"mat_$browser"')
+        self.assertEqual(self._expr("properties['$browser']"), "`mat_$browser`")
+
+        materialize("events", "withoutdollar")
+        self.assertEqual(self._expr("properties['withoutdollar']"), "mat_withoutdollar")
+
+        materialize("events", "$browser and string")
+        self.assertEqual(self._expr("properties['$browser and string']"), "`mat_$browser_and_string`")
+
+        materialize("events", "$browser%%%#@!@")
+        self.assertEqual(self._expr("properties['$browser%%%#@!@']"), "`mat_$browser_______`")
 
         materialize("events", "$initial_waffle", table_column="person_properties")
-        self.assertEqual(self._expr("person.properties['$initial_waffle']"), '"mat_pp_$initial_waffle"')
+        self.assertEqual(self._expr("person.properties['$initial_waffle']"), "`mat_pp_$initial_waffle`")
 
     def test_methods(self):
         self.assertEqual(self._expr("count()"), "count(*)")
@@ -189,19 +201,19 @@ class TestPrinter(TestCase):
 
     def test_expr_parse_errors(self):
         self._assert_expr_error("", "Empty query")
-        self._assert_expr_error("avg(bla)", "Unknown event field 'bla'")
+        self._assert_expr_error("avg(bla)", "Unable to resolve field: bla")
         self._assert_expr_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
         self._assert_expr_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
         self._assert_expr_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
         self._assert_expr_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
-        self._assert_expr_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
-        self._assert_expr_error("mad(bla)", "Unsupported function call 'mad(...)'")
-        self._assert_expr_error("yeet.the.cloud", "Unsupported property access: ['yeet', 'the', 'cloud']")
-        self._assert_expr_error("chipotle", "Unknown event field 'chipotle'")
-        self._assert_expr_error("person.chipotle", "Unknown person field 'chipotle'")
+        self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
+        self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
+        self._assert_expr_error("yeet.the.cloud", "Unable to resolve field: yeet")
+        self._assert_expr_error("chipotle", "Unable to resolve field: chipotle")
         self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
+        self._assert_expr_error("person.chipotle", 'Field "chipotle" not found on table EventsPersonSubTable')
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")
@@ -211,8 +223,7 @@ class TestPrinter(TestCase):
         self._assert_expr_error(
             "select query from events", "line 1, column 13: mismatched input 'from' expecting <EOF>"
         )
-        self._assert_expr_error("this makes little sense", "Unknown AST node Alias")
-        self._assert_expr_error("event makes little sense", "Unknown AST node Alias")
+        self._assert_expr_error("this makes little sense", "Unable to resolve field: this")
         self._assert_expr_error("1;2", "line 1, column 1: mismatched input ';' expecting")
         self._assert_expr_error("b.a(bla)", "SyntaxError: line 1, column 3: mismatched input '(' expecting '.'")
 
@@ -326,9 +337,8 @@ class TestPrinter(TestCase):
         context = HogQLContext()
         self.assertEqual(
             self._expr("person", context),
-            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_1)s), '^\"|\"$', ''))",
+            "tuple(person_id, person_created_at, person_properties)",
         )
-        self.assertEqual(context.values, {"hogql_val_0": "name", "hogql_val_1": "email"})
 
     def test_values(self):
         context = HogQLContext()
@@ -340,9 +350,16 @@ class TestPrinter(TestCase):
         )
         self.assertEqual(context.values, {"hogql_val_0": "E", "hogql_val_1": "lol", "hogql_val_2": "hoo"})
 
-    def test_no_alias_yet(self):
-        self._assert_expr_error("1 as team_id", "Unknown AST node Alias")
-        self._assert_expr_error("1 as `-- select team_id`", "Unknown AST node Alias")
+    def test_alias_keywords(self):
+        self._assert_expr_error("1 as team_id", "Alias 'team_id' is a reserved keyword.")
+        self._assert_expr_error("1 as true", "Alias 'true' is a reserved keyword.")
+        self._assert_select_error("select 1 as team_id from events", "Alias 'team_id' is a reserved keyword.")
+        self.assertEqual(
+            self._select("select 1 as `-- select team_id` from events"),
+            "SELECT 1 AS `-- select team_id` FROM events WHERE equals(team_id, 42) LIMIT 65535",
+        )
+        # Some aliases are funny, but that's what the antlr syntax permits, and ClickHouse doesn't complain either
+        self.assertEqual(self._expr("event makes little sense"), "((event AS makes) AS little) AS sense")
 
     def test_select(self):
         self.assertEqual(self._select("select 1"), "SELECT 1 LIMIT 65535")
@@ -355,14 +372,17 @@ class TestPrinter(TestCase):
 
     def test_select_alias(self):
         # currently not supported!
-        self._assert_select_error("select 1 as b", "Unknown AST node Alias")
-        self._assert_select_error("select 1 from events as e", "Table aliases not yet supported")
+        self.assertEqual(self._select("select 1 as b"), "SELECT 1 AS b LIMIT 65535")
+        self.assertEqual(
+            self._select("select 1 from events as e"),
+            "SELECT 1 FROM events AS e WHERE equals(e.team_id, 42) LIMIT 65535",
+        )
 
     def test_select_from(self):
         self.assertEqual(
             self._select("select 1 from events"), "SELECT 1 FROM events WHERE equals(team_id, 42) LIMIT 65535"
         )
-        self._assert_select_error("select 1 from other", 'Only selecting from the "events" table is supported')
+        self._assert_select_error("select 1 from other", 'Unknown table "other".')
 
     def test_select_where(self):
         self.assertEqual(
@@ -379,7 +399,11 @@ class TestPrinter(TestCase):
     def test_select_prewhere(self):
         self.assertEqual(
             self._select("select 1 from events prewhere 1 == 2"),
-            "SELECT 1 FROM events WHERE equals(team_id, 42) PREWHERE equals(1, 2) LIMIT 65535",
+            "SELECT 1 FROM events PREWHERE equals(1, 2) WHERE equals(team_id, 42) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("select 1 from events prewhere 1 == 2 where 2 == 3"),
+            "SELECT 1 FROM events PREWHERE equals(1, 2) WHERE and(equals(team_id, 42), equals(2, 3)) LIMIT 65535",
         )
 
     def test_select_order_by(self):
@@ -445,4 +469,14 @@ class TestPrinter(TestCase):
         self.assertEqual(
             self._select("select distinct event from events group by event, timestamp"),
             "SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp LIMIT 65535",
+        )
+
+    def test_select_subquery(self):
+        self.assertEqual(
+            self._select("SELECT event from (select distinct event from events group by event, timestamp)"),
+            "SELECT event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) LIMIT 65535",
+        )
+        self.assertEqual(
+            self._select("SELECT event from (select distinct event from events group by event, timestamp) e"),
+            "SELECT e.event FROM (SELECT DISTINCT event FROM events WHERE equals(team_id, 42) GROUP BY event, timestamp) AS e LIMIT 65535",
         )

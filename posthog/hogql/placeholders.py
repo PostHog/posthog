@@ -1,14 +1,14 @@
 from typing import Dict
 
 from posthog.hogql import ast
-from posthog.hogql.visitor import EverythingVisitor
+from posthog.hogql.visitor import CloningVisitor
 
 
 def replace_placeholders(node: ast.Expr, placeholders: Dict[str, ast.Expr]) -> ast.Expr:
     return ReplacePlaceholders(placeholders).visit(node)
 
 
-class ReplacePlaceholders(EverythingVisitor):
+class ReplacePlaceholders(CloningVisitor):
     def __init__(self, placeholders: Dict[str, ast.Expr]):
         self.placeholders = placeholders
 
@@ -22,6 +22,6 @@ def assert_no_placeholders(node: ast.Expr):
     AssertNoPlaceholders().visit(node)
 
 
-class AssertNoPlaceholders(EverythingVisitor):
+class AssertNoPlaceholders(CloningVisitor):
     def visit_placeholder(self, node):
         raise ValueError(f"Placeholder '{node.field}' not allowed in this context")
