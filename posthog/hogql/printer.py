@@ -88,7 +88,7 @@ class _Printer(Visitor):
             visited_join = self.visit_join_expr(next_join)
             select_from.append(visited_join.printed_sql)
 
-            # This is an expression we must add to the SELECT's WHERE clause to limit results.
+            # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
             if extra_where is None:
                 pass
@@ -114,10 +114,10 @@ class _Printer(Visitor):
         clauses = [
             f"SELECT {'DISTINCT ' if node.distinct else ''}{', '.join(columns)}",
             f"FROM {' '.join(select_from)}" if len(select_from) > 0 else None,
+            "PREWHERE " + prewhere if prewhere else None,
             "WHERE " + where if where else None,
             f"GROUP BY {', '.join(group_by)}" if group_by and len(group_by) > 0 else None,
             "HAVING " + having if having else None,
-            "PREWHERE " + prewhere if prewhere else None,
             f"ORDER BY {', '.join(order_by)}" if order_by and len(order_by) > 0 else None,
         ]
 
