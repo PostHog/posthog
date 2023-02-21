@@ -42,7 +42,7 @@ def print_ast(
     # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_asterisks(node)
-        resolve_lazy_tables(node)
+        resolve_lazy_tables(node, stack)
         # TODO: add team_id checks (currently done in the printer)
 
     return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
@@ -470,6 +470,9 @@ class _Printer(Visitor):
 
     def visit_lazy_table_symbol(self, symbol: ast.LazyTableSymbol):
         raise ValueError("Unexpected ast.LazyTableSymbol. Make sure LazyTableResolver has run on the AST.")
+
+    def visit_field_traverser_symbol(self, symbol: ast.FieldTraverserSymbol):
+        raise ValueError("Unexpected ast.FieldTraverserSymbol. This should have been resolved.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

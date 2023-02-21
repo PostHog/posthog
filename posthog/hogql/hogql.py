@@ -18,11 +18,11 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
             node = parse_select(query, no_placeholders=True)
             return print_ast(node, context, dialect, stack=[])
         else:
+            node = parse_expr(query, no_placeholders=True)
             # Create a fake query that selects from "events". Assume were in its scope when evaluating expressions.
             select_query = ast.SelectQuery(
-                select=[], symbol=ast.SelectQuerySymbol(tables={"events": ast.TableSymbol(table=database.events)})
+                select=[node], symbol=ast.SelectQuerySymbol(tables={"events": ast.TableSymbol(table=database.events)})
             )
-            node = parse_expr(query, no_placeholders=True)
             return print_ast(node, context, dialect, stack=[select_query])
 
     except SyntaxError as err:

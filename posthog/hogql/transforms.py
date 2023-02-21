@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Callable, Dict, List, Set, Union
+from typing import Callable, Dict, List, Optional, Set, Union
 
 from posthog.hogql import ast
 from posthog.hogql.resolver import resolve_symbols
@@ -59,14 +59,17 @@ class AsteriskExpander(TraversingVisitor):
         node.select = columns
 
 
-def resolve_lazy_tables(node: ast.Expr):
-    LazyTableResolver().visit(node)
+def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None):
+    if stack:
+        # TODO: remove this kludge for old props
+        LazyTableResolver(stack=stack).visit(stack[-1])
+    LazyTableResolver(stack=stack).visit(node)
 
 
 class LazyTableResolver(TraversingVisitor):
-    def __init__(self):
+    def __init__(self, stack: Optional[List[ast.SelectQuery]] = None):
         super().__init__()
-        self.stack_of_fields: List[List[ast.FieldSymbol]] = []
+        self.stack_of_fields: List[List[ast.FieldSymbol]] = [[]] if stack else []
 
     def _get_long_table_name(
         self, select: ast.SelectQuerySymbol, symbol: Union[ast.TableSymbol, ast.LazyTableSymbol, ast.TableAliasSymbol]

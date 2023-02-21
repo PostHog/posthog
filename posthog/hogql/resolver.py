@@ -1,6 +1,7 @@
 from typing import List, Optional
 
 from posthog.hogql import ast
+from posthog.hogql.ast import FieldTraverserSymbol
 from posthog.hogql.database import database
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -176,11 +177,19 @@ class Resolver(TraversingVisitor):
 
         # Recursively resolve the rest of the chain until we can point to the deepest node.
         loop_symbol = symbol
-        for child_name in node.chain[1:]:
-            loop_symbol = loop_symbol.get_child(child_name)
+        chain_to_parse = node.chain[1:]
+        while True:
+            if isinstance(loop_symbol, FieldTraverserSymbol):
+                chain_to_parse = loop_symbol.chain + chain_to_parse
+                loop_symbol = loop_symbol.symbol
+                continue
+            if len(chain_to_parse) == 0:
+                break
+            next_chain = chain_to_parse.pop(0)
+            loop_symbol = loop_symbol.get_child(next_chain)
             if loop_symbol is None:
                 raise ResolverException(
-                    f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {child_name} on {name}"
+                    f"Cannot resolve symbol {'.'.join(node.chain)}. Unable to resolve {next_chain}."
                 )
         node.symbol = loop_symbol
 

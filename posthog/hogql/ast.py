@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
-from posthog.hogql.database import DatabaseField, JoinedTable, StringJSONDatabaseField, Table
+from posthog.hogql.database import DatabaseField, FieldTraverser, JoinedTable, StringJSONDatabaseField, Table
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -59,6 +59,8 @@ class TableSymbol(Symbol):
             field = self.table.get_field(name)
             if isinstance(field, JoinedTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
+            if isinstance(field, FieldTraverser):
+                return FieldTraverserSymbol(chain=field.chain, symbol=self)
             return FieldSymbol(name=name, table=self)
         raise ValueError(f'Field "{name}" not found on table {type(self.table).__name__}')
 
@@ -80,6 +82,8 @@ class TableAliasSymbol(Symbol):
             field = table.table.get_field(name)
             if isinstance(field, JoinedTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
+            if isinstance(field, FieldTraverser):
+                return FieldTraverserSymbol(chain=field.chain, symbol=self)
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 
@@ -99,6 +103,8 @@ class LazyTableSymbol(Symbol):
             field = self.joined_table.table.get_field(name)
             if isinstance(field, JoinedTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
+            if isinstance(field, FieldTraverser):
+                return FieldTraverserSymbol(chain=field.chain, symbol=self)
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 
@@ -166,6 +172,11 @@ class AsteriskSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 
+class FieldTraverserSymbol(Symbol):
+    chain: List[str]
+    symbol: Symbol
+
+
 class FieldSymbol(Symbol):
     name: str
     table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
@@ -190,6 +201,8 @@ class FieldSymbol(Symbol):
             )
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertySymbol(name=name, parent=self)
+        if isinstance(database_field, FieldTraverser):
+            return FieldTraverserSymbol(chain=database_field.chain, symbol=self)
         raise ValueError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )

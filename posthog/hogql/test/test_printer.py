@@ -74,7 +74,7 @@ class TestPrinter(TestCase):
         context = HogQLContext()
         self.assertEqual(
             self._expr("person.properties.bla", context),
-            "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+            "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
         self.assertEqual(
             context.field_access_logs,
@@ -83,7 +83,7 @@ class TestPrinter(TestCase):
                     ["person", "properties", "bla"],
                     "person.properties",
                     "bla",
-                    "replaceRegexpAll(JSONExtractRaw(person_properties, %(hogql_val_0)s), '^\"|\"$', '')",
+                    "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
                 )
             ],
         )
@@ -213,7 +213,7 @@ class TestPrinter(TestCase):
         self._assert_expr_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
-        self._assert_expr_error("person.chipotle", 'Field "chipotle" not found on table EventsPersonSubTable')
+        self._assert_expr_error("person.chipotle", "Field not found: chipotle")
 
     def test_expr_syntax_errors(self):
         self._assert_expr_error("(", "line 1, column 1: no viable alternative at input '('")

@@ -56,7 +56,11 @@ class Table(BaseModel):
                 pass  # skip team_id
             elif isinstance(database_field, DatabaseField):
                 asterisk[key] = database_field
-            elif isinstance(database_field, Table) or isinstance(database_field, JoinedTable):
+            elif (
+                isinstance(database_field, Table)
+                or isinstance(database_field, JoinedTable)
+                or isinstance(database_field, FieldTraverser)
+            ):
                 pass  # ignore virtual tables for now
             else:
                 raise ValueError(f"Unknown field type {type(database_field).__name__} for asterisk")
@@ -70,6 +74,13 @@ class JoinedTable(BaseModel):
     join_function: Callable[[str, str, List[str]], Any]
     table: Table
     from_field: str
+
+
+class FieldTraverser(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    chain: List[str]
 
 
 class PersonsTable(Table):
@@ -210,6 +221,8 @@ class EventsTable(Table):
     pdi: JoinedTable = JoinedTable(
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
+    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "id"])
 
     def clickhouse_table(self):
         return "events"

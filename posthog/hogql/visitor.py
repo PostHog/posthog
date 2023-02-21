@@ -97,6 +97,9 @@ class TraversingVisitor(Visitor):
     def visit_table_symbol(self, node: ast.TableSymbol):
         pass
 
+    def visit_field_traverser_symbol(self, node: ast.LazyTableSymbol):
+        self.visit(node.table)
+
     def visit_lazy_table_symbol(self, node: ast.LazyTableSymbol):
         self.visit(node.table)
 
