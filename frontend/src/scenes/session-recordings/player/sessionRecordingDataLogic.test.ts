@@ -485,7 +485,7 @@ describe('sessionRecordingDataLogic', () => {
                     },
                 })
                 .toFinishAllListeners()
-            expect(api.get).toBeCalledTimes(3) // 2 calls to loadRecordingSnapshots + 1 call to loadRecordingMeta
+            expect(api.get).toBeCalledTimes(4) // 2 calls to loadRecordingSnapshots + 1 call to loadRecordingMeta + 1 call to loadPerformanceEvents
         })
 
         it('server error mid-way through recording', async () => {
