@@ -91,6 +91,8 @@ class SelectQuerySymbol(Symbol):
     anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if name in self.columns:
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Column not found: {name}")
@@ -104,6 +106,8 @@ class SelectQueryAliasSymbol(Symbol):
     symbol: SelectQuerySymbol
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if self.symbol.has_child(name):
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field {name} not found on query with alias {self.name}")
