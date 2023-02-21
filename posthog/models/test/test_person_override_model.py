@@ -349,7 +349,7 @@ def test_person_override_allow_merge_first_then_delete():
         _delete_person(team, delete_cursor, override_person_id)
         delete_cursor.execute("COMMIT")
 
-    assert list(PersonOverride.objects.filter(team=team).all()) == []  # type: ignore
+    assert list(PersonOverride.objects.filter(team=team).all()) == []
 
 
 @pytest.mark.django_db(transaction=True)
