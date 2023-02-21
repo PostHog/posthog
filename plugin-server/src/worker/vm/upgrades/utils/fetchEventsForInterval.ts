@@ -55,6 +55,9 @@ export const fetchEventsForInterval = async (
     try {
         clickhouseFetchEventsResult = await db.clickhouseQuery<RawClickHouseEvent>(fetchEventsQuery)
     } catch (error) {
+        // TODO: add more specific error handling based on the error from
+        // `clickhouseQuery` (e.g. if it's a timeout, we should retry, if it's a
+        // query syntax error, we should not retry)
         status.error('🔥', 'clickhouse_export_fetch_failure', { error })
         throw new RetryError("Couldn't fetch events from ClickHouse")
     }
