@@ -11,7 +11,7 @@ export default {
 export const CreateTemplate = (): JSX.Element => {
     useEffect(() => {
         dashboardTemplateEditorLogic.mount()
-        dashboardTemplateEditorLogic.actions.setOpenNewDashboardTemplateModal(true)
+        dashboardTemplateEditorLogic.actions.openDashboardTemplateEditor()
         dashboardTemplateEditorLogic.actions.setDashboardTemplateJSON(
             JSON.stringify(
                 {
@@ -34,7 +34,7 @@ export const CreateTemplate = (): JSX.Element => {
 export const EditTemplate = (): JSX.Element => {
     useEffect(() => {
         dashboardTemplateEditorLogic.mount()
-        dashboardTemplateEditorLogic.actions.setOpenNewDashboardTemplateModal(true)
+        dashboardTemplateEditorLogic.actions.openDashboardTemplateEditor()
         dashboardTemplateEditorLogic.actions.setDashboardTemplateJSON(
             JSON.stringify(
                 {

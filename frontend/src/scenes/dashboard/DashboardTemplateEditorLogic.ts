@@ -3,7 +3,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { DashboardTemplateType } from '~/types'
+import { DashboardTemplateEditorType, DashboardTemplateType } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
@@ -12,20 +12,29 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
     path(['scenes', 'dashboard', 'NewDashboardTemplateLogic']),
     connect(dashboardTemplatesLogic),
     actions({
-        setDashboardTemplateJSON: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
-        setOpenNewDashboardTemplateModal: (openNewDashboardTemplateModal: boolean) => ({
-            openNewDashboardTemplateModal,
+        setEditorValue: (value: string) => ({ value }),
+        setDashboardTemplate: (dashboardTemplate: DashboardTemplateEditorType) => ({
+            dashboardTemplate,
         }),
-        createDashboardTemplate: (dashboardTemplateJSON: string) => ({ dashboardTemplateJSON }),
+        clear: true,
         setDashboardTemplateId: (id: string | undefined) => ({ id }),
-        closeNewDashboardTemplateModal: true,
+        openDashboardTemplateEditor: true,
+        closeDashboardTemplateEditor: true,
         updateValidationErrors: (markers: editor.IMarker[] | undefined) => ({ markers }),
     }),
     reducers({
-        dashboardTemplateJSON: [
+        editorValue: [
             '' as string,
             {
-                setDashboardTemplateJSON: (_, { dashboardTemplateJSON }) => dashboardTemplateJSON,
+                setEditorValue: (_, { value }) => value,
+                clear: () => '',
+            },
+        ],
+        dashboardTemplate: [
+            undefined as DashboardTemplateEditorType | undefined,
+            {
+                clear: () => undefined,
+                setDashboardTemplate: (_, { dashboardTemplate }) => dashboardTemplate,
             },
         ],
         validationErrors: [
@@ -37,80 +46,102 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                         return []
                     } else {
                         console.log('updated with markers', markers)
-                        return markers.map((marker) => marker.message)
+                        return markers.map((marker: editor.IMarker) => marker.message)
                     }
                 },
-            },
-        ],
-        isOpenNewDashboardTemplateModal: [
-            false as boolean,
-            {
-                setOpenNewDashboardTemplateModal: (_, { openNewDashboardTemplateModal }) =>
-                    openNewDashboardTemplateModal,
-                closeNewDashboardTemplateModal: () => false,
+                clear: () => [],
             },
         ],
         id: [
             undefined as string | undefined,
             {
                 setDashboardTemplateId: (_, { id }) => id,
+                clear: () => undefined,
+            },
+        ],
+        isOpenNewDashboardTemplateModal: [
+            false as boolean,
+            {
+                openDashboardTemplateEditor: () => true,
+                closeDashboardTemplateEditor: () => false,
             },
         ],
     }),
     loaders(({ values }) => ({
         dashboardTemplate: [
-            null as DashboardTemplateType | null,
+            undefined as DashboardTemplateEditorType | undefined | null,
             {
-                createDashboardTemplate: async () => {
-                    const response = await api.create(
-                        '/api/projects/@current/dashboard_templates',
-                        JSON.parse(values.dashboardTemplateJSON)
-                    )
+                createDashboardTemplate: async (): Promise<DashboardTemplateEditorType | undefined> => {
+                    if (!values.dashboardTemplate) {
+                        lemonToast.error('Unable to create dashboard template')
+                        return
+                    }
+                    const response = await api.dashboardTemplates.create(values.dashboardTemplate)
                     lemonToast.success('Dashboard template created')
                     return response
                 },
-            },
-        ],
-        dashboardTemplateJSON: [
-            '' as string,
-            {
-                getDashboardTemplate: async (id: string): Promise<string> => {
-                    const response = await api.get(`/api/projects/@current/dashboard_templates/${id}`)
-                    return JSON.stringify(response, null, 4)
+                getDashboardTemplate: async (id: string): Promise<DashboardTemplateType> => {
+                    const response = await api.dashboardTemplates.get(id)
+                    return response
                 },
-                updateDashboardTemplate: async (id: string): Promise<string> => {
-                    const response = await api.update(
-                        `/api/projects/@current/dashboard_templates/${id}`,
-                        JSON.parse(values.dashboardTemplateJSON)
-                    )
-
+                updateDashboardTemplate: async (id: string): Promise<DashboardTemplateType | undefined> => {
+                    if (!values.dashboardTemplate) {
+                        lemonToast.error('Unable to update dashboard template')
+                        return
+                    }
+                    const response = await api.dashboardTemplates.update(id, values.dashboardTemplate)
                     lemonToast.success('Dashboard template updated')
-                    return JSON.stringify(response, null, 4)
+                    return response
                 },
-                deleteDashboardTemplate: async (id: string): Promise<string> => {
-                    await api.update(`/api/projects/@current/dashboard_templates/${id}`, {
-                        deleted: true,
-                    })
+                deleteDashboardTemplate: async (id: string): Promise<null> => {
+                    await api.dashboardTemplates.delete(id)
                     lemonToast.success('Dashboard template deleted')
-                    return ''
+                    return null // for some reason this errors when it's undefined instead
                 },
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
+            actions.closeDashboardTemplateEditor()
             dashboardTemplatesLogic.actions.getAllTemplates()
         },
         updateDashboardTemplateSuccess: async () => {
+            actions.closeDashboardTemplateEditor()
             dashboardTemplatesLogic.actions.getAllTemplates()
-            actions.closeNewDashboardTemplateModal()
         },
         deleteDashboardTemplateSuccess: async () => {
             dashboardTemplatesLogic.actions.getAllTemplates()
         },
-        closeNewDashboardTemplateModal: () => {
-            actions.setDashboardTemplateJSON('')
-            actions.setDashboardTemplateId(undefined)
+        closeDashboardTemplateEditor: () => {
+            actions.clear()
+        },
+        setDashboardTemplateId: async ({ id }) => {
+            if (id) {
+                await actions.getDashboardTemplate(id)
+            }
+        },
+        getDashboardTemplateSuccess: async ({ dashboardTemplate }) => {
+            if (dashboardTemplate) {
+                actions.setEditorValue(JSON.stringify(dashboardTemplate))
+            }
+        },
+        setEditorValue: async ({ value }, breakdpoint) => {
+            await breakdpoint(500)
+            if (values.validationErrors.length == 0 && value?.length) {
+                try {
+                    const dashboardTemplate = JSON.parse(value)
+                    actions.setDashboardTemplate(dashboardTemplate)
+                } catch (error) {
+                    console.log('error', error)
+                    lemonToast.error('Unable to parse dashboard template')
+                }
+            }
+        },
+        setDashboardTemplate: async ({ dashboardTemplate }) => {
+            if (dashboardTemplate) {
+                actions.setEditorValue(JSON.stringify(dashboardTemplate, null, 4))
+            }
         },
     })),
 ])

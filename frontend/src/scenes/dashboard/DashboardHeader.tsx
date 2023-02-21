@@ -53,8 +53,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
-    const { setDashboardTemplateJSON } = useActions(dashboardTemplateEditorLogic)
-    const { setOpenNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
+    const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -81,7 +80,7 @@ export function DashboardHeader(): JSX.Element | null {
         exportOptions.push({
             export_format: ExporterFormat.JSON,
             export_context: {
-                localData: asDashboardTemplate,
+                localData: JSON.stringify(asDashboardTemplate, null, 4),
                 filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
                 mediaType: ExporterFormat.JSON,
             },
@@ -244,8 +243,10 @@ export function DashboardHeader(): JSX.Element | null {
                                             {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && (
                                                 <LemonButton
                                                     onClick={() => {
-                                                        setDashboardTemplateJSON(asDashboardTemplate)
-                                                        setOpenNewDashboardTemplateModal(true)
+                                                        if (asDashboardTemplate) {
+                                                            setDashboardTemplate(asDashboardTemplate)
+                                                            openDashboardTemplateEditor()
+                                                        }
                                                     }}
                                                     fullWidth
                                                     status="stealth"

@@ -7,10 +7,10 @@ import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
 
-    const { dashboardTemplateJSON, validationErrors } = useValues(dashboardTemplateEditorLogic)
-    const { setDashboardTemplateJSON, updateValidationErrors } = useActions(dashboardTemplateEditorLogic)
+    const { editorValue, validationErrors } = useValues(dashboardTemplateEditorLogic)
+    const { setEditorValue, updateValidationErrors } = useActions(dashboardTemplateEditorLogic)
 
-    const { closeNewDashboardTemplateModal } = useActions(dashboardTemplateEditorLogic)
+    const { closeDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
     const { isOpenNewDashboardTemplateModal } = useValues(dashboardTemplateEditorLogic)
 
     const { createDashboardTemplate, updateDashboardTemplate } = useActions(dashboardTemplateEditorLogic)
@@ -121,7 +121,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
             isOpen={isOpenNewDashboardTemplateModal}
             width={1000}
             onClose={() => {
-                closeNewDashboardTemplateModal()
+                closeDashboardTemplateEditor()
             }}
             inline={inline}
         >
@@ -129,12 +129,11 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                 theme="vs-light"
                 className="border"
                 language="json"
-                value={dashboardTemplateJSON}
+                value={editorValue}
                 onChange={(v) => {
-                    setDashboardTemplateJSON(v ?? '')
+                    setEditorValue(v ?? '')
                 }}
                 onValidate={(markers) => {
-                    console.log('on validate', markers)
                     updateValidationErrors(markers)
                 }}
                 height={600}
@@ -158,8 +157,8 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                 ) : (
                     <LemonButton
                         onClick={() => {
-                            createDashboardTemplate(dashboardTemplateJSON)
-                            closeNewDashboardTemplateModal()
+                            createDashboardTemplate()
+                            closeDashboardTemplateEditor()
                         }}
                         disabledReason={
                             validationErrors.length

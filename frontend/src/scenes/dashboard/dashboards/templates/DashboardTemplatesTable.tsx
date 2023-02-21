@@ -13,7 +13,7 @@ export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
     const { allTemplates, repositoryLoading } = useValues(dashboardTemplatesLogic)
 
-    const { setOpenNewDashboardTemplateModal, setDashboardTemplateId, getDashboardTemplate, deleteDashboardTemplate } =
+    const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
 
     const columns: LemonTableColumns<DashboardTemplateType> = [
@@ -57,8 +57,7 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                             return
                                         }
                                         setDashboardTemplateId(id)
-                                        getDashboardTemplate(id)
-                                        setOpenNewDashboardTemplateModal(true)
+                                        openDashboardTemplateEditor()
                                         console.log('open the modal')
                                     }}
                                     fullWidth

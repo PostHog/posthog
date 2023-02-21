@@ -38,6 +38,7 @@ import {
     PerformanceEvent,
     RecentPerformancePageView,
     DashboardTemplateType,
+    DashboardTemplateEditorType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -317,7 +318,6 @@ class ApiRequest {
     }
 
     // # Roles
-
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
     }
@@ -774,6 +774,38 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    dashboardTemplates: {
+        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().get()
+        },
+
+        async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).get()
+        },
+
+        async create(dashboardTemplateData: DashboardTemplateEditorType): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplates().create({ data: dashboardTemplateData })
+        },
+
+        async update(
+            dashboardTemplateId: string,
+            dashboardTemplateData: DashboardTemplateEditorType
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest()
+                .dashboardTemplatesDetail(dashboardTemplateId)
+                .update({ data: dashboardTemplateData })
+        },
+
+        async delete(dashboardTemplateId: string): Promise<void> {
+            // soft delete
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).update({
+                data: {
+                    deleted: true,
+                },
+            })
         },
     },
 
