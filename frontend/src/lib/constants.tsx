@@ -139,6 +139,7 @@ export const FEATURE_FLAGS = {
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
+    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

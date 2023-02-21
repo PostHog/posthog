@@ -6,6 +6,8 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type SessionRecordingSettingsProps = {
     inModal?: boolean
@@ -53,7 +55,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     .
                 </p>
             </div>
-
             <div className="space-y-2">
                 <LemonSwitch
                     data-attr="opt-in-capture-console-log-switch"
@@ -74,7 +75,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     logs will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
-
             <div className="space-y-2">
                 <LemonSwitch
                     data-attr="opt-in-capture-performance-switch"
@@ -95,30 +95,31 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     The network requests and timings will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
-
-            <div className="space-y-2">
-                <LemonSwitch
-                    data-attr="opt-in-capture-performance-switch"
-                    onChange={(checked) => {
-                        updateCurrentTeam({ session_recording_version: checked ? 'v2' : 'v1' })
-                    }}
-                    label={
-                        <span className="flex items-center gap-2">
-                            Use Recorder V2
-                            <LemonTag type="warning">Beta</LemonTag>
-                        </span>
-                    }
-                    labelClassName={inModal ? 'text-base font-semibold' : ''}
-                    bordered={!inModal}
-                    fullWidth={inModal}
-                    checked={currentTeam?.session_recording_version === 'v2'}
-                />
-                <p>
-                    This setting controls if performance and network information will be captured alongside recordings.
-                    The network requests and timings will be shown in the recording player to help you debug any issues.
-                </p>
-            </div>
-
+            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_V2_RECORDER} match={true}>
+                <div className="space-y-2">
+                    <LemonSwitch
+                        data-attr="opt-in-capture-performance-switch"
+                        onChange={(checked) => {
+                            updateCurrentTeam({ session_recording_version: checked ? 'v2' : 'v1' })
+                        }}
+                        label={
+                            <span className="flex items-center gap-2">
+                                Use Recorder V2
+                                <LemonTag type="warning">Beta</LemonTag>
+                            </span>
+                        }
+                        labelClassName={inModal ? 'text-base font-semibold' : ''}
+                        bordered={!inModal}
+                        fullWidth={inModal}
+                        checked={currentTeam?.session_recording_version === 'v2'}
+                    />
+                    <p>
+                        This setting controls if performance and network information will be captured alongside
+                        recordings. The network requests and timings will be shown in the recording player to help you
+                        debug any issues.
+                    </p>
+                </div>
+            </FlaggedFeature>
             <div className="space-y-2">
                 <LemonLabel className="text-base">Authorized domains for recordings</LemonLabel>
 
