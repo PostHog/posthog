@@ -472,7 +472,7 @@ class _Printer(Visitor):
         return self._print_identifier(symbol.name)
 
     def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
-        raise ValueError("Unexpected asterisk (*). It's only allowed in a SELECT column.")
+        raise ValueError("Unexpected ast.AsteriskSymbol. Make sure AsteriskExpander has run on the AST.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

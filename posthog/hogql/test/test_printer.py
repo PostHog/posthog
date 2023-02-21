@@ -329,17 +329,6 @@ class TestPrinter(TestCase):
         context = HogQLContext()
         self.assertEqual(self._expr("event -- something", context), "event")
 
-    def test_special_root_properties(self):
-        self.assertEqual(
-            self._expr("*"),
-            "tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties)",
-        )
-        context = HogQLContext()
-        self.assertEqual(
-            self._expr("person", context),
-            "tuple(person_id, person_created_at, person_properties)",
-        )
-
     def test_values(self):
         context = HogQLContext()
         self.assertEqual(self._expr("event == 'E'", context), "equals(event, %(hogql_val_0)s)")
