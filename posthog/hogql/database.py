@@ -222,7 +222,7 @@ class EventsTable(Table):
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
     person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
-    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "id"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
         return "events"

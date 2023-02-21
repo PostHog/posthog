@@ -92,7 +92,7 @@ export function renderColumn(
             )
         }
         return <Property value={record.properties[propertyKey]} />
-    } else if (key.startsWith('person.properties.')) {
+    } else if (key.startsWith('person.properties.') && isEventsQuery(query.source)) {
         const eventRecord = record as EventType
         const propertyKey = key.substring(18)
         if (setQuery && isEventsQuery(query.source)) {
