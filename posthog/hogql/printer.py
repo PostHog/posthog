@@ -86,7 +86,7 @@ class _Printer(Visitor):
             visited_join = self.visit_join_expr(next_join)
             joined_tables.append(visited_join.printed_sql)
 
-            # This is an expression we must add to the SELECT's WHERE clause to limit results.
+            # This is an expression we must add to the SELECT's WHERE clause to limit results, like the team ID guard.
             extra_where = visited_join.where
             if extra_where is None:
                 pass
@@ -143,6 +143,7 @@ class _Printer(Visitor):
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
         if len(self.stack) > 1:
             response = f"({response})"
+
         return response
 
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
