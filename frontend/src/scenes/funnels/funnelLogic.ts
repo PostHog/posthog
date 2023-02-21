@@ -114,7 +114,7 @@ export const funnelLogic = kea<funnelLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters as inflightFilters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
+            ['filters as inflightFilters', 'insight', 'isInDashboardContext', 'hiddenLegendKeys'],
             teamLogic,
             ['currentTeamId', 'currentTeam'],
             personPropertiesModel,

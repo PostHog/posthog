@@ -20,7 +20,6 @@ import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-// import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
@@ -32,6 +31,7 @@ import { FunnelsQuery, StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -136,8 +136,8 @@ export function InsightContainer({
         ) {
             return (
                 <>
-                    {/* <h2 className="my-4 mx-0">Detailed results</h2> */}
-                    {/* <FunnelStepsTable /> */}
+                    <h2 className="my-4 mx-0">Detailed results</h2>
+                    <FunnelStepsTableDataExploration />
                 </>
             )
         }
