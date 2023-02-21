@@ -102,7 +102,7 @@ class UserChangeForm(DjangoUserChangeForm):
 class OrganizationMemberInline(admin.TabularInline):
     extra = 0
     model = OrganizationMembership
-    readonly_fields = ("joined_at", "updated_at")
+    readonly_fields = ("user", "joined_at", "updated_at")
     autocomplete_fields = ("user", "organization")
 
 
