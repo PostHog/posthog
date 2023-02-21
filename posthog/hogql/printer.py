@@ -368,12 +368,6 @@ class _Printer(Visitor):
 
             field_sql = self._print_identifier(resolved_field.name)
 
-            # :KLUDGE: Legacy person properties handling. Assume we're in a context where the tables have been joined,
-            # and this "person_props" alias is accessible to us.
-            # if resolved_field == database.events.pdi.table.person.table.properties:
-            #     if not self.context.using_person_on_events:
-            #         field_sql = "person_props"
-
             # If the field is called on a table that has an alias, prepend the table alias.
             # If there's another field with the same name in the scope that's not this, prepend the full table name.
             # Note: we don't prepend a table name for the special "person" fields.
@@ -384,6 +378,14 @@ class _Printer(Visitor):
             field_sql = self._print_identifier(symbol.name)
             if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
+
+            # :KLUDGE: Legacy person properties handling. Only used within non-hogql queries, such as insights.
+            if (
+                field_sql == "events__pdi__person.properties"
+                and self.context.part_of_legacy_query
+                and not self.context.using_person_on_events
+            ):
+                field_sql = "person_props"
 
         else:
             raise ValueError(f"Unknown FieldSymbol table type: {type(symbol.table).__name__}")

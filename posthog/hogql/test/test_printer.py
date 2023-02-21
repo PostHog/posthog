@@ -66,6 +66,12 @@ class TestPrinter(TestCase):
             "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
 
+        context = HogQLContext(part_of_legacy_query=True, using_person_on_events=False)
+        self.assertEqual(
+            self._expr("person.properties.bla", context),
+            "replaceRegexpAll(JSONExtractRaw(person_props, %(hogql_val_0)s), '^\"|\"$', '')",
+        )
+
     def test_hogql_properties(self):
         self.assertEqual(
             self._expr("event", HogQLContext(), "hogql"),
