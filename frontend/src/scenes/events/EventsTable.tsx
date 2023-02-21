@@ -59,6 +59,7 @@ interface EventsTableProps {
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
     'data-attr'?: string
+    emptyPrompt?: string
 }
 
 export function EventsTable({
@@ -81,6 +82,7 @@ export function EventsTable({
     showPersonColumn = true,
     linkPropertiesToFilters = true,
     'data-attr': dataAttr,
+    emptyPrompt = `No events matching filters found in the last ${fetchMonths} months!`,
 }: EventsTableProps): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const logic = eventsTableLogic({
@@ -98,7 +100,6 @@ export function EventsTable({
         eventFilter,
         automaticLoadEnabled,
         highlightEvents,
-        months,
     } = useValues(logic)
     const { tableWidth, selectedColumns } = useValues(
         tableConfigLogic({
@@ -513,7 +514,7 @@ export function EventsTable({
                     emptyState={
                         isLoading ? undefined : properties.some((filter) => Object.keys(filter).length) ||
                           eventFilter ? (
-                            `No events matching filters found in the last ${months} months!`
+                            emptyPrompt
                         ) : (
                             <>
                                 This project doesn't have any events. If you haven't integrated PostHog yet,{' '}

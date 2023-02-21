@@ -38,6 +38,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import { SamplingFilter } from './SamplingFilter'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -194,7 +195,8 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
 
                           tooltip: (
                               <div>
-                                  Attribution type determines which property value to use for the entire funnel.
+                                  Attribution type determines which property value to use for filtering or breakdowns.
+                                  That value is then used for the entire funnel.
                                   <ul className="list-disc pl-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>
@@ -239,6 +241,24 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: FunnelsAdvanced,
+                },
+            ]),
+        },
+        {
+            title: 'Sampling',
+            position: 'right',
+            editorFilters: filterFalsy([
+                {
+                    key: 'sampling',
+                    label: '',
+                    position: 'right',
+                    component: SamplingFilter,
+                    tooltip: (
+                        <>
+                            Sampling computes the result on a subset of the data, making insights load significantly
+                            faster. Results are not exact, but statistically similar to the exact results.
+                        </>
+                    ),
                 },
             ]),
         },

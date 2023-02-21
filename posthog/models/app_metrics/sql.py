@@ -144,19 +144,6 @@ FROM (
         sum(failures) AS failures
     FROM (
         SELECT
-            dateTrunc(%(interval)s, toDateTime(%(date_from)s) + {interval_function}(number), %(timezone)s) AS date,
-            0 AS successes,
-            0 AS successes_on_retry,
-            0 AS failures
-        FROM numbers(
-            dateDiff(
-                %(interval)s,
-                dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s),
-                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
-            )
-        )
-        UNION ALL
-        SELECT
             dateTrunc(%(interval)s, timestamp, %(timezone)s) AS date,
             sum(successes) AS successes,
             sum(successes_on_retry) AS successes_on_retry,
@@ -172,6 +159,10 @@ FROM (
     )
     GROUP BY date
     ORDER BY date
+    WITH FILL
+        FROM dateTrunc(%(interval)s, toDateTime(%(date_from)s), %(timezone)s)
+        TO dateTrunc(%(interval)s, toDateTime(%(date_to)s) + {interval_function}(1), %(timezone)s)
+        STEP %(with_fill_step)s
 )
 """
 

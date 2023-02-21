@@ -8,7 +8,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,

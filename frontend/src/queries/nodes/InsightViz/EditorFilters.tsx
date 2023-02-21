@@ -173,7 +173,8 @@ export function EditorFilters({ query, setQuery, showing }: EditorFiltersProps):
                           position: 'right',
                           tooltip: (
                               <div>
-                                  Attribution type determines which property value to use for the entire funnel.
+                                  Attribution type determines which property value to use for filtering or breakdowns.
+                                  That value is then used for the entire funnel.
                                   <ul className="list-disc pl-4">
                                       <li>First step: the first property value seen from all steps is chosen.</li>
                                       <li>Last step: last property value seen from all steps is chosen.</li>

@@ -24,13 +24,18 @@ export async function createWorker(config: PluginsServerConfig, threadId: number
             status.info('🧵', `Starting Piscina worker thread ${threadId}…`)
 
             const [hub, closeHub] = await createHub(config, threadId)
+
+            ;['unhandledRejection', 'uncaughtException'].forEach((event) => {
+                process.on(event, (error: Error) => {
+                    processUnhandledException(error, hub, event)
+                })
+            })
+
             await setupPlugins(hub)
 
             for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
                 process.on(signal, closeHub)
             }
-
-            process.on('unhandledRejection', (error: Error) => processUnhandledRejections(error, hub))
 
             return createTaskRunner(hub)
         }
@@ -88,7 +93,7 @@ export const createTaskRunner =
             }
         )
 
-export function processUnhandledRejections(error: Error, server: Hub): void {
+export function processUnhandledException(error: Error, server: Hub, kind: string): void {
     let pluginConfig: PluginConfig | undefined = undefined
 
     if (error instanceof TimeoutError) {
@@ -105,10 +110,10 @@ export function processUnhandledRejections(error: Error, server: Hub): void {
 
     Sentry.captureException(error, {
         extra: {
-            type: 'Unhandled promise error in worker',
+            type: `${kind} in worker`,
         },
     })
 
-    status.error('🤮', `Unhandled Promise Error!`)
+    status.error('🤮', `${kind}!`)
     status.error('🤮', error)
 }

@@ -98,6 +98,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     KAFKA_SASL_USER: string | null
     KAFKA_SASL_PASSWORD: string | null
     KAFKA_CONSUMPTION_TOPIC: string | null
+    KAFKA_CONSUMPTION_OVERFLOW_TOPIC: string | null
     KAFKA_PRODUCER_MAX_QUEUE_SIZE: number
     KAFKA_MAX_MESSAGE_BATCH_SIZE: number
     KAFKA_FLUSH_FREQUENCY_MS: number
@@ -153,7 +154,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
+    PLUGIN_SERVER_MODE: 'ingestion' | 'ingestion-overflow' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -209,6 +210,7 @@ export interface Hub extends PluginsServerConfig {
 
 export interface PluginServerCapabilities {
     ingestion?: boolean
+    ingestionOverflow?: boolean
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean

@@ -1,5 +1,6 @@
 from infi.clickhouse_orm import migrations
 
+from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.client import sync_execute
 from posthog.models.event.sql import EVENTS_TABLE_JSON_MV_SQL, KAFKA_EVENTS_TABLE_JSON_SQL
 from posthog.settings import CLICKHOUSE_CLUSTER
@@ -25,9 +26,9 @@ def add_columns_to_required_tables(_):
 
 
 operations = [
-    migrations.RunSQL(f"DROP TABLE IF EXISTS events_json_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
-    migrations.RunSQL(f"DROP TABLE IF EXISTS kafka_events_json ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS events_json_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
+    run_sql_with_exceptions(f"DROP TABLE IF EXISTS kafka_events_json ON CLUSTER '{CLICKHOUSE_CLUSTER}'"),
     migrations.RunPython(add_columns_to_required_tables),
-    migrations.RunSQL(KAFKA_EVENTS_TABLE_JSON_SQL()),
-    migrations.RunSQL(EVENTS_TABLE_JSON_MV_SQL()),
+    run_sql_with_exceptions(KAFKA_EVENTS_TABLE_JSON_SQL()),
+    run_sql_with_exceptions(EVENTS_TABLE_JSON_MV_SQL()),
 ]

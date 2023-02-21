@@ -681,7 +681,7 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name?: string | null
-    custom_name?: string
+    custom_name?: string | null
     index?: number
     order?: number
 }
@@ -1146,6 +1146,7 @@ export enum InsightColor {
 
 export interface Cacheable {
     last_refresh: string | null
+    next_allowed_client_refresh?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -1447,6 +1448,11 @@ export interface FilterType {
     insight?: InsightType
     date_from?: string | null
     date_to?: string | null
+    /**
+     * Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period.
+     * Strings are cast to bools, e.g. "true" -> true.
+     */
+    explicit_date?: boolean | string | null
 
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
@@ -1471,6 +1477,7 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
+    sample_results?: boolean | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1720,7 +1727,7 @@ export interface FunnelStep {
     median_conversion_time: number | null
     count: number
     name: string
-    custom_name?: string
+    custom_name?: string | null
     order: number
     people?: string[]
     type: EntityType
@@ -1735,7 +1742,7 @@ export interface FunnelStep {
     converted_people_url: string
 
     // Url that you can GET to retrieve the people that dropped in this step
-    dropped_people_url: string
+    dropped_people_url: string | null
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -2139,22 +2146,40 @@ export interface Experiment {
     end_date?: string | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
-    created_at: string
+    created_at: string | null
     created_by: UserBasicType | null
+    updated_at: string | null
 }
 
-export interface ExperimentResults {
-    insight: FunnelStep[][] | TrendResult[]
+export interface ExperimentVariant {
+    key: string
+    success_count: number
+    failure_count: number
+}
+
+interface BaseExperimentResults {
     probability: Record<string, number>
-    filters: FilterType
-    itemID: string
+    fakeInsightId: string
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
     secondary_metric_results?: SecondaryMetricAPIResult[]
+    variants: ExperimentVariant[]
 }
+
+export interface TrendsExperimentResults extends BaseExperimentResults {
+    insight: TrendResult[]
+    filters: TrendsFilterType
+}
+
+export interface FunnelExperimentResults extends BaseExperimentResults {
+    insight: FunnelStep[][]
+    filters: FunnelsFilterType
+}
+
+export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
 export interface SecondaryMetricAPIResult {
     name: string

@@ -320,6 +320,19 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(cached_team.uuid, response.json()["uuid"])
         self.assertEqual(cached_team.session_recording_opt_in, True)
 
+    def test_update_recording_version(self):
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["session_recording_version"] is None
+
+        response = self.client.patch("/api/projects/@current/", {"session_recording_version": "not-allowed"})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "Invalid session recording version"
+
+        response = self.client.patch("/api/projects/@current/", {"session_recording_version": "v2"})
+        assert response.status_code == status.HTTP_200_OK
+        response = self.client.get("/api/projects/@current/")
+        assert response.json()["session_recording_version"] == "v2"
+
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """

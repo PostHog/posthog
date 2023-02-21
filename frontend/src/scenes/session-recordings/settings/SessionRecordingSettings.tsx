@@ -100,7 +100,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                 <LemonSwitch
                     data-attr="opt-in-capture-performance-switch"
                     onChange={(checked) => {
-                        updateCurrentTeam({ capture_performance_opt_in: checked })
+                        updateCurrentTeam({ session_recording_version: checked ? 'v2' : 'v1' })
                     }}
                     label={
                         <span className="flex items-center gap-2">
@@ -111,10 +111,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     labelClassName={inModal ? 'text-base font-semibold' : ''}
                     bordered={!inModal}
                     fullWidth={inModal}
-                    checked={
-                        !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
-                    }
-                    disabled={!currentTeam?.session_recording_opt_in}
+                    checked={currentTeam?.session_recording_version === 'v2'}
                 />
                 <p>
                     This setting controls if performance and network information will be captured alongside recordings.

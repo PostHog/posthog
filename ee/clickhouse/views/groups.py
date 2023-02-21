@@ -5,7 +5,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.pagination import CursorPagination
 from rest_framework.permissions import IsAuthenticated
 
@@ -77,6 +77,17 @@ class ClickhouseGroupsView(StructuredViewSetMixin, mixins.ListModelMixin, viewse
         ]
     )
     def list(self, request, *args, **kwargs):
+        """
+        List all groups of a specific group type. You must pass ?group_type_index= in the URL. To get a list of valid group types, call /api/:project_id/groups_types/
+        """
+        if not self.request.GET.get("group_type_index"):
+            raise ValidationError(
+                {
+                    "group_type_index": [
+                        "You must pass ?group_type_index= in this URL. To get a list of valid group types, call /api/:project_id/groups_types/."
+                    ]
+                }
+            )
         queryset = self.filter_queryset(self.get_queryset())
 
         page = self.paginate_queryset(queryset)

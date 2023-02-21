@@ -173,6 +173,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             if org_membership.level < OrganizationMembership.Level.ADMIN:
                 raise exceptions.PermissionDenied(OrganizationAdminAnyPermissions.message)
 
+        if "session_recording_version" in attrs:
+            if attrs["session_recording_version"] not in ["v1", "v2"]:
+                raise exceptions.ValidationError("Invalid session recording version")
+
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
