@@ -2,7 +2,7 @@ from typing import Literal, Optional
 
 from django.test.testcases import TestCase
 
-from posthog.hogql.context import HogQLContext, HogQLFieldAccess
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.hogql import translate_hogql
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
@@ -59,67 +59,11 @@ class TestPrinter(TestCase):
             self._expr("properties.$bla", context),
             "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
         )
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(
-                    ["properties", "$bla"],
-                    "event.properties",
-                    "$bla",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                )
-            ],
-        )
 
         context = HogQLContext()
         self.assertEqual(
             self._expr("person.properties.bla", context),
             "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
-        )
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(
-                    ["person", "properties", "bla"],
-                    "person.properties",
-                    "bla",
-                    "replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                )
-            ],
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("uuid", context), "uuid")
-        self.assertEqual(context.field_access_logs, [HogQLFieldAccess(["uuid"], "event", "uuid", "uuid")])
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("event", context), "event")
-        self.assertEqual(context.field_access_logs, [HogQLFieldAccess(["event"], "event", "event", "event")])
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("timestamp", context), "timestamp")
-        self.assertEqual(
-            context.field_access_logs, [HogQLFieldAccess(["timestamp"], "event", "timestamp", "timestamp")]
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("distinct_id", context), "distinct_id")
-        self.assertEqual(
-            context.field_access_logs, [HogQLFieldAccess(["distinct_id"], "event", "distinct_id", "distinct_id")]
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("person.id", context), "events.person_id")
-        self.assertEqual(
-            context.field_access_logs,
-            [HogQLFieldAccess(["person", "id"], "person", "id", "events.person_id")],
-        )
-
-        context = HogQLContext()
-        self.assertEqual(self._expr("person.created_at", context), "events.person_created_at")
-        self.assertEqual(
-            context.field_access_logs,
-            [HogQLFieldAccess(["person", "created_at"], "person", "created_at", "events.person_created_at")],
         )
 
     def test_hogql_properties(self):
@@ -230,66 +174,18 @@ class TestPrinter(TestCase):
     def test_returned_properties(self):
         context = HogQLContext()
         self._expr("avg(properties.prop) + avg(uuid) + event", context)
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(
-                    ["properties", "prop"],
-                    "event.properties",
-                    "prop",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                ),
-                HogQLFieldAccess(["uuid"], "event", "uuid", "uuid"),
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-            ],
-        )
         self.assertEqual(context.found_aggregation, True)
 
         context = HogQLContext()
         self._expr("coalesce(event, properties.event)", context)
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(
-                    ["properties", "event"],
-                    "event.properties",
-                    "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                ),
-            ],
-        )
         self.assertEqual(context.found_aggregation, False)
 
         context = HogQLContext()
         self._expr("count() + sum(timestamp)", context)
-        self.assertEqual(
-            context.field_access_logs, [HogQLFieldAccess(["timestamp"], "event", "timestamp", "timestamp")]
-        )
         self.assertEqual(context.found_aggregation, True)
 
         context = HogQLContext()
         self._expr("event + avg(event + properties.event) + avg(event + properties.event)", context)
-        self.assertEqual(
-            context.field_access_logs,
-            [
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(
-                    ["properties", "event"],
-                    "event.properties",
-                    "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_0)s), '^\"|\"$', '')",
-                ),
-                HogQLFieldAccess(["event"], "event", "event", "event"),
-                HogQLFieldAccess(
-                    ["properties", "event"],
-                    "event.properties",
-                    "event",
-                    "replaceRegexpAll(JSONExtractRaw(properties, %(hogql_val_1)s), '^\"|\"$', '')",
-                ),
-            ],
-        )
         self.assertEqual(context.found_aggregation, True)
 
     def test_logic(self):

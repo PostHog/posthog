@@ -16,8 +16,6 @@ class HogQLContext:
 
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: Dict = field(default_factory=dict)
-    # List of field and property accesses found in the expression
-    field_access_logs: List[HogQLFieldAccess] = field(default_factory=list)
     # Did the last calls to translate_hogql since setting these to False contain any of the following
     found_aggregation: bool = False
     # Do we need to join the persons table or not

@@ -4,8 +4,8 @@ from typing import List, Literal, Optional, Union, cast
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.context import HogQLContext, HogQLFieldAccess
-from posthog.hogql.database import Table, database
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database import Table
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
@@ -380,26 +380,6 @@ class _Printer(Visitor):
             if isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
-            # TODO: refactor this legacy logging
-            if symbol.name != "properties":
-                real_table = symbol.table
-                while isinstance(real_table, ast.TableAliasSymbol):
-                    real_table = real_table.table
-
-                access_table = (
-                    cast(Literal["event"], "event")
-                    if real_table.table == database.events
-                    else cast(Literal["person"], "person")
-                )
-                self.context.field_access_logs.append(
-                    HogQLFieldAccess(
-                        ["person", symbol.name] if access_table == "person" else [symbol.name],
-                        access_table,
-                        symbol.name,
-                        field_sql,
-                    )
-                )
-
         elif isinstance(symbol.table, ast.SelectQuerySymbol) or isinstance(symbol.table, ast.SelectQueryAliasSymbol):
             field_sql = self._print_identifier(symbol.name)
             if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
@@ -436,29 +416,6 @@ class _Printer(Visitor):
         else:
             field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
-
-        if not field:
-            pass
-        elif field.name == "properties":
-            # TODO: refactor this legacy logging
-            self.context.field_access_logs.append(
-                HogQLFieldAccess(
-                    ["properties", symbol.name],
-                    "event.properties",
-                    symbol.name,
-                    property_sql,
-                )
-            )
-        elif field.name == "person_properties":
-            # TODO: refactor this legacy logging
-            self.context.field_access_logs.append(
-                HogQLFieldAccess(
-                    ["person", "properties", symbol.name],
-                    "person.properties",
-                    symbol.name,
-                    property_sql,
-                )
-            )
 
         return property_sql
 
