@@ -121,7 +121,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                             size="small"
                             onClick={() => {
                                 setShouldLocalEval(false)
-                                setImplementationStep(ImplementationSteps.Bootstrapping)
+                                setImplementationStep(ImplementationSteps.Summary)
                             }}
                         >
                             I'll skip this
@@ -131,7 +131,7 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                             size="small"
                             onClick={() => {
                                 setShouldLocalEval(true)
-                                setImplementationStep(ImplementationSteps.Bootstrapping)
+                                setImplementationStep(ImplementationSteps.Summary)
                             }}
                         >
                             Add this to my summary
@@ -152,9 +152,9 @@ export function FeatureFlagImplementationHelp(): JSX.Element {
                     <div>
                         <h3>Bootstrapping</h3>
                         <div>
-                            If you need to have your feature flags immediately available, we recommend{' '}
-                            <b>bootstrapping</b>. There's a delay between initial loading of the library and feature
-                            flags becoming available to use.
+                            For client side libraries, we recommend <b>bootstrapping</b> if you need to have your
+                            feature flags immediately available since there's a delay between initial loading of the
+                            library and feature flags becoming available to use.
                         </div>
                     </div>
                     <div className="flex justify-between mt-4">
