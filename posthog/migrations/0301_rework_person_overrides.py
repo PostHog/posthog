@@ -57,23 +57,4 @@ class Migration(migrations.Migration):
                 name="old_person_id_different_from_override_person_id",
             ),
         ),
-        # migrations.RemoveConstraint(
-        #     model_name="personoverride",
-        #     name="old_person_id_is_not_override_person_id",
-        # ),
-        # migrations.AddConstraint(
-        #     model_name="person",
-        #     constraint=models.UniqueConstraint(fields=("uuid",), name="unique uuid for person"),
-        # ),
-        # migrations.RemoveField(
-        #     model_name="personoverride",
-        #     name="override_person_id",
-        # ),
-        # migrations.AddField(
-        #     model_name="personoverride",
-        #     name="override_person",
-        #     field=models.ForeignKey(
-        #         null=True, on_delete=django.db.models.deletion.DO_NOTHING, to="posthog.person", to_field="uuid"
-        #     ),
-        # ),
     ]
