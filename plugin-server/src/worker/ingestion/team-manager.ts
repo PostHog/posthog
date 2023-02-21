@@ -53,16 +53,16 @@ export class TeamManager {
          * Validates and resolves the api token from an incoming event.
          *
          * Caching is added to reduce the load on Postgres, not to be resilient
-         * to failures. If PG is unavailable, this function will trow and the
-         * lookup must be retried later.
+         * to failures. If PG is unavailable and the cache expired, this function
+         * will trow and the lookup must be retried later.
          *
          * Returns null if the token is invalid.
          */
 
         const cachedTeamId = this.tokenToTeamIdCache.get(token)
 
-        // Negative lookups (`null` instead of `undefined`) return fast,
-        // but will be retried after that cache key expires.
+        // LRU.get returns `undefined` if the key is not found, so `null`s will
+        // only be returned when caching a negative lookup (invalid token).
         // A new token can potentially get caught here for up to 5 minutes
         // if a bad request in the past used that token.
         if (cachedTeamId === null) {
