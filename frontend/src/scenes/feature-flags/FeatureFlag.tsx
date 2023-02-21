@@ -283,17 +283,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
-                                <LemonButton
-                                    type="secondary"
-                                    sideIcon={<IconArrowDropDown />}
-                                    className="mb-2"
-                                    onClick={() => setClickedImplementationHelp(!clickedImplementationHelp)}
-                                >
-                                    Which feature flag setup is best for me?
-                                </LemonButton>
-                                {clickedImplementationHelp && (
-                                    <div className="border rounded p-4 mb-4">
-                                        <FeatureFlagImplementationHelp />
+                                {featureFlags[FEATURE_FLAGS.FF_IMPLEMENTATION_HELP] && (
+                                    <div>
+                                        <LemonButton
+                                            type="secondary"
+                                            sideIcon={<IconArrowDropDown />}
+                                            className="mb-2"
+                                            onClick={() => setClickedImplementationHelp(!clickedImplementationHelp)}
+                                        >
+                                            Which feature flag setup is best for me?
+                                        </LemonButton>
+                                        {clickedImplementationHelp && (
+                                            <div className="border rounded p-4 mb-4">
+                                                <FeatureFlagImplementationHelp />
+                                            </div>
+                                        )}
                                     </div>
                                 )}
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />

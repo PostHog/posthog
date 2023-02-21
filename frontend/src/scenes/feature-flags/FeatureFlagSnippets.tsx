@@ -128,7 +128,7 @@ import { useFeatureFlag } from 'posthog-react-native'
 
 const MyComponent = () => {
     const showFlaggedFeature = useFeatureFlag(${flagKey})
-            
+
     if (showFlaggedFeature === undefined) {
         // the response is undefined if the flags are being loaded
         return null
