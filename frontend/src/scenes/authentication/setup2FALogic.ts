@@ -12,7 +12,7 @@ export interface TwoFactorForm {
     token: number | null
 }
 
-interface Setup2FALogicProps {
+export interface Setup2FALogicProps {
     onSuccess?: () => void
 }
 
