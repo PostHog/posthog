@@ -435,16 +435,8 @@ export function addHistoricalEventsExportCapabilityV2(
             )
         } catch (error) {
             Sentry.captureException(error)
-            await processError(hub, pluginConfig, error)
-            await stopExport(
-                activeExportParameters,
-                'Failed fetching events. Stopping export - please try again later.',
-                'fail'
-            )
-            hub.statsd?.increment('historical_export.fetch_fail', {
-                teamId: pluginConfig.team_id.toString(),
-                plugin: pluginConfig.plugin?.name ?? '?',
-            })
+
+            await handleFetchError(error, activeExportParameters, payload)
             return
         }
 
@@ -564,6 +556,66 @@ export function addHistoricalEventsExportCapabilityV2(
                 {
                     error,
                     eventCount,
+                }
+            )
+        }
+    }
+
+    async function handleFetchError(
+        error: Error,
+        params: ExportParams,
+        payload: ExportHistoricalEventsJobPayload
+    ): Promise<void> {
+        if (error instanceof RetryError && payload.retriesPerformedSoFar + 1 < hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT) {
+            const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
+
+            createLog(
+                `Failed to fetch events from ${dateRange(
+                    payload.timestampCursor,
+                    payload.timestampCursor + payload.fetchTimeInterval
+                )}. Retrying in ${nextRetrySeconds}s`,
+                {
+                    type: PluginLogEntryType.Warn,
+                }
+            )
+            hub.statsd?.increment('historical_export.fetch_fail', {
+                teamId: pluginConfig.team_id.toString(),
+                plugin: pluginConfig.plugin?.name ?? '?',
+            })
+
+            await meta.jobs
+                .exportHistoricalEventsV2({
+                    ...payload,
+                    retriesPerformedSoFar: payload.retriesPerformedSoFar + 1,
+                } as ExportHistoricalEventsJobPayload)
+                .runIn(nextRetrySeconds, 'seconds')
+        } else {
+            if (error instanceof RetryError) {
+                const message = `Fetching chunk ${dateRange(payload.startTime, payload.endTime)} failed after ${
+                    hub.HISTORICAL_EXPORTS_MAX_RETRY_COUNT
+                } retries. Stopping export.`
+                await stopExport(params, message, 'fail')
+                await processError(hub, pluginConfig, message)
+            } else {
+                await processError(hub, pluginConfig, error)
+                await stopExport(params, 'Failed fetching events. Stopping export - please try again later.', 'fail')
+            }
+            hub.statsd?.increment('historical_export.chunks_error', {
+                teamId: pluginConfig.team_id.toString(),
+                plugin: pluginConfig.plugin?.name ?? '?',
+                retriable: 'false',
+            })
+            await hub.appMetrics.queueError(
+                {
+                    teamId: pluginConfig.team_id,
+                    pluginConfigId: pluginConfig.id,
+                    jobId: payload.exportId.toString(),
+                    category: 'exportEvents',
+                    failures: 1,
+                },
+                {
+                    error,
+                    eventCount: 1,
                 }
             )
         }

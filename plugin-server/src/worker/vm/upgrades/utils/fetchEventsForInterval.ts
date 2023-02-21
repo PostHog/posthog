@@ -1,8 +1,10 @@
+import { RetryError } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
 import { Element, RawClickHouseEvent, TimestampFormat } from '../../../../types'
 import { DB } from '../../../../utils/db/db'
 import { parseRawClickHouseEvent } from '../../../../utils/event'
+import { status } from '../../../../utils/status'
 import { castTimestampToClickhouseFormat } from '../../../../utils/utils'
 import { HistoricalExportEvent } from './utils'
 
@@ -48,7 +50,14 @@ export const fetchEventsForInterval = async (
     LIMIT ${eventsPerRun}
     OFFSET ${offset}`
 
-    const clickhouseFetchEventsResult = await db.clickhouseQuery<RawClickHouseEvent>(fetchEventsQuery)
+    let clickhouseFetchEventsResult: { data: RawClickHouseEvent[] }
+
+    try {
+        clickhouseFetchEventsResult = await db.clickhouseQuery<RawClickHouseEvent>(fetchEventsQuery)
+    } catch (error) {
+        status.error('🔥', 'clickhouse_export_fetch_failure', { error })
+        throw new RetryError("Couldn't fetch events from ClickHouse")
+    }
 
     return clickhouseFetchEventsResult.data.map(convertClickhouseEventToPluginEvent)
 }
