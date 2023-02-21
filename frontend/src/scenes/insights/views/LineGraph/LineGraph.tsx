@@ -16,6 +16,7 @@ import {
     TooltipOptions,
     ScriptableLineSegmentContext,
 } from 'chart.js'
+import ChartDataLabels from 'chartjs-plugin-datalabels'
 import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
 import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
@@ -362,6 +363,23 @@ export function LineGraph_({
                 },
             },
             plugins: {
+                datalabels: {
+                    color: 'white',
+                    anchor: (context) => {
+                        const datum = context.dataset.data[context.dataIndex]
+                        return typeof datum !== 'number' ? 'end' : datum > 0 ? 'end' : 'start'
+                    },
+                    backgroundColor: (context) => {
+                        return (context.dataset.borderColor as string) || 'black'
+                    },
+                    display: (context) => {
+                        const datum = context.dataset.data[context.dataIndex]
+                        return filters?.show_values_on_series === true && typeof datum === 'number' && datum !== 0
+                    },
+                    formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                    borderWidth: 2,
+                    borderColor: 'white',
+                },
                 legend: {
                     display: false,
                 },
@@ -576,6 +594,7 @@ export function LineGraph_({
             type: (isBar ? GraphType.Bar : type) as ChartType,
             data: { labels, datasets },
             options,
+            plugins: [ChartDataLabels],
         })
         setMyLineChart(newChart)
         return () => newChart.destroy()

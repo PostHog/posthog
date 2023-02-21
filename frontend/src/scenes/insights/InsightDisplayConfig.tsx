@@ -4,7 +4,7 @@ import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode } from '~/types'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, TrendsFilterType } from '~/types'
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
@@ -26,6 +26,7 @@ import {
     isAreaChartDisplay,
     isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
 
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -77,8 +78,35 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
     return (!filters.actions && !filters.events) || (filters.actions?.length === 0 && filters.events?.length === 0)
 }
 
+const chartsThatDoNotSupportValuesOnSeries = [
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+    ChartDisplayType.ActionsTable,
+]
+const showValueOnSeriesFilter = (filters: FilterType): boolean => {
+    if (isTrendsFilter(filters) || isStickinessFilter(filters)) {
+        return !chartsThatDoNotSupportValuesOnSeries.includes(filters.display || ChartDisplayType.ActionsLineGraph)
+    } else if (isLifecycleFilter(filters)) {
+        return true
+    } else {
+        return false
+    }
+}
+
 function ConfigFilter(props: PropsWithChildren<ReactNode>): JSX.Element {
     return <span className="space-x-2 flex items-center text-sm">{props.children}</span>
+}
+
+function ValueOnSeriesFilter(props: { onChange: (checked: boolean) => void; checked: boolean }): JSX.Element {
+    return (
+        <LemonCheckbox
+            onChange={props.onChange}
+            checked={props.checked}
+            label={<span className="font-normal">Show values on series</span>}
+            bordered
+            size="small"
+        />
+    )
 }
 
 export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayConfigProps): JSX.Element {
@@ -87,7 +115,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
     const { featureFlags } = useValues(featureFlagLogic)
 
     const { insightProps } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
+    const { setFilters, setFiltersMerge } = useActions(insightLogic)
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
@@ -130,6 +158,24 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                 {showCompareFilter(filters) && (
                     <ConfigFilter>
                         <CompareFilter />
+                    </ConfigFilter>
+                )}
+
+                {showValueOnSeriesFilter(filters) && (
+                    <ConfigFilter>
+                        <ValueOnSeriesFilter
+                            checked={
+                                !!(
+                                    (isTrendsFilter(filters) ||
+                                        isStickinessFilter(filters) ||
+                                        isLifecycleFilter(filters)) &&
+                                    filters.show_values_on_series
+                                )
+                            }
+                            onChange={(checked) => {
+                                setFiltersMerge({ show_values_on_series: checked } as TrendsFilterType)
+                            }}
+                        />
                     </ConfigFilter>
                 )}
             </div>
