@@ -33,8 +33,9 @@ posthog.onFeatureFlags(function() {
 })
 
 // Otherwise, you can just do
-    if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
-        // do something
+
+if (posthog.isFeatureEnabled('${flagKey ?? ''}')) {
+    // do something
 }`}
             </CodeSnippet>
         </>
