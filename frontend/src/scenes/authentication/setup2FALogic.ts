@@ -1,4 +1,4 @@
-import { kea, path, connect, afterMount, listeners, actions, reducers } from 'kea'
+import { kea, path, connect, afterMount, listeners, actions, reducers, props } from 'kea'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
@@ -12,14 +12,20 @@ export interface TwoFactorForm {
     token: number | null
 }
 
+interface Setup2FALogicProps {
+    onSuccess?: () => void
+}
+
 export const setup2FALogic = kea<setup2FALogicType>([
     path(['scenes', 'authentication', 'loginLogic']),
+    props({} as Setup2FALogicProps),
     connect({
         values: [preflightLogic, ['preflight'], featureFlagLogic, ['featureFlags']],
     }),
     actions({
         setGeneralError: (code: string, detail: string) => ({ code, detail }),
         clearGeneralError: true,
+        setup: true,
     }),
     reducers({
         // This is separate from the login form, so that the form can be submitted even if a general error is present
@@ -47,7 +53,7 @@ export const setup2FALogic = kea<setup2FALogicType>([
         token: {
             defaults: { token: null } as TwoFactorForm,
             errors: ({ token }) => ({
-                token: !token ? 'Please enter a token to continued' : undefined,
+                token: !token ? 'Please enter a token to continue' : undefined,
             }),
             submit: async ({ token }, breakpoint) => {
                 await breakpoint()
