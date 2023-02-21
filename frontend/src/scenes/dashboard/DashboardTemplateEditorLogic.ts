@@ -8,6 +8,8 @@ import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplat
 
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 
+import type { dashboardTemplateEditorLogicType } from './DashboardTemplateEditorLogicType'
+
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'NewDashboardTemplateLogic']),
     connect(dashboardTemplatesLogic),
