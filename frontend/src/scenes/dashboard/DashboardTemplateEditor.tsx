@@ -147,7 +147,9 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                         }}
                         disabledReason={
                             validationErrors.length
-                                ? `There are ${validationErrors.length} errors to resolve`
+                                ? `There are ${validationErrors.length} errors to resolve: ${validationErrors.map(
+                                      (e) => ' ' + e
+                                  )}`
                                 : undefined
                         }
                     >
@@ -161,7 +163,9 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                         }}
                         disabledReason={
                             validationErrors.length
-                                ? `There are ${validationErrors.length} errors to resolve`
+                                ? `There are ${validationErrors.length} errors to resolve:${validationErrors.map(
+                                      (e) => ' ' + e
+                                  )}`
                                 : undefined
                         }
                     >
