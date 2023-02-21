@@ -216,7 +216,8 @@ def get_org_owner_or_first_user(organization_id: str) -> Optional[User]:
     return user
 
 
-def send_report_to_billing_service(organization: Organization, report: Dict) -> None:
+@app.task(ignore_result=True, retries=3)
+def send_report_to_billing_service(organization: Organization, report: Dict[str, Any]) -> None:
     if not settings.EE_AVAILABLE:
         return
 
@@ -225,23 +226,30 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
     from ee.models.license import License
     from ee.settings import BILLING_SERVICE_URL
 
-    license = License.objects.first_valid()
-    if not license or not license.is_v2_license:
-        return
+    try:
+        license = License.objects.first_valid()
+        if not license or not license.is_v2_license:
+            return
 
-    token = build_billing_token(license, organization)
+        token = build_billing_token(license, organization)
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
 
-    headers = {}
-    if token:
-        headers = {"Authorization": f"Bearer {token}"}
-    response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
-    if response.status_code != 200:
-        raise Exception(
-            f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
-        )
+        response = requests.post(f"{BILLING_SERVICE_URL}/api/usage", json=report, headers=headers)
+        if response.status_code != 200:
+            raise Exception(
+                f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
+            )
 
-    response_data: BillingStatus = response.json()
-    BillingManager(license).update_org_details(organization, response_data)
+        logger.info(f"UsageReport sent to Billing for organization: {organization.id}")
+
+        response_data: BillingStatus = response.json()
+        BillingManager(license).update_org_details(organization, response_data)
+
+    except Exception as err:
+        logger.error(f"UsageReport failed sending to Billing for organization: {organization.id}: {err}")
+        capture_exception(err)
 
 
 def capture_event(
@@ -371,6 +379,20 @@ def find_count_for_team_in_rows(team_id: int, rows: list) -> int:
     return 0
 
 
+@app.task(ignore_result=True, retries=0)
+def capture_report(capture_event_name: str, org_id: str, full_report_dict: dict, at_date=Optional[datetime]):
+    pha_client = Client("sTMFPsFhdP1Ssg")
+    try:
+        capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
+        logger.info(f"UsageReport sent to PostHog for organization {org_id}")
+    except Exception as err:
+        logger.error(
+            f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
+        )
+        capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
+    pha_client.flush()
+
+
 @app.task(ignore_result=True, retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
@@ -379,7 +401,6 @@ def send_all_org_usage_reports(
     skip_capture_event: bool = False,
     only_organization_id: Optional[str] = None,
 ) -> List[dict]:  # Dict[str, OrgReport]:
-    pha_client = Client("sTMFPsFhdP1Ssg")
     capture_event_name = capture_event_name or "organization usage report"
 
     at_date = dateutil.parser.parse(at) if at else None
@@ -513,27 +534,9 @@ def send_all_org_usage_reports(
             continue
 
         # First capture the events to PostHog
-        try:
-            if not skip_capture_event:
-                capture_event(pha_client, capture_event_name, org_id, full_report_dict, timestamp=at_date)
-            logger.info(f"UsageReport sent to PostHog for organization {org_id}")
-        except Exception as err:
-            logger.error(
-                f"UsageReport sent to PostHog for organization {org_id} failed: {str(err)}",
-            )
-            if not skip_capture_event:
-                capture_exception(err)
-            capture_event(pha_client, f"{capture_event_name} failure", org_id, {"error": str(err)})
+        if not skip_capture_event:
+            capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
 
         # Then capture the events to Billing
-        try:
-            send_report_to_billing_service(orgs_by_id[org_id], full_report_dict)
-            logger.info(f"UsageReport sent to Billing for organization {org_id}")
-        except Exception as err:
-            logger.error(f"UsageReport failed sending to Billing for organization {org_id}: {err}")
-            capture_exception(err)
-            capture_event(pha_client, f"{capture_event_name} to billing service failure", org_id, {"err": str(err)})
-
-    pha_client.flush()
-
+        send_report_to_billing_service.delay(orgs_by_id[org_id], full_report_dict)
     return all_reports
