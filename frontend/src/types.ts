@@ -1394,12 +1394,6 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export const ChartDisplayTypesThatDoNotShowValuesOnSeries = [
-    ChartDisplayType.ActionsTable,
-    ChartDisplayType.WorldMap,
-    ChartDisplayType.BoldNumber,
-]
-
 export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number

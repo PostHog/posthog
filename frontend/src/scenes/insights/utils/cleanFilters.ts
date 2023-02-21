@@ -1,7 +1,6 @@
 import {
     AnyFilterType,
     ChartDisplayType,
-    ChartDisplayTypesThatDoNotShowValuesOnSeries,
     Entity,
     EntityTypes,
     FilterType,
@@ -17,7 +16,13 @@ import {
 import { deepCleanFunnelExclusionEvents, getClampedStepRangeFilter, isStepsUndefined } from 'scenes/funnels/funnelUtils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
 import { defaultFilterTestAccounts } from 'scenes/insights/insightLogic'
-import { BIN_COUNT_AUTO, FEATURE_FLAGS, RETENTION_FIRST_TIME, ShownAsValue } from 'lib/constants'
+import {
+    BIN_COUNT_AUTO,
+    NON_VALUES_ON_SERIES_DISPLAY_TYPES,
+    FEATURE_FLAGS,
+    RETENTION_FIRST_TIME,
+    ShownAsValue,
+} from 'lib/constants'
 import { autocorrectInterval } from 'lib/utils'
 import { DEFAULT_STEP_LIMIT } from 'scenes/paths/pathsLogic'
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
@@ -284,7 +289,7 @@ export function cleanFilters(
         if (
             'show_values_on_series' in cleanSearchParams &&
             !!cleanSearchParams.display &&
-            ChartDisplayTypesThatDoNotShowValuesOnSeries.includes(cleanSearchParams.display)
+            NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(cleanSearchParams.display)
         ) {
             delete cleanSearchParams.show_values_on_series
         }

@@ -1,7 +1,6 @@
 import { cleanFilters } from './cleanFilters'
 import {
     ChartDisplayType,
-    ChartDisplayTypesThatDoNotShowValuesOnSeries,
     FilterType,
     FunnelsFilterType,
     FunnelStepReference,
@@ -9,7 +8,7 @@ import {
     InsightType,
     TrendsFilterType,
 } from '~/types'
-import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
     it('removes shownas if moving from stickiness to trends', () => {
@@ -381,7 +380,7 @@ describe('cleanFilters', () => {
                 expect(cleanedFilters).toHaveProperty('show_values_on_series', true)
             })
         })
-        ChartDisplayTypesThatDoNotShowValuesOnSeries.forEach((display) => {
+        NON_VALUES_ON_SERIES_DISPLAY_TYPES.forEach((display) => {
             it(`removes show values on series for ${display}`, () => {
                 const cleanedFilters = cleanFilters(
                     {

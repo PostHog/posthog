@@ -3,16 +3,8 @@ import { ChartFilter } from 'lib/components/ChartFilter'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { SmoothingFilter } from 'lib/components/SmoothingFilter/SmoothingFilter'
-import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import {
-    ChartDisplayType,
-    ChartDisplayTypesThatDoNotShowValuesOnSeries,
-    FilterType,
-    FunnelVizType,
-    InsightType,
-    ItemMode,
-    TrendsFilterType,
-} from '~/types'
+import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { ChartDisplayType, FilterType, FunnelVizType, InsightType, ItemMode, TrendsFilterType } from '~/types'
 
 import { InsightDateFilter } from './filters/InsightDateFilter'
 import { FunnelDisplayLayoutPicker } from './views/Funnels/FunnelDisplayLayoutPicker'
@@ -88,9 +80,7 @@ const isFunnelEmpty = (filters: FilterType): boolean => {
 
 const showValueOnSeriesFilter = (filters: FilterType): boolean => {
     if (isTrendsFilter(filters) || isStickinessFilter(filters)) {
-        return !ChartDisplayTypesThatDoNotShowValuesOnSeries.includes(
-            filters.display || ChartDisplayType.ActionsLineGraph
-        )
+        return !NON_VALUES_ON_SERIES_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)
     } else if (isLifecycleFilter(filters)) {
         return true
     } else {
