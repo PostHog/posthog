@@ -51,6 +51,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
         lockIfNecessary: true,
+        registerInstrumentationProps: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -226,6 +227,7 @@ export const billingV2Logic = kea<billingV2LogicType>([
             } else {
                 actions.lockIfNecessary()
             }
+            actions.registerInstrumentationProps()
         },
 
         lockIfNecessary: () => {

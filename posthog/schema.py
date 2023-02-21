@@ -401,6 +401,7 @@ class StickinessFilter(BaseModel):
     display: Optional[ChartDisplayType] = None
     hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
@@ -428,6 +429,7 @@ class TrendsFilter(BaseModel):
     formula: Optional[Any] = None
     hidden_legend_keys: Optional[Dict[str, Union[bool, Any]]] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
@@ -540,6 +542,7 @@ class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     toggledLifecycles: Optional[List[LifecycleToggle]] = Field(
         None, description="Lifecycles that have been removed from display"
@@ -1004,6 +1007,7 @@ class AnyPartialFilterTypeItem(BaseModel):
     ] = None
     sample_results: Optional[bool] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     smoothing_intervals: Optional[float] = None
 
@@ -1059,6 +1063,7 @@ class AnyPartialFilterTypeItem1(BaseModel):
     ] = None
     sample_results: Optional[bool] = None
     show_legend: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
     stickiness_days: Optional[float] = None
 
@@ -1301,6 +1306,7 @@ class AnyPartialFilterTypeItem5(BaseModel):
         ]
     ] = None
     sample_results: Optional[bool] = None
+    show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
 
 
