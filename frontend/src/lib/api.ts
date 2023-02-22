@@ -318,7 +318,7 @@ class ApiRequest {
     }
 
     public dashboardTemplateSchema(): ApiRequest {
-        return this.dashboardTemplates().addPathComponent('schema')
+        return this.dashboardTemplates().addPathComponent('json_schema')
     }
 
     // # Roles

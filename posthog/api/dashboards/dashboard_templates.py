@@ -151,6 +151,6 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
 
     # TODO: Add caching as this is static
     @action(methods=["GET"], detail=False)
-    def schema(self, request: request.Request, **kwargs) -> response.Response:
+    def json_schema(self, request: request.Request, **kwargs) -> response.Response:
         # Could switch from this being a static file to being dynamically generated from the serializer
         return response.Response(dashboard_template_schema)

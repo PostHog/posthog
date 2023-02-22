@@ -439,7 +439,7 @@ class TestDashboardTemplates(APIBaseTest):
         }
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/dashboard_templates/schema",
+            f"/api/projects/{self.team.pk}/dashboard_templates/json_schema",
         )
         assert response.status_code == status.HTTP_200_OK
 
