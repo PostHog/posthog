@@ -35,6 +35,17 @@ class Symbol(AST):
         return self.get_child(name) is not None
 
 
+class FieldAliasSymbol(Symbol):
+    name: str
+    symbol: Symbol
+
+    def get_child(self, name: str) -> Symbol:
+        return self.symbol.get_child(name)
+
+    def has_child(self, name: str) -> bool:
+        return self.symbol.has_child(name)
+
+
 class TableLikeSymbol(Symbol):
     def resolve_database_table(self) -> Table:
         raise NotImplementedError("TableLikeSymbol.resolve_database_table not overridden")
@@ -77,18 +88,6 @@ class LazyTableSymbol(TableLikeSymbol):
 
     def resolve_database_table(self) -> Table:
         return self.lazy_table.table
-
-
-class FieldAliasSymbol(Symbol):
-    name: str
-
-    symbol: Symbol
-
-    def get_child(self, name: str) -> Symbol:
-        return self.symbol.get_child(name)
-
-    def has_child(self, name: str) -> bool:
-        return self.symbol.has_child(name)
 
 
 class SelectQuerySymbol(Symbol):
