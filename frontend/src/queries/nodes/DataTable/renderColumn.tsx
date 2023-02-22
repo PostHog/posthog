@@ -35,11 +35,9 @@ export function renderColumn(
                     return <ReactJson src={JSON.parse(value)} name={key} collapsed={1} />
                 }
             } catch (e) {}
-
             if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
                 return <TZLabel time={value} showSeconds />
             }
-            return <Property value={value} />
         }
         return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
@@ -106,7 +104,7 @@ export function renderColumn(
             )
         }
         return <Property value={record.properties[propertyKey]} />
-    } else if (key.startsWith('person.properties.') && isEventsQuery(query.source)) {
+    } else if (key.startsWith('person.properties.')) {
         const eventRecord = record as EventType
         const propertyKey = key.substring(18)
         if (setQuery && isEventsQuery(query.source)) {
