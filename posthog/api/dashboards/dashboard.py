@@ -21,8 +21,9 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import _create_from_template_json
+from posthog.helpers.dashboard_templates import _create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
@@ -437,16 +438,14 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
     @action(methods=["POST"], detail=False)
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        # load template from string into json
-        template = request.data["template"]
-
         dashboard = Dashboard.objects.create(team_id=self.team_id)
 
         try:
-            _create_from_template_json(dashboard, template)
+            dashboardTemplate = DashboardTemplate(**request.data["template"])
+            _create_from_template(dashboard, dashboardTemplate)
         except Exception as e:
             dashboard.delete()
-            if type(e) == KeyError:
+            if type(e) == KeyError or type(e) == TypeError:
                 return Response({"detail": f"Invalid template, missing key {e.args[0]}"}, status=400)
             else:
                 raise e
