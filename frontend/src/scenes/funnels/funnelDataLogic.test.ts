@@ -1,4 +1,4 @@
-import { expectLogic } from 'kea-test-utils'
+import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -11,6 +11,7 @@ import {
     funnelResult,
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
+    funnelResultTimeToConvert,
 } from './__mocks__/funnelDataLogicMocks'
 
 describe('funnelDataLogic', () => {
@@ -244,6 +245,92 @@ describe('funnelDataLogic', () => {
             })
         })
 
-        describe('steps', () => {})
+        describe('steps', () => {
+            it('with time-to-convert funnel', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvert.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    steps: [],
+                })
+            })
+
+            it('for standard funnel', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    steps: funnelResult.result,
+                })
+            })
+
+            it('with breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    steps: expect.arrayContaining([
+                        expect.objectContaining({
+                            count: 201,
+                            nested_breakdown: expect.arrayContaining([
+                                expect.objectContaining({ breakdown: ['Chrome'], count: 136 }),
+                                expect.objectContaining({ breakdown: ['Firefox'], count: 53 }),
+                                expect.objectContaining({ breakdown: ['Safari'], count: 12 }),
+                            ]),
+                        }),
+                    ]),
+                })
+            })
+
+            it('with multi breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithMultiBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    steps: expect.arrayContaining([
+                        expect.objectContaining({
+                            count: 69,
+                            nested_breakdown: expect.arrayContaining([
+                                expect.objectContaining({ breakdown: ['Chrome', 'Mac OS X'], count: 49 }),
+                                expect.objectContaining({ breakdown: ['Chrome', 'Linux'], count: 15 }),
+                                expect.objectContaining({ breakdown: ['Internet Explorer', 'Windows'], count: 5 }),
+                            ]),
+                        }),
+                    ]),
+                })
+            })
+        })
     })
 })

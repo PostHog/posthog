@@ -20,7 +20,7 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
-import { isBreakdownFunnelResults } from './funnelUtils'
+import { aggregateBreakdownResult, isBreakdownFunnelResults } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -32,7 +32,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter'],
+            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown'],
             groupsModel,
             ['aggregationLabel'],
             insightLogic(props),
@@ -114,19 +114,19 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             },
         ],
         steps: [
-            (s) => [s.funnelsFilter, s.results],
-            (funnelsFilter, results: FunnelResultType): FunnelStepWithNestedBreakdown[] => {
-                const stepResults =
-                    funnelsFilter?.funnel_viz_type !== FunnelVizType.TimeToConvert
-                        ? (results as FunnelStep[] | FunnelStep[][])
-                        : []
-
-                if (!Array.isArray(stepResults)) {
+            (s) => [s.breakdown, s.results, s.isTimeToConvertFunnel],
+            (breakdown, results, isTimeToConvertFunnel): FunnelStepWithNestedBreakdown[] => {
+                if (!isTimeToConvertFunnel) {
+                    if (isBreakdownFunnelResults(results)) {
+                        const breakdownProperty = breakdown?.breakdowns
+                            ? breakdown?.breakdowns.map((b) => b.property).join('::')
+                            : breakdown?.breakdown ?? undefined
+                        return aggregateBreakdownResult(results, breakdownProperty).sort((a, b) => a.order - b.order)
+                    }
+                    return (results as FunnelStep[]).sort((a, b) => a.order - b.order)
+                } else {
                     return []
                 }
-
-                // TODO: Handle breakdowns
-                return ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
         ],
 

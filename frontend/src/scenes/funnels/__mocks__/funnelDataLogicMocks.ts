@@ -268,3 +268,23 @@ export const funnelResultWithMultiBreakdown: FunnelResult = {
     last_refresh: '2023-02-22T15:57:24.684263Z',
     is_cached: true,
 }
+
+// 1. Add step "Pageview"
+// 2. Select graph type "Time to convert"
+export const funnelResultTimeToConvert: FunnelResult = {
+    result: {
+        bins: [
+            [4.0, 74],
+            [73591.0, 24],
+            [147178.0, 24],
+            [220765.0, 10],
+            [294352.0, 2],
+            [367939.0, 1],
+            [441526.0, 0],
+        ],
+        average_conversion_time: 86456.76,
+    },
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T17:32:24.245364Z',
+    is_cached: false,
+}
