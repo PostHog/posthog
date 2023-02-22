@@ -181,7 +181,7 @@ class Resolver(TraversingVisitor):
         while True:
             if isinstance(loop_symbol, FieldTraverserSymbol):
                 chain_to_parse = loop_symbol.chain + chain_to_parse
-                loop_symbol = loop_symbol.symbol
+                loop_symbol = loop_symbol.table
                 continue
             if len(chain_to_parse) == 0:
                 break

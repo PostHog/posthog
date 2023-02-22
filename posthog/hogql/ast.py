@@ -100,7 +100,7 @@ def database_field_to_symbol(
     if isinstance(field, LazyTable):
         return LazyTableSymbol(table=table_symbol, field=name, lazy_table=field)
     if isinstance(field, FieldTraverser):
-        return FieldTraverserSymbol(chain=field.chain, symbol=table_symbol)
+        return FieldTraverserSymbol(chain=field.chain, table=table_symbol)
     return FieldSymbol(name=name, table=table_symbol)
 
 
@@ -171,7 +171,7 @@ class AsteriskSymbol(Symbol):
 
 class FieldTraverserSymbol(Symbol):
     chain: List[str]
-    symbol: Symbol
+    table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 
 class FieldSymbol(Symbol):
@@ -198,15 +198,8 @@ class FieldSymbol(Symbol):
         database_field = self.resolve_database_field()
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
-
-        if isinstance(database_field, LazyTable):
-            return FieldSymbol(
-                name=name, table=LazyTableSymbol(table=self.table, field=name, lazy_table=database_field)
-            )
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertySymbol(name=name, parent=self)
-        if isinstance(database_field, FieldTraverser):
-            return FieldTraverserSymbol(chain=database_field.chain, symbol=self)
         raise ValueError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
