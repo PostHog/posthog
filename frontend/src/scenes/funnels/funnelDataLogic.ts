@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 import {
     FilterType,
-    FunnelAPIResponse,
+    FunnelResultType,
     FunnelVizType,
     FunnelStep,
     FunnelStepRangeEntityFilter,
@@ -86,7 +86,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
 
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelAPIResponse => {
+            ({ filters, result }): FunnelResultType => {
                 if (filters?.insight === InsightType.FUNNELS) {
                     if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
@@ -108,7 +108,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
         ],
         steps: [
             (s) => [s.funnelsFilter, s.results],
-            (funnelsFilter, results: FunnelAPIResponse): FunnelStepWithNestedBreakdown[] => {
+            (funnelsFilter, results: FunnelResultType): FunnelStepWithNestedBreakdown[] => {
                 const stepResults =
                     funnelsFilter?.funnel_viz_type !== FunnelVizType.TimeToConvert
                         ? (results as FunnelStep[] | FunnelStep[][])

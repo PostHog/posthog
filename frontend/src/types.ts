@@ -1759,14 +1759,14 @@ export interface FunnelsTimeConversionBins {
     average_conversion_time: number
 }
 
-export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
+export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
+export interface FunnelResult<ResultType = FunnelResultType> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
     timezone: string
 }
-
-export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]

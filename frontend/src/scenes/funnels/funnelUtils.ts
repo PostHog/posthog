@@ -4,7 +4,7 @@ import {
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
-    FunnelAPIResponse,
+    FunnelResultType,
     FunnelStepReference,
     FunnelConversionWindow,
     FunnelsFilterType,
@@ -126,7 +126,7 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelResultType): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
