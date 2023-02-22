@@ -80,7 +80,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     const insightScene = (
         <div className={'insights-page'}>
-            <InsightPageHeader insightId={insightId} />
+            <InsightPageHeader insightLogicProps={insightProps} />
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 

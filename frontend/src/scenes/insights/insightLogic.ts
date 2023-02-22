@@ -113,7 +113,6 @@ export const insightLogic = kea<insightLogicType>([
     }),
 
     actions({
-        setActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -624,7 +623,6 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level == undefined ||
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
-        activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
             (insight, savedInsight, filters): boolean =>
@@ -909,14 +907,14 @@ export const insightLogic = kea<insightLogicType>([
             actions.markInsightTimedOut(null)
             actions.markInsightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
-            const view = values.activeView
+            const view = values.filters.insight
             actions.setTimeout(
                 window.setTimeout(() => {
                     try {
-                        if (values && view == values.activeView) {
+                        if (values && view == values.filters.insight) {
                             actions.markInsightTimedOut(queryId)
                             const tags = {
-                                insight: values.activeView,
+                                insight: values.filters.insight,
                                 scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
                             }
                             posthog.capture('insight timeout message shown', tags)
@@ -951,7 +949,7 @@ export const insightLogic = kea<insightLogicType>([
                     insights_fetched: 0,
                     insights_fetched_cached: 0,
                     api_response_bytes: 0,
-                    insight: values.activeView,
+                    insight: values.filters.insight,
                 })
             } catch (e) {
                 console.warn('Failed cancelling query', e)
@@ -961,7 +959,7 @@ export const insightLogic = kea<insightLogicType>([
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
-            if (view === values.activeView && values.currentTeamId) {
+            if (view === values.filters.insight && values.currentTeamId) {
                 actions.markInsightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
                 actions.markInsightErrored(values.maybeShowErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
@@ -970,7 +968,7 @@ export const insightLogic = kea<insightLogicType>([
 
                 const duration = performance.now() - values.queryStartTimes[queryId]
                 const tags = {
-                    insight: values.activeView,
+                    insight: values.filters.insight,
                     scene: sceneLogic.isMounted() ? sceneLogic.values.scene : scene,
                     success: !exception,
                     ...exception,
@@ -989,16 +987,13 @@ export const insightLogic = kea<insightLogicType>([
                     insights_fetched_cached: response?.cached ? 1 : 0,
                     api_response_bytes: response?.apiResponseBytes,
                     api_url: response?.apiUrl,
-                    insight: values.activeView,
+                    insight: values.filters.insight,
                     is_primary_interaction: true,
                 })
                 if (values.maybeShowErrorMessage) {
                     posthog.capture('insight error message shown', { ...tags, duration })
                 }
             }
-        },
-        setActiveView: ({ type }) => {
-            actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
         },
         loadResult: () => {
             if (values.timeout) {
