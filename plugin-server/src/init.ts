@@ -2,6 +2,7 @@ import * as Pyroscope from '@pyroscope/nodejs'
 
 import { initSentry } from './sentry'
 import { PluginsServerConfig } from './types'
+import { status } from './utils/status'
 
 // Code that runs on app start, in both the main and worker threads
 export function initApp(config: PluginsServerConfig): void {
@@ -11,13 +12,19 @@ export function initApp(config: PluginsServerConfig): void {
 
 export function initPyroscope(config: PluginsServerConfig): void {
     if (config.PYROSCOPE_ADDRESS && config.PYROSCOPE_TOKEN) {
+        let tags: Record<string, any> = {}
+        try {
+            tags = JSON.parse(config.PYROSCOPE_EXTRA_TAGS)
+        } catch (error) {
+            status.warn('💥', 'Invalid PYROSCOPE_EXTRA_TAGS format:', error)
+        } finally {
+            tags.PLUGIN_SERVER_MODE = config.PLUGIN_SERVER_MODE
+        }
         Pyroscope.init({
             serverAddress: config.PYROSCOPE_ADDRESS,
             authToken: config.PYROSCOPE_TOKEN,
             appName: 'plugin-server',
-            tags: {
-                PLUGIN_SERVER_MODE: config.PLUGIN_SERVER_MODE,
-            },
+            tags: tags,
         })
     }
 }
