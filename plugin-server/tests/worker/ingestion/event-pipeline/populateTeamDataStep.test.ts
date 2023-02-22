@@ -92,9 +92,9 @@ describe('populateTeamDataStep()', () => {
         jest.mocked(runner.hub.teamManager.getTeamByToken).mockReturnValue({ ...team, anonymize_ips: true })
         const response = await populateTeamDataStep(runner, { ...pipelineEvent, team_id: 43, token: 'unknown' })
         expect(response.team_id).toEqual(43)
-        expect(await getMetricValues('ingestion_inconsistent_team_resolution_total')).toEqual([
+        expect(await getMetricValues('ingestion_team_resolution_checks_total')).toEqual([
             {
-                labels: {},
+                labels: { check_ok: 'false' },
                 value: 1,
             },
         ])

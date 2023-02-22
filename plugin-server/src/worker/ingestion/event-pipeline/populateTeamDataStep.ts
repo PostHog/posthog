@@ -5,9 +5,10 @@ import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
 import { EventPipelineRunner } from './runner'
 
-export const inconsistentTeamCounter = new Counter({
-    name: 'ingestion_inconsistent_team_resolution_total',
-    help: 'Count of events with an inconsistent team resolution between capture and plugin-server, should be zero.',
+export const teamResolutionChecksCounter = new Counter({
+    name: 'ingestion_team_resolution_checks_total',
+    help: 'Temporary metric to compare the team_id resolved by ingestion and capture. Tagged by result of the check.',
+    labelNames: ['check_ok'],
 })
 
 export const tokenOrTeamPresentCounter = new Counter({
@@ -43,10 +44,7 @@ export async function populateTeamDataStep(
     if (event.team_id) {
         if (event.token) {
             const team = await runner.hub.teamManager.getTeamByToken(event.token)
-            if (team?.id || event.team_id) {
-                inconsistentTeamCounter.inc()
-                runner.hub.statsd?.increment('ingestion_inconsistent_team_resolution_total')
-            }
+            teamResolutionChecksCounter.labels({ check_ok: team?.id === event.team_id ? 'true' : 'false' }).inc()
         }
         return event as PluginEvent
     }
