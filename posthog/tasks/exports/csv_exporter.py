@@ -59,8 +59,7 @@ def add_query_params(url: str, params: Dict[str, str]) -> str:
     for key, value in params.items():
         update_params.append((key, value))
 
-    # mypy bug ? https://github.com/python/typeshed/issues/4234
-    encodedQueryParams = urlencode(update_params, quote_via=quote)  # type: ignore
+    encodedQueryParams = urlencode(update_params, quote_via=quote)
     parsed = parsed._replace(query=encodedQueryParams)
     return urlunparse(parsed)
 
