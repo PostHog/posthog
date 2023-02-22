@@ -1,4 +1,5 @@
 import * as Pyroscope from '@pyroscope/nodejs'
+import { hostname } from 'os'
 
 import { initSentry } from './sentry'
 import { PluginsServerConfig } from './types'
@@ -18,12 +19,12 @@ export function initPyroscope(config: PluginsServerConfig): void {
         } catch (error) {
             status.warn('💥', 'Invalid PYROSCOPE_EXTRA_TAGS format:', error)
         } finally {
-            tags.PLUGIN_SERVER_MODE = config.PLUGIN_SERVER_MODE
+            tags.pod_name = hostname()
         }
         Pyroscope.init({
             serverAddress: config.PYROSCOPE_ADDRESS,
             authToken: config.PYROSCOPE_TOKEN,
-            appName: 'plugin-server',
+            appName: 'plugin-server-' + config.PLUGIN_SERVER_MODE,
             tags: tags,
         })
     }
