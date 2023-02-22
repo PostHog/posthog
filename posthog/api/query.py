@@ -1,6 +1,7 @@
 import json
-from typing import Dict
+from typing import Dict, cast
 
+import posthoganalytics
 from django.http import HttpResponse, JsonResponse
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
@@ -12,8 +13,9 @@ from rest_framework.request import Request
 
 from posthog.api.documentation import extend_schema
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.cloud_utils import is_cloud
 from posthog.hogql.query import execute_hogql_query
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.models.event.query_event_list import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -49,6 +51,8 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 response = run_events_query(query=events_query, team=team)
                 return self._response_to_json_response(response)
             elif query_kind == "HogQLQuery":
+                if not self._is_hogql_enabled():
+                    return JsonResponse({"error": "HogQL is not enabled for this organization"}, status=400)
                 hogql_query = HogQLQuery.parse_obj(query_json)
                 response = execute_hogql_query(query=hogql_query.query, team=team)
                 return self._response_to_json_response(response)
@@ -86,3 +90,22 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         for key in response.__fields__.keys():
             dict[key] = getattr(response, key)
         return JsonResponse(dict)
+
+    def _is_hogql_enabled(self) -> bool:
+        # enabled for all self-hosted
+        if not is_cloud():
+            return True
+
+        # on PostHog Cloud, use the feature flag
+        user: User = cast(User, self.request.user)
+        return posthoganalytics.feature_enabled(
+            "hogql-queries",
+            str(user.distinct_id),
+            person_properties={"email": user.email},
+            groups={"organization": str(self.organization_id)},
+            group_properties={
+                "organization": {"id": str(self.organization_id), "created_at": self.organization.created_at}
+            },
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
