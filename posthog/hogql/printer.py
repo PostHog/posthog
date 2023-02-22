@@ -420,7 +420,10 @@ class _Printer(Visitor):
             and table.name.endswith("__pdi__person")
         ):
             # person properties access in a legacy (non hogql) query
-            materialized_column = self._get_materialized_column("person", symbol.name, "properties")
+            if self.context.using_person_on_events:
+                materialized_column = self._get_materialized_column("events", symbol.name, "person_properties")
+            else:
+                materialized_column = self._get_materialized_column("person", symbol.name, "properties")
             if materialized_column:
                 property_sql = self._print_identifier(materialized_column)
             else:
