@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 from typing import Dict, List
 
 import requests
@@ -15,6 +16,9 @@ from posthog.logging.timing import timed
 from posthog.models.dashboard_templates import DashboardTemplate
 
 logger = structlog.get_logger(__name__)
+
+# load dashboard_template_schema.json
+dashboard_template_schema = json.loads((Path(__file__).parent / "dashboard_template_schema.json").read_text())
 
 
 class OnlyStaffCanEditDashboardTemplate(BasePermission):
@@ -144,3 +148,9 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
             installed_templates[DashboardTemplate.original_template().template_name] = None
 
         return installed_templates
+
+    # TODO: Add caching as this is static
+    @action(methods=["GET"], detail=False)
+    def schema(self, request: request.Request, **kwargs) -> response.Response:
+        # Could switch from this being a static file to being dynamically generated from the serializer
+        return response.Response(dashboard_template_schema)

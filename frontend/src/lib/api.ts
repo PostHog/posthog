@@ -317,6 +317,10 @@ class ApiRequest {
         return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
     }
 
+    public dashboardTemplateSchema(): ApiRequest {
+        return this.dashboardTemplates().addPathComponent('schema')
+    }
+
     // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
@@ -806,6 +810,12 @@ const api = {
                     deleted: true,
                 },
             })
+        },
+        async getSchema(): Promise<Record<string, any>> {
+            return await new ApiRequest().dashboardTemplateSchema().get()
+        },
+        determineSchemaUrl(): string {
+            return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
         },
     },
 

@@ -391,3 +391,47 @@ class TestDashboardTemplates(APIBaseTest):
         type(mock_response).text = mock_text
         mock_response.json.return_value = json_response
         patched_requests.return_value = mock_response
+
+    def test_dashboard_template_schema(self) -> None:
+        dashboard_template_schema = {
+            "type": "object",
+            "required": ["template_name", "dashboard_description", "dashboard_filters", "tiles", "variables"],
+            "properties": {
+                "id": {"description": "The id of the dashboard template", "type": "string"},
+                "template_name": {"description": "The name of the dashboard template", "type": "string"},
+                "team_id": {"description": "The team this dashboard template belongs to", "type": "number"},
+                "created_at": {"description": "When the dashboard template was created", "type": "string"},
+                "image_url": {"description": "The image of the dashboard template", "type": ["string", "null"]},
+                "dashboard_description": {"description": "The description of the dashboard template", "type": "string"},
+                "dashboard_filters": {"description": "The filters of the dashboard template", "type": "object"},
+                "tiles": {"description": "The tiles of the dashboard template", "type": "array", "items": "object"},
+                "variables": {
+                    "description": "The variables of the dashboard template",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["id", "name", "type", "default", "description", "required"],
+                        "properties": {
+                            "id": {"description": "The id of the variable", "type": "string"},
+                            "name": {"description": "The name of the variable", "type": "string"},
+                            "type": {"description": "The type of the variable", "enum": ["event"]},
+                            "default": {"description": "The default value of the variable", "type": "object"},
+                            "description": {"description": "The description of the variable", "type": "string"},
+                            "required": {"description": "Whether the variable is required", "type": "boolean"},
+                        },
+                    },
+                },
+                "tags": {
+                    "description": "The tags of the dashboard template",
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        }
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/dashboard_templates/schema",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        assert response.json() == dashboard_template_schema

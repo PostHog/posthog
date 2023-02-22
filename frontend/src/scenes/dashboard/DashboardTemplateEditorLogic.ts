@@ -1,6 +1,6 @@
 import { editor } from 'monaco-editor'
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType } from '~/types'
@@ -100,6 +100,16 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                 },
             },
         ],
+        templateSchema: [
+            undefined as Record<string, any> | undefined,
+            {
+                getTemplateSchema: async (): Promise<Record<string, any>> => {
+                    debugger
+                    const response = await api.dashboardTemplates.getSchema()
+                    return response
+                },
+            },
+        ],
     })),
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
@@ -144,4 +154,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             }
         },
     })),
+    afterMount(({ actions }) => {
+        actions.getTemplateSchema()
+    }),
 ])
