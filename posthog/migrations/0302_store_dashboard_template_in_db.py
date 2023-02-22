@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="dashboardtemplate",
             name="deleted",
-            field=models.BooleanField(blank=True, default=False, null=True),
+            field=models.BooleanField(blank=True, null=True),
         ),
         migrations.AddField(
             model_name="dashboardtemplate",
@@ -54,7 +54,7 @@ class Migration(migrations.Migration):
             model_name="dashboardtemplate",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=255), blank=True, default=list, null=True, size=None
+                base_field=models.CharField(max_length=255), blank=True, null=True, size=None
             ),
         ),
     ]
