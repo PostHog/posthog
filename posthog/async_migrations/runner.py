@@ -2,6 +2,7 @@ from typing import List, Optional, Tuple
 
 import structlog
 from semantic_version.base import SimpleSpec
+from sentry_sdk.api import capture_exception
 
 from posthog.async_migrations.definition import AsyncMigrationDefinition
 from posthog.async_migrations.setup import (
@@ -186,6 +187,7 @@ def run_async_migration_next_op(migration_name: str, migration_instance: Optiona
             current_operation_index=migration_instance.current_operation_index,
             error=e,
         )
+        capture_exception(e)
         process_error(migration_instance, error, alert=True)
 
     if error:

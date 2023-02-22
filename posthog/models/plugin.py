@@ -469,7 +469,8 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 def sync_team_inject_web_apps(team: Team):
     inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
-        Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
+        team.inject_web_apps = inject_web_apps
+        team.save(update_fields=["inject_web_apps"])
 
 
 @mutable_receiver([post_save, post_delete], sender=PluginAttachment)
