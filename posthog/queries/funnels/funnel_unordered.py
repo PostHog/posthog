@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.entity.entity import Entity
 from posthog.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.util import correct_result_for_sampling
 
 
 class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
@@ -35,14 +36,20 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
 
     QUERY_TYPE = "funnel_unordered"
 
-    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+    def _serialize_step(
+        self,
+        step: Entity,
+        count: int,
+        people: Optional[List[uuid.UUID]] = None,
+        sampling_factor: Optional[float] = None,
+    ) -> Dict[str, Any]:
         return {
             "action_id": None,
             "name": f"Completed {step.index+1} step{'s' if step.index != 0 else ''}",
             "custom_name": None,
             "order": step.index,
             "people": people if people else [],
-            "count": count,
+            "count": correct_result_for_sampling(count, sampling_factor),
             "type": step.type,
         }
 

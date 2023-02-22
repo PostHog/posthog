@@ -33,6 +33,7 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.insight import insight_sync_execute
+from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import relative_date_parse
 
 
@@ -103,18 +104,25 @@ class ClickhouseFunnelBase(ABC):
         results = self._exec_query()
         return self._format_results(results)
 
-    def _serialize_step(self, step: Entity, count: int, people: Optional[List[uuid.UUID]] = None) -> Dict[str, Any]:
+    def _serialize_step(
+        self,
+        step: Entity,
+        count: int,
+        people: Optional[List[uuid.UUID]] = None,
+        sampling_factor: Optional[float] = None,
+    ) -> Dict[str, Any]:
         if step.type == TREND_FILTER_TYPE_ACTIONS:
             name = step.get_action().name
         else:
             name = step.id
+
         return {
             "action_id": step.id,
             "name": name,
             "custom_name": step.custom_name,
             "order": step.index,
             "people": people if people else [],
-            "count": count,
+            "count": correct_result_for_sampling(count, sampling_factor),
             "type": step.type,
         }
 
@@ -193,7 +201,9 @@ class ClickhouseFunnelBase(ABC):
             if results and len(results) > 0:
                 total_people += results[step.index]
 
-            serialized_result = self._serialize_step(step, total_people, [])  # persons not needed on initial return
+            serialized_result = self._serialize_step(
+                step, total_people, [], self._filter.sampling_factor
+            )  # persons not needed on initial return
             if cast(int, step.index) > 0:
                 serialized_result.update(
                     {

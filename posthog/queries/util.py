@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Union
 
 import pytz
 from django.utils import timezone
@@ -101,3 +101,10 @@ def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
         date_obj = date_obj.replace(tzinfo=timezone.utc)
     return date_obj
+
+
+def correct_result_for_sampling(result: Union[int, float], sampling_factor: Optional[float]) -> float:
+    if not sampling_factor:
+        return result
+
+    return result * (1 / sampling_factor)
