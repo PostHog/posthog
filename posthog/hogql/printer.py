@@ -414,6 +414,18 @@ class _Printer(Visitor):
             else:
                 field_sql = self.visit(field_symbol)
                 property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+        elif (
+            self.context.part_of_legacy_query
+            and isinstance(table, ast.SelectQueryAliasSymbol)
+            and table.name.endswith("__pdi__person")
+        ):
+            # person properties access in a legacy (non hogql) query
+            materialized_column = self._get_materialized_column("person", symbol.name, "properties")
+            if materialized_column:
+                property_sql = self._print_identifier(materialized_column)
+            else:
+                field_sql = self.visit(field_symbol)
+                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
         else:
             field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
