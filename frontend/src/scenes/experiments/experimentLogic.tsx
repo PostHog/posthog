@@ -18,7 +18,6 @@ import {
     TrendResult,
     FunnelStep,
     SecondaryExperimentMetric,
-    AvailableFeature,
     SignificanceCode,
     SecondaryMetricAPIResult,
 } from '~/types'
@@ -28,7 +27,6 @@ import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
@@ -53,8 +51,9 @@ const NEW_EXPERIMENT: Experiment = {
         ],
     },
     secondary_metrics: [],
-    created_at: '',
+    created_at: null,
     created_by: null,
+    updated_at: null,
 }
 
 export interface ExperimentLogicProps {
@@ -76,14 +75,7 @@ export const experimentLogic = kea<experimentLogicType>([
     key((props) => props.experimentId || 'new'),
     path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
     connect({
-        values: [
-            teamLogic,
-            ['currentTeamId'],
-            userLogic,
-            ['hasAvailableFeature'],
-            groupsModel,
-            ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
-        ],
+        values: [teamLogic, ['currentTeamId'], groupsModel, ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel']],
         actions: [
             experimentsLogic,
             ['updateExperiments', 'addToExperiments'],
@@ -533,7 +525,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         const response = await api.get(
                             `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/results`
                         )
-                        return { ...response, itemID: Math.random().toString(36).substring(2, 15) }
+                        return { ...response, fakeInsightId: Math.random().toString(36).substring(2, 15) }
                     } catch (error: any) {
                         actions.setExperimentResultCalculationError(error.detail)
                         return null
@@ -869,10 +861,6 @@ export const experimentLogic = kea<experimentLogicType>([
     })),
     urlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
-            if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
-                router.actions.push('/experiments')
-                return
-            }
             const didPathChange = currentLocation.initial || currentLocation.pathname !== previousLocation?.pathname
 
             actions.setEditExperiment(false)

@@ -22,8 +22,8 @@ from posthog.utils import (
     get_compare_period_dates,
     get_default_event_name,
     load_data_from_request,
+    refresh_requested_by_client,
     relative_date_parse,
-    should_refresh,
 )
 
 
@@ -304,35 +304,35 @@ class TestLoadDataFromRequest(TestCase):
 
 
 class TestShouldRefresh(TestCase):
-    def test_should_refresh_with_refresh_true(self):
+    def test_refresh_requested_by_client_with_refresh_true(self):
         request = HttpRequest()
         request.GET["refresh"] = "true"
-        self.assertTrue(should_refresh(Request(request)))
+        self.assertTrue(refresh_requested_by_client(Request(request)))
 
-    def test_should_refresh_with_refresh_empty(self):
+    def test_refresh_requested_by_client_with_refresh_empty(self):
         request = HttpRequest()
         request.GET["refresh"] = ""
-        self.assertTrue(should_refresh(Request(request)))
+        self.assertTrue(refresh_requested_by_client(Request(request)))
 
     def test_should_not_refresh_with_refresh_false(self):
         request = HttpRequest()
         request.GET["refresh"] = "false"
-        self.assertFalse(should_refresh(Request(request)))
+        self.assertFalse(refresh_requested_by_client(Request(request)))
 
     def test_should_not_refresh_with_refresh_gibberish(self):
         request = HttpRequest()
         request.GET["refresh"] = "2132klkl"
-        self.assertFalse(should_refresh(Request(request)))
+        self.assertFalse(refresh_requested_by_client(Request(request)))
 
-    def test_should_refresh_with_data_true(self):
+    def test_refresh_requested_by_client_with_data_true(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": True}  # type: ignore
-        self.assertTrue(should_refresh((drf_request)))
+        self.assertTrue(refresh_requested_by_client((drf_request)))
 
     def test_should_not_refresh_with_data_false(self):
         drf_request = Request(HttpRequest())
         drf_request._full_data = {"refresh": False}  # type: ignore
-        self.assertFalse(should_refresh(drf_request))
+        self.assertFalse(refresh_requested_by_client(drf_request))
 
     def test_can_get_period_to_compare_when_interval_is_day(self) -> None:
         """

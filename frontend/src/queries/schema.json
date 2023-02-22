@@ -80,6 +80,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
                 }
             ]
         },
@@ -164,6 +167,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -209,7 +216,13 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -288,6 +301,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -332,7 +349,13 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -425,6 +448,10 @@
                                 "$ref": "#/definitions/FunnelStepRangeEntityFilter"
                             },
                             "type": "array"
+                        },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
                         },
                         "filter_test_accounts": {
                             "type": "boolean"
@@ -531,6 +558,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
@@ -608,6 +638,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -684,6 +718,9 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "start_point": {
                             "type": "string"
                         },
@@ -754,6 +791,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -797,6 +838,9 @@
                         },
                         "returning_entity": {
                             "type": "object"
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         },
                         "target_entity": {
                             "type": "object"
@@ -868,6 +912,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -898,6 +946,12 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
+                        "show_values_on_series": {
+                            "type": "boolean"
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
@@ -966,6 +1020,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -996,6 +1054,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
@@ -1244,6 +1305,10 @@
                     "description": "Show the export button",
                     "type": "boolean"
                 },
+                "showHogQLEditor": {
+                    "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table",
                     "type": "boolean"
@@ -1273,6 +1338,9 @@
                         },
                         {
                             "$ref": "#/definitions/RecentPerformancePageViewNode"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -1692,7 +1760,7 @@
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"
@@ -1944,6 +2012,51 @@
             "required": ["key", "type"],
             "type": "object"
         },
+        "HogQLQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse",
+                    "description": "Cached query response"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "HogQLQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "clickhouse": {
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -2005,6 +2118,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2577,6 +2693,9 @@
                 "show_legend": {
                     "type": "boolean"
                 },
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2704,6 +2823,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "shown_as": {

@@ -3,7 +3,11 @@ import os from 'os'
 import { LogLevel, PluginsServerConfig } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
-import { KAFKA_EVENTS_JSON, KAFKA_EVENTS_PLUGIN_INGESTION } from './kafka-topics'
+import {
+    KAFKA_EVENTS_JSON,
+    KAFKA_EVENTS_PLUGIN_INGESTION,
+    KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
+} from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
@@ -30,6 +34,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_CA: null,
         CLICKHOUSE_SECURE: false,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: true,
+        EVENT_OVERFLOW_BUCKET_CAPACITY: 1000,
+        EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
         KAFKA_HOSTS: 'kafka:9092', // KEEP IN SYNC WITH posthog/settings/data_stores.py
         KAFKA_CLIENT_CERT_B64: null,
         KAFKA_CLIENT_CERT_KEY_B64: null,
@@ -39,6 +45,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_USER: null,
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
+        KAFKA_CONSUMPTION_OVERFLOW_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
         KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
@@ -216,7 +223,11 @@ export function overrideWithEnv(
         }
     }
 
-    if (!['ingestion', 'async', 'exports', 'scheduler', 'jobs', null].includes(newConfig.PLUGIN_SERVER_MODE)) {
+    if (
+        !['ingestion', 'async', 'exports', 'scheduler', 'jobs', 'ingestion-overflow', null].includes(
+            newConfig.PLUGIN_SERVER_MODE
+        )
+    ) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
 

@@ -6,7 +6,6 @@ from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
 
-import posthoganalytics
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
@@ -44,7 +43,7 @@ def default_settings() -> Dict:
     # so we only disable on versions below that.
     # This is calculated once per deploy
     if clickhouse_at_least_228():
-        return {}
+        return {"join_algorithm": "direct,parallel_hash", "distributed_replica_max_ignored_errors": 1000}
     else:
         return {"optimize_move_to_prewhere": 0}
 
@@ -58,30 +57,6 @@ def clickhouse_at_least_228() -> bool:
     ).is_service_in_accepted_version()
 
     return is_ch_version_228_or_above
-
-
-def extra_settings(query_id: Optional[str]) -> Dict[str, Any]:
-    if not clickhouse_at_least_228():
-        return {}
-
-    # The `default` option for join_algorithm was introduced with CH 22.8
-    default_join_algorithm = "default"
-
-    join_algorithm = (
-        posthoganalytics.get_feature_flag(
-            "join-algorithm",
-            str(query_id),
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        or default_join_algorithm
-    )
-
-    # make sure the algorithm is supported - it's also possible to specify e.g. "algorithm1,algorithm2"
-    if len(list(filter(is_invalid_algorithm, join_algorithm.split(",")))) > 0:
-        join_algorithm = default_join_algorithm
-
-    return {"join_algorithm": join_algorithm}
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -118,7 +93,7 @@ def sync_execute(
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         query_id = validated_client_query_id()
-        core_settings = {**default_settings(), **(settings or {}), **extra_settings(query_id)}
+        core_settings = {**default_settings(), **(settings or {})}
         tags["query_settings"] = core_settings
         settings = {**core_settings, "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:

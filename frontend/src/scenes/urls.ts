@@ -51,7 +51,7 @@ export const urls = {
     insightSubcription: (id: InsightShortId, subscriptionId: string): string =>
         `/insights/${id}/subscriptions/${subscriptionId}`,
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
-    savedInsights: (): string => '/insights',
+    savedInsights: (tab?: string): string => `/insights${tab ? `?tab=${tab}` : ''}`,
     webPerformance: (): string => '/web-performance',
     webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
         // KLUDGE: only allow no pageview param for urlToAction in the logic
@@ -78,7 +78,7 @@ export const urls = {
     cohorts: (): string => '/cohorts',
     experiment: (id: string | number): string => `/experiments/${id}`,
     experiments: (): string => '/experiments',
-    featureFlags: (): string => '/feature_flags',
+    featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
@@ -101,6 +101,8 @@ export const urls = {
     toolbarLaunch: (): string => '/toolbar',
     // Onboarding / setup routes
     login: (): string => '/login',
+    login2FA: (): string => '/login/2fa',
+    login2FASetup: (): string => '/login/2fa_setup',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
