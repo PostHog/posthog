@@ -129,7 +129,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         recording.deleted = True
         recording.save()
 
-        return JsonResponse({"success": True})
+        return Response({"success": True})
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
