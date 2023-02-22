@@ -72,10 +72,7 @@ class TableAliasSymbol(Symbol):
         if name == "*":
             return AsteriskSymbol(table=self)
         if self.has_child(name):
-            table_symbol: Union[TableSymbol, TableAliasSymbol] = self
-            while isinstance(table_symbol, TableAliasSymbol):
-                table_symbol = table_symbol.table_symbol
-            field = table_symbol.table.get_field(name)
+            field = self.table_symbol.table.get_field(name)
             return database_field_to_symbol(field, name, table_symbol=self)
         raise ValueError(f"Field not found: {name}")
 
