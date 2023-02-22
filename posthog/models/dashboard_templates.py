@@ -20,10 +20,10 @@ class DashboardTemplate(UUIDModel):
     dashboard_filters: models.JSONField = models.JSONField(null=True, blank=True)
     tiles: models.JSONField = models.JSONField(default=list)
     variables: models.JSONField = models.JSONField(null=True, blank=True)
-    tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list, blank=True)
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list, blank=True, null=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True, null=True)
     created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
+    deleted: models.BooleanField = models.BooleanField(default=False, blank=True, null=True)
     image_url: models.CharField = models.CharField(max_length=8201, null=True, blank=True)
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
