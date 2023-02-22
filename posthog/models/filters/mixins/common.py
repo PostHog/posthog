@@ -569,8 +569,8 @@ class SampleMixin(BaseParamMixin):
         # cover for both None and empty strings - also ok to filter out 0s here
         if sampling_factor:
             sampling_factor = float(sampling_factor)
-            if sampling_factor < 0 or sampling_factor >= 1:
-                raise ValueError("Sampling factor must be greater than 0 and smaller than 1")
+            if sampling_factor < 0 or sampling_factor > 1:
+                raise ValueError("Sampling factor must be greater than 0 and smaller or equal to 1")
 
             return sampling_factor
 
