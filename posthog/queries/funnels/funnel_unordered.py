@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.entity.entity import Entity
 from posthog.queries.funnels.base import ClickhouseFunnelBase
+from posthog.queries.util import correct_result_for_sampling
 
 
 class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
@@ -48,7 +49,7 @@ class ClickhouseFunnelUnordered(ClickhouseFunnelBase):
             "custom_name": None,
             "order": step.index,
             "people": people if people else [],
-            "count": count * 1 / sampling_factor,
+            "count": correct_result_for_sampling(count, sampling_factor),
             "type": step.type,
         }
 
