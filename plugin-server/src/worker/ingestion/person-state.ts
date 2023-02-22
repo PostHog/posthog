@@ -6,6 +6,7 @@ import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
+import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -52,6 +53,7 @@ export class PersonState {
     private statsd: StatsD | undefined
     private personManager: PersonManager
     private updateIsIdentified: boolean
+    private poEEmbraceJoin: boolean
 
     constructor(
         event: PluginEvent,
@@ -62,6 +64,7 @@ export class PersonState {
         statsd: StatsD | undefined,
         personManager: PersonManager,
         personContainer: LazyPersonContainer,
+        poEEmbraceJoin: boolean,
         uuid: UUIDT | undefined = undefined
     ) {
         this.event = event
@@ -82,6 +85,9 @@ export class PersonState {
         // If set to true, we'll update `is_identified` at the end of `updateProperties`
         // :KLUDGE: This is an indirect communication channel between `handleIdentifyOrAlias` and `updateProperties`
         this.updateIsIdentified = false
+
+        // For persons on events embrace the join gradual roll-out, remove after fully rolled out
+        this.poEEmbraceJoin = poEEmbraceJoin
     }
 
     async update(): Promise<LazyPersonContainer> {
@@ -295,6 +301,8 @@ export class PersonState {
             }
         } catch (e) {
             console.error('handleIdentifyOrAlias failed', e, this.event)
+
+            throw e
         } finally {
             clearTimeout(timeout)
         }
@@ -463,11 +471,18 @@ export class PersonState {
         let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
         properties = this.applyEventPropertyUpdates(properties)
 
-        // Keep the oldest created_at (i.e. the first time we've seen this person)
+        if (this.poEEmbraceJoin) {
+            // Optimize merging persons to keep using the person id that has longer history,
+            // which means we'll have less events to update during the squash later
+            if (otherPerson.created_at < mergeInto.created_at) {
+                ;[mergeInto, otherPerson] = [otherPerson, mergeInto]
+            }
+        }
+
         const [kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
             mergeInto,
             otherPerson,
-            olderCreatedAt,
+            olderCreatedAt, // Keep the oldest created_at (i.e. the first time we've seen either person)
             properties
         )
         await this.db.kafkaProducer.queueMessages(kafkaMessages)
@@ -506,8 +521,109 @@ export class PersonState {
 
             const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
 
-            return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+            let personOverrideMessages: ProducerRecord[] = []
+            if (this.poEEmbraceJoin) {
+                personOverrideMessages = [await this.addPersonOverride(otherPerson, mergeInto, client)]
+            }
+
+            return [
+                [...personOverrideMessages, ...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages],
+                person,
+            ]
         })
+    }
+
+    private async addPersonOverride(
+        oldPerson: Person,
+        overridePerson: Person,
+        client?: PoolClient
+    ): Promise<ProducerRecord> {
+        const mergedAt = DateTime.now()
+        const oldestEvent = overridePerson.created_at
+        /**
+            We'll need to do two updates:
+
+         1. to add an override from oldPerson to override person
+         2. update any entries that have oldPerson as the override person to now also point to the new override person
+
+            TODO: how do we want to be updating oldest_event?
+
+         I'm thinking: we write it if it's not there, but don't update it on conflicts (alternative update to the older date)
+         In the transitive one the same don't update or update to older data (if that's not too complex to do)
+         it's an optimization anyway and squash job might be updating those values anyway and it's just a hint, so ignoring if complex seems better
+         in any case it's important that we use the oldest_event we stored in postgres in CH too.
+        */
+
+        const {
+            rows: [{ version }],
+        } = await this.db.postgresQuery(
+            SQL`
+                INSERT INTO posthog_personoverride (
+                    team_id, 
+                    old_person_id, 
+                    override_person_id, 
+                    oldest_event,
+                    version
+                ) VALUES (
+                    ${this.teamId}, 
+                    ${oldPerson.uuid}, 
+                    ${overridePerson.uuid}, 
+                    ${oldestEvent}, 
+                    1
+                )
+                RETURNING version;
+            `,
+            undefined,
+            'personOverride',
+            client
+        )
+
+        const { rows: transitiveUpdates } = await this.db.postgresQuery(
+            SQL`
+                UPDATE 
+                    posthog_personoverride
+                SET 
+                    override_person_id = ${overridePerson.uuid}, version = version + 1
+                WHERE
+                    team_id = ${this.teamId} AND override_person_id = ${oldPerson.uuid}
+                RETURNING
+                    old_person_id,
+                    version,
+                    oldest_event;
+            `,
+            undefined,
+            'transitivePersonOverrides',
+            client
+        )
+
+        status.debug('🔁', 'person_overrides_updated', { transitiveUpdates })
+
+        const personOverrideMessages: ProducerRecord = {
+            topic: KAFKA_PERSON_OVERRIDE,
+            messages: [
+                {
+                    value: JSON.stringify({
+                        team_id: oldPerson.team_id,
+                        merged_at: mergedAt,
+                        override_person_id: overridePerson.id,
+                        old_person_id: oldPerson.id,
+                        oldest_event: oldestEvent,
+                        version: version,
+                    }),
+                },
+                ...transitiveUpdates.map(({ oldPersonId, version, oldestEvent }) => ({
+                    value: JSON.stringify({
+                        team_id: oldPerson.team_id,
+                        merged_at: mergedAt,
+                        override_person_id: overridePerson.id,
+                        old_person_id: oldPersonId,
+                        oldest_event: oldestEvent,
+                        version: version,
+                    }),
+                })),
+            ],
+        }
+        return personOverrideMessages
     }
 
     private async handleTablesDependingOnPersonID(
@@ -540,4 +656,14 @@ export function ageInMonthsLowCardinality(timestamp: DateTime): number {
     // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
     const ageLowCardinality = Math.min(ageInMonths, 50)
     return ageLowCardinality
+}
+
+function SQL(sqlParts: TemplateStringsArray, ...args: any[]): { text: string; values: any[] } {
+    // Generates a node-pq compatible query object given a tagged
+    // template literal. The intention is to remove the need to match up
+    // the positional arguments with the $1, $2, etc. placeholders in
+    // the query string.
+    const text = sqlParts.reduce((acc, part, i) => acc + '$' + i + part)
+    const values = args
+    return { text, values }
 }
