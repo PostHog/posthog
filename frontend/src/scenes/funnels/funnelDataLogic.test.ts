@@ -1,4 +1,4 @@
-import { expectLogic, truth } from 'kea-test-utils'
+import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { teamLogic } from 'scenes/teamLogic'

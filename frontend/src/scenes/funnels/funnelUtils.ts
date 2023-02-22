@@ -131,7 +131,10 @@ export function isBreakdownFunnelResults(results: FunnelResultType): results is 
 }
 
 // breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
-export function isValidBreakdownParameter(breakdown: BreakdownKeyType, breakdowns: Breakdown[]): boolean {
+export function isValidBreakdownParameter(
+    breakdown: BreakdownKeyType | undefined,
+    breakdowns: Breakdown[] | undefined
+): boolean {
     return (
         (Array.isArray(breakdowns) && breakdowns.length > 0) ||
         ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) ||
