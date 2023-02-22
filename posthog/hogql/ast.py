@@ -57,11 +57,7 @@ class TableSymbol(Symbol):
             return AsteriskSymbol(table=self)
         if self.has_child(name):
             field = self.table.get_field(name)
-            if isinstance(field, LazyTable):
-                return LazyTableSymbol(table=self, field=name, joined_table=field)
-            if isinstance(field, FieldTraverser):
-                return FieldTraverserSymbol(chain=field.chain, symbol=self)
-            return FieldSymbol(name=name, table=self)
+            return database_field_to_symbol(field, name, table_symbol=self)
         raise ValueError(f'Field "{name}" not found on table {type(self.table).__name__}')
 
 
@@ -80,11 +76,7 @@ class TableAliasSymbol(Symbol):
             while isinstance(table, TableAliasSymbol):
                 table = table.table
             field = table.table.get_field(name)
-            if isinstance(field, LazyTable):
-                return LazyTableSymbol(table=self, field=name, joined_table=field)
-            if isinstance(field, FieldTraverser):
-                return FieldTraverserSymbol(chain=field.chain, symbol=self)
-            return FieldSymbol(name=name, table=self)
+            return database_field_to_symbol(field, name, table_symbol=self)
         raise ValueError(f"Field not found: {name}")
 
 
@@ -101,12 +93,18 @@ class LazyTableSymbol(Symbol):
             return AsteriskSymbol(table=self)
         if self.has_child(name):
             field = self.joined_table.table.get_field(name)
-            if isinstance(field, LazyTable):
-                return LazyTableSymbol(table=self, field=name, joined_table=field)
-            if isinstance(field, FieldTraverser):
-                return FieldTraverserSymbol(chain=field.chain, symbol=self)
-            return FieldSymbol(name=name, table=self)
+            return database_field_to_symbol(field, name, table_symbol=self)
         raise ValueError(f"Field not found: {name}")
+
+
+def database_field_to_symbol(
+    field: BaseModel, name: str, table_symbol: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol]
+) -> Symbol:
+    if isinstance(field, LazyTable):
+        return LazyTableSymbol(table=table_symbol, field=name, joined_table=field)
+    if isinstance(field, FieldTraverser):
+        return FieldTraverserSymbol(chain=field.chain, symbol=table_symbol)
+    return FieldSymbol(name=name, table=table_symbol)
 
 
 class SelectQuerySymbol(Symbol):
@@ -181,20 +179,27 @@ class FieldSymbol(Symbol):
     name: str
     table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
-    def resolve_database_field(self) -> Optional[Union[DatabaseField, Table]]:
+    def resolve_database_table(self) -> Optional[Table]:
         table_symbol = self.table
         if isinstance(table_symbol, LazyTableSymbol):
-            return table_symbol.joined_table.table.get_field(self.name)
+            return table_symbol.joined_table.table
         while isinstance(table_symbol, TableAliasSymbol):
             table_symbol = table_symbol.table
         if isinstance(table_symbol, TableSymbol):
-            return table_symbol.table.get_field(self.name)
+            return table_symbol.table
+        return None
+
+    def resolve_database_field(self) -> Optional[DatabaseField]:
+        table = self.resolve_database_table()
+        if table is not None:
+            return table.get_field(self.name)
         return None
 
     def get_child(self, name: str) -> Symbol:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
+
         if isinstance(database_field, LazyTable):
             return FieldSymbol(
                 name=name, table=LazyTableSymbol(table=self.table, field=name, joined_table=database_field)
