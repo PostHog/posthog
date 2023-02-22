@@ -76,7 +76,7 @@ def query_events_list(
 ) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext(part_of_legacy_query=True)
+    hogql_context = HogQLContext(legacy_person_property_handling=True)
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"
@@ -145,7 +145,7 @@ def run_events_query(
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext(part_of_legacy_query=True)
+    hogql_context = HogQLContext(legacy_person_property_handling=True)
 
     # adding +1 to the limit to check if there's a "next page" after the requested results
     limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1

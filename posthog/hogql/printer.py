@@ -380,7 +380,7 @@ class _Printer(Visitor):
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
             # :KLUDGE: Legacy person properties handling. Only used within non-hogql queries, such as insights.
-            if field_sql == "events__pdi__person.properties" and self.context.part_of_legacy_query:
+            if field_sql == "events__pdi__person.properties" and self.context.legacy_person_property_handling:
                 if self.context.using_person_on_events:
                     field_sql = "person_properties"
                 else:
@@ -415,7 +415,7 @@ class _Printer(Visitor):
                 field_sql = self.visit(field_symbol)
                 property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
         elif (
-            self.context.part_of_legacy_query
+            self.context.legacy_person_property_handling
             and isinstance(table, ast.SelectQueryAliasSymbol)
             and table.name.endswith("__pdi__person")
         ):
