@@ -1768,11 +1768,6 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
 
 export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
-export interface LoadedRawFunnelResults {
-    results: FunnelAPIResponse
-    filters: Partial<FilterType>
-}
-
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
