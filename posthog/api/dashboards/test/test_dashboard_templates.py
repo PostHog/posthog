@@ -247,7 +247,9 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED
 
         assert DashboardTemplate.objects.count() == 1
-        id = DashboardTemplate.objects.first().id
+        dashboardTemplate = DashboardTemplate.objects.first()
+        assert dashboardTemplate is not None
+        id = dashboardTemplate.id
 
         response = self.client.patch(
             f"/api/projects/{self.team.pk}/dashboard_templates/{id}",
