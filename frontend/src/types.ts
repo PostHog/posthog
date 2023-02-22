@@ -1742,7 +1742,7 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
-    breakdowns?: Breakdown[]
+    breakdowns?: BreakdownKeyType[]
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]

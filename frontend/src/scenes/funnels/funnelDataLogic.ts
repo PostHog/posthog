@@ -10,6 +10,7 @@ import {
     InsightLogicProps,
     StepOrderValue,
     InsightType,
+    FunnelsFilterType,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -19,6 +20,7 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
+import { isBreakdownFunnelResults } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -86,16 +88,21 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
 
         results: [
             (s) => [s.insight],
-            ({ filters, result }): FunnelResultType => {
+            ({
+                filters,
+                result,
+            }: {
+                filters: Partial<FunnelsFilterType>
+                result: FunnelResultType
+            }): FunnelResultType => {
                 if (filters?.insight === InsightType.FUNNELS) {
-                    if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
+                    if (isBreakdownFunnelResults(result) && result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
                         return result.map((series) =>
-                            series.map((r: { [x: string]: any; breakdowns: any; breakdown_value: any }) => {
+                            series.map((r) => {
                                 const { breakdowns, breakdown_value, ...singlePropertyClone } = r
-                                singlePropertyClone.breakdown = breakdowns
-                                singlePropertyClone.breakdown_value = breakdown_value
+                                singlePropertyClone.breakdown = breakdowns as (string | number)[]
                                 return singlePropertyClone
                             })
                         )
