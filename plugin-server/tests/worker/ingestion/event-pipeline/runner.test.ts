@@ -114,7 +114,7 @@ describe('EventPipelineRunner', () => {
     })
 
     describe('runEventPipeline()', () => {
-        it('runs steps starting from emitToBufferStep', async () => {
+        it('runs steps starting from populateTeamDataStep', async () => {
             await runner.runEventPipeline(pipelineEvent)
 
             expect(runner.steps).toEqual([
