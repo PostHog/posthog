@@ -29,9 +29,6 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
     key((props) => props.key),
     actions({
         setParsedSelectors: (selectors: Record<number, ParsedCSSSelector>) => ({ selectors }),
-        // chooseSelector: (chosenSelector: ChosenSelector) => ({
-        //     chosenSelector,
-        // }),
         setElements: (providedElements: ElementType[]) => ({ providedElements }),
     }),
     reducers(({ props }) => ({
@@ -43,18 +40,6 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
             {} as Record<number, ParsedCSSSelector>,
             {
                 setParsedSelectors: (_, { selectors }) => selectors,
-            },
-        ],
-        messageStatus: [
-            'info' as 'info' | 'success' | 'warning',
-            {
-                chooseSelector: (_, { chosenSelector }) => {
-                    return chosenSelector.selectorMatchCount === null
-                        ? 'info'
-                        : chosenSelector.selectorMatchCount === 1
-                        ? 'success'
-                        : 'warning'
-                },
             },
         ],
     })),
@@ -114,6 +99,16 @@ export const htmlElementsDisplayLogic = kea<htmlElementsDisplayLogicType>([
                     }
                 }
                 return selectorMatchCount
+            },
+        ],
+        messageStatus: [
+            (s) => [s.chosenSelectorMatchCount],
+            (chosenSelectorMatchCount) => {
+                return chosenSelectorMatchCount === null
+                    ? 'info'
+                    : chosenSelectorMatchCount === 1
+                    ? 'success'
+                    : 'warning'
             },
         ],
     })),
