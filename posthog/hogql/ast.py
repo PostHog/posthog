@@ -80,16 +80,16 @@ class TableAliasSymbol(Symbol):
 class LazyTableSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol, "LazyTableSymbol"]
     field: str
-    joined_table: LazyTable
+    lazy_table: LazyTable
 
     def has_child(self, name: str) -> bool:
-        return self.joined_table.table.has_field(name)
+        return self.lazy_table.table.has_field(name)
 
     def get_child(self, name: str) -> Symbol:
         if name == "*":
             return AsteriskSymbol(table=self)
         if self.has_child(name):
-            field = self.joined_table.table.get_field(name)
+            field = self.lazy_table.table.get_field(name)
             return database_field_to_symbol(field, name, table_symbol=self)
         raise ValueError(f"Field not found: {name}")
 
@@ -98,7 +98,7 @@ def database_field_to_symbol(
     field: BaseModel, name: str, table_symbol: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol]
 ) -> Symbol:
     if isinstance(field, LazyTable):
-        return LazyTableSymbol(table=table_symbol, field=name, joined_table=field)
+        return LazyTableSymbol(table=table_symbol, field=name, lazy_table=field)
     if isinstance(field, FieldTraverser):
         return FieldTraverserSymbol(chain=field.chain, symbol=table_symbol)
     return FieldSymbol(name=name, table=table_symbol)
@@ -116,12 +116,14 @@ class SelectQuerySymbol(Symbol):
     # all from and join subqueries without aliases
     anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
 
-    def key_for_table(
+    def get_alias_for_table_symbol(
         self,
-        table: Union[TableSymbol, TableAliasSymbol, LazyTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"],
+        table_symbol: Union[
+            TableSymbol, TableAliasSymbol, LazyTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"
+        ],
     ) -> Optional[str]:
         for key, value in self.tables.items():
-            if value == table:
+            if value == table_symbol:
                 return key
         return None
 
@@ -179,7 +181,7 @@ class FieldSymbol(Symbol):
     def resolve_database_table(self) -> Optional[Table]:
         table_symbol = self.table
         if isinstance(table_symbol, LazyTableSymbol):
-            return table_symbol.joined_table.table
+            return table_symbol.lazy_table.table
         while isinstance(table_symbol, TableAliasSymbol):
             table_symbol = table_symbol.table_symbol
         if isinstance(table_symbol, TableSymbol):
@@ -199,7 +201,7 @@ class FieldSymbol(Symbol):
 
         if isinstance(database_field, LazyTable):
             return FieldSymbol(
-                name=name, table=LazyTableSymbol(table=self.table, field=name, joined_table=database_field)
+                name=name, table=LazyTableSymbol(table=self.table, field=name, lazy_table=database_field)
             )
         if isinstance(database_field, StringJSONDatabaseField):
             return PropertySymbol(name=name, parent=self)

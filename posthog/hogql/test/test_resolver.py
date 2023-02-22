@@ -250,7 +250,7 @@ class TestResolver(BaseTest):
                     symbol=ast.FieldSymbol(
                         name="id",
                         table=ast.LazyTableSymbol(
-                            table=pdi_table_symbol, field="person", joined_table=database.person_distinct_ids.person
+                            table=pdi_table_symbol, field="person", lazy_table=database.person_distinct_ids.person
                         ),
                     ),
                 ),
@@ -268,7 +268,7 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=pdi_table_symbol,
-                            joined_table=database.person_distinct_ids.person,
+                            lazy_table=database.person_distinct_ids.person,
                             field="person",
                         ),
                     ),
@@ -297,7 +297,7 @@ class TestResolver(BaseTest):
                     symbol=ast.FieldSymbol(
                         name="person_id",
                         table=ast.LazyTableSymbol(
-                            table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                            table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
                         ),
                     ),
                 ),
@@ -315,7 +315,7 @@ class TestResolver(BaseTest):
                         name="person_id",
                         table=ast.LazyTableSymbol(
                             table=events_table_symbol,
-                            joined_table=database.events.pdi,
+                            lazy_table=database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -345,7 +345,7 @@ class TestResolver(BaseTest):
                     symbol=ast.FieldSymbol(
                         name="person_id",
                         table=ast.LazyTableSymbol(
-                            table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                            table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
                         ),
                     ),
                 ),
@@ -364,7 +364,7 @@ class TestResolver(BaseTest):
                         name="person_id",
                         table=ast.LazyTableSymbol(
                             table=events_table_alias_symbol,
-                            joined_table=database.events.pdi,
+                            lazy_table=database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -394,10 +394,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 ),
@@ -415,10 +415,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 },
@@ -448,10 +448,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 ),
@@ -470,10 +470,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 },

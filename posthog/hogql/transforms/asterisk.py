@@ -31,7 +31,7 @@ class AsteriskExpander(TraversingVisitor):
                             columns.append(ast.Field(chain=[key], symbol=symbol))
                             node.symbol.columns[key] = symbol
                     elif isinstance(table, ast.LazyTableSymbol):
-                        database_fields = table.joined_table.table.get_asterisk()
+                        database_fields = table.lazy_table.table.get_asterisk()
                         for key in database_fields.keys():
                             symbol = ast.FieldSymbol(name=key, table=asterisk.table)
                             columns.append(ast.Field(chain=[key], symbol=symbol))
