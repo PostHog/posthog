@@ -1249,6 +1249,10 @@ export interface DashboardTemplateType {
     image_url?: string
 }
 
+export interface MonacoMarker {
+    message: string
+}
+
 // makes the DashboardTemplateType properties optional and the tiles properties optional
 export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
     tiles: Partial<DashboardTile>[]

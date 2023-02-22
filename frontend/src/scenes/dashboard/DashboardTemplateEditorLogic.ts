@@ -3,7 +3,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import { DashboardTemplateEditorType, DashboardTemplateType } from '~/types'
+import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 import type { dashboardTemplateEditorLogicType } from './DashboardTemplateEditorLogicType'
@@ -20,7 +20,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         setDashboardTemplateId: (id: string | undefined) => ({ id }),
         openDashboardTemplateEditor: true,
         closeDashboardTemplateEditor: true,
-        updateValidationErrors: (markers: editor.IMarker[] | undefined) => ({ markers }),
+        updateValidationErrors: (markers: MonacoMarker[] | undefined) => ({ markers }),
     }),
     reducers({
         editorValue: [
