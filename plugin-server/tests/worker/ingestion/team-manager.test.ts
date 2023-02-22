@@ -61,4 +61,65 @@ describe('TeamManager()', () => {
             expect(await teamManager.fetchTeam(-1)).toEqual(null)
         })
     })
+
+    describe('getTeamByToken()', () => {
+        it('caches positive lookups for 2 minutes', async () => {
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
+            await hub.db.postgresQuery("UPDATE posthog_team SET api_token = 'my_token'", undefined, 'testTag')
+
+            // Initial lookup hits the DB and returns null
+            jest.spyOn(hub.db, 'postgresQuery')
+            let team = await teamManager.getTeamByToken('my_token')
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+            expect(team!.id).toEqual(2)
+            expect(team!.anonymize_ips).toEqual(false)
+
+            // Settings are updated
+            await hub.db.postgresQuery('UPDATE posthog_team SET anonymize_ips = true', undefined, 'testTag')
+
+            // Second lookup hits the cache and skips the DB lookup, setting is stale
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:01:56Z').getTime())
+            jest.mocked(hub.db.postgresQuery).mockClear()
+            team = await teamManager.getTeamByToken('my_token')
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
+            expect(team!.id).toEqual(2)
+            expect(team!.anonymize_ips).toEqual(false)
+
+            // Setting change take effect after cache expiration
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:25:06Z').getTime())
+            jest.mocked(hub.db.postgresQuery).mockClear()
+            team = await teamManager.getTeamByToken('my_token')
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+            expect(team!.id).toEqual(2)
+            expect(team!.anonymize_ips).toEqual(true)
+        })
+
+        it('caches negative lookups for 5 minutes', async () => {
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
+
+            // Initial lookup hits the DB and returns null
+            jest.spyOn(hub.db, 'postgresQuery')
+            expect(await teamManager.getTeamByToken('unknown')).toEqual(null)
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+
+            // Second lookup hits the cache and skips the DB lookup
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:03:06Z').getTime())
+            jest.mocked(hub.db.postgresQuery).mockClear()
+            expect(await teamManager.getTeamByToken('unknown')).toEqual(null)
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
+
+            // Hit the DB on cache expiration
+            jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:05:06Z').getTime())
+            jest.mocked(hub.db.postgresQuery).mockClear()
+            expect(await teamManager.getTeamByToken('unknown')).toEqual(null)
+            expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
+        })
+
+        it('throws on postgres errors', async () => {
+            hub.db.postgresQuery = jest.fn().mockRejectedValue(new Error('PG unavailable'))
+            await expect(async () => {
+                await teamManager.getTeamByToken('another')
+            }).rejects.toThrow('PG unavailable')
+        })
+    })
 })
