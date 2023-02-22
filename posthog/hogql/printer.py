@@ -379,8 +379,8 @@ class _Printer(Visitor):
             if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
 
-            # :KLUDGE: Legacy person properties handling. Only used within non-hogql queries, such as insights.
-            if field_sql == "events__pdi__person.properties" and self.context.legacy_person_property_handling:
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if self.context.legacy_person_property_handling and field_sql == "events__pdi__person.properties":
                 if self.context.using_person_on_events:
                     field_sql = "person_properties"
                 else:
@@ -417,9 +417,9 @@ class _Printer(Visitor):
         elif (
             self.context.legacy_person_property_handling
             and isinstance(table, ast.SelectQueryAliasSymbol)
-            and table.name.endswith("__pdi__person")
+            and table.name == "events__pdi__person"
         ):
-            # person properties access in a legacy (non hogql) query
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
             if self.context.using_person_on_events:
                 materialized_column = self._get_materialized_column("events", symbol.name, "person_properties")
             else:
