@@ -1,7 +1,7 @@
 import { ComponentMeta } from '@storybook/react'
 import { useEffect } from 'react'
 import { DashboardTemplateEditor } from './DashboardTemplateEditor'
-import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
+import { dashboardTemplateEditorLogic } from './DashboardTemplateEditorLogic'
 
 export default {
     title: 'Scenes-App/Dashboards',
@@ -12,7 +12,7 @@ export const CreateTemplate = (): JSX.Element => {
     useEffect(() => {
         dashboardTemplateEditorLogic.mount()
         dashboardTemplateEditorLogic.actions.openDashboardTemplateEditor()
-        dashboardTemplateEditorLogic.actions.setDashboardTemplateJSON(
+        dashboardTemplateEditorLogic.actions.setEditorValue(
             JSON.stringify(
                 {
                     id: '123',
@@ -35,7 +35,7 @@ export const EditTemplate = (): JSX.Element => {
     useEffect(() => {
         dashboardTemplateEditorLogic.mount()
         dashboardTemplateEditorLogic.actions.openDashboardTemplateEditor()
-        dashboardTemplateEditorLogic.actions.setDashboardTemplateJSON(
+        dashboardTemplateEditorLogic.actions.setEditorValue(
             JSON.stringify(
                 {
                     id: '123',

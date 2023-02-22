@@ -23,16 +23,19 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
         }
 
         console.log('templateSchema', templateSchema)
-        // Would be better if this was dynamic and link to the dashboard template type or the backend
+
+        const schemas = []
+        if (templateSchema) {
+            schemas.push({
+                uri: 'http://internal/node-schema.json',
+                fileMatch: ['*'],
+                schema: templateSchema,
+            })
+        } // TODO: better error handling if it can't load the template schema
+
         monaco.languages.json.jsonDefaults.setDiagnosticsOptions({
             validate: true,
-            schemas: [
-                {
-                    uri: 'http://internal/node-schema.json',
-                    fileMatch: ['*'], // associate with our model
-                    schema: templateSchema,
-                },
-            ],
+            schemas: schemas,
         })
     }, [monaco, templateSchema])
 
