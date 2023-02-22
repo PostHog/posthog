@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="dashboardtemplate",
             name="created_at",
-            field=models.DateTimeField(auto_now_add=True, null=True),
+            field=models.DateTimeField(auto_now_add=True, null=True, blank=True),
         ),
         migrations.AddField(
             model_name="dashboardtemplate",
