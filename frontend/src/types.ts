@@ -1747,10 +1747,10 @@ export interface FunnelStep {
     data?: number[]
     days?: string[]
 
-    // Url that you can GET to retrieve the people that converted in this step
+    /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 
-    // Url that you can GET to retrieve the people that dropped in this step
+    /** Url that you can GET to retrieve the people that dropped in this step  */
     dropped_people_url: string | null
 }
 
