@@ -1,8 +1,8 @@
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { trendsLogic } from './trendsLogic'
 import { ChartDisplayType, InsightType, ItemMode } from '~/types'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import { InsightsTable, InsightsTableDataExploration } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
@@ -16,7 +16,7 @@ interface Props {
 
 export function TrendInsight({ view }: Props): JSX.Element {
     const { insightMode } = useValues(insightSceneLogic)
-    const { insightProps } = useValues(insightLogic)
+    const { insightProps, isUsingDataExploration } = useValues(insightLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
     const display = isTrendsFilter(_filters) || isStickinessFilter(_filters) ? _filters.display : null
@@ -35,15 +35,14 @@ export function TrendInsight({ view }: Props): JSX.Element {
             return <BoldNumber />
         }
         if (display === ChartDisplayType.ActionsTable) {
+            const ActionsTable = isUsingDataExploration ? InsightsTableDataExploration : InsightsTable
             return (
-                <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
-                    <InsightsTable
-                        embedded
-                        filterKey={`trends_${view}`}
-                        canEditSeriesNameInline={insightMode === ItemMode.Edit}
-                        isMainInsightView={true}
-                    />
-                </BindLogic>
+                <ActionsTable
+                    embedded
+                    filterKey={`trends_${view}`}
+                    canEditSeriesNameInline={insightMode === ItemMode.Edit}
+                    isMainInsightView={true}
+                />
             )
         }
         if (display === ChartDisplayType.ActionsPie) {

@@ -102,7 +102,8 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Event ingestion has overflowed capacity for distinct_id{' '}
-                <Link to={urls.person(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>
+                <Link to={urls.person(details.overflowDistinctId)}>{details.overflowDistinctId}</Link>. Events will
+                still be processed, but are likely to be delayed longer than usual.
             </>
         )
     },

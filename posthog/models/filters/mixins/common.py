@@ -39,6 +39,7 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
+    SAMPLING_FACTOR,
     SELECTOR,
     SHOWN_AS,
     SMOOTHING_INTERVALS,
@@ -565,12 +566,16 @@ class SampleMixin(BaseParamMixin):
     def sampling_factor(self) -> Optional[float]:
         sampling_factor = self._data.get("sampling_factor", None)
 
-        # if the client sends us 0 or below 
+        # if the client sends us 0 or below
         if sampling_factor is not None:
             sampling_factor = float(sampling_factor)
             if sampling_factor < 0 or sampling_factor >= 1:
                 raise ValueError("Sampling factor must be greater than 0 and smaller than 1")
-            
+
             return sampling_factor
 
         return None
+
+    @include_dict
+    def sampling_factor_to_dict(self):
+        return {SAMPLING_FACTOR: self.sampling_factor or ""}

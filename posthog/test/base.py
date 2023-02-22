@@ -21,7 +21,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
 from posthog.cloud_utils import TEST_clear_cloud_cache
-from posthog.models import Organization, Team, User
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
 from posthog.models.event.util import bulk_create_events
@@ -354,7 +354,9 @@ class QueryMatchingTest:
 
 
 @contextmanager
-def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_numbers: bool = True):
+def snapshot_postgres_queries_context(
+    testcase: QueryMatchingTest, replace_all_numbers: bool = True, using: str = "default"
+):
     """
     Captures and snapshots select queries from test using `syrupy` library.
     Requires queries to be stable to avoid flakiness.
@@ -381,7 +383,7 @@ def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_n
                 # Run some code that generates queries
 
     """
-    with CaptureQueriesContext(connections["default"]) as context:
+    with CaptureQueriesContext(connections[using]) as context:
         yield context
 
     for query_with_time in context.captured_queries:
@@ -730,3 +732,12 @@ def also_test_with_different_timezones(fn):
     frame_locals[f"{fn.__name__}_plus_utc"] = fn_plus_utc
 
     return fn
+
+
+def _create_insight(
+    team: Team, insight_filters: Dict[str, Any], dashboard_filters: Dict[str, Any]
+) -> Tuple[Insight, Dashboard, DashboardTile]:
+    dashboard = Dashboard.objects.create(team=team, filters=dashboard_filters)
+    insight = Insight.objects.create(team=team, filters=insight_filters)
+    dashboard_tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+    return insight, dashboard, dashboard_tile

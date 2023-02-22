@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsNode, EventsQuery, HogQLQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -21,7 +21,7 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsQuery, isHogQlAggregation, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
+import { isEventsQuery, isHogQlAggregation, isHogQLQuery, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -34,6 +34,7 @@ import { extractExpressionComment, removeExpressionComment } from '~/queries/nod
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 import { EventType } from '~/types'
 import { SavedQueries } from '~/queries/nodes/DataTable/SavedQueries'
+import { HogQLQueryEditor } from '~/queries/nodes/HogQLQuery/HogQLQueryEditor'
 
 interface DataTableProps {
     query: DataTableNode
@@ -79,6 +80,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showSearch,
         showEventFilter,
         showPropertyFilter,
+        showHogQLEditor,
         showReload,
         showExport,
         showElapsedTime,
@@ -89,8 +91,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = queryWithDefaults
 
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
+    const columnsInLemonTable = isHogQLQuery(query.source) ? columnsInResponse ?? columnsInQuery : columnsInQuery
     const lemonColumns: LemonTableColumn<DataTableRow, any>[] = [
-        ...columnsInQuery.map((key, index) => ({
+        ...columnsInLemonTable.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
             render: function RenderDataTableColumn(_: any, { result, label }: DataTableRow) {
@@ -98,13 +101,13 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     if (index === (expandable ? 1 : 0)) {
                         return {
                             children: label,
-                            props: { colSpan: columnsInQuery.length + (actionsColumnShown ? 1 : 0) },
+                            props: { colSpan: columnsInLemonTable.length + (actionsColumnShown ? 1 : 0) },
                         }
                     } else {
                         return { props: { colSpan: 0 } }
                     }
                 } else if (result) {
-                    if (isEventsQuery(query.source)) {
+                    if (isEventsQuery(query.source) || isHogQLQuery(query.source)) {
                         return renderColumn(key, result[index], result, query, setQuery, context)
                     }
                     return renderColumn(key, result[key], result, query, setQuery, context)
@@ -292,7 +295,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const setQuerySource = useCallback(
-        (source: EventsNode | EventsQuery | PersonsNode) => setQuery?.({ ...query, source }),
+        (source: EventsNode | EventsQuery | PersonsNode | HogQLQuery) => setQuery?.({ ...query, source }),
         [setQuery]
     )
 
@@ -337,7 +340,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <div className="relative w-full h-full">
+                <div className="relative w-full h-full space-y-4">
+                    {showHogQLEditor && isHogQLQuery(query.source) ? (
+                        <HogQLQueryEditor query={query.source} setQuery={setQuerySource} />
+                    ) : null}
                     {showFirstRow && (
                         <div className="flex gap-4 items-center">
                             {firstRowLeft}
@@ -398,7 +404,22 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         }}
                         sorting={null}
                         useURLForSorting={false}
-                        emptyState={responseError ? <InsightErrorState /> : <InsightEmptyState />}
+                        emptyState={
+                            responseError ? (
+                                isHogQLQuery(query.source) ? (
+                                    <InsightErrorState
+                                        excludeDetail
+                                        title={
+                                            response && 'error' in response ? (response as any).error : responseError
+                                        }
+                                    />
+                                ) : (
+                                    <InsightErrorState />
+                                )
+                            ) : (
+                                <InsightEmptyState />
+                            )
+                        }
                         expandable={
                             expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
                                 ? {

@@ -250,9 +250,10 @@ class Property:
     def to_dict(self) -> Dict[str, Any]:
         return {key: value for key, value in vars(self).items() if value is not None}
 
-    def _parse_value(self, value: ValueT) -> Any:
+    @staticmethod
+    def _parse_value(value: ValueT) -> Any:
         if isinstance(value, list):
-            return [self._parse_value(v) for v in value]
+            return [Property._parse_value(v) for v in value]
         if value == "true":
             return True
         if value == "false":

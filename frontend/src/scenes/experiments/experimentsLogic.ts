@@ -1,21 +1,23 @@
-import { kea } from 'kea'
+import { actions, connect, events, kea, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { experimentsLogicType } from './experimentsLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { Experiment, ExperimentsTabs, AvailableFeature, ExperimentStatus } from '~/types'
-import { userLogic } from 'scenes/userLogic'
+import { AvailableFeature, Experiment, ExperimentsTabs, ExperimentStatus } from '~/types'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import Fuse from 'fuse.js'
+import { userLogic } from 'scenes/userLogic'
+import { subscriptions } from 'kea-subscriptions'
+import { loaders } from 'kea-loaders'
 
-export const experimentsLogic = kea<experimentsLogicType>({
-    path: ['scenes', 'experiments', 'experimentsLogic'],
-    connect: { values: [teamLogic, ['currentTeamId'], userLogic, ['hasAvailableFeature', 'user']] },
-    actions: {
+export const experimentsLogic = kea<experimentsLogicType>([
+    path(['scenes', 'experiments', 'experimentsLogic']),
+    connect({ values: [teamLogic, ['currentTeamId'], userLogic, ['user', 'hasAvailableFeature']] }),
+    actions({
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setSearchStatus: (status: ExperimentStatus | 'all') => ({ status }),
         setExperimentsTab: (tabKey: ExperimentsTabs) => ({ tabKey }),
-    },
-    reducers: {
+    }),
+    reducers({
         searchTerm: {
             setSearchTerm: (_, { searchTerm }) => searchTerm,
         },
@@ -28,13 +30,13 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 setExperimentsTab: (_, { tabKey }) => tabKey,
             },
         ],
-    },
-    loaders: ({ values }) => ({
+    }),
+    loaders(({ values }) => ({
         experiments: [
             [] as Experiment[],
             {
                 loadExperiments: async () => {
-                    if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+                    if (!values.hasExperimentAvailableFeature) {
                         return []
                     }
                     const response = await api.get(`api/projects/${values.currentTeamId}/experiments`)
@@ -53,8 +55,8 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 },
             },
         ],
-    }),
-    selectors: ({ values }) => ({
+    })),
+    selectors(({ values }) => ({
         getExperimentStatus: [
             (s) => [s.experiments],
             () =>
@@ -105,10 +107,21 @@ export const experimentsLogic = kea<experimentsLogicType>({
                 return filteredExperiments
             },
         ],
-    }),
-    events: ({ actions }) => ({
+        hasExperimentAvailableFeature: [
+            () => [],
+            (): boolean => values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION),
+        ],
+    })),
+    events(({ actions }) => ({
         afterMount: () => {
             actions.loadExperiments()
         },
-    }),
-})
+    })),
+    subscriptions(({ actions }) => ({
+        hasExperimentAvailableFeature: (hasExperimentAvailableFeature, prevValue) => {
+            if (hasExperimentAvailableFeature && prevValue === false) {
+                actions.loadExperiments()
+            }
+        },
+    })),
+])

@@ -4,6 +4,7 @@ import {
     DateRange,
     EventsNode,
     EventsQuery,
+    HogQLQuery,
     TrendsQuery,
     FunnelsQuery,
     RetentionQuery,
@@ -27,7 +28,7 @@ import {
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
-    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node)
+    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node) || isHogQLQuery(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
@@ -56,6 +57,10 @@ export function isInsightVizNode(node?: Node): node is InsightVizNode {
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
     return node?.kind === NodeKind.LegacyQuery
+}
+
+export function isHogQLQuery(node?: Node): node is HogQLQuery {
+    return node?.kind === NodeKind.HogQLQuery
 }
 
 /*
@@ -94,8 +99,10 @@ export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | 
     return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
-export function isInsightQueryWithSeries(node?: Node): node is TrendsQuery | FunnelsQuery {
-    return isTrendsQuery(node) || isFunnelsQuery(node) || isLifecycleQuery(node) || isStickinessQuery(node)
+export function isInsightQueryWithSeries(
+    node?: Node
+): node is TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node) || isStickinessQuery(node) || isLifecycleQuery(node)
 }
 
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {

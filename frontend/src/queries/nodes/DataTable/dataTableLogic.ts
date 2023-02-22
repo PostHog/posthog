@@ -59,12 +59,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
         columnsInResponse: [
             (s) => [s.response],
             (response: AnyDataNode['response']): string[] | null =>
-                response &&
-                'columns' in response &&
-                Array.isArray(response.columns) &&
-                !response.columns.find((c) => typeof c !== 'string')
-                    ? (response?.columns as string[])
-                    : null,
+                response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
@@ -143,10 +138,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
-                        showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
+                        showElapsedTime:
+                            query.showElapsedTime ??
+                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
+                        showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                     }),
                 }
