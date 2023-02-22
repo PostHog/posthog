@@ -3,16 +3,10 @@ import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { StepField } from '~/toolbar/actions/StepField'
-import {
-    MinusCircleOutlined,
-    SearchOutlined,
-    PlusCircleOutlined,
-    CloseOutlined,
-    DeleteOutlined,
-} from '@ant-design/icons'
+import { MinusCircleOutlined, PlusCircleOutlined, CloseOutlined, DeleteOutlined } from '@ant-design/icons'
 import { SelectorEditingModal } from '~/toolbar/elements/SelectorEditingModal'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconEdit } from 'lib/lemon-ui/icons'
+import { IconEdit, IconMagnifier } from 'lib/lemon-ui/icons'
 import { posthog } from '~/toolbar/posthog'
 import { getShadowRootPopoverContainer } from '~/toolbar/utils'
 
@@ -124,23 +118,47 @@ export function EditAction(): JSX.Element {
                                         </h1>
 
                                         <div className="action-inspect">
-                                            <Button
+                                            <LemonButton
                                                 size="small"
-                                                type={inspectingElement === index ? 'primary' : 'default'}
+                                                type={inspectingElement === index ? 'primary' : 'secondary'}
                                                 onClick={(e) => {
                                                     e.stopPropagation()
                                                     inspectForElementWithIndex(
                                                         inspectingElement === index ? null : index
                                                     )
                                                 }}
+                                                icon={<IconMagnifier />}
                                             >
-                                                <SearchOutlined />{' '}
                                                 {step?.event === '$autocapture' ? 'Change Element' : 'Select Element'}
-                                            </Button>
+                                            </LemonButton>
                                         </div>
 
                                         {step?.event === '$autocapture' || inspectingElement === index ? (
                                             <>
+                                                <StepField
+                                                    field={field}
+                                                    step={step}
+                                                    item="selector"
+                                                    label="Selector"
+                                                    caption="CSS selector that uniquely identifies your element"
+                                                />
+                                                <div className="flex flex-row justify-end mb-2">
+                                                    <LemonButton
+                                                        size={'small'}
+                                                        type={'secondary'}
+                                                        icon={<IconEdit />}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation()
+                                                            posthog.capture('toolbar_manual_selector_modal_opened', {
+                                                                selector: step?.selector,
+                                                            })
+                                                            editSelectorWithIndex(index)
+                                                        }}
+                                                        getTooltipPopupContainer={getShadowRootPopoverContainer}
+                                                    >
+                                                        Edit the selector
+                                                    </LemonButton>
+                                                </div>
                                                 <StepField
                                                     field={field}
                                                     step={step}
@@ -160,31 +178,7 @@ export function EditAction(): JSX.Element {
                                                     label="Text"
                                                     caption="Text content inside your element"
                                                 />
-                                                <StepField
-                                                    field={field}
-                                                    step={step}
-                                                    item="selector"
-                                                    label="Selector"
-                                                    caption="CSS selector that uniquely identifies your element"
-                                                />
 
-                                                <div className="flex flex-row justify-end mb-2">
-                                                    <LemonButton
-                                                        size={'small'}
-                                                        type={'secondary'}
-                                                        icon={<IconEdit />}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation()
-                                                            posthog.capture('toolbar_manual_selector_modal_opened', {
-                                                                selector: step?.selector,
-                                                            })
-                                                            editSelectorWithIndex(index)
-                                                        }}
-                                                        getTooltipPopupContainer={getShadowRootPopoverContainer}
-                                                    >
-                                                        Edit the selector
-                                                    </LemonButton>
-                                                </div>
                                                 <StepField
                                                     field={field}
                                                     step={step}
