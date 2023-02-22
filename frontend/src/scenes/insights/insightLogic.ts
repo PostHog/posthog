@@ -61,11 +61,8 @@ import { loaders } from 'kea-loaders'
 import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { dayjs, now } from 'lib/dayjs'
-<<<<<<< HEAD
 import { isInsightVizNode } from '~/queries/utils'
-=======
 import { userLogic } from 'scenes/userLogic'
->>>>>>> 3ea9530ca6 (address review)
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
