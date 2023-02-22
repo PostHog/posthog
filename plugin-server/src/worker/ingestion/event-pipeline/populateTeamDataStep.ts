@@ -29,22 +29,30 @@ export async function populateTeamDataStep(
      * from capture, that section should be resolved, and team_id not trusted anymore.
      */
 
-    // Collect statistics on the shape of events we are ingesting
+    // Collect statistics on the shape of events we are ingesting.
     tokenOrTeamPresentCounter
         .labels({
             team_id_present: event.team_id ? 'true' : 'false',
             token_present: event.token ? 'true' : 'false',
         })
         .inc()
+    // statsd copy as prometheus is currently not supported in worker threads.
+    runner.hub.statsd?.increment('ingestion_event_hasauthinfo', {
+        team_id_present: event.team_id ? 'true' : 'false',
+        token_present: event.token ? 'true' : 'false',
+    })
 
     // If a team_id is present (resolved at capture, or injected by an app), trust it but
     // try resolving from the token if present, and compare results to detect inconsistencies.
     // TODO: remove after lightweight capture is fully rolled-out and the
-    //       ingestion_event_hasauthinfo_total metric confirms all incoming events have a token.
+    //       ingestion_event_hasauthinfo metric confirms all incoming events have a token.
     if (event.team_id) {
         if (event.token) {
             const team = await runner.hub.teamManager.getTeamByToken(event.token)
-            teamResolutionChecksCounter.labels({ check_ok: team?.id === event.team_id ? 'true' : 'false' }).inc()
+            const checkOk = team?.id === event.team_id ? 'true' : 'false'
+            teamResolutionChecksCounter.labels({ check_ok: checkOk }).inc()
+            // statsd copy as prometheus is currently not supported in worker threads.
+            runner.hub.statsd?.increment('ingestion_team_resolution_checks', { check_ok: checkOk })
         }
         return event as PluginEvent
     }
