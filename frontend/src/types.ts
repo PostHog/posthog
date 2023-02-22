@@ -1766,12 +1766,6 @@ export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionB
     timezone: string
 }
 
-export interface FunnelRequestParams extends FilterType {
-    refresh?: boolean
-    from_dashboard?: boolean | number
-    funnel_window_days?: number
-}
-
 export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
 export interface LoadedRawFunnelResults {
