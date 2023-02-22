@@ -90,6 +90,7 @@ RUN apt-get update && \
     "libpq-dev" \
     "libxmlsec1" \
     "libxmlsec1-dev" \
+    "libffi-dev" \
     "pkg-config" \
     && \
     rm -rf /var/lib/apt/lists/* && \
