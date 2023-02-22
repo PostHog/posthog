@@ -671,16 +671,18 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
                     ? // On playlist page
                       sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
-                    : // In any other context (recent recordings, single modal)
+                    : // In any other context with a list of recordings (recent recordings)
                       sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
 
             if (listLogic) {
                 listLogic.actions.loadAllRecordings()
                 // Reset selected recording to first one in the list
                 listLogic.actions.setSelectedRecordingId(null)
-            } else {
+            } else if (router.values.location.pathname.includes('/recordings')) {
                 // On a page that displays a single recording `recordings/:id` that doesn't contain a list
                 router.actions.push(urls.sessionRecordings())
+            } else {
+                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
             }
         },
     })),
