@@ -1,30 +1,29 @@
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.visitor import EverythingVisitor
+from posthog.hogql.visitor import CloningVisitor, Visitor
 from posthog.test.base import BaseTest
-
-
-class ConstantVisitor(EverythingVisitor):
-    def __init__(self):
-        self.constants = []
-        self.fields = []
-        self.operations = []
-
-    def visit_constant(self, node):
-        self.constants.append(node.value)
-        return super().visit_constant(node)
-
-    def visit_field(self, node):
-        self.fields.append(node.chain)
-        return super().visit_field(node)
-
-    def visit_binary_operation(self, node: ast.BinaryOperation):
-        self.operations.append(node.op)
-        return super().visit_binary_operation(node)
 
 
 class TestVisitor(BaseTest):
     def test_visitor_pattern(self):
+        class ConstantVisitor(CloningVisitor):
+            def __init__(self):
+                self.constants = []
+                self.fields = []
+                self.operations = []
+
+            def visit_constant(self, node):
+                self.constants.append(node.value)
+                return super().visit_constant(node)
+
+            def visit_field(self, node):
+                self.fields.append(node.chain)
+                return super().visit_field(node)
+
+            def visit_binary_operation(self, node: ast.BinaryOperation):
+                self.operations.append(node.op)
+                return super().visit_binary_operation(node)
+
         visitor = ConstantVisitor()
         visitor.visit(ast.Constant(value="asd"))
         self.assertEqual(visitor.constants, ["asd"])
@@ -72,13 +71,15 @@ class TestVisitor(BaseTest):
                         table=ast.Field(chain=["b"]),
                         table_final=True,
                         alias="c",
-                        join_type="INNER",
-                        join_constraint=ast.CompareOperation(
-                            op=ast.CompareOperationType.Eq,
-                            left=ast.Field(chain=["d"]),
-                            right=ast.Field(chain=["e"]),
+                        next_join=ast.JoinExpr(
+                            join_type="INNER",
+                            table=ast.Field(chain=["f"]),
+                            constraint=ast.CompareOperation(
+                                op=ast.CompareOperationType.Eq,
+                                left=ast.Field(chain=["d"]),
+                                right=ast.Field(chain=["e"]),
+                            ),
                         ),
-                        join_expr=ast.JoinExpr(table=ast.Field(chain=["f"])),
                     ),
                     where=ast.Constant(value=True),
                     prewhere=ast.Constant(value=True),
@@ -93,4 +94,23 @@ class TestVisitor(BaseTest):
                 ),
             ]
         )
-        self.assertEqual(node, EverythingVisitor().visit(node))
+        self.assertEqual(node, CloningVisitor().visit(node))
+
+    def test_unknown_visitor(self):
+        class UnknownVisitor(Visitor):
+            def visit_unknown(self, node):
+                return "!!"
+
+            def visit_binary_operation(self, node: ast.BinaryOperation):
+                return self.visit(node.left) + node.op + self.visit(node.right)
+
+        self.assertEqual(UnknownVisitor().visit(parse_expr("1 + 3 / 'asd2'")), "!!+!!/!!")
+
+    def test_unknown_error_visitor(self):
+        class UnknownNotDefinedVisitor(Visitor):
+            def visit_binary_operation(self, node: ast.BinaryOperation):
+                return self.visit(node.left) + node.op + self.visit(node.right)
+
+        with self.assertRaises(ValueError) as e:
+            UnknownNotDefinedVisitor().visit(parse_expr("1 + 3 / 'asd2'"))
+        self.assertEqual(str(e.exception), "Visitor has no method visit_constant")

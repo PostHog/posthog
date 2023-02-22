@@ -141,6 +141,7 @@ export interface UserType extends UserBaseType {
     posthog_version?: string
     is_email_verified?: boolean | null
     pending_email?: string | null
+    is_2fa_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -184,6 +185,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
+    enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
 }
 
@@ -207,11 +209,13 @@ export interface BaseMemberType {
     user: UserBasicType
     joined_at: string
     updated_at: string
+    is_2fa_enabled: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
+    is_2fa_enabled: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -1510,6 +1514,8 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1518,6 +1524,8 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
@@ -1571,7 +1579,9 @@ export interface RetentionFilterType extends FilterType {
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
+    show_values_on_series?: boolean
 }
+
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType
