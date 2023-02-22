@@ -47,7 +47,7 @@ class TestResolver(BaseTest):
         resolve_symbols(expr)
 
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table=events_table_symbol)
+        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table_symbol=events_table_symbol)
         event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
         select_query_symbol = ast.SelectQuerySymbol(
@@ -85,7 +85,7 @@ class TestResolver(BaseTest):
         resolve_symbols(expr)
 
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table=events_table_symbol)
+        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table_symbol=events_table_symbol)
         event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
 
@@ -333,7 +333,7 @@ class TestResolver(BaseTest):
         expr = parse_select("select event, e.pdi.person_id from events e")
         resolve_symbols(expr)
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -435,7 +435,7 @@ class TestResolver(BaseTest):
         expr = parse_select("select event, e.pdi.person.id from events e")
         resolve_symbols(expr)
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(

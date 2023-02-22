@@ -23,7 +23,7 @@ class AsteriskExpander(TraversingVisitor):
                 ):
                     table = asterisk.table
                     while isinstance(table, ast.TableAliasSymbol):
-                        table = table.table
+                        table = table.table_symbol
                     if isinstance(table, ast.TableSymbol):
                         database_fields = table.table.get_asterisk()
                         for key in database_fields.keys():

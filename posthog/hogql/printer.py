@@ -156,7 +156,7 @@ class _Printer(Visitor):
             join_strings.append(node.join_type)
 
         if isinstance(node.symbol, ast.TableAliasSymbol):
-            table_symbol = node.symbol.table
+            table_symbol = node.symbol.table_symbol
             if table_symbol is None:
                 raise ValueError(f"Table alias {node.symbol.name} does not resolve!")
             if not isinstance(table_symbol, ast.TableSymbol):
@@ -361,7 +361,7 @@ class _Printer(Visitor):
                     return self.visit(
                         ast.AsteriskSymbol(
                             table=ast.TableAliasSymbol(
-                                table=ast.TableSymbol(table=resolved_field), name=symbol.table.name
+                                table_symbol=ast.TableSymbol(table=resolved_field), name=symbol.table.name
                             )
                         )
                     )
@@ -401,7 +401,7 @@ class _Printer(Visitor):
         # check for a materialised column
         table = field_symbol.table
         while isinstance(table, ast.TableAliasSymbol):
-            table = table.table
+            table = table.table_symbol
         if isinstance(table, ast.TableSymbol):
             table_name = table.table.clickhouse_table()
             if field is None:

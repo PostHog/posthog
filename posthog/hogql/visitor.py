@@ -104,7 +104,7 @@ class TraversingVisitor(Visitor):
         self.visit(node.table)
 
     def visit_table_alias_symbol(self, node: ast.TableAliasSymbol):
-        self.visit(node.table)
+        self.visit(node.table_symbol)
 
     def visit_select_query_alias_symbol(self, node: ast.SelectQueryAliasSymbol):
         self.visit(node.symbol)

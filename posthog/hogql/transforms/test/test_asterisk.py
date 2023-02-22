@@ -32,7 +32,7 @@ class TestAsteriskExpander(BaseTest):
         resolve_symbols(node)
         expand_asterisks(node)
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
         self.assertEqual(
             node.select,
             [

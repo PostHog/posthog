@@ -63,19 +63,19 @@ class TableSymbol(Symbol):
 
 class TableAliasSymbol(Symbol):
     name: str
-    table: TableSymbol
+    table_symbol: TableSymbol
 
     def has_child(self, name: str) -> bool:
-        return self.table.has_child(name)
+        return self.table_symbol.has_child(name)
 
     def get_child(self, name: str) -> Symbol:
         if name == "*":
             return AsteriskSymbol(table=self)
         if self.has_child(name):
-            table: Union[TableSymbol, TableAliasSymbol] = self
-            while isinstance(table, TableAliasSymbol):
-                table = table.table
-            field = table.table.get_field(name)
+            table_symbol: Union[TableSymbol, TableAliasSymbol] = self
+            while isinstance(table_symbol, TableAliasSymbol):
+                table_symbol = table_symbol.table_symbol
+            field = table_symbol.table.get_field(name)
             return database_field_to_symbol(field, name, table_symbol=self)
         raise ValueError(f"Field not found: {name}")
 
@@ -184,7 +184,7 @@ class FieldSymbol(Symbol):
         if isinstance(table_symbol, LazyTableSymbol):
             return table_symbol.joined_table.table
         while isinstance(table_symbol, TableAliasSymbol):
-            table_symbol = table_symbol.table
+            table_symbol = table_symbol.table_symbol
         if isinstance(table_symbol, TableSymbol):
             return table_symbol.table
         return None
