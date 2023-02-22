@@ -214,6 +214,7 @@ export interface PluginServerCapabilities {
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
+    sessionRecordingIngestion?: boolean
     http?: boolean
 }
 

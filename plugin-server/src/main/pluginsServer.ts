@@ -271,13 +271,15 @@ export async function startPluginsServer(
             }
         }
 
-        if (hub.capabilities.ingestion) {
+        if (hub.capabilities.sessionRecordingIngestion) {
             sessionRecordingEventsConsumer = await startSessionRecordingEventsConsumer({
                 teamManager: hub.teamManager,
                 kafka: hub.kafka,
                 statsd: hub.statsd,
             })
+        }
 
+        if (hub.capabilities.ingestion) {
             analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
                 piscina: piscina,
