@@ -802,9 +802,17 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged],
-            (isTestGroupForNewRefreshUX: boolean, acknowledgedRefreshButtonChanged: boolean): boolean => {
-                return isTestGroupForNewRefreshUX && !acknowledgedRefreshButtonChanged
+            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
+            (
+                isTestGroupForNewRefreshUX: boolean,
+                acknowledgedRefreshButtonChanged: boolean,
+                user: UserType
+            ): boolean => {
+                return (
+                    dayjs(user.date_joined).isBefore('2023-02-13') &&
+                    isTestGroupForNewRefreshUX &&
+                    !acknowledgedRefreshButtonChanged
+                )
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -830,26 +838,6 @@ export const insightLogic = kea<insightLogicType>([
                 }
 
                 return disabledReason
-            },
-        ],
-        isTestGroupForNewRefreshUX: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
-            },
-        ],
-        displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
-            (
-                isTestGroupForNewRefreshUX: boolean,
-                acknowledgedRefreshButtonChanged: boolean,
-                user: UserType
-            ): boolean => {
-                return (
-                    dayjs(user.date_joined).isBefore('2023-02-13') &&
-                    isTestGroupForNewRefreshUX &&
-                    !acknowledgedRefreshButtonChanged
-                )
             },
         ],
     }),
