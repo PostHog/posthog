@@ -172,10 +172,20 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
             },
         ],
         selectedAction: [
-            (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
-            (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
+            (s) => [
+                s.selectedActionId,
+                s.newActionForElement,
+                actionsLogic.selectors.allActions,
+                toolbarLogic.selectors.dataAttributes,
+            ],
+            (
+                selectedActionId,
+                newActionForElement,
+                allActions,
+                dataAttributes
+            ): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, [])
+                    return newAction(newActionForElement, dataAttributes)
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },
