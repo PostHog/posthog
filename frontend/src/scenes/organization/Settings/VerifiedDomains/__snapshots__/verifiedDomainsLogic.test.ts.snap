@@ -11,6 +11,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
     ],
     "created_at": "2020-09-24T15:05:01.254111Z",
     "customer_id": null,
+    "enforce_2fa": false,
     "id": "ABCD",
     "is_member_join_email_enabled": true,
     "membership_level": 8,

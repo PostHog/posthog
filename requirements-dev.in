@@ -36,7 +36,7 @@ types-pytz==2021.3.2
 types-redis==4.3.20
 types-requests==2.26.1
 isort==5.2.2
-pytest==6.2.2
+pytest==6.2.5
 pytest-django==4.1.0
 pytest-env==0.6.2
 pytest-icdiff==0.5
