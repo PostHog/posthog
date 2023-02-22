@@ -226,7 +226,7 @@ export async function startPluginsServer(
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
         }
 
-        piscina = makePiscina(serverConfig)
+        let piscina: Piscina | undefined
 
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
@@ -249,6 +249,7 @@ export async function startPluginsServer(
             // it's that heavy so it may be fine, but something to watch out
             // for.
             await graphileWorker.connectProducer()
+            piscina = piscina ?? makePiscina(serverConfig)
             await startGraphileWorker(hub, graphileWorker, piscina)
 
             if (hub.capabilities.pluginScheduledTasks) {
@@ -280,6 +281,7 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.ingestion) {
+            piscina = piscina ?? makePiscina(serverConfig)
             analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -295,6 +297,7 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.ingestionOverflow) {
+            piscina = piscina ?? makePiscina(serverConfig)
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -302,6 +305,7 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.processAsyncHandlers) {
+            piscina = piscina ?? makePiscina(serverConfig)
             onEventHandlerConsumer = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
