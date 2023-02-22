@@ -296,6 +296,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [self.visit(c) for c in ctx.columnsExpr()]
 
     def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
+        if ctx.tableIdentifier():
+            table = self.visit(ctx.tableIdentifier())
+            return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
@@ -500,6 +503,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(name=name, args=args)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
+        if ctx.tableIdentifier():
+            table = self.visit(ctx.tableIdentifier())
+            return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
