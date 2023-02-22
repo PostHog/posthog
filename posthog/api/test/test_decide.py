@@ -10,6 +10,7 @@ from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -94,7 +95,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
@@ -109,7 +109,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
         response = self._post_decide().json()
@@ -123,7 +122,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
@@ -134,7 +132,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://*.example.com"]})
 
         response = self._post_decide(origin="https://random.example.com").json()
@@ -150,7 +147,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_user_session_recording_evil_site(self):
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://example.com"]})
 
         response = self._post_decide(origin="evil.site.com").json()
@@ -163,7 +159,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
-        # don't access models directly as that doesn't update the cache.
+
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
@@ -178,13 +174,25 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"inject_web_apps": True})
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="site.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}",
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        PluginConfig.objects.create(
+            plugin=plugin, enabled=True, order=1, team=self.team, config={}, web_token="tokentoken"
+        )
+        sync_team_inject_web_apps(self.team)
 
         # caching flag definitions in the above mean fewer queries
         with self.assertNumQueries(1):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 1)
 
     def test_site_app_injection(self):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
@@ -200,7 +208,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]

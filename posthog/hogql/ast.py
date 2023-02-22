@@ -53,9 +53,14 @@ class TableSymbol(Symbol):
         return self.table.has_field(name)
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if self.has_child(name):
+            field = self.table.get_field(name)
+            if isinstance(field, Table):
+                return TableSymbol(table=field)
             return FieldSymbol(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
+        raise ValueError(f'Field "{name}" not found on table {type(self.table).__name__}')
 
 
 class TableAliasSymbol(Symbol):
@@ -66,6 +71,8 @@ class TableAliasSymbol(Symbol):
         return self.table.has_child(name)
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if self.has_child(name):
             return FieldSymbol(name=name, table=self)
         return self.table.get_child(name)
@@ -84,6 +91,8 @@ class SelectQuerySymbol(Symbol):
     anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if name in self.columns:
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Column not found: {name}")
@@ -97,9 +106,11 @@ class SelectQueryAliasSymbol(Symbol):
     symbol: SelectQuerySymbol
 
     def get_child(self, name: str) -> Symbol:
+        if name == "*":
+            return AsteriskSymbol(table=self)
         if self.symbol.has_child(name):
             return FieldSymbol(name=name, table=self)
-        raise ValueError(f"Field not found: {name}")
+        raise ValueError(f"Field {name} not found on query with alias {self.name}")
 
     def has_child(self, name: str) -> bool:
         return self.symbol.has_child(name)

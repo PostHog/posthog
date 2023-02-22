@@ -60,7 +60,12 @@ class Migration(AsyncMigrationDefinition):
                 {execute_on_cluster}
                 MATERIALIZE INDEX {index_name}
                 """,
-                {"mutations_sync": 2},
+                {
+                    "mutations_sync": 2,
+                    "max_execution_time": 2 * 24 * 60 * 60,  # two days
+                    "send_timeout": 2 * 24 * 60 * 60,  # two days,
+                    "receive_timeout": 2 * 24 * 60 * 60,  # two days,
+                },
             )
         except ServerException as err:
             # We ignore indexes that already exist (due to being added before this migration runs)
