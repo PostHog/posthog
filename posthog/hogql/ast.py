@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
-from posthog.hogql.database import DatabaseField, FieldTraverser, JoinedTable, StringJSONDatabaseField, Table
+from posthog.hogql.database import DatabaseField, FieldTraverser, LazyTable, StringJSONDatabaseField, Table
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -57,7 +57,7 @@ class TableSymbol(Symbol):
             return AsteriskSymbol(table=self)
         if self.has_child(name):
             field = self.table.get_field(name)
-            if isinstance(field, JoinedTable):
+            if isinstance(field, LazyTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserSymbol(chain=field.chain, symbol=self)
@@ -80,7 +80,7 @@ class TableAliasSymbol(Symbol):
             while isinstance(table, TableAliasSymbol):
                 table = table.table
             field = table.table.get_field(name)
-            if isinstance(field, JoinedTable):
+            if isinstance(field, LazyTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserSymbol(chain=field.chain, symbol=self)
@@ -91,7 +91,7 @@ class TableAliasSymbol(Symbol):
 class LazyTableSymbol(Symbol):
     table: Union[TableSymbol, TableAliasSymbol, "LazyTableSymbol"]
     field: str
-    joined_table: JoinedTable
+    joined_table: LazyTable
 
     def has_child(self, name: str) -> bool:
         return self.joined_table.table.has_field(name)
@@ -101,7 +101,7 @@ class LazyTableSymbol(Symbol):
             return AsteriskSymbol(table=self)
         if self.has_child(name):
             field = self.joined_table.table.get_field(name)
-            if isinstance(field, JoinedTable):
+            if isinstance(field, LazyTable):
                 return LazyTableSymbol(table=self, field=name, joined_table=field)
             if isinstance(field, FieldTraverser):
                 return FieldTraverserSymbol(chain=field.chain, symbol=self)
@@ -195,7 +195,7 @@ class FieldSymbol(Symbol):
         database_field = self.resolve_database_field()
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
-        if isinstance(database_field, JoinedTable):
+        if isinstance(database_field, LazyTable):
             return FieldSymbol(
                 name=name, table=LazyTableSymbol(table=self.table, field=name, joined_table=database_field)
             )

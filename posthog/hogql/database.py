@@ -58,7 +58,7 @@ class Table(BaseModel):
                 asterisk[key] = database_field
             elif (
                 isinstance(database_field, Table)
-                or isinstance(database_field, JoinedTable)
+                or isinstance(database_field, LazyTable)
                 or isinstance(database_field, FieldTraverser)
             ):
                 pass  # ignore virtual tables for now
@@ -67,7 +67,7 @@ class Table(BaseModel):
         return asterisk
 
 
-class JoinedTable(BaseModel):
+class LazyTable(BaseModel):
     class Config:
         extra = Extra.forbid
 
@@ -142,9 +142,7 @@ class PersonDistinctIdTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    person: JoinedTable = JoinedTable(
-        from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table
-    )
+    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
 
     # Remove the "is_deleted" and "version" columns from "select *"
     def get_asterisk(self) -> Dict[str, DatabaseField]:
@@ -207,7 +205,7 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
-    pdi: JoinedTable = JoinedTable(
+    pdi: LazyTable = LazyTable(
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
     person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
@@ -235,7 +233,7 @@ class SessionRecordingEvents(Table):
     last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
     urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
 
-    pdi: JoinedTable = JoinedTable(
+    pdi: LazyTable = LazyTable(
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
 
