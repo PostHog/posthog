@@ -298,6 +298,7 @@ const HogQL: HogQLQuery = {
         '          properties.$geoip_country_name as `Country Name`,\n' +
         '          count() as `Event count`\n' +
         '     from events\n' +
+        '    where timestamp > now() - interval 1 month\n' +
         ' group by event,\n' +
         '          properties.$geoip_country_name\n' +
         ' order by count() desc\n' +

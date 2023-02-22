@@ -355,6 +355,24 @@ class TestParser(BaseTest):
             ),
         )
 
+    def test_intervals(self):
+        self.assertEqual(
+            parse_expr("interval 1 month"),
+            ast.Call(name="toIntervalMonth", args=[ast.Constant(value=1)]),
+        )
+        self.assertEqual(
+            parse_expr("now() - interval 1 week"),
+            ast.BinaryOperation(
+                op=ast.BinaryOperationType.Sub,
+                left=ast.Call(name="now", args=[]),
+                right=ast.Call(name="toIntervalWeek", args=[ast.Constant(value=1)]),
+            ),
+        )
+        self.assertEqual(
+            parse_expr("interval event year"),
+            ast.Call(name="toIntervalYear", args=[ast.Field(chain=["event"])]),
+        )
+
     def test_select_columns(self):
         self.assertEqual(parse_select("select 1"), ast.SelectQuery(select=[ast.Constant(value=1)]))
         self.assertEqual(
