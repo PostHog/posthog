@@ -7,7 +7,12 @@ from posthog.models.filters.filter import Filter
 from posthog.models.team import Team
 from posthog.queries.funnels.base import ClickhouseFunnelBase
 from posthog.queries.funnels.utils import get_funnel_order_class
-from posthog.queries.util import get_earliest_timestamp, get_interval_func_ch, get_trunc_func_ch
+from posthog.queries.util import (
+    correct_result_for_sampling,
+    get_earliest_timestamp,
+    get_interval_func_ch,
+    get_trunc_func_ch,
+)
 
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 HUMAN_READABLE_TIMESTAMP_FORMAT = "%-d-%b-%Y"
@@ -163,14 +168,11 @@ class ClickhouseFunnelTrends(ClickhouseFunnelBase):
 
         summary = []
 
-        sample_multiplier = 1
-        if self._filter.sampling_factor:
-            sample_multiplier = 1 / self._filter.sampling_factor
         for period_row in results:
             serialized_result = {
                 "timestamp": period_row[0],
-                "reached_from_step_count": period_row[1] * sample_multiplier,
-                "reached_to_step_count": period_row[2] * sample_multiplier,
+                "reached_from_step_count": correct_result_for_sampling(period_row[1], self._filter.sampling_factor),
+                "reached_to_step_count": correct_result_for_sampling(period_row[2], self._filter.sampling_factor),
                 "conversion_rate": period_row[3],
             }
 
