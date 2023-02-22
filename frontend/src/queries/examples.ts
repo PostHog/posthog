@@ -319,7 +319,8 @@ const HogQLTable: DataTableNode = {
  group by event,
           properties.$browser,
           person.properties.email
- order by count() desc`,
+ order by count() desc
+    limit 100`,
     },
 }
 
