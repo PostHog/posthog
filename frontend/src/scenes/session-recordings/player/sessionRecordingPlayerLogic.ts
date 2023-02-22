@@ -675,9 +675,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                       sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
 
             if (listLogic) {
-                listLogic?.actions?.loadAllRecordings()
+                listLogic.actions.loadAllRecordings()
                 // Reset selected recording to first one in the list
-                listLogic?.actions?.setSelectedRecordingId(null)
+                listLogic.actions.setSelectedRecordingId(null)
             } else {
                 // On a page that displays a single recording `recordings/:id` that doesn't contain a list
                 router.actions.push(urls.sessionRecordings())
