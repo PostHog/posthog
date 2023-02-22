@@ -31,6 +31,8 @@ import { ExportedSessionRecordingFile } from '../file-playback/sessionRecordingF
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -664,15 +666,21 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             await deleteRecording(props.sessionRecordingId)
 
             // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
-            if (
+            const listLogic =
                 !!props.playlistShortId &&
                 sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
-            ) {
-                // On playlist page
-                sessionRecordingsListLogic({ playlistShortId: props.playlistShortId }).actions.loadAllRecordings()
+                    ? // On playlist page
+                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
+                    : // In any other context (recent recordings, single modal)
+                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
+
+            if (listLogic) {
+                listLogic?.actions?.loadAllRecordings()
+                // Reset selected recording to first one in the list
+                listLogic?.actions?.setSelectedRecordingId(null)
             } else {
-                // In any other context (recent recordings, single modal, single recording page)
-                sessionRecordingsListLogic.findMounted({ updateSearchParams: true })?.actions?.loadAllRecordings()
+                // On a page that displays a single recording `recordings/:id` that doesn't contain a list
+                router.actions.push(urls.sessionRecordings())
             }
         },
     })),
