@@ -38,6 +38,7 @@ export function PlayerUpNext({
     const goToRecording = (automatic: boolean): void => {
         reportNextRecordingTriggered(automatic)
         router.actions.push(router.values.currentLocation.pathname, router.values.currentLocation.searchParams, {
+            ...router.values.currentLocation.hashParams,
             sessionRecordingId: nextSessionRecording?.id,
         })
     }

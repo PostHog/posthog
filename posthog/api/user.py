@@ -2,6 +2,8 @@ import json
 import os
 import secrets
 import urllib.parse
+from base64 import b32encode
+from binascii import unhexlify
 from typing import Any, Optional, cast
 
 import requests
@@ -14,9 +16,15 @@ from django.shortcuts import redirect
 from django.utils import timezone
 from django.views.decorators.http import require_http_methods
 from django_filters.rest_framework import DjangoFilterBackend
+from django_otp import login as otp_login
+from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
+from two_factor.forms import TOTPDeviceForm
+from two_factor.utils import default_device
 
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
@@ -46,6 +54,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
+    is_2fa_enabled = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -77,6 +86,7 @@ class UserSerializer(serializers.ModelSerializer):
             "password",
             "current_password",  # used when changing current password
             "events_column_config",
+            "is_2fa_enabled",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -87,6 +97,9 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def get_is_2fa_enabled(self, instance: User) -> bool:
+        return default_device(instance) is not None
 
     def validate_set_current_organization(self, value: str) -> Organization:
         try:
@@ -230,6 +243,26 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
 
     def get_serializer_context(self):
         return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
+
+    @action(methods=["GET"], detail=True)
+    def start_2fa_setup(self, request, **kwargs):
+        key = random_hex(20)
+        self.request.session["django_two_factor-hex"] = key
+        rawkey = unhexlify(key.encode("ascii"))
+        b32key = b32encode(rawkey).decode("utf-8")
+        self.request.session["django_two_factor-qr_secret_key"] = b32key
+        return Response({"success": True})
+
+    @action(methods=["POST"], detail=True)
+    def validate_2fa(self, request, **kwargs):
+        form = TOTPDeviceForm(
+            request.session["django_two_factor-hex"], request.user, data={"token": request.data["token"]}
+        )
+        if not form.is_valid():
+            raise serializers.ValidationError("Token is not valid", code="token_invalid")
+        form.save()
+        otp_login(request, default_device(request.user))
+        return Response({"success": True})
 
 
 @authenticate_secondarily
