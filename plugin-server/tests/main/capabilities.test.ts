@@ -2,8 +2,6 @@ import Piscina from '@posthog/piscina'
 
 import { GraphileWorker } from '../../src/main/graphile-worker/graphile-worker'
 import { startGraphileWorker } from '../../src/main/graphile-worker/worker-setup'
-import { IngestionConsumer } from '../../src/main/ingestion-queues/kafka-queue'
-import { startQueues } from '../../src/main/ingestion-queues/queue'
 import { Hub, LogLevel } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 
@@ -24,27 +22,6 @@ describe('capabilities', () => {
 
     afterEach(async () => {
         await closeHub()
-    })
-
-    describe('queue', () => {
-        it('starts ingestion queue by default', async () => {
-            const queues = await startQueues(hub, piscina)
-
-            expect(queues).toEqual({
-                ingestion: expect.any(IngestionConsumer),
-            })
-        })
-
-        it('handles ingestion being turned off', async () => {
-            hub.capabilities.ingestion = false
-            hub.capabilities.processAsyncHandlers = false
-
-            const queues = await startQueues(hub, piscina)
-
-            expect(queues).toEqual({
-                ingestion: null,
-            })
-        })
     })
 
     describe('startGraphileWorker()', () => {

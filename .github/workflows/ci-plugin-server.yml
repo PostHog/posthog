@@ -41,7 +41,7 @@ concurrency:
 jobs:
     code-quality:
         name: Code quality
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-22.04
         defaults:
             run:
                 working-directory: 'plugin-server'
@@ -71,7 +71,7 @@ jobs:
 
     tests:
         name: Tests (${{matrix.shard}})
-        runs-on: ubuntu-20.04
+        runs-on: ubuntu-22.04
 
         strategy:
             fail-fast: false

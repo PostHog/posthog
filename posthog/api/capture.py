@@ -55,11 +55,16 @@ LOG_RATE_LIMITER = Limiter(
 # fewer restrictions on e.g. the order they need to be processed in.
 SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
-
 EVENTS_DROPPED_OVER_QUOTA_COUNTER = Counter(
     "capture_events_dropped_over_quota",
     "Events dropped by capture due to quota-limiting, per resource_type, team_id and token.",
     labelnames=[LABEL_RESOURCE_TYPE, LABEL_TEAM_ID, "token"],
+)
+
+PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
+    "capture_partition_key_capacity_exceeded_total",
+    "Indicates that automatic partition override is active for a given key. Value incremented once a minute.",
+    labelnames=["partition_key"],
 )
 
 
@@ -526,6 +531,7 @@ def is_randomly_partitioned(candidate_partition_key: str) -> bool:
                 # Return early if we have logged this key already.
                 return True
 
+            PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER.labels(partition_key=candidate_partition_key).inc()
             statsd.incr("partition_key_capacity_exceeded", tags={"partition_key": candidate_partition_key})
             logger.warning(
                 "Partition key %s overridden as bucket capacity of %s tokens exceeded",

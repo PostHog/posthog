@@ -19,7 +19,6 @@ import {
     Person,
     PluginsServerConfig,
     PropertyDefinitionTypeEnum,
-    PropertyUpdateOperation,
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -1944,9 +1943,9 @@ test('team event_properties', async () => {
     expect(await hub.db.fetchPropertyDefinitions()).toEqual([
         {
             id: expect.any(String),
-            is_numerical: true,
-            name: 'price',
-            property_type: 'Numeric',
+            is_numerical: false,
+            name: '$ip',
+            property_type: 'String',
             property_type_format: null,
             query_usage_30_day: null,
             team_id: 2,
@@ -1968,9 +1967,9 @@ test('team event_properties', async () => {
         },
         {
             id: expect.any(String),
-            is_numerical: false,
-            name: '$ip',
-            property_type: 'String',
+            is_numerical: true,
+            name: 'price',
+            property_type: 'Numeric',
             property_type_format: null,
             query_usage_30_day: null,
             team_id: 2,
@@ -1985,7 +1984,7 @@ test('team event_properties', async () => {
         {
             id: expect.any(Number),
             event: 'purchase',
-            property: 'price',
+            property: '$ip',
             team_id: 2,
         },
         {
@@ -1997,7 +1996,7 @@ test('team event_properties', async () => {
         {
             id: expect.any(Number),
             event: 'purchase',
-            property: '$ip',
+            property: 'price',
             team_id: 2,
         },
     ])
@@ -2259,8 +2258,8 @@ test('groupidentify', async () => {
         group_key: 'org::5',
         group_properties: { foo: 'bar' },
         created_at: now,
-        properties_last_updated_at: { foo: now.toISO() },
-        properties_last_operation: { foo: PropertyUpdateOperation.Set },
+        properties_last_updated_at: {},
+        properties_last_operation: {},
         version: 1,
     })
 })
@@ -2269,16 +2268,7 @@ test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 
     await createPerson(hub, team, ['distinct_id1'])
-    await hub.db.insertGroup(
-        team.id,
-        0,
-        'org::5',
-        { a: 1, b: 2 },
-        now,
-        { a: now.toISO(), b: now.toISO() },
-        { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
-        1
-    )
+    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {}, 1)
 
     await processEvent(
         'distinct_id1',
@@ -2322,12 +2312,8 @@ test('$groupidentify updating properties', async () => {
         group_key: 'org::5',
         group_properties: { a: 3, b: 2, foo: 'bar' },
         created_at: now,
-        properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
-        properties_last_operation: {
-            a: PropertyUpdateOperation.Set,
-            b: PropertyUpdateOperation.Set,
-            foo: PropertyUpdateOperation.Set,
-        },
+        properties_last_updated_at: {},
+        properties_last_operation: {},
         version: 2,
     })
 })

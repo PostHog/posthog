@@ -205,8 +205,25 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
     return result
 
 
-def report_team_action(team: Team, event: str, properties: Dict = {}):
+def report_team_action(team: Team, event: str, properties: Dict = {}, group_properties: Optional[Dict] = None):
     """
     For capturing events where it is unclear which user was the core actor we can use the team instead
     """
     posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))
+
+    if group_properties:
+        posthoganalytics.group_identify("team", str(team.id), properties=group_properties)
+
+
+def report_organization_action(
+    organization: Organization, event: str, properties: Dict = {}, group_properties: Optional[Dict] = None
+):
+    """
+    For capturing events where it is unclear which user was the core actor we can use the organization instead
+    """
+    posthoganalytics.capture(
+        str(organization.id), event, properties=properties, groups=groups(organization=organization)
+    )
+
+    if group_properties:
+        posthoganalytics.group_identify("organization", str(organization.id), properties=group_properties)

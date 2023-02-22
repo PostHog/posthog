@@ -988,7 +988,7 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
     return result
 
 
-def should_refresh(request: Request) -> bool:
+def refresh_requested_by_client(request: Request) -> bool:
     return _request_has_key_set("refresh", request)
 
 

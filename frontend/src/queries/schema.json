@@ -164,6 +164,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -209,7 +213,13 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -288,6 +298,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -332,7 +346,13 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -425,6 +445,10 @@
                                 "$ref": "#/definitions/FunnelStepRangeEntityFilter"
                             },
                             "type": "array"
+                        },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
                         },
                         "filter_test_accounts": {
                             "type": "boolean"
@@ -531,6 +555,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
@@ -608,6 +635,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -684,6 +715,9 @@
                                 }
                             ]
                         },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
                         "start_point": {
                             "type": "string"
                         },
@@ -754,6 +788,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -797,6 +835,9 @@
                         },
                         "returning_entity": {
                             "type": "object"
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         },
                         "target_entity": {
                             "type": "object"
@@ -868,6 +909,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -898,6 +943,12 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
+                        },
+                        "show_values_on_series": {
+                            "type": "boolean"
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
@@ -966,6 +1017,10 @@
                             },
                             "type": "array"
                         },
+                        "explicit_date": {
+                            "description": "Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period. Strings are cast to bools, e.g. \"true\" -> true.",
+                            "type": ["boolean", "string", "null"]
+                        },
                         "filter_test_accounts": {
                             "type": "boolean"
                         },
@@ -996,6 +1051,9 @@
                                     "$ref": "#/definitions/PropertyGroupFilter"
                                 }
                             ]
+                        },
+                        "sample_results": {
+                            "type": ["boolean", "null"]
                         }
                     },
                     "type": "object"
@@ -1692,7 +1750,7 @@
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
-                    "type": "string"
+                    "type": ["string", "null"]
                 },
                 "funnel_from_step": {
                     "type": "number"
@@ -2005,6 +2063,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2577,6 +2638,9 @@
                 "show_legend": {
                     "type": "boolean"
                 },
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2704,6 +2768,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "shown_as": {

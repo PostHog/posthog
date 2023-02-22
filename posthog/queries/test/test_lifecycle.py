@@ -775,6 +775,41 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    # Ensure running the query with sampling works + generate a snapshot that shows sampling in the query
+    @snapshot_clickhouse_queries
+    def test_sampling(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
+
+        Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    "sample_results": True,
+                }
+            ),
+            self.team,
+        )
+
 
 def assertLifecycleResults(results, expected):
     sorted_results = [{"status": r["status"], "data": r["data"]} for r in sorted(results, key=lambda r: r["status"])]

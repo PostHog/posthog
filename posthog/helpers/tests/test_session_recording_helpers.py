@@ -449,6 +449,8 @@ def test_get_events_summary_from_snapshot_data():
         {"type": 2, "timestamp": timestamp, "foo": "bar"},
         # include standard properties
         {"type": 1, "timestamp": timestamp, "data": {"source": 3}},
+        # Payload as list when we expect a dict
+        {"type": 1, "timestamp": timestamp, "data": {"source": 3, "payload": [1, 2, 3]}},
         # include only allowed values
         {
             "type": 1,
@@ -480,6 +482,7 @@ def test_get_events_summary_from_snapshot_data():
 
     assert get_events_summary_from_snapshot_data(snapshot_events) == [
         {"timestamp": timestamp, "type": 2, "data": {}},
+        {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
         {"timestamp": timestamp, "type": 1, "data": {"source": 3}},
         {
             "timestamp": timestamp,

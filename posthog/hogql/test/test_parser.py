@@ -444,6 +444,13 @@ class TestParser(BaseTest):
             ),
         )
         self.assertEqual(
+            parse_select("select 1 from events e"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+            ),
+        )
+        self.assertEqual(
             parse_select("select 1 from complex.table"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
@@ -452,6 +459,13 @@ class TestParser(BaseTest):
         )
         self.assertEqual(
             parse_select("select 1 from complex.table as a"),
+            ast.SelectQuery(
+                select=[ast.Constant(value=1)],
+                select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
+            ),
+        )
+        self.assertEqual(
+            parse_select("select 1 from complex.table a"),
             ast.SelectQuery(
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["complex", "table"]), alias="a"),
@@ -488,9 +502,11 @@ class TestParser(BaseTest):
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
-                    join_type="JOIN",
-                    join_constraint=ast.Constant(value=1),
-                    join_expr=ast.JoinExpr(table=ast.Field(chain=["events2"])),
+                    next_join=ast.JoinExpr(
+                        join_type="JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        constraint=ast.Constant(value=1),
+                    ),
                 ),
             ),
         )
@@ -500,9 +516,11 @@ class TestParser(BaseTest):
                 select=[ast.Field(chain=["*"])],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
-                    join_type="LEFT OUTER JOIN",
-                    join_constraint=ast.Constant(value=1),
-                    join_expr=ast.JoinExpr(table=ast.Field(chain=["events2"])),
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT OUTER JOIN",
+                        table=ast.Field(chain=["events2"]),
+                        constraint=ast.Constant(value=1),
+                    ),
                 ),
             ),
         )
@@ -512,13 +530,64 @@ class TestParser(BaseTest):
                 select=[ast.Constant(value=1)],
                 select_from=ast.JoinExpr(
                     table=ast.Field(chain=["events"]),
-                    join_type="LEFT OUTER JOIN",
-                    join_constraint=ast.Constant(value=1),
-                    join_expr=ast.JoinExpr(
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT OUTER JOIN",
                         table=ast.Field(chain=["events2"]),
-                        join_type="RIGHT ANY JOIN",
-                        join_constraint=ast.Constant(value=2),
-                        join_expr=ast.JoinExpr(table=ast.Field(chain=["events3"])),
+                        constraint=ast.Constant(value=1),
+                        next_join=ast.JoinExpr(
+                            join_type="RIGHT ANY JOIN",
+                            table=ast.Field(chain=["events3"]),
+                            constraint=ast.Constant(value=2),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+    def test_select_from_join_multiple(self):
+        node = parse_select(
+            """
+            SELECT event, timestamp, e.distinct_id, p.id, p.properties.email
+            FROM events e
+            LEFT JOIN person_distinct_id pdi
+            ON pdi.distinct_id = e.distinct_id
+            LEFT JOIN persons p
+            ON p.id = pdi.person_id
+            """,
+            self.team,
+        )
+        self.assertEqual(
+            node,
+            ast.SelectQuery(
+                select=[
+                    ast.Field(chain=["event"]),
+                    ast.Field(chain=["timestamp"]),
+                    ast.Field(chain=["e", "distinct_id"]),
+                    ast.Field(chain=["p", "id"]),
+                    ast.Field(chain=["p", "properties", "email"]),
+                ],
+                select_from=ast.JoinExpr(
+                    table=ast.Field(chain=["events"]),
+                    alias="e",
+                    next_join=ast.JoinExpr(
+                        join_type="LEFT JOIN",
+                        table=ast.Field(chain=["person_distinct_id"]),
+                        alias="pdi",
+                        constraint=ast.CompareOperation(
+                            op=ast.CompareOperationType.Eq,
+                            left=ast.Field(chain=["pdi", "distinct_id"]),
+                            right=ast.Field(chain=["e", "distinct_id"]),
+                        ),
+                        next_join=ast.JoinExpr(
+                            join_type="LEFT JOIN",
+                            table=ast.Field(chain=["persons"]),
+                            alias="p",
+                            constraint=ast.CompareOperation(
+                                op=ast.CompareOperationType.Eq,
+                                left=ast.Field(chain=["p", "id"]),
+                                right=ast.Field(chain=["pdi", "person_id"]),
+                            ),
+                        ),
                     ),
                 ),
             ),

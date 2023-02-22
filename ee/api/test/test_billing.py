@@ -12,7 +12,7 @@ from rest_framework import status
 
 from ee.api.test.base import APILicensedTest
 from ee.api.test.fixtures.billing_plans_response import create_billing_plans_mock_response
-from ee.billing.billing_manager import BillingPeriod, CustomerInfo, CustomerProduct
+from ee.billing.billing_types import BillingPeriod, CustomerInfo, CustomerProduct
 from ee.models.license import License
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team

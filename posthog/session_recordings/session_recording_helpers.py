@@ -329,11 +329,13 @@ def get_events_summary_from_snapshot_data(snapshot_data: List[SnapshotData]) -> 
         }
         # Some events have a payload, some values of which we want
         if event.get("data", {}).get("payload"):
-            data["payload"] = {
-                key: value
-                for key, value in event["data"]["payload"].items()
-                if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
-            }
+            # Make sure the payload is a dict before we access it
+            if isinstance(event["data"]["payload"], dict):
+                data["payload"] = {
+                    key: value
+                    for key, value in event["data"]["payload"].items()
+                    if type(value) in [str, int] and f"payload.{key}" in EVENT_SUMMARY_DATA_INCLUSIONS
+                }
 
         events_summary.append(
             SessionRecordingEventSummary(

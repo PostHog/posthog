@@ -107,8 +107,8 @@ export function PieChart({
                 },
                 layout: {
                     padding: {
-                        top: 8,
-                        bottom: 8,
+                        top: 12, // 12 px so that the label isn't cropped
+                        bottom: 20, // 12 px so that the label isn't cropped + 8 px of padding against the number below
                     },
                 },
                 borderWidth: 0,
@@ -133,7 +133,11 @@ export function PieChart({
                                 0
                             ) as number
                             const percentage = ((context.dataset.data[context.dataIndex] as number) / total) * 100
-                            return context.dataset.data.length > 1 && percentage > 5
+                            return (
+                                filters?.show_values_on_series !== false && // show if true or unset
+                                context.dataset.data.length > 1 &&
+                                percentage > 5
+                            )
                         },
                         padding: (context) => {
                             // in order to make numbers below 10 look circular we need a little padding
@@ -141,6 +145,10 @@ export function PieChart({
                             const paddingY = value < 10 ? 2 : 4
                             const paddingX = value < 10 ? 5 : 4
                             return { top: paddingY, bottom: paddingY, left: paddingX, right: paddingX }
+                        },
+                        formatter: (value: number) => formatAggregationAxisValue(filters, value),
+                        font: {
+                            weight: 500,
                         },
                         borderRadius: 25,
                         borderWidth: 2,

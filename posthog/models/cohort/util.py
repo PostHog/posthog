@@ -31,6 +31,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 
 # temporary marker to denote when cohortpeople table started being populated
@@ -197,7 +198,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
         hogql_context=filter.hogql_context,
     )
 
-    results = sync_execute(
+    results = insight_sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
             person_query=GET_LATEST_PERSON_SQL,
             distinct_query=filter_query,
@@ -207,6 +208,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
             limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
         ),
         {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
+        query_type="get_person_ids_by_cohort_id",
     )
 
     return [str(row[0]) for row in results]

@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
-from decimal import Decimal
-from typing import Any, Dict, List, Optional, TypedDict, cast
+from typing import Any, Dict, Optional, cast
 
 import jwt
 import requests
@@ -8,72 +7,14 @@ import structlog
 from django.utils import timezone
 from rest_framework.exceptions import NotAuthenticated
 
+from ee.billing.billing_types import BillingStatus
+from ee.billing.quota_limiting import set_org_usage_summary, sync_org_quota_limits
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
-from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.organization import OrganizationUsageInfo
 
 logger = structlog.get_logger(__name__)
-
-
-class Tier(TypedDict):
-    flat_amount_usd: Decimal
-    unit_amount_usd: Decimal
-    current_amount_usd: Decimal
-    up_to: Optional[int]
-
-
-class CustomerProduct(TypedDict):
-    name: str
-    description: str
-    price_description: Optional[str]
-    image_url: Optional[str]
-    type: str
-    free_allocation: int
-    tiers: List[Tier]
-    tiered: bool
-    unit_amount_usd: Optional[Decimal]
-    current_amount_usd: Decimal
-    current_usage: int
-    usage_limit: Optional[int]
-    has_exceeded_limit: bool
-    percentage_usage: float
-    projected_usage: int
-    projected_amount: Decimal
-
-
-class LicenseInfo(TypedDict):
-    type: str
-
-
-class BillingPeriod(TypedDict):
-    current_period_start: str
-    current_period_end: str
-
-
-class UsageSummary(TypedDict):
-    limit: Optional[int]
-    usage: Optional[int]
-
-
-class CustomerInfo(TypedDict):
-    customer_id: Optional[str]
-    deactivated: bool
-    has_active_subscription: bool
-    stripe_portal_url: str
-    billing_period: BillingPeriod
-    available_features: List[AvailableFeature]
-    current_total_amount_usd: Optional[str]
-    products: Optional[List[CustomerProduct]]
-    custom_limits_usd: Optional[Dict[str, str]]
-    free_trial_until: Optional[str]
-    usage_summary: Dict[str, UsageSummary]
-
-
-class BillingStatus(TypedDict):
-    license: LicenseInfo
-    customer: CustomerInfo
 
 
 def build_billing_token(license: License, organization: Organization):
@@ -262,33 +203,18 @@ class BillingManager:
 
         usage_summary = cast(dict, data.get("usage_summary"))
         if usage_summary:
-            # TRICKY: We don't want to overwrite the "todays_usage" value unless the
-            # usage from the billing service is different than what we have locally.
-
-            new_org_usage = OrganizationUsageInfo(
-                events={
-                    "usage": usage_summary["events"]["usage"],
-                    "limit": usage_summary["events"]["limit"],
-                    "todays_usage": organization.usage["events"].get("todays_usage", 0)
-                    if organization.usage and usage_summary["events"]["usage"] == organization.usage["events"]["usage"]
-                    else 0,
-                },
-                recordings={
-                    "usage": usage_summary["recordings"]["usage"],
-                    "limit": usage_summary["recordings"]["limit"],
-                    "todays_usage": organization.usage["recordings"].get("todays_usage", 0)
-                    if organization.usage
-                    and usage_summary["recordings"]["usage"] == organization.usage["recordings"]["usage"]
-                    else 0,
-                },
+            usage_info = OrganizationUsageInfo(
+                events=usage_summary["events"],
+                recordings=usage_summary["recordings"],
                 period=[
                     data["billing_period"]["current_period_start"],
                     data["billing_period"]["current_period_end"],
                 ],
             )
 
-            organization.usage = new_org_usage
-            org_modified = True
+            if set_org_usage_summary(organization, new_usage=usage_info):
+                org_modified = True
+                sync_org_quota_limits(organization)
 
         available_features = data.get("available_features", None)
         if available_features and available_features != organization.available_features:

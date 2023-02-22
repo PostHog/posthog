@@ -138,6 +138,7 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+    is_2fa_enabled: boolean
 }
 
 export interface NotificationSettings {
@@ -181,6 +182,7 @@ export interface OrganizationType extends OrganizationBasicType {
     available_features: AvailableFeature[]
     is_member_join_email_enabled: boolean
     customer_id: string | null
+    enforce_2fa: boolean | null
     metadata?: OrganizationMetadata
 }
 
@@ -204,11 +206,13 @@ export interface BaseMemberType {
     user: UserBasicType
     joined_at: string
     updated_at: string
+    is_2fa_enabled: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
+    is_2fa_enabled: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -285,7 +289,6 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
-
     capture_performance_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
@@ -681,7 +684,7 @@ export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
     name?: string | null
-    custom_name?: string
+    custom_name?: string | null
     index?: number
     order?: number
 }
@@ -1069,7 +1072,7 @@ export interface BillingProductV2Type {
     image_url?: string
     free_allocation?: number
     tiers?: BillingV2TierType[]
-    tiered?: boolean
+    tiered: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
@@ -1146,6 +1149,7 @@ export enum InsightColor {
 
 export interface Cacheable {
     last_refresh: string | null
+    next_allowed_client_refresh?: string | null
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -1447,6 +1451,11 @@ export interface FilterType {
     insight?: InsightType
     date_from?: string | null
     date_to?: string | null
+    /**
+     * Whether the `date_from` and `date_to` should be used verbatim. Disables rounding to the start and end of period.
+     * Strings are cast to bools, e.g. "true" -> true.
+     */
+    explicit_date?: boolean | string | null
 
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
@@ -1471,6 +1480,7 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
+    sample_results?: boolean | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1501,6 +1511,8 @@ export interface TrendsFilterType extends FilterType {
     formula?: any
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
@@ -1509,6 +1521,8 @@ export interface StickinessFilterType extends FilterType {
     stickiness_days?: number
     shown_as?: ShownAsValue
     display?: ChartDisplayType
+
+    show_values_on_series?: boolean
 }
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
@@ -1562,7 +1576,9 @@ export interface RetentionFilterType extends FilterType {
 }
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
+    show_values_on_series?: boolean
 }
+
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType
@@ -1720,7 +1736,7 @@ export interface FunnelStep {
     median_conversion_time: number | null
     count: number
     name: string
-    custom_name?: string
+    custom_name?: string | null
     order: number
     people?: string[]
     type: EntityType
@@ -1735,7 +1751,7 @@ export interface FunnelStep {
     converted_people_url: string
 
     // Url that you can GET to retrieve the people that dropped in this step
-    dropped_people_url: string
+    dropped_people_url: string | null
 }
 
 export interface FunnelStepWithNestedBreakdown extends FunnelStep {
@@ -2139,22 +2155,40 @@ export interface Experiment {
     end_date?: string | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
-    created_at: string
+    created_at: string | null
     created_by: UserBasicType | null
+    updated_at: string | null
 }
 
-export interface ExperimentResults {
-    insight: FunnelStep[][] | TrendResult[]
+export interface ExperimentVariant {
+    key: string
+    success_count: number
+    failure_count: number
+}
+
+interface BaseExperimentResults {
     probability: Record<string, number>
-    filters: FilterType
-    itemID: string
+    fakeInsightId: string
     significant: boolean
     noData?: boolean
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
     secondary_metric_results?: SecondaryMetricAPIResult[]
+    variants: ExperimentVariant[]
 }
+
+export interface TrendsExperimentResults extends BaseExperimentResults {
+    insight: TrendResult[]
+    filters: TrendsFilterType
+}
+
+export interface FunnelExperimentResults extends BaseExperimentResults {
+    insight: FunnelStep[][]
+    filters: FunnelsFilterType
+}
+
+export type ExperimentResults = TrendsExperimentResults | FunnelExperimentResults
 
 export interface SecondaryMetricAPIResult {
     name: string

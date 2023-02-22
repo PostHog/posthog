@@ -1,17 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 
-import hhFall from 'public/hedgehog/sprites/fall.png'
-import hhJump from 'public/hedgehog/sprites/jump.png'
-import hhSign from 'public/hedgehog/sprites/sign.png'
-import hhSpin from 'public/hedgehog/sprites/spin.png'
-import hhWalk from 'public/hedgehog/sprites/walk.png'
-import hhWave from 'public/hedgehog/sprites/wave.png'
-import hhFallXmas from 'public/hedgehog/sprites/fall-xmas.png'
-import hhJumpXmas from 'public/hedgehog/sprites/jump-xmas.png'
-import hhSignXmas from 'public/hedgehog/sprites/sign-xmas.png'
-import hhSpinXmas from 'public/hedgehog/sprites/spin-xmas.png'
-import hhWalkXmas from 'public/hedgehog/sprites/walk-xmas.png'
-import hhWaveXmas from 'public/hedgehog/sprites/wave-xmas.png'
 import clsx from 'clsx'
 import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
@@ -19,234 +7,335 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { SPRITE_SHEET_WIDTH, SPRITE_SIZE, standardAnimations } from './sprites/sprites'
 
-const size = 64
-const imageWidth = 512
-const xFrames = imageWidth / size
+const xFrames = SPRITE_SHEET_WIDTH / SPRITE_SIZE
 const boundaryPadding = 20
-const fps = 20
-
-const standardAnimations: {
-    [key: string]: {
-        frames: number
-        img: string
-        maxIteration?: number
-        forceDirection?: 'left' | 'right'
-        moveX?: number
-        moveY?: number
-        randomChance?: number
-    }
-} = {
-    stop: {
-        img: hhWave,
-        frames: 1,
-        maxIteration: 50,
-        randomChance: 1,
-    },
-    fall: {
-        img: hhFall,
-        frames: 9,
-        moveY: -10,
-        forceDirection: 'left',
-        randomChance: 0,
-    },
-    jump: {
-        img: hhJump,
-        frames: 10,
-        maxIteration: 10,
-        randomChance: 2,
-    },
-    sign: {
-        img: hhSign,
-        frames: 33,
-        maxIteration: 1,
-        forceDirection: 'right',
-        randomChance: 1,
-    },
-    spin: {
-        img: hhSpin,
-        frames: 9,
-        maxIteration: 3,
-        randomChance: 2,
-    },
-    walk: {
-        img: hhWalk,
-        frames: 11,
-        moveX: 1,
-        moveY: 0,
-        maxIteration: 20,
-        randomChance: 10,
-    },
-    wave: {
-        img: hhWave,
-        frames: 27,
-        maxIteration: 1,
-        randomChance: 2,
-    },
-}
-
-// Copy-paste but its only for xmas sooo...
-const xmasAnimations: {
-    [key: string]: {
-        frames: number
-        img: string
-        maxIteration?: number
-        forceDirection?: 'left' | 'right'
-        moveX?: number
-        moveY?: number
-        randomChance?: number
-    }
-} = {
-    stop: {
-        img: hhWaveXmas,
-        frames: 1,
-        maxIteration: 50,
-        randomChance: 1,
-    },
-    fall: {
-        img: hhFallXmas,
-        frames: 9,
-        moveY: -10,
-        forceDirection: 'left',
-        randomChance: 0,
-    },
-    jump: {
-        img: hhJumpXmas,
-        frames: 10,
-        maxIteration: 10,
-        randomChance: 2,
-    },
-    sign: {
-        img: hhSignXmas,
-        frames: 33,
-        maxIteration: 1,
-        forceDirection: 'right',
-        randomChance: 1,
-    },
-    spin: {
-        img: hhSpinXmas,
-        frames: 9,
-        maxIteration: 3,
-        randomChance: 2,
-    },
-    walk: {
-        img: hhWalkXmas,
-        frames: 11,
-        moveX: 1,
-        moveY: 0,
-        maxIteration: 20,
-        randomChance: 10,
-    },
-    wave: {
-        img: hhWaveXmas,
-        frames: 27,
-        maxIteration: 1,
-        randomChance: 2,
-    },
-}
+const FPS = 24
+const GRAVITY_PIXELS = 10
+const MAX_JUMP_COUNT = 2
 
 const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
     return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
 
+class HedgehogActor {
+    animations = standardAnimations
+    iterationCount = 0
+    frameRef = 0
+    direction: 'left' | 'right' = 'right'
+    startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - SPRITE_SIZE)
+    startY = Math.min(Math.max(0, Math.floor(Math.random() * window.innerHeight)), window.innerHeight - SPRITE_SIZE)
+    x = this.startX
+    y = this.startY
+    isDragging = false
+    yVelocity = -30
+    xVelocity = 0
+    onGround = false
+    jumpCount = 0
+
+    animationName: string = 'fall'
+    animation = this.animations[this.animationName]
+    animationFrame = 0
+    animationIterations: number | null = null
+
+    constructor() {
+        this.setAnimation('fall')
+    }
+
+    setupKeyboardListeners(): () => void {
+        const keyDownListener = (e: KeyboardEvent): void => {
+            const key = e.key.toLowerCase()
+            if ([' ', 'w', 'arrowup'].includes(key)) {
+                this.jump()
+            }
+
+            if (['arrowdown', 's'].includes(key)) {
+                if (this.animationName !== 'spin') {
+                    this.setAnimation('spin')
+                }
+                this.animationIterations = null
+            }
+
+            if (['arrowleft', 'a', 'arrowright', 'd'].includes(key)) {
+                if (this.animationName !== 'walk') {
+                    this.setAnimation('walk')
+                }
+
+                this.direction = ['arrowleft', 'a'].includes(key) ? 'left' : 'right'
+                this.xVelocity = this.direction === 'left' ? -5 : 5
+
+                const moonwalk = e.shiftKey
+                if (moonwalk) {
+                    this.direction = this.direction === 'left' ? 'right' : 'left'
+                    // Moonwalking is hard so he moves slightly slower of course
+                    this.xVelocity *= 0.8
+                }
+
+                this.animationIterations = null
+            }
+        }
+
+        const keyUpListener = (e: KeyboardEvent): void => {
+            const key = e.key.toLowerCase()
+
+            if (key === ' ') {
+                this.jump()
+            }
+
+            if (['arrowdown', 's'].includes(key)) {
+                this.setAnimation('stop')
+                this.animationIterations = FPS * 2 // Wait 2 seconds before doing something else
+            }
+
+            if (['arrowleft', 'a', 'arrowright', 'd', 'arrowdown', 's'].includes(key)) {
+                this.setAnimation('stop')
+                this.animationIterations = FPS * 2 // Wait 2 seconds before doing something else
+            }
+        }
+
+        window.addEventListener('keydown', keyDownListener)
+        window.addEventListener('keyup', keyUpListener)
+
+        return () => {
+            window.removeEventListener('keydown', keyDownListener)
+            window.removeEventListener('keyup', keyUpListener)
+        }
+    }
+
+    setAnimation(animationName: string): void {
+        this.animationName = animationName
+        this.animation = this.animations[animationName]
+        this.animationFrame = 0
+        if (this.animationName !== 'stop') {
+            this.direction = this.animation.forceDirection || sampleOne(['left', 'right'])
+        }
+
+        // Set a random number of iterations or infinite for certain situations
+        this.animationIterations = this.animation.maxIteration
+            ? Math.max(1, Math.floor(Math.random() * this.animation.maxIteration))
+            : null
+
+        if (animationName === 'walk') {
+            this.xVelocity = this.direction === 'left' ? -1 : 1
+        } else {
+            this.xVelocity = 0
+        }
+
+        if (window.JS_POSTHOG_SELF_CAPTURE || (window as any).debugHedgehog) {
+            const duration = this.animationIterations
+                ? this.animationIterations * this.animation.frames * (1000 / FPS)
+                : '∞'
+            console.log(`Hedgehog: Will '${this.animationName}' for ${duration}ms`)
+        }
+    }
+
+    setRandomAnimation(): void {
+        if (this.animationName !== 'stop') {
+            this.setAnimation('stop')
+        } else {
+            this.setAnimation(sampleOne(randomChoiceList))
+        }
+    }
+
+    jump(): void {
+        if (this.jumpCount > MAX_JUMP_COUNT) {
+            return
+        }
+        this.jumpCount += 1
+        this.yVelocity = -GRAVITY_PIXELS * 5
+    }
+
+    update(): void {
+        this.applyGravity()
+
+        // Ensure we are falling or not
+        if (this.animationName === 'fall' && this.onGround) {
+            this.setAnimation('stop')
+        }
+
+        this.animationFrame++
+
+        if (this.animationFrame >= this.animation.frames) {
+            // End of the animation
+            if (this.animationIterations !== null) {
+                this.animationIterations -= 1
+            }
+
+            if (this.animationIterations === 0) {
+                this.animationIterations = null
+                // End of the animation, set the next one
+                this.setRandomAnimation()
+            }
+
+            this.animationFrame = 0
+        }
+
+        this.x = this.x + this.xVelocity
+
+        if (this.x < boundaryPadding) {
+            this.direction = 'right'
+            this.x = boundaryPadding
+            this.xVelocity = -this.xVelocity
+        }
+
+        if (this.x > window.innerWidth - SPRITE_SIZE - boundaryPadding) {
+            this.direction = 'left'
+            this.x = window.innerWidth - SPRITE_SIZE - boundaryPadding
+            this.xVelocity = -this.xVelocity
+        }
+    }
+
+    private applyGravity(): void {
+        this.onGround = false
+        if (this.isDragging) {
+            return
+        }
+
+        this.yVelocity += GRAVITY_PIXELS
+        this.y -= this.yVelocity
+
+        if (this.y <= 0) {
+            this.y = 0
+            this.onGround = true
+            this.jumpCount = 0
+
+            // Apply bounce with friction
+            this.yVelocity = -this.yVelocity * 0.4
+
+            if (this.yVelocity > -GRAVITY_PIXELS) {
+                // We are so close to the ground that we may as well be on it
+                this.yVelocity = 0
+            }
+        }
+    }
+
+    render({ onClick }: { onClick: () => void }): JSX.Element {
+        return (
+            <div
+                className={clsx('Hedgehog', {})}
+                onMouseDown={() => {
+                    let moved = false
+                    const onMouseMove = (e: any): void => {
+                        moved = true
+                        this.isDragging = true
+                        this.setAnimation('fall')
+                        this.x = e.clientX - SPRITE_SIZE / 2
+                        this.y = window.innerHeight - e.clientY - SPRITE_SIZE / 2
+                    }
+
+                    const onWindowUp = (): void => {
+                        if (!moved) {
+                            onClick()
+                        }
+                        this.isDragging = false
+                        this.setAnimation('fall')
+                        window.removeEventListener('mouseup', onWindowUp)
+                        window.removeEventListener('mousemove', onMouseMove)
+                    }
+                    window.addEventListener('mousemove', onMouseMove)
+                    window.addEventListener('mouseup', onWindowUp)
+                }}
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    position: 'fixed',
+                    left: this.x,
+                    bottom: this.y,
+                    transition: !this.isDragging ? `all ${1000 / FPS}ms` : undefined,
+                    transform: `scaleX(${this.direction === 'right' ? 1 : -1})`,
+                    cursor: 'pointer',
+                    zIndex: 1001,
+                }}
+            >
+                <div
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        imageRendering: 'pixelated',
+                        width: SPRITE_SIZE,
+                        height: SPRITE_SIZE,
+                        backgroundImage: `url(${this.animation.img})`,
+                        backgroundPosition: `-${(this.animationFrame % xFrames) * SPRITE_SIZE}px -${
+                            Math.floor(this.animationFrame / xFrames) * SPRITE_SIZE
+                        }px`,
+                    }}
+                />
+
+                {/* We need to preload the images to avoid flashing on the first animation
+                    The images are small and this is the best way I could find...  */}
+                {Object.keys(this.animations).map((x) => (
+                    <div
+                        key={x}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            position: 'absolute',
+                            width: 1, // This needs to be 1 as browsers are clever enough to realise the image isn't visible...
+                            height: 1,
+                            backgroundImage: `url(${this.animations[x].img})`,
+                        }}
+                    />
+                ))}
+            </div>
+        )
+    }
+}
+
 export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element {
+    const actorRef = useRef<HedgehogActor>()
+
+    if (!actorRef.current) {
+        actorRef.current = new HedgehogActor()
+    }
+
+    const actor = actorRef.current
+
+    useEffect(() => {
+        return actor.setupKeyboardListeners()
+    }, [])
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [_, setLoopTrigger] = useState(0)
-    const iterationCount = useRef(0)
-    const frameRef = useRef(0)
-    const directionRef = useRef('right')
-    const startX = Math.min(Math.max(0, Math.floor(Math.random() * window.innerWidth)), window.innerWidth - size)
-    const position = useRef([startX, 200])
-    const [isDragging, setIsDragging] = useState(false)
+    const [_, setTimerLoop] = useState(0)
+
     const [popoverVisible, setPopoverVisible] = useState(false)
-
-    const [animationName, setAnimationName] = useState('fall')
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const animations = featureFlags[FEATURE_FLAGS.YULE_HOG] ? xmasAnimations : standardAnimations
-    const animation = animations[animationName]
 
     useEffect(() => {
         let timer: any = null
-        let iterationsCountdown = animation.maxIteration
-            ? Math.max(1, Math.floor(Math.random() * animation.maxIteration))
-            : null
 
         const loop = (): void => {
-            if (frameRef.current + 1 >= animation.frames && iterationsCountdown !== null) {
-                iterationsCountdown -= 1
-            }
-            frameRef.current = frameRef.current + 1 >= animation.frames ? 0 : frameRef.current + 1
-            setLoopTrigger(frameRef.current)
-            timer = setTimeout(loop, 1000 / fps)
-
-            const moveX = (animation.moveX || 0) * (directionRef.current === 'right' ? 1 : -1)
-            const moveY = animation.moveY || 0
-
-            if (isDragging) {
-                return
-            }
-
-            position.current = [position.current[0] + moveX, position.current[1] + moveY]
-
-            if (
-                iterationsCountdown === 0 ||
-                position.current[0] < boundaryPadding ||
-                position.current[0] + size > window.innerWidth - boundaryPadding ||
-                position.current[1] < 0 ||
-                position.current[1] + size > window.innerHeight
-            ) {
-                position.current = [
-                    Math.min(
-                        Math.max(boundaryPadding, position.current[0]),
-                        window.innerWidth - size - boundaryPadding
-                    ),
-                    Math.min(Math.max(0, position.current[1]), window.innerHeight - size),
-                ]
-                if (animationName === 'stop') {
-                    const newAnimationName = sampleOne(randomChoiceList)
-                    directionRef.current = animations[newAnimationName].forceDirection || sampleOne(['left', 'right'])
-
-                    setAnimationName(newAnimationName)
-                } else {
-                    setAnimationName('stop')
-                }
-            }
+            actor.update()
+            setTimerLoop((x) => x + 1)
+            timer = setTimeout(loop, 1000 / FPS)
         }
 
         loop()
         return () => {
-            iterationCount.current = 0
             clearTimeout(timer)
         }
-    }, [animation, isDragging])
+    }, [])
 
     useEffect(() => {
-        if (isDragging) {
+        if (actor.isDragging) {
             document.body.classList.add('select-none')
         } else {
             document.body.classList.remove('select-none')
         }
 
         return () => document.body.classList.remove('select-none')
-    }, [isDragging])
+    }, [actor.isDragging])
 
     const onClick = (): void => {
-        !isDragging && setPopoverVisible(!popoverVisible)
+        !actor.isDragging && setPopoverVisible(!popoverVisible)
     }
     const disappear = (): void => {
         setPopoverVisible(false)
-        setAnimationName('wave')
-        setTimeout(() => onClose(), (animations.wave.frames * 1000) / fps)
+        actor.setAnimation('wave')
+        setTimeout(() => onClose(), (actor.animations.wave.frames * 1000) / FPS)
     }
 
     return (
         <Popover
             onClickOutside={() => {
                 setPopoverVisible(false)
-                setAnimationName('fall')
+                // setAnimationName('fall')
             }}
             visible={popoverVisible}
             overlay={
@@ -258,8 +347,8 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                         You can move me around by clicking and dragging.
                     </p>
                     <div className="flex gap-2 my-2">
-                        {['jump', 'sign', 'spin', 'wave'].map((x) => (
-                            <LemonButton key={x} type="secondary" size="small" onClick={() => setAnimationName(x)}>
+                        {['jump', 'sign', 'spin', 'wave', 'walk'].map((x) => (
+                            <LemonButton key={x} type="secondary" size="small" onClick={() => actor.setAnimation(x)}>
                                 {capitalizeFirstLetter(x)}
                             </LemonButton>
                         ))}
@@ -276,68 +365,7 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
                 </div>
             }
         >
-            <div
-                className={clsx('Hedgehog', {})}
-                onMouseDown={() => {
-                    let moved = false
-                    const onMouseMove = (e: any): void => {
-                        moved = true
-                        setIsDragging(true)
-                        setAnimationName('fall')
-                        position.current = [e.clientX - size / 2, window.innerHeight - e.clientY - size / 2]
-                    }
-
-                    const onWindowUp = (): void => {
-                        if (!moved) {
-                            onClick()
-                        }
-                        setIsDragging(false)
-                        setAnimationName('fall')
-                        window.removeEventListener('mouseup', onWindowUp)
-                        window.removeEventListener('mousemove', onMouseMove)
-                    }
-                    window.addEventListener('mousemove', onMouseMove)
-                    window.addEventListener('mouseup', onWindowUp)
-                }}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{
-                    position: 'fixed',
-                    left: position.current[0],
-                    bottom: position.current[1],
-                    transition: !isDragging ? `all ${1000 / fps}ms` : undefined,
-                    transform: `scaleX(${directionRef.current === 'right' ? 1 : -1})`,
-                    cursor: 'pointer',
-                    zIndex: 1001,
-                }}
-            >
-                <div
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        imageRendering: 'pixelated',
-                        width: size,
-                        height: size,
-                        backgroundImage: `url(${animation.img})`,
-                        backgroundPosition: `-${(frameRef.current % xFrames) * size}px -${
-                            Math.floor(frameRef.current / xFrames) * size
-                        }px`,
-                    }}
-                />
-
-                {/* We need to preload the images to avoid flashing on the first animation
-                    The images are small and this is the best way I could find...  */}
-                {Object.keys(animations).map((x) => (
-                    <div
-                        key={x}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{
-                            position: 'absolute',
-                            width: 1, // This needs to be 1 as browsers are clever enough to realise the image isn't visible...
-                            height: 1,
-                            backgroundImage: `url(${animations[x].img})`,
-                        }}
-                    />
-                ))}
-            </div>
+            {actor.render({ onClick })}
         </Popover>
     )
 }

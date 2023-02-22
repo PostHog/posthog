@@ -9,7 +9,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } from '~/types'
+import { AvailableFeature, ChartDisplayType, FilterType, FunnelStep, FunnelVizType, InsightType } from '~/types'
 import './Experiment.scss'
 import { experimentLogic, ExperimentLogicProps } from './experimentLogic'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -36,6 +36,8 @@ import { NotFound } from 'lib/components/NotFound'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { Form, Group } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
+import { userLogic } from 'scenes/userLogic'
+import { ExperimentsPayGate } from './ExperimentsPayGate'
 
 export const scene: SceneExport = {
     component: Experiment,
@@ -90,6 +92,7 @@ export function Experiment(): JSX.Element {
         setExperimentValue,
         updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const [showWarning, setShowWarning] = useState(true)
 
@@ -154,6 +157,15 @@ export function Experiment(): JSX.Element {
         { background: '#FFE6AE', color: '#35416B' },
         { background: '#8DA9E74D', color: '#35416B' },
     ]
+
+    if (!hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
+        return (
+            <>
+                <PageHeader title="Experiments" />
+                <ExperimentsPayGate />
+            </>
+        )
+    }
 
     if (experimentLoading) {
         return <Skeleton active />
@@ -1019,9 +1031,9 @@ export function Experiment(): JSX.Element {
                             <BindLogic
                                 logic={insightLogic}
                                 props={{
-                                    dashboardItemId: experimentResults.itemID,
+                                    dashboardItemId: experimentResults.fakeInsightId,
                                     cachedInsight: {
-                                        short_id: experimentResults.itemID,
+                                        short_id: experimentResults.fakeInsightId,
                                         filters: {
                                             ...experimentResults.filters,
                                             insight: experimentInsightType,
