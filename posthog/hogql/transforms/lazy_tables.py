@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set
 
 from posthog.hogql import ast
 from posthog.hogql.ast import LazyTableSymbol
@@ -28,9 +28,7 @@ class LazyTableResolver(TraversingVisitor):
         super().__init__()
         self.stack_of_fields: List[List[ast.FieldSymbol]] = [[]] if stack else []
 
-    def _get_long_table_name(
-        self, select: ast.SelectQuerySymbol, symbol: Union[ast.TableSymbol, ast.LazyTableSymbol, ast.TableAliasSymbol]
-    ) -> str:
+    def _get_long_table_name(self, select: ast.SelectQuerySymbol, symbol: ast.TableLikeSymbol) -> str:
         if isinstance(symbol, ast.TableSymbol):
             return select.get_alias_for_table_symbol(symbol)
         elif isinstance(symbol, ast.TableAliasSymbol):
