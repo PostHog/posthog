@@ -310,15 +310,15 @@ const HogQLTable: DataTableNode = {
     source: {
         kind: NodeKind.HogQLQuery,
         query: `   select event,
-          pdi.person.properties.email,
+          person.properties.email,
           properties.$browser,
           count()
      from events
     where timestamp > now () - interval 1 month
-      and pdi.person.properties.email is not null
+      and person.properties.email is not null
  group by event,
           properties.$browser,
-          pdi.person.properties.email
+          person.properties.email
  order by count() desc`,
     },
 }
