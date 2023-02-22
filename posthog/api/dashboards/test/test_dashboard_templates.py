@@ -179,7 +179,9 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response
 
         assert DashboardTemplate.objects.count() == 1
-        id = DashboardTemplate.objects.first().id
+        dashboardTemplate = DashboardTemplate.objects.first()
+        assert dashboardTemplate is not None
+        id = dashboardTemplate.id
 
         response = self.client.get(f"/api/projects/{self.team.pk}/dashboard_templates/{id}")
 
@@ -198,7 +200,10 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response
 
         assert DashboardTemplate.objects.count() == 1
-        id = DashboardTemplate.objects.first().id
+
+        dashboardTemplate = DashboardTemplate.objects.first()
+        assert dashboardTemplate is not None
+        id = dashboardTemplate.id
 
         response = self.client.patch(f"/api/projects/{self.team.pk}/dashboard_templates/{id}", {"deleted": True})
 
@@ -218,7 +223,9 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response
 
         assert DashboardTemplate.objects.count() == 1
-        id = DashboardTemplate.objects.first().id
+        dashboardTemplate = DashboardTemplate.objects.first()
+        assert dashboardTemplate is not None
+        id = dashboardTemplate.id
 
         self.user.is_staff = False
         self.user.save()
@@ -250,7 +257,9 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response
 
         assert DashboardTemplate.objects.count() == 1
-        assert DashboardTemplate.objects.first().template_name == "new name"
+        dashboardTemplate = DashboardTemplate.objects.first()
+        assert dashboardTemplate is not None
+        assert dashboardTemplate.template_name == "new name"
 
     @patch("posthog.api.dashboards.dashboard_templates.requests.get")
     def test_repository_calls_to_github_and_returns_the_listing(self, patched_requests) -> None:
