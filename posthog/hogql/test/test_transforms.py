@@ -123,7 +123,6 @@ class TestTransforms(BaseTest):
                 "event": ast.FieldSymbol(name="event", table=events_table_symbol),
                 "properties": ast.FieldSymbol(name="properties", table=events_table_symbol),
                 "timestamp": ast.FieldSymbol(name="timestamp", table=events_table_symbol),
-                "team_id": ast.FieldSymbol(name="team_id", table=events_table_symbol),
                 "distinct_id": ast.FieldSymbol(name="distinct_id", table=events_table_symbol),
                 "elements_chain": ast.FieldSymbol(name="elements_chain", table=events_table_symbol),
                 "created_at": ast.FieldSymbol(name="created_at", table=events_table_symbol),
@@ -137,7 +136,6 @@ class TestTransforms(BaseTest):
                 ast.Field(chain=["event"], symbol=ast.FieldSymbol(name="event", table=inner_select_symbol)),
                 ast.Field(chain=["properties"], symbol=ast.FieldSymbol(name="properties", table=inner_select_symbol)),
                 ast.Field(chain=["timestamp"], symbol=ast.FieldSymbol(name="timestamp", table=inner_select_symbol)),
-                ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=inner_select_symbol)),
                 ast.Field(chain=["distinct_id"], symbol=ast.FieldSymbol(name="distinct_id", table=inner_select_symbol)),
                 ast.Field(
                     chain=["elements_chain"],
