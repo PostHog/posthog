@@ -55,6 +55,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
         isInsightVizQuery,
         isTestGroupForNewRefreshUX,
         displayRefreshButtonChangedNotice,
+        insightRefreshButtonDisabledReason,
     } = useValues(logic)
     const { saveInsight, setInsightMetadata, saveAs, loadResults, acknowledgeRefreshButtonChanged } = useActions(logic)
 
@@ -140,7 +141,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit ? (
+                        {insightMode === ItemMode.Edit && isTestGroupForNewRefreshUX ? (
                             <>
                                 <Tooltip
                                     title={
@@ -156,16 +157,15 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                                         }
                                         overlay={
                                             <>
-                                                {isTestGroupForNewRefreshUX ? (
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadResults(true)}
-                                                        fullWidth
-                                                        data-attr="duplicate-insight-from-insight-view"
-                                                    >
-                                                        Refresh
-                                                    </LemonButton>
-                                                ) : null}
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => loadResults(true)}
+                                                    fullWidth
+                                                    data-attr="duplicate-insight-from-insight-view"
+                                                    disabledReason={insightRefreshButtonDisabledReason}
+                                                >
+                                                    Refresh
+                                                </LemonButton>
                                             </>
                                         }
                                     />
@@ -195,6 +195,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                                                         onClick={() => loadResults(true)}
                                                         fullWidth
                                                         data-attr="duplicate-insight-from-insight-view"
+                                                        disabledReason={insightRefreshButtonDisabledReason}
                                                     >
                                                         Refresh
                                                     </LemonButton>
