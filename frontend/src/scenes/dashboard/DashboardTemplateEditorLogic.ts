@@ -1,4 +1,3 @@
-import { editor } from 'monaco-editor'
 import { lemonToast } from '@posthog/lemon-ui'
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
@@ -46,7 +45,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                         return []
                     } else {
                         console.log('updated with markers', markers)
-                        return markers.map((marker: editor.IMarker) => marker.message)
+                        return markers.map((marker: MonacoMarker) => marker.message)
                     }
                 },
                 clear: () => [],
