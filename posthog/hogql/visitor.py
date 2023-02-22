@@ -103,6 +103,9 @@ class TraversingVisitor(Visitor):
     def visit_lazy_table_symbol(self, node: ast.LazyTableSymbol):
         self.visit(node.table)
 
+    def visit_virtual_table_symbol(self, node: ast.VirtualTableSymbol):
+        self.visit(node.table)
+
     def visit_table_alias_symbol(self, node: ast.TableAliasSymbol):
         self.visit(node.table_symbol)
 

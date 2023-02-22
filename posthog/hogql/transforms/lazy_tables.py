@@ -35,6 +35,8 @@ class LazyTableResolver(TraversingVisitor):
             return symbol.name
         elif isinstance(symbol, ast.LazyTableSymbol):
             return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
+        elif isinstance(symbol, ast.VirtualTableSymbol):
+            return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
         else:
             raise ValueError("Should not be reachable")
 

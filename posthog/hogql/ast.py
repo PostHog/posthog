@@ -5,7 +5,14 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 
-from posthog.hogql.database import DatabaseField, FieldTraverser, LazyTable, StringJSONDatabaseField, Table
+from posthog.hogql.database import (
+    DatabaseField,
+    FieldTraverser,
+    LazyTable,
+    StringJSONDatabaseField,
+    Table,
+    VirtualTable,
+)
 
 # NOTE: when you add new AST fields or nodes, add them to the Visitor classes in visitor.py as well!
 
@@ -61,7 +68,9 @@ class TableLikeSymbol(Symbol):
             if isinstance(field, LazyTable):
                 return LazyTableSymbol(table=self, field=name, lazy_table=field)
             if isinstance(field, FieldTraverser):
-                return FieldTraverserSymbol(chain=field.chain, table=self)
+                return FieldTraverserSymbol(table=self, chain=field.chain)
+            if isinstance(field, VirtualTable):
+                return VirtualTableSymbol(table=self, field=name, virtual_table=field)
             return FieldSymbol(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 
@@ -88,6 +97,18 @@ class LazyTableSymbol(TableLikeSymbol):
 
     def resolve_database_table(self) -> Table:
         return self.lazy_table.table
+
+
+class VirtualTableSymbol(TableLikeSymbol):
+    table: TableLikeSymbol
+    field: str
+    virtual_table: VirtualTable
+
+    def resolve_database_table(self) -> Table:
+        return self.virtual_table
+
+    def has_child(self, name: str) -> bool:
+        return self.virtual_table.has_field(name)
 
 
 class SelectQuerySymbol(Symbol):

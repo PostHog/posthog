@@ -209,8 +209,6 @@ def run_events_query(
         select = ["*"]
 
     for expr in select:
-        if expr == "*":
-            expr = f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
         hogql_context.found_aggregation = False
         if expr == "*":
             expr = f'tuple({", ".join(SELECT_STAR_FROM_EVENTS_FIELDS)})'

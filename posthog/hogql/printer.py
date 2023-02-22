@@ -349,13 +349,16 @@ class _Printer(Visitor):
         except ResolverException:
             symbol_with_name_in_scope = None
 
-        if isinstance(symbol.table, ast.TableSymbol) or isinstance(symbol.table, ast.TableAliasSymbol):
+        if (
+            isinstance(symbol.table, ast.TableSymbol)
+            or isinstance(symbol.table, ast.TableAliasSymbol)
+            or isinstance(symbol.table, ast.VirtualTableSymbol)
+        ):
             resolved_field = symbol.resolve_database_field()
             if resolved_field is None:
                 raise ValueError(f'Can\'t resolve field "{symbol.name}" on table.')
             if isinstance(resolved_field, Table):
-                # :KLUDGE: only works for events.person.* printing now
-                if isinstance(symbol.table, ast.TableSymbol):
+                if isinstance(symbol.table, ast.VirtualTableSymbol):
                     return self.visit(ast.AsteriskSymbol(table=ast.TableSymbol(table=resolved_field)))
                 else:
                     return self.visit(
@@ -440,6 +443,9 @@ class _Printer(Visitor):
 
     def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return self._print_identifier(symbol.name)
+
+    def visit_virtual_table_symbol(self, symbol: ast.VirtualTableSymbol):
+        return self.visit(symbol.table)
 
     def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
         raise ValueError("Unexpected ast.AsteriskSymbol. Make sure AsteriskExpander has run on the AST.")
