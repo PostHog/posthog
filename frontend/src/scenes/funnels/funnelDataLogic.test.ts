@@ -1,25 +1,33 @@
-import { funnelDataLogic } from './funnelDataLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { FunnelVizType, InsightLogicProps } from '~/types'
+
 import { teamLogic } from 'scenes/teamLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { funnelDataLogic } from './funnelDataLogic'
+
+import { FunnelVizType, InsightLogicProps, InsightModel } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 
 describe('funnelDataLogic', () => {
+    const insightProps: InsightLogicProps = {
+        dashboardItemId: undefined,
+    }
     let logic: ReturnType<typeof funnelDataLogic.build>
+    let builtInsightLogic: ReturnType<typeof insightLogic.build>
 
     beforeEach(() => {
         initKeaTests(false)
     })
 
-    const defaultProps: InsightLogicProps = {
-        dashboardItemId: undefined,
-    }
-
-    async function initFunnelDataLogic(props: InsightLogicProps = defaultProps): Promise<void> {
+    async function initFunnelDataLogic(): Promise<void> {
         teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
-        logic = funnelDataLogic(props)
+
+        builtInsightLogic = insightLogic(insightProps)
+        builtInsightLogic.mount()
+        await expectLogic(insightLogic).toFinishAllListeners()
+
+        logic = funnelDataLogic(insightProps)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
@@ -151,5 +159,39 @@ describe('funnelDataLogic', () => {
                 isEmptyFunnel: false,
             })
         })
+    })
+
+    /**
+     * We set insightLogic.insight via a call to setInsight for data exploration,
+     * in future we should use the response of dataNodeLogic via a connected
+     * insightDataLogic.
+     */
+    describe('based on insightLogic', () => {
+        beforeEach(async () => {
+            await initFunnelDataLogic()
+        })
+
+        describe('results', () => {
+            it('with non-funnel insight', async () => {
+                await expectLogic(logic).toMatchValues({
+                    insight: expect.objectContaining({ filters: {} }),
+                    results: [],
+                })
+            })
+
+            it('with breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    result: { a: 1 },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    insight: { b: 5 },
+                })
+            })
+        })
+
+        describe('steps', () => {})
     })
 })
