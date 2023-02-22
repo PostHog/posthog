@@ -5,8 +5,13 @@ import { teamLogic } from 'scenes/teamLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
-import { FunnelVizType, InsightLogicProps, InsightModel } from '~/types'
+import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
+import {
+    funnelResult,
+    funnelResultWithBreakdown,
+    funnelResultWithMultiBreakdown,
+} from './__mocks__/funnelDataLogicMocks'
 
 describe('funnelDataLogic', () => {
     const insightProps: InsightLogicProps = {
@@ -179,15 +184,62 @@ describe('funnelDataLogic', () => {
                 })
             })
 
-            it('with breakdown', async () => {
+            it('for standard funnel', async () => {
                 const insight: Partial<InsightModel> = {
-                    result: { a: 1 },
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
                 }
 
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.setInsight(insight, {})
                 }).toMatchValues({
-                    insight: { b: 5 },
+                    results: funnelResult.result,
+                })
+            })
+
+            it('with breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    results: expect.arrayContaining([
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                breakdown_value: ['Chrome'],
+                                breakdown: ['Chrome'],
+                            }),
+                        ]),
+                    ]),
+                })
+            })
+
+            it('with multi breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithMultiBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    results: expect.arrayContaining([
+                        expect.arrayContaining([
+                            expect.objectContaining({
+                                breakdown_value: ['Chrome', 'Mac OS X'],
+                                breakdown: ['Chrome', 'Mac OS X'],
+                            }),
+                        ]),
+                    ]),
                 })
             })
         })

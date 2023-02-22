@@ -100,10 +100,10 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
                         return result.map((series) =>
-                            series.map((r) => {
-                                const { breakdowns, breakdown_value, ...singlePropertyClone } = r
-                                singlePropertyClone.breakdown = breakdowns as (string | number)[]
-                                return singlePropertyClone
+                            series.map((step) => {
+                                const { breakdowns, ...clone } = step
+                                clone.breakdown = breakdowns as (string | number)[]
+                                return clone
                             })
                         )
                     }
