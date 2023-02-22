@@ -6,12 +6,13 @@ import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { ParsedCSSSelector } from 'lib/components/HTMLElementsDisplay/preselectWithCSS'
+import clsx from 'clsx'
 
 function indent(level: number): string {
     return Array(level).fill('    ').join('')
 }
 
-function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
+function CloseAllTags({ elements, highlight }: { elements: ElementType[]; highlight: boolean }): JSX.Element {
     return (
         <>
             {[...elements]
@@ -19,7 +20,10 @@ function CloseAllTags({ elements }: { elements: ElementType[] }): JSX.Element {
                 .slice(1)
                 .map((element, index) => (
                     <pre
-                        className="whitespace-pre-wrap break-all bg-default-dark p-0 m-0 rounded-none text-white text-sm"
+                        className={clsx(
+                            'whitespace-pre-wrap break-all p-0 m-0 rounded-none text-white text-sm',
+                            highlight && 'bg-default-dark'
+                        )}
                         key={index}
                     >
                         {indent(elements.length - index - 2)}
@@ -126,7 +130,7 @@ export function HTMLElementsDisplay({
                             parsedCSSSelectors={parsedSelectors}
                             onChange={(index, s) => setParsedSelectors({ ...parsedSelectors, [index]: s })}
                         />
-                        <CloseAllTags elements={elements} />
+                        <CloseAllTags elements={elements} highlight={highlight} />
                     </>
                 ) : (
                     <div className="text-muted-light">No elements to display</div>
