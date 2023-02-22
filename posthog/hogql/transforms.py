@@ -10,6 +10,8 @@ def expand_asterisks(node: ast.Expr):
 
 class AsteriskExpander(TraversingVisitor):
     def visit_select_query(self, node: ast.SelectQuery):
+        super().visit_select_query(node)
+
         columns: List[ast.Expr] = []
         for column in node.select:
             if isinstance(column.symbol, ast.AsteriskSymbol):
@@ -21,9 +23,9 @@ class AsteriskExpander(TraversingVisitor):
                     if isinstance(table, ast.TableSymbol):
                         database_fields = table.table.get_asterisk()
                         for key in database_fields.keys():
-                            columns.append(
-                                ast.Field(chain=[key], symbol=ast.FieldSymbol(name=key, table=asterisk.table))
-                            )
+                            symbol = ast.FieldSymbol(name=key, table=asterisk.table)
+                            columns.append(ast.Field(chain=[key], symbol=symbol))
+                            node.symbol.columns[key] = symbol
                     else:
                         raise ValueError("Can't expand asterisk (*) on table")
                 elif isinstance(asterisk.table, ast.SelectQuerySymbol) or isinstance(
@@ -34,9 +36,9 @@ class AsteriskExpander(TraversingVisitor):
                         select = select.symbol
                     if isinstance(select, ast.SelectQuerySymbol):
                         for name in select.columns.keys():
-                            columns.append(
-                                ast.Field(chain=[name], symbol=ast.FieldSymbol(name=name, table=asterisk.table))
-                            )
+                            symbol = ast.FieldSymbol(name=name, table=asterisk.table)
+                            columns.append(ast.Field(chain=[name], symbol=symbol))
+                            node.symbol.columns[name] = symbol
                     else:
                         raise ValueError("Can't expand asterisk (*) on subquery")
                 else:

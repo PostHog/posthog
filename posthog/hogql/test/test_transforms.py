@@ -110,6 +110,38 @@ class TestTransforms(BaseTest):
             ],
         )
 
+    def test_asterisk_expander_from_subquery_table(self):
+        node = parse_select("select * from (select * from events) x")
+        resolve_symbols(node)
+        expand_asterisks(node)
+
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        self.assertEqual(
+            node.select,
+            [
+                ast.Field(chain=["uuid"], symbol=ast.FieldSymbol(name="uuid", table=events_table_alias_symbol)),
+                ast.Field(chain=["event"], symbol=ast.FieldSymbol(name="event", table=events_table_alias_symbol)),
+                ast.Field(
+                    chain=["properties"], symbol=ast.FieldSymbol(name="properties", table=events_table_alias_symbol)
+                ),
+                ast.Field(
+                    chain=["timestamp"], symbol=ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
+                ),
+                ast.Field(chain=["team_id"], symbol=ast.FieldSymbol(name="team_id", table=events_table_alias_symbol)),
+                ast.Field(
+                    chain=["distinct_id"], symbol=ast.FieldSymbol(name="distinct_id", table=events_table_alias_symbol)
+                ),
+                ast.Field(
+                    chain=["elements_chain"],
+                    symbol=ast.FieldSymbol(name="elements_chain", table=events_table_alias_symbol),
+                ),
+                ast.Field(
+                    chain=["created_at"], symbol=ast.FieldSymbol(name="created_at", table=events_table_alias_symbol)
+                ),
+            ],
+        )
+
     def test_asterisk_expander_multiple_table_error(self):
         node = parse_select("select * from (select 1 as a, 2 as b) x left join (select 1 as a, 2 as b) y on x.a = y.a")
         with self.assertRaises(ResolverException) as e:
