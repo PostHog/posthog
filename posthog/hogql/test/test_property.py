@@ -1,3 +1,5 @@
+from typing import List, Union, cast
+
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
@@ -163,16 +165,19 @@ class TestProperty(BaseTest):
             property_to_expr(
                 PropertyGroup(
                     type=PropertyOperatorType.AND,
-                    values=[
-                        Property(type="person", key="a", value="b", operator="exact"),
-                        PropertyGroup(
-                            type=PropertyOperatorType.OR,
-                            values=[
-                                Property(type="person", key="a", value="b", operator="exact"),
-                                Property(type="event", key="e", value="b", operator="exact"),
-                            ],
-                        ),
-                    ],
+                    values=cast(
+                        Union[List[Property], List[PropertyGroup]],
+                        [
+                            Property(type="person", key="a", value="b", operator="exact"),
+                            PropertyGroup(
+                                type=PropertyOperatorType.OR,
+                                values=[
+                                    Property(type="person", key="a", value="b", operator="exact"),
+                                    Property(type="event", key="e", value="b", operator="exact"),
+                                ],
+                            ),
+                        ],
+                    ),
                 )
             ),
             ast.And(
