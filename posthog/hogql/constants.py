@@ -59,6 +59,7 @@ CLICKHOUSE_FUNCTIONS = {
     "trimLeft": "trimLeft",
     "trimRight": "trimRight",
     "extractTextFromHTML": "extractTextFromHTML",
+    "match": "match",
     "like": "like",
     "ilike": "ilike",
     "notLike": "notLike",

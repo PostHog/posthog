@@ -1,14 +1,17 @@
-from typing import Any, Tuple, Union, cast
+import re
+from typing import Any, List, Tuple, Union, cast
 
 from pydantic import BaseModel
 
-from posthog.constants import PropertyOperatorType
+from posthog.constants import AUTOCAPTURE_EVENT, PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
-from posthog.models import Action, Property
+from posthog.models import Action, ActionStep, Property
+from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup
+from posthog.models.property.util import build_selector_regex
 from posthog.schema import PropertyOperator
 
 
@@ -37,13 +40,14 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def action_to_expr(action: Action) -> ast.Expr:
-    raise NotImplementedError("action_to_expr not implemented")
-
-
-def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) -> ast.Expr:
+def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, list]) -> ast.Expr:
     if isinstance(property, dict):
         property = Property(**property)
+    elif isinstance(property, list):
+        properties = [property_to_expr(p) for p in property]
+        if len(properties) == 1:
+            return properties[0]
+        return ast.And(exprs=properties)
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
@@ -130,3 +134,54 @@ def property_operator_to_compare_operator_type(
         return ast.CompareOperationType.NotRegex, value
 
     raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+
+def action_to_expr(action: Action) -> ast.Expr:
+    steps = action.steps.all()
+
+    if len(steps) == 0:
+        return ast.Constant(value=True)
+
+    or_queries = []
+    for step in steps:
+        exprs: List[ast.Expr] = [parse_expr("event = {event}", {"event": ast.Constant(value=step.event)})]
+
+        if step.event == AUTOCAPTURE_EVENT:
+            if step.selector:
+                regex = build_selector_regex(Selector(step.selector, escape_slashes=False))
+                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=regex)})
+                exprs.append(expr)
+            if step.tag_name is not None:
+                regex = rf"(^|;){step.tag_name}(\.|$|;|:)"
+                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+                exprs.append(expr)
+            if step.href is not None:
+                href = str(re.escape(step.href.replace('"', r"\"")))
+                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=f'(href="{href}")')})
+                exprs.append(expr)
+            if step.text is not None:
+                text = str(re.escape(step.text.replace('"', r"\"")))
+                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=f'(text="{text}")')})
+                exprs.append(expr)
+
+        if step.url:
+            if step.url_matching == ActionStep.EXACT:
+                expr = parse_expr("properties.$current_url = {url}", {"url": ast.Constant(value=step.url)})
+            elif step.url_matching == ActionStep.REGEX:
+                expr = parse_expr("match(properties.$current_url, {regex})", {"regex": ast.Constant(value=step.url)})
+            else:
+                expr = parse_expr("properties.$current_url like {url}", {"url": ast.Constant(value=f"%{step.url}%")})
+            exprs.append(expr)
+
+        if step.properties:
+            exprs.append(property_to_expr(step.properties))
+
+        if len(exprs) == 1:
+            or_queries.append(exprs[0])
+        elif len(exprs) > 1:
+            or_queries.append(ast.And(exprs=exprs))
+
+    if len(or_queries) == 1:
+        return or_queries[0]
+    else:
+        return ast.Or(exprs=or_queries)
