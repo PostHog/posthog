@@ -145,6 +145,7 @@ describe('sessionRecordingPlayerLogic', () => {
             logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
             logic.mount()
             jest.spyOn(api, 'delete')
+            router.actions.push(urls.sessionRecording('3'))
 
             await expectLogic(logic, () => {
                 logic.actions.deleteRecording()
@@ -156,6 +157,27 @@ describe('sessionRecordingPlayerLogic', () => {
                 .toFinishAllListeners()
 
             expect(router.values.location.pathname).toEqual(urls.sessionRecordings())
+
+            expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
+            resumeKeaLoadersErrors()
+        })
+
+        it('on a single recording modal', async () => {
+            silenceKeaLoadersErrors()
+            logic = sessionRecordingPlayerLogic({ sessionRecordingId: '3', playerKey: 'test' })
+            logic.mount()
+            jest.spyOn(api, 'delete')
+
+            await expectLogic(logic, () => {
+                logic.actions.deleteRecording()
+            })
+                .toDispatchActions(['deleteRecording'])
+                .toNotHaveDispatchedActions([
+                    sessionRecordingsListLogic({ updateSearchParams: true }).actionTypes.loadAllRecordings,
+                ])
+                .toFinishAllListeners()
+
+            expect(router.values.location.pathname).toEqual('/')
 
             expect(api.delete).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/session_recordings/3`)
             resumeKeaLoadersErrors()
