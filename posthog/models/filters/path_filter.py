@@ -15,6 +15,7 @@ from posthog.models.filters.mixins.common import (
     LimitMixin,
     OffsetMixin,
     SearchMixin,
+    SampleMixin
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
@@ -71,6 +72,7 @@ class PathFilter(
     SearchMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
+    SampleMixin
 ):
     def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         if data:

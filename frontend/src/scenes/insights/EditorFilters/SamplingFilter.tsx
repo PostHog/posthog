@@ -22,8 +22,9 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
 
     // Sampling is currently behind a feature flag and only available on lifecycle queries
     const insightSupportsSampling =
-        featureFlags[FEATURE_FLAGS.SAMPLING] &&
-        (editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS)
+        //featureFlags[FEATURE_FLAGS.SAMPLING] &&
+        true &&
+        (editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS || editorFilters.insight === InsightType.PATHS)
 
     if (insightSupportsSampling) {
         return (
