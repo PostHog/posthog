@@ -187,7 +187,9 @@ jobs:
                       }
 
                       for (const browser of BROWSERS) {
-                        if (!diffByBrowser[browser]) diffByBrowser[browser] = null // Null means failure
+                        if (diffByBrowser[browser]?.total === undefined) {
+                          diffByBrowser[browser] = null // Null means failure
+                        }
                       }
 
                       if (summaryDiff.total === 0) {
