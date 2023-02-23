@@ -131,11 +131,10 @@ jobs:
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   git config --global --add safe.directory '*' # Calm git down about file ownership
-                  git diff --name-status # This line is for debugging purposes
-                  ADDED=$(git diff --name-status | grep '^A' | wc -l)
-                  MODIFIED=$(git diff --name-status | grep '^M' | wc -l)
-                  DELETED=$(git diff --name-status | grep '^D' | wc -l)
-                  TOTAL=$(git diff --name-status | wc -l)
+                  ADDED=$(git diff frontend/__snapshots__/ --name-status | grep '^A' | wc -l)
+                  MODIFIED=$(git diff frontend/__snapshots__/ --name-status | grep '^M' | wc -l)
+                  DELETED=$(git diff frontend/__snapshots__/ --name-status | grep '^D' | wc -l)
+                  TOTAL=$(git diff frontend/__snapshots__/ --name-status | wc -l)
                   echo "${{ matrix.browser }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-deleted=$DELETED" >> $GITHUB_OUTPUT
@@ -176,9 +175,9 @@ jobs:
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }
                       const diffByBrowser = Object.fromEntries(BROWSERS.map(browser => [browser, {}]))
                       for (const [key, rawValue] of Object.entries(diffJobOutputs)) {
-                        const value = key === 'commitHash' ? rawValue : parseInt(rawValue)
                         // Split e.g. 'chromium-commitHash' into ['chromium', 'commitHash']
                         const [browser, diffKey] = key.split('-')
+                        const value = diffKey === 'commitHash' ? rawValue : parseInt(rawValue)
                         diffByBrowser[browser][diffKey] = value
                         // Sum up the counts - but not the commit hash
                         if (typeof value === 'number') {
