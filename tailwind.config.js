@@ -199,8 +199,8 @@ module.exports = {
         // 'tableLayout', // The table-layout utilities like table-auto
         'textAlign', // The text-align utilities like text-right
         'textColor', // The text-color utilities like text-green-700
-        // 'textDecoration', // The text-decoration utilities like overline
-        // 'textDecorationColor', // The text-decoration-color utilities like decoration-green-700
+        'textDecoration', // The text-decoration utilities like overline
+        'textDecorationColor', // The text-decoration-color utilities like decoration-green-700
         // 'textDecorationStyle', // The text-decoration-style utilities like decoration-dotted
         // 'textDecorationThickness', // The text-decoration-thickness utilities like decoration-4
         // 'textIndent', // The text-indent utilities like indent-28

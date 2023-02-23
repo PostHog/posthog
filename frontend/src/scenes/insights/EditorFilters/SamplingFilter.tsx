@@ -5,29 +5,54 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-export function SamplingFilter({ filters: editorFilters }: EditorFilterProps): JSX.Element {
-    const { setFilters } = useActions(insightLogic)
-    const { filters } = useValues(insightLogic)
+const DEFAULT_SAMPLING_FACTOR = 0.1
+
+export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
+    const initializedInsightLogic = insightLogic(insightProps)
+    const initializedFunnelLogic = funnelLogic(insightProps)
+
+    const { setFilters: setInsightFilters } = useActions(initializedInsightLogic)
+    const { setFilters: setFunnelFilters } = useActions(initializedFunnelLogic)
+
+    const { filters } = useValues(initializedInsightLogic)
+
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Sampling is currently behind a feature flag and only available on lifecycle queries
-    if (!featureFlags[FEATURE_FLAGS.SAMPLING] || editorFilters.insight !== InsightType.LIFECYCLE) {
-        return <></>
+    const insightSupportsSampling =
+        featureFlags[FEATURE_FLAGS.SAMPLING] &&
+        (editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS)
+
+    if (insightSupportsSampling) {
+        return (
+            <>
+                <div className="SamplingFilter">
+                    <LemonSwitch
+                        checked={!!filters.sampling_factor}
+                        label={
+                            <>
+                                <span>Show sampled results</span>
+                            </>
+                        }
+                        onChange={(newChecked) => {
+                            if (editorFilters.insight === InsightType.FUNNELS) {
+                                setFunnelFilters({
+                                    ...filters,
+                                    sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null,
+                                })
+                                return
+                            }
+                            setInsightFilters({
+                                ...filters,
+                                sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null,
+                            })
+                        }}
+                    />
+                </div>
+            </>
+        )
     }
-    return (
-        <>
-            <div className="SamplingFilter">
-                <LemonSwitch
-                    checked={!!filters.sample_results}
-                    label={
-                        <>
-                            <span>Show sampled results</span>
-                        </>
-                    }
-                    onChange={(newChecked) => setFilters({ ...filters, sample_results: newChecked })}
-                />
-            </div>
-        </>
-    )
+    return <></>
 }
