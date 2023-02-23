@@ -159,9 +159,9 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                         order: -1,
                     }
                 }
-                return filters.order.startsWith('-')
+                return filters.order.endsWith(' DESC')
                     ? {
-                          columnKey: filters.order.slice(1),
+                          columnKey: filters.order.replace(/ DESC$/, ''),
                           order: -1,
                       }
                     : {

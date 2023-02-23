@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import List, Literal, Optional, Tuple, cast
+from typing import List, Optional, Tuple
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
@@ -10,7 +10,7 @@ from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
 from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_order_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Action, Person, Team
@@ -53,7 +53,8 @@ def run_events_query(
 
     select: List[ast.Expr] = [parse_expr(column) for column in select_input]
     group_by: List[ast.Expr] = [column for column in select if not has_aggregation(column)]
-    has_any_aggregation = any(has_aggregation(column) for column in select)
+    aggregations: List[ast.Expr] = [column for column in select if has_aggregation(column)]
+    has_any_aggregation = len(aggregations) > 0
 
     # filters
     where_input = query.where or []
@@ -101,17 +102,18 @@ def run_events_query(
     having = ast.And(exprs=having_list) if len(having_list) > 0 else None
 
     # order by
-    order_by = (
-        [
-            ast.OrderExpr(
-                expr=parse_expr(column[1:] if column.startswith("-") else column),
-                order=cast(Literal["DESC", "ASC"], "DESC" if column.startswith("-") else "ASC"),
-            )
-            for column in query.orderBy
-        ]
-        if query.orderBy
-        else None
-    )
+    if query.orderBy is not None:
+        order_by = [parse_order_expr(column) for column in query.orderBy]
+    elif "count()" in select_input:
+        order_by = [ast.OrderExpr(expr=parse_expr("count()"), order="DESC")]
+    elif len(aggregations) > 0:
+        order_by = [ast.OrderExpr(expr=aggregations[0], order="DESC")]
+    elif "timestamp" in select_input:
+        order_by = [ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC")]
+    elif len(select) > 0:
+        order_by = [ast.OrderExpr(expr=select[0], order="ASC")]
+    else:
+        order_by = []
 
     stmt = ast.SelectQuery(
         select=select,

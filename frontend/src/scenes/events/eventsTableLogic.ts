@@ -177,7 +177,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 fetchEventsSuccess: (_, { hasNext }: OnFetchEventsSuccess) => hasNext,
             },
         ],
-        orderBy: ['-timestamp', {}],
+        orderBy: ['timestamp DESC', {}],
         selectedEvent: [
             null as unknown as EventType,
             {
@@ -382,7 +382,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
             }
 
             // Poll events when they are ordered in ascending order based on timestamp
-            if (values.orderBy !== '-timestamp') {
+            if (values.orderBy !== 'timestamp DESC') {
                 return
             }
 
