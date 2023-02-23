@@ -110,9 +110,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "distinct_id",
     "elements_chain",
     "created_at",
-    "person.id",
-    "person.created_at",
-    "person.properties",
 ]
 
 # Never return more rows than this in top level HogQL SELECT statements

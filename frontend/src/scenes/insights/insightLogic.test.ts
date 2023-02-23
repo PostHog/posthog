@@ -1353,7 +1353,7 @@ describe('insightLogic', () => {
             logic.actions.setLastRefresh('123')
             await expectLogic(logic).toMatchValues({ lastRefresh: '123' })
             logic.actions.setActiveView(InsightType.FUNNELS)
-            await expectLogic(logic).toMatchValues({ lastRefresh: null })
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({ lastRefresh: null })
         })
 
         it('clears erroredQueryId when setting active view', async () => {

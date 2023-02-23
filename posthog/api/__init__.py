@@ -153,7 +153,8 @@ projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags",
 projects_router.register(r"query", query.QueryViewSet, "project_query", ["team_id"])
 
 # General endpoints (shared across CH & PG)
-router.register(r"login", authentication.LoginViewSet)
+router.register(r"login", authentication.LoginViewSet, "login")
+router.register(r"login/token", authentication.TwoFactorViewSet)
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
 router.register(r"users", user.UserViewSet)

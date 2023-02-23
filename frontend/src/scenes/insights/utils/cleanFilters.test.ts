@@ -1,5 +1,6 @@
 import { cleanFilters } from './cleanFilters'
 import {
+    ChartDisplayType,
     FilterType,
     FunnelsFilterType,
     FunnelStepReference,
@@ -7,7 +8,7 @@ import {
     InsightType,
     TrendsFilterType,
 } from '~/types'
-import { FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { NON_VALUES_ON_SERIES_DISPLAY_TYPES, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 
 describe('cleanFilters', () => {
     it('removes shownas if moving from stickiness to trends', () => {
@@ -363,5 +364,71 @@ describe('cleanFilters', () => {
         )
 
         expect(cleanedFilters).toHaveProperty('interval', 'hour')
+    })
+
+    describe('show_values_on_series', () => {
+        ;[InsightType.TRENDS, InsightType.LIFECYCLE, InsightType.STICKINESS].forEach((insight) => {
+            it(`keeps show values on series for ${insight}`, () => {
+                const cleanedFilters = cleanFilters(
+                    {
+                        insight,
+                        show_values_on_series: true,
+                    },
+                    {}
+                )
+
+                expect(cleanedFilters).toHaveProperty('show_values_on_series', true)
+            })
+        })
+        NON_VALUES_ON_SERIES_DISPLAY_TYPES.forEach((display) => {
+            it(`removes show values on series for ${display}`, () => {
+                const cleanedFilters = cleanFilters(
+                    {
+                        insight: InsightType.TRENDS,
+                        display,
+                        show_values_on_series: true,
+                    },
+                    {}
+                )
+
+                expect(cleanedFilters).not.toHaveProperty('show_values_on_series')
+            })
+        })
+        ;[(InsightType.PATHS, InsightType.FUNNELS, InsightType.RETENTION)].forEach((insight) => {
+            it(`removes show values on series for ${insight}`, () => {
+                const cleanedFilters = cleanFilters(
+                    {
+                        insight,
+                        show_values_on_series: true,
+                    },
+                    {}
+                )
+
+                expect(cleanedFilters).not.toHaveProperty('show_values_on_series')
+            })
+        })
+        it('sets show values on series for piecharts if it is undefined', () => {
+            const cleanedFilters = cleanFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    display: ChartDisplayType.ActionsPie,
+                },
+                {}
+            )
+
+            expect(cleanedFilters).toHaveProperty('show_values_on_series', true)
+        })
+        it('can set show values on series for piecharts to false', () => {
+            const cleanedFilters = cleanFilters(
+                {
+                    insight: InsightType.TRENDS,
+                    display: ChartDisplayType.ActionsPie,
+                    show_values_on_series: false,
+                },
+                {}
+            )
+
+            expect(cleanedFilters).toHaveProperty('show_values_on_series', false)
+        })
     })
 })

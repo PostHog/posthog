@@ -296,6 +296,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [self.visit(c) for c in ctx.columnsExpr()]
 
     def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
+        if ctx.tableIdentifier():
+            table = self.visit(ctx.tableIdentifier())
+            return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
@@ -405,7 +408,26 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.CompareOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
 
     def visitColumnExprInterval(self, ctx: HogQLParser.ColumnExprIntervalContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprInterval")
+        if ctx.interval().SECOND():
+            name = "toIntervalSecond"
+        elif ctx.interval().MINUTE():
+            name = "toIntervalMinute"
+        elif ctx.interval().HOUR():
+            name = "toIntervalHour"
+        elif ctx.interval().DAY():
+            name = "toIntervalDay"
+        elif ctx.interval().WEEK():
+            name = "toIntervalWeek"
+        elif ctx.interval().MONTH():
+            name = "toIntervalMonth"
+        elif ctx.interval().QUARTER():
+            name = "toIntervalQuarter"
+        elif ctx.interval().YEAR():
+            name = "toIntervalYear"
+        else:
+            raise NotImplementedError(f"Unsupported interval type: {ctx.interval().getText()}")
+
+        return ast.Call(name=name, args=[self.visit(ctx.columnExpr())])
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
@@ -500,6 +522,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(name=name, args=args)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
+        if ctx.tableIdentifier():
+            table = self.visit(ctx.tableIdentifier())
+            return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):

@@ -39,7 +39,7 @@ from posthog.constants import (
     INSIGHT_TRENDS,
     LIMIT,
     OFFSET,
-    SAMPLE_FACTOR,
+    SAMPLING_FACTOR,
     SELECTOR,
     SHOWN_AS,
     SMOOTHING_INTERVALS,
@@ -562,16 +562,20 @@ class SampleMixin(BaseParamMixin):
     Sample factor for a query.
     """
 
-    default_sample_factor = 0.1
-
     @cached_property
-    def sample_factor(self) -> Optional[float]:
-        factor = None
-        if process_bool(self._data.get("sample_results", False)):
-            factor = self.default_sample_factor
+    def sampling_factor(self) -> Optional[float]:
+        sampling_factor = self._data.get("sampling_factor", None)
 
-        return factor
+        # cover for both None and empty strings - also ok to filter out 0s here
+        if sampling_factor:
+            sampling_factor = float(sampling_factor)
+            if sampling_factor < 0 or sampling_factor > 1:
+                raise ValueError("Sampling factor must be greater than 0 and smaller or equal to 1")
+
+            return sampling_factor
+
+        return None
 
     @include_dict
-    def sample_factor_to_dict(self):
-        return {SAMPLE_FACTOR: self.sample_factor or ""}
+    def sampling_factor_to_dict(self):
+        return {SAMPLING_FACTOR: self.sampling_factor or ""}

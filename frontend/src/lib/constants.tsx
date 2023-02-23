@@ -14,6 +14,11 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
 export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
+export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+]
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
@@ -138,6 +143,7 @@ export const FEATURE_FLAGS = {
     FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
+    NEW_REFRESH_UX: 'new-refresh-ux', // owner: @yakkomajuri
     SAMPLING: 'sampling', // owner: @yakkomajuri
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
 }
