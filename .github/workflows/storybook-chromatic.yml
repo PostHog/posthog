@@ -173,12 +173,11 @@ jobs:
 
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }
-                      const diffByBrowser = {}
+                      const diffByBrowser = Object.fromEntries(BROWSERS.map(browser => [browser, {}]))
                       for (const [key, rawValue] of Object.entries(diffJobOutputs)) {
                         const value = key === 'commitHash' ? rawValue : parseInt(rawValue)
                         // Split e.g. 'chromium-commitHash' into ['chromium', 'commitHash']
                         const [browser, diffKey] = key.split('-')
-                        if (!diffByBrowser[browser]) diffByBrowser[browser] = {}
                         diffByBrowser[browser][diffKey] = value
                         // Sum up the counts - but not the commit hash
                         if (typeof value === 'number') {
