@@ -425,7 +425,7 @@ export function stepsWithConversionMetrics(
 
 export function flattenedStepsByBreakdown(
     steps: FunnelStepWithConversionMetrics[],
-    layout: FunnelLayout,
+    layout: FunnelLayout | undefined,
     disableBaseline: boolean
 ): FlattenedFunnelStepByBreakdown[] {
     // Initialize with two rows for rendering graph and header

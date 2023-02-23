@@ -481,5 +481,150 @@ describe('funnelDataLogic', () => {
                 })
             })
         })
+
+        describe('flattenedStepsByBreakdown', () => {
+            it('for standard funnel', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    flattenedStepsByBreakdown: [
+                        { rowKey: 'steps-meta' },
+                        { rowKey: 'graph' },
+                        { rowKey: 'table-header' },
+                        {
+                            rowKey: 'baseline_0',
+                            breakdown: ['baseline'],
+                            breakdown_value: ['Baseline'],
+                            isBaseline: true,
+                            breakdownIndex: 0,
+                            steps: [
+                                expect.objectContaining({
+                                    breakdown_value: 'Baseline',
+                                    count: 291,
+                                    droppedOffFromPrevious: 0,
+                                    conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: 'Baseline',
+                                    count: 134,
+                                    droppedOffFromPrevious: 157,
+                                    conversionRates: {
+                                        fromPrevious: 0.46048109965635736,
+                                        total: 0.46048109965635736,
+                                        fromBasisStep: 0.46048109965635736,
+                                    },
+                                }),
+                            ],
+                            conversionRates: { total: 0.46048109965635736 },
+                        },
+                    ],
+                })
+            })
+
+            it('with breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    flattenedStepsByBreakdown: [
+                        { rowKey: 'steps-meta' },
+                        { rowKey: 'graph' },
+                        { rowKey: 'table-header' },
+                        expect.objectContaining({ breakdown: ['baseline'] }),
+                        expect.objectContaining({
+                            rowKey: 'Chrome_1',
+                            breakdown: ['Chrome'],
+                            breakdown_value: ['Chrome'],
+                            isBaseline: false,
+                            breakdownIndex: 1,
+                            steps: [
+                                expect.objectContaining({
+                                    count: 136,
+                                    droppedOffFromPrevious: 0,
+                                    conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                                    significant: { fromPrevious: false, fromBasisStep: false, total: false },
+                                }),
+                                expect.objectContaining({
+                                    count: 66,
+                                    droppedOffFromPrevious: 70,
+                                    conversionRates: {
+                                        fromPrevious: 0.4852941176470588,
+                                        total: 0.4852941176470588,
+                                        fromBasisStep: 0.4852941176470588,
+                                    },
+                                    significant: { fromPrevious: false, fromBasisStep: false, total: false },
+                                }),
+                            ],
+                            conversionRates: { total: 0.4852941176470588 },
+                            significant: false,
+                        }),
+                        expect.objectContaining({ breakdown: ['Firefox'] }),
+                        expect.objectContaining({ breakdown: ['Safari'] }),
+                    ],
+                })
+            })
+
+            it('with multi breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithMultiBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    flattenedStepsByBreakdown: [
+                        { rowKey: 'steps-meta' },
+                        { rowKey: 'graph' },
+                        { rowKey: 'table-header' },
+                        expect.objectContaining({ breakdown: ['baseline'] }),
+                        expect.objectContaining({
+                            rowKey: 'Chrome_Mac OS X_1',
+                            breakdown: ['Chrome', 'Mac OS X'],
+                            breakdown_value: ['Chrome', 'Mac OS X'],
+                            isBaseline: false,
+                            breakdownIndex: 1,
+                            steps: [
+                                expect.objectContaining({
+                                    count: 49,
+                                    droppedOffFromPrevious: 0,
+                                    conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                                    significant: { fromPrevious: false, fromBasisStep: false, total: false },
+                                }),
+                                expect.objectContaining({
+                                    count: 26,
+                                    droppedOffFromPrevious: 23,
+                                    conversionRates: {
+                                        fromBasisStep: 0.5306122448979592,
+                                        fromPrevious: 0.5306122448979592,
+                                        total: 0.5306122448979592,
+                                    },
+                                    significant: { fromPrevious: false, fromBasisStep: false, total: false },
+                                }),
+                            ],
+                            conversionRates: { total: 0.5306122448979592 },
+                            significant: false,
+                        }),
+                        expect.objectContaining({ breakdown: ['Chrome', 'Linux'] }),
+                        expect.objectContaining({ breakdown: ['Internet Explorer', 'Windows'] }),
+                    ],
+                })
+            })
+        })
     })
 })

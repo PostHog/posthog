@@ -147,7 +147,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter],
             (steps, funnelsFilter): FlattenedFunnelStepByBreakdown[] => {
                 const disableBaseline = !!props.cachedInsight?.disable_baseline
-                return flattenedStepsByBreakdown(steps, funnelsFilter.layout, disableBaseline)
+                return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline)
             },
         ],
 
