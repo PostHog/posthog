@@ -8,7 +8,8 @@ from posthog.hogql.context import HogQLContext, HogQLFieldAccess
 from posthog.hogql.database import Table, database
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
-from posthog.hogql.visitor import Visitor, clone_expr
+from posthog.hogql.transforms import expand_asterisks
+from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
 
@@ -35,13 +36,13 @@ def print_ast(
     """Print an AST into a string. Does not modify the node."""
     symbol = stack[-1].symbol if stack else None
 
-    # make a clean copy of the object
-    node = clone_expr(node)
     # resolve symbols
     resolve_symbols(node, symbol)
 
     # modify the cloned tree as needed
     if dialect == "clickhouse":
+        expand_asterisks(node)
+
         # TODO: add team_id checks (currently done in the printer)
         # TODO: add joins to person and group tables
         pass
@@ -474,16 +475,7 @@ class _Printer(Visitor):
         return self._print_identifier(symbol.name)
 
     def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
-        table = symbol.table
-        while isinstance(table, ast.TableAliasSymbol):
-            table = table.table
-        if not isinstance(table, ast.TableSymbol):
-            raise ValueError(f"Unknown AsteriskSymbol table type: {type(table).__name__}")
-        asterisk_fields = table.table.get_asterisk()
-        prefix = (
-            f"{self._print_identifier(symbol.table.name)}." if isinstance(symbol.table, ast.TableAliasSymbol) else ""
-        )
-        return f"tuple({', '.join(f'{prefix}{self._print_identifier(field)}' for field in asterisk_fields)})"
+        raise ValueError("Unexpected ast.AsteriskSymbol. Make sure AsteriskExpander has run on the AST.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")
