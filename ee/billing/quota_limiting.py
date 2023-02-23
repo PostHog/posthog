@@ -1,13 +1,16 @@
+import copy
 from datetime import timedelta
 from enum import Enum
-from typing import Dict, List, Mapping, Sequence, TypedDict
+from typing import Dict, List, Mapping, Optional, Sequence, TypedDict, cast
 
 import dateutil.parser
 from django.db.models import Q
 from django.utils import timezone
+from sentry_sdk import capture_exception
 
 from posthog.cache_utils import cache_for
-from posthog.models.organization import Organization
+from posthog.event_usage import report_organization_action
+from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
@@ -17,7 +20,7 @@ from posthog.tasks.usage_report import (
 )
 from posthog.utils import get_current_day
 
-RATE_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
+QUOTA_LIMITER_CACHE_KEY = "@posthog/quota-limits/"
 
 
 class QuotaResource(Enum):
@@ -33,23 +36,108 @@ OVERAGE_BUFFER = {
 
 def replace_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
     pipe = get_client().pipeline()
-    pipe.delete(f"{RATE_LIMITER_CACHE_KEY}{resource.value}")
+    pipe.delete(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}")
     if tokens:
-        pipe.zadd(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+        pipe.zadd(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
     pipe.execute()
+
+
+def add_limited_team_tokens(resource: QuotaResource, tokens: Mapping[str, int]) -> None:
+    redis_client = get_client()
+    redis_client.zadd(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", tokens)  # type: ignore # (zadd takes a Mapping[str, int] but the derived Union type is wrong)
+
+
+def remove_limited_team_tokens(resource: QuotaResource, tokens: List[str]) -> None:
+    redis_client = get_client()
+    redis_client.zrem(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", *tokens)
 
 
 @cache_for(timedelta(seconds=30), background_refresh=True)
 def list_limited_team_tokens(resource: QuotaResource) -> List[str]:
     now = timezone.now()
     redis_client = get_client()
-    results = redis_client.zrangebyscore(f"{RATE_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
+    results = redis_client.zrangebyscore(f"{QUOTA_LIMITER_CACHE_KEY}{resource.value}", min=now.timestamp(), max="+inf")
     return [x.decode("utf-8") for x in results]
 
 
 class UsageCounters(TypedDict):
     events: int
     recordings: int
+
+
+def org_quota_limited_until(organization: Organization, resource: QuotaResource) -> Optional[int]:
+    if not organization.usage:
+        return None
+
+    summary = organization.usage.get(resource.value, {})
+    usage = summary.get("usage", 0)
+    todays_usage = summary.get("todays_usage", 0)
+    limit = summary.get("limit")
+
+    if limit is None:
+        return None
+
+    is_quota_limited = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
+    billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
+
+    if is_quota_limited and billing_period_end:
+        return billing_period_end
+
+    return None
+
+
+def sync_org_quota_limits(organization: Organization):
+    if not organization.usage:
+        return None
+
+    team_tokens: List[str] = [x for x in list(organization.teams.values_list("api_token", flat=True)) if x]
+
+    if not team_tokens:
+        capture_exception(Exception(f"quota_limiting: No team tokens found for organization: {organization.id}"))
+        return
+
+    for resource in [QuotaResource.EVENTS, QuotaResource.RECORDINGS]:
+        quota_limited_until = org_quota_limited_until(organization, resource)
+
+        if quota_limited_until:
+            add_limited_team_tokens(resource, {x: quota_limited_until for x in team_tokens})
+        else:
+            remove_limited_team_tokens(resource, team_tokens)
+
+
+def set_org_usage_summary(
+    organization: Organization,
+    new_usage: Optional[OrganizationUsageInfo] = None,
+    todays_usage: Optional[UsageCounters] = None,
+) -> bool:
+    # TRICKY: We don't want to overwrite the "todays_usage" value unless the usage from the billing service is different than what we have locally.
+    # Also we want to return if anything changed so that the caller can update redis
+
+    has_changed = False
+    new_usage = new_usage or cast(Optional[OrganizationUsageInfo], organization.usage)
+
+    if not new_usage:
+        # If we are not setting it and it doesn't exist we can't update it
+        return False
+
+    new_usage = copy.deepcopy(new_usage)
+
+    for field in ["events", "recordings"]:
+        resource_usage = new_usage[field]  # type: ignore
+
+        if todays_usage:
+            resource_usage["todays_usage"] = todays_usage[field]  # type: ignore
+        else:
+            # TRICKY: If we are not explictly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
+            if (organization.usage or {}).get(field, {}).get("usage") != resource_usage.get("usage"):
+                resource_usage["todays_usage"] = 0
+            else:
+                resource_usage["todays_usage"] = organization.usage.get(field, {}).get("todays_usage") or 0
+
+    has_changed = new_usage != organization.usage
+    organization.usage = new_usage
+
+    return has_changed
 
 
 def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, int]]:
@@ -88,7 +176,7 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
             for field in team_report:
                 org_report[field] += team_report[field]  # type: ignore
 
-    rate_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+    quota_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
 
     # We find all orgs that should be rate limited
     for org_id, todays_report in todays_usage_report.items():
@@ -97,38 +185,52 @@ def update_all_org_billing_quotas(dry_run: bool = False) -> Dict[str, Dict[str, 
         # if we don't have limits set from the billing service, we can't risk rate limiting existing customers
         if org.usage and org.usage.get("period"):
             # for each organization, we check if the current usage + today's unreported usage is over the limit
+            if set_org_usage_summary(org, todays_usage=todays_report):
+                org.save(update_fields=["usage"])
+
             for field in ["events", "recordings"]:
-                summary = org.usage.get(field, {})
-                unreported_usage = todays_report[field]  # type: ignore
-                usage = summary.get("usage", 0)
-                limit = summary.get("limit", 0)
+                quota_limited_until = org_quota_limited_until(org, QuotaResource(field))
 
-                if summary.get("todays_usage") != unreported_usage:
-                    summary["todays_usage"] = unreported_usage
-                    org.usage[field] = summary
-                    org.save(update_fields=["usage"])
-
-                if limit is None:
-                    continue
-
-                is_rate_limited = usage + unreported_usage > limit + OVERAGE_BUFFER[QuotaResource(field)]
-                billing_period_end = round(dateutil.parser.isoparse(org.usage["period"][1]).timestamp())
-
-                if is_rate_limited and billing_period_end:
+                if quota_limited_until:
                     # TODO: Set this rate limit to the end of the billing period
-                    rate_limited_orgs[field][org_id] = billing_period_end
+                    quota_limited_orgs[field][org_id] = quota_limited_until
 
-    rate_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+    # Get the current quota limits so we can track to poshog if it changes
+    orgs_with_changes = set()
+    previously_quota_limited_team_tokens: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+
+    for field in quota_limited_orgs:
+        previously_quota_limited_team_tokens[field] = list_limited_team_tokens(QuotaResource(field))
+
+    quota_limited_teams: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
 
     # Convert the org ids to team tokens
     for team in teams:
-        for field in rate_limited_orgs:
-            # TODO: Check for specific field on organization to force quota limits on
-            if str(team.organization.id) in rate_limited_orgs[field]:
-                rate_limited_teams[field][team.api_token] = rate_limited_orgs[field][str(team.organization.id)]
+        for field in quota_limited_orgs:
+            org_id = str(team.organization.id)
+            if org_id in quota_limited_orgs[field]:
+                quota_limited_teams[field][team.api_token] = quota_limited_orgs[field][org_id]
+
+                # If the team was not previously quota limited, we add it to the list of orgs that were added
+                if team.api_token not in previously_quota_limited_team_tokens[field]:
+                    orgs_with_changes.add(org_id)
+            else:
+                # If the team was previously quota limited, we add it to the list of orgs that were removed
+                if team.api_token in previously_quota_limited_team_tokens[field]:
+                    orgs_with_changes.add(org_id)
+
+    for org_id in orgs_with_changes:
+        properties = {
+            "quota_limited_events": quota_limited_orgs["events"].get(org_id, None),
+            "quota_limited_recordings": quota_limited_orgs["events"].get(org_id, None),
+        }
+
+        report_organization_action(
+            orgs_by_id[org_id], "organization quota limits changed", properties=properties, group_properties=properties
+        )
 
     if not dry_run:
-        for field in rate_limited_teams:
-            replace_limited_team_tokens(QuotaResource(field), rate_limited_teams[field])
+        for field in quota_limited_teams:
+            replace_limited_team_tokens(QuotaResource(field), quota_limited_teams[field])
 
-    return rate_limited_orgs
+    return quota_limited_orgs

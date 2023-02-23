@@ -10,15 +10,10 @@
                   sum(successes_on_retry) AS successes_on_retry,
                   sum(failures) AS failures
      FROM
-       (SELECT dateTrunc('hour', toDateTime('2021-08-25 00:00:00') + toIntervalHour(number), 'UTC') AS date,
-               0 AS successes,
-               0 AS successes_on_retry,
-               0 AS failures
-        FROM numbers(dateDiff('hour', dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC'), dateTrunc('hour', toDateTime('2021-08-25 06:00:00') + toIntervalHour(1), 'UTC')))
-        UNION ALL SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
-                         sum(successes) AS successes,
-                         sum(successes_on_retry) AS successes_on_retry,
-                         sum(failures) AS failures
+       (SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
+               sum(successes) AS successes,
+               sum(successes_on_retry) AS successes_on_retry,
+               sum(failures) AS failures
         FROM app_metrics
         WHERE team_id = 2
           AND plugin_config_id = 3
@@ -28,7 +23,8 @@
           AND timestamp < '2021-08-25 06:00:00'
         GROUP BY dateTrunc('hour', timestamp, 'UTC'))
      GROUP BY date
-     ORDER BY date)
+     ORDER BY date WITH FILL
+     FROM dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC') TO dateTrunc('hour', toDateTime('2021-08-25 06:00:00') + toIntervalHour(1), 'UTC') STEP 3600)
   '
 ---
 # name: TestHistoricalExports.test_historical_export_metrics.1

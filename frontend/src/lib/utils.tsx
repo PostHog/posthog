@@ -1284,10 +1284,11 @@ export function endWithPunctation(text?: string | null): string {
 export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
     try {
-        const localeTimeString = date
+        const localeTimeStringParts = date
             .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
             .replace('GMT', 'UTC')
-        return localeTimeString.split(' ')[2]
+            .split(' ')
+        return localeTimeStringParts[localeTimeStringParts.length - 1]
     } catch (e) {
         Sentry.captureException(e)
         return null

@@ -383,3 +383,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 "SELECT s.pdi.person.properties.email, count() FROM events AS s GROUP BY s.pdi.person.properties.email LIMIT 10",
             )
             self.assertEqual(response.results[0][0], "tim@posthog.com")
+
+    def test_select_person_on_events(self):
+        with freeze_time("2020-01-10"):
+            self._create_random_events()
+            response = execute_hogql_query(
+                "SELECT poe.properties.email, count() FROM events s GROUP BY poe.properties.email LIMIT 10",
+                self.team,
+            )
+            self.assertEqual(
+                response.clickhouse,
+                f"SELECT replaceRegexpAll(JSONExtractRaw(s.person_properties, %(hogql_val_0)s), '^\"|\"$', ''), "
+                f"count(*) FROM events AS s WHERE equals(s.team_id, {self.team.pk}) GROUP BY "
+                f"replaceRegexpAll(JSONExtractRaw(s.person_properties, %(hogql_val_1)s), '^\"|\"$', '') LIMIT 10",
+            )
+            self.assertEqual(
+                response.hogql,
+                "SELECT poe.properties.email, count() FROM events AS s GROUP BY poe.properties.email LIMIT 10",
+            )
+            self.assertEqual(response.results[0][0], "tim@posthog.com")

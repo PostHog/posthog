@@ -1011,10 +1011,11 @@ def test_events(db, team) -> List[UUID]:
 
 @pytest.fixture
 def clean_up_materialised_columns():
-    yield
-
-    # after test cleanup
-    cleanup_materialized_columns()
+    try:
+        yield
+    finally:
+        # after test cleanup
+        cleanup_materialized_columns()
 
 
 TEST_PROPERTIES = [

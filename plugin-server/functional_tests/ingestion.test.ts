@@ -104,6 +104,37 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
     })
 })
 
+test.concurrent(`event ingestion: handles $groupidentify with no properties`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+
+    const groupIdentityUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, groupIdentityUuid, '$groupidentify', {
+        distinct_id: distinctId,
+        $group_type: 'organization',
+        $group_key: 'posthog',
+    })
+
+    const firstEventUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, firstEventUuid, 'custom event', {
+        name: 'haha',
+        $group_0: 'posthog',
+    })
+
+    const event = await waitForExpect(async () => {
+        const [event] = await fetchEvents(clickHouseClient, teamId, firstEventUuid)
+        expect(event).toBeDefined()
+        return event
+    })
+
+    expect(event).toEqual(
+        expect.objectContaining({
+            $group_0: 'posthog',
+            group0_properties: {},
+        })
+    )
+})
+
 test.concurrent(`event ingestion: can $set and update person properties`, async () => {
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()

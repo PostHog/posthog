@@ -271,7 +271,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             expect(runIn).toHaveBeenCalledWith(3, 'seconds')
         })
 
-        it('schedules a retry with exponential backoff', async () => {
+        it('schedules a retry with exponential backoff for exportEvents RetryError', async () => {
             createVM()
 
             jest.mocked(fetchEventsForInterval).mockResolvedValue([1, 2, 3])
@@ -283,6 +283,27 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 expect.objectContaining({
                     message: expect.stringContaining(
                         'Failed processing events 0-3 from 2021-11-01T00:00:00.000Z to 2021-11-01T01:00:00.000Z.'
+                    ),
+                })
+            )
+            expect(vm.meta.jobs.exportHistoricalEventsV2).toHaveBeenCalledWith({
+                ...defaultPayload,
+                retriesPerformedSoFar: 6,
+            })
+            expect(runIn).toHaveBeenCalledWith(96, 'seconds')
+        })
+
+        it('schedules a retry with exponential backoff for fetchEventsForInterval RetryError', async () => {
+            createVM()
+
+            jest.mocked(fetchEventsForInterval).mockRejectedValue(new RetryError('Retry error'))
+
+            await exportHistoricalEvents({ ...defaultPayload, retriesPerformedSoFar: 5 })
+
+            expect(hub.db.queuePluginLogEntry).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: expect.stringContaining(
+                        'Failed to fetch events from 2021-11-01T00:00:00.000Z to 2021-11-01T01:00:00.000Z.'
                     ),
                 })
             )

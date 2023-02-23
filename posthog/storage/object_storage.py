@@ -102,7 +102,7 @@ def object_storage_client() -> ObjectStorageClient:
                 aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
                 aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
                 config=Config(signature_version="s3v4", connect_timeout=1, retries={"max_attempts": 1}),
-                region_name="us-east-1",
+                region_name=settings.OBJECT_STORAGE_REGION,
             )
         )
 

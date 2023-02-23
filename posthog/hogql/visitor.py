@@ -97,16 +97,22 @@ class TraversingVisitor(Visitor):
     def visit_table_symbol(self, node: ast.TableSymbol):
         pass
 
+    def visit_field_traverser_symbol(self, node: ast.LazyTableSymbol):
+        self.visit(node.table)
+
     def visit_lazy_table_symbol(self, node: ast.LazyTableSymbol):
         self.visit(node.table)
 
-    def visit_table_alias_symbol(self, node: ast.TableAliasSymbol):
+    def visit_virtual_table_symbol(self, node: ast.VirtualTableSymbol):
         self.visit(node.table)
+
+    def visit_table_alias_symbol(self, node: ast.TableAliasSymbol):
+        self.visit(node.table_symbol)
 
     def visit_select_query_alias_symbol(self, node: ast.SelectQueryAliasSymbol):
         self.visit(node.symbol)
 
-    def visit_splash_symbol(self, node: ast.SplashSymbol):
+    def visit_asterisk_symbol(self, node: ast.AsteriskSymbol):
         self.visit(node.table)
 
     def visit_call_symbol(self, node: ast.CallSymbol):

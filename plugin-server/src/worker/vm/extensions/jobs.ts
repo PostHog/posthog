@@ -38,6 +38,12 @@ export function durationToMs(duration: number, unit: string): number {
 }
 
 export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
+    /**
+     * Helper function to enqueue jobs to be executed by the jobs pool.
+     * To avoid disruptions if the Graphile PG is unhealthy, job payloads are
+     * written to a Kafka topic.
+     * job-consumer.ts will consume and place them in the Graphile queue asynchronously.
+     */
     const runJob = async (type: string, payload: Record<string, any>, timestamp: number) => {
         try {
             const job = {
@@ -47,6 +53,7 @@ export function createJobs(server: Hub, pluginConfig: PluginConfig): Jobs {
                 pluginConfigId: pluginConfig.id,
                 pluginConfigTeam: pluginConfig.team_id,
             }
+            // TODO: port to Prometheus, once we have multi-process metrics collection (running in piscina worker here)
             server.statsd?.increment('job_enqueue_attempt')
             await server.enqueuePluginJob(job)
         } catch (e) {

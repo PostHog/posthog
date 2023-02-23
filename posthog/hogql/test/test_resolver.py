@@ -47,7 +47,7 @@ class TestResolver(BaseTest):
         resolve_symbols(expr)
 
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table=events_table_symbol)
+        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table_symbol=events_table_symbol)
         event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
         select_query_symbol = ast.SelectQuerySymbol(
@@ -85,7 +85,7 @@ class TestResolver(BaseTest):
         resolve_symbols(expr)
 
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table=events_table_symbol)
+        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table_symbol=events_table_symbol)
         event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
         timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
 
@@ -250,7 +250,7 @@ class TestResolver(BaseTest):
                     symbol=ast.FieldSymbol(
                         name="id",
                         table=ast.LazyTableSymbol(
-                            table=pdi_table_symbol, field="person", joined_table=database.person_distinct_ids.person
+                            table=pdi_table_symbol, field="person", lazy_table=database.person_distinct_ids.person
                         ),
                     ),
                 ),
@@ -268,7 +268,7 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=pdi_table_symbol,
-                            joined_table=database.person_distinct_ids.person,
+                            lazy_table=database.person_distinct_ids.person,
                             field="person",
                         ),
                     ),
@@ -297,7 +297,7 @@ class TestResolver(BaseTest):
                     symbol=ast.FieldSymbol(
                         name="person_id",
                         table=ast.LazyTableSymbol(
-                            table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                            table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
                         ),
                     ),
                 ),
@@ -315,7 +315,7 @@ class TestResolver(BaseTest):
                         name="person_id",
                         table=ast.LazyTableSymbol(
                             table=events_table_symbol,
-                            joined_table=database.events.pdi,
+                            lazy_table=database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -333,7 +333,7 @@ class TestResolver(BaseTest):
         expr = parse_select("select event, e.pdi.person_id from events e")
         resolve_symbols(expr)
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -345,7 +345,7 @@ class TestResolver(BaseTest):
                     symbol=ast.FieldSymbol(
                         name="person_id",
                         table=ast.LazyTableSymbol(
-                            table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                            table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
                         ),
                     ),
                 ),
@@ -364,7 +364,7 @@ class TestResolver(BaseTest):
                         name="person_id",
                         table=ast.LazyTableSymbol(
                             table=events_table_alias_symbol,
-                            joined_table=database.events.pdi,
+                            lazy_table=database.events.pdi,
                             field="pdi",
                         ),
                     ),
@@ -394,10 +394,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 ),
@@ -415,10 +415,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 },
@@ -435,7 +435,7 @@ class TestResolver(BaseTest):
         expr = parse_select("select event, e.pdi.person.id from events e")
         resolve_symbols(expr)
         events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table=events_table_symbol, name="e")
+        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
@@ -448,10 +448,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 ),
@@ -470,10 +470,10 @@ class TestResolver(BaseTest):
                         name="id",
                         table=ast.LazyTableSymbol(
                             table=ast.LazyTableSymbol(
-                                table=events_table_alias_symbol, field="pdi", joined_table=database.events.pdi
+                                table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
-                            joined_table=database.events.pdi.table.person,
+                            lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 },
@@ -486,16 +486,47 @@ class TestResolver(BaseTest):
         self.assertEqual(expr.symbol, expected.symbol)
         self.assertEqual(expr, expected)
 
-
-# "with 2 as a select 1 as a" -> "Different expressions with the same alias a:"
-# "with 2 as b, 3 as c select (select 1 as b) as a, b, c" -> "Different expressions with the same alias b:"
-# "select a, b, e.c from (select 1 as a, 2 as b, 3 as c) as e" -> 1, 2, 3
-
-# # good
-# SELECT t.x FROM (SELECT 1 AS x) AS t;
-# SELECT t.x FROM (SELECT x FROM tbl) AS t;
-# SELECT x FROM (SELECT x FROM tbl) AS t;
-# SELECT 1 AS x, x, x + 1;
-# SELECT x, x + 1, 1 AS x;
-# SELECT x, 1 + (2 + (3 AS x));
-# "SELECT x IN (SELECT 1 AS x) FROM (SELECT 1 AS x)",
+    def test_resolve_virtual_events_poe(self):
+        expr = parse_select("select event, poe.id from events")
+        resolve_symbols(expr)
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"],
+                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                ),
+                ast.Field(
+                    chain=["poe", "id"],
+                    symbol=ast.FieldSymbol(
+                        name="id",
+                        table=ast.VirtualTableSymbol(
+                            table=events_table_symbol, field="poe", virtual_table=database.events.poe
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                symbol=events_table_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
+                    "id": ast.FieldSymbol(
+                        name="id",
+                        table=ast.VirtualTableSymbol(
+                            table=events_table_symbol, field="poe", virtual_table=database.events.poe
+                        ),
+                    ),
+                },
+                tables={"events": events_table_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)

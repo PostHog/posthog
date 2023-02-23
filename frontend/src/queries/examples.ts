@@ -293,7 +293,16 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
 
 const HogQL: HogQLQuery = {
     kind: NodeKind.HogQLQuery,
-    query: 'select event, count() from events where timestamp > now() - interval 1 month group by event order by count() desc',
+    query:
+        '   select event,\n' +
+        '          properties.$geoip_country_name as `Country Name`,\n' +
+        '          count() as `Event count`\n' +
+        '     from events\n' +
+        '    where timestamp > now() - interval 1 month\n' +
+        ' group by event,\n' +
+        '          properties.$geoip_country_name\n' +
+        ' order by count() desc\n' +
+        '    limit 100',
 }
 
 const HogQLTable: DataTableNode = {
@@ -302,16 +311,17 @@ const HogQLTable: DataTableNode = {
     source: {
         kind: NodeKind.HogQLQuery,
         query: `   select event,
-          pdi.person.properties.email,
+          person.properties.email,
           properties.$browser,
           count()
      from events
     where timestamp > now () - interval 1 month
-      and pdi.person.properties.email is not null
+      and person.properties.email is not null
  group by event,
           properties.$browser,
-          pdi.person.properties.email
- order by count() desc`,
+          person.properties.email
+ order by count() desc
+    limit 100`,
     },
 }
 

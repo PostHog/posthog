@@ -1,6 +1,15 @@
 import datetime
 import re
-from typing import Any, Callable, Dict, List, TypeVar, Union, cast
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    TypeVar,
+    Union,
+    cast,
+)
 
 from dateutil import parser
 from django.db.models import Exists, OuterRef, Q
@@ -11,6 +20,7 @@ from posthog.models.cohort import Cohort, CohortPeople
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.property import CLICKHOUSE_ONLY_PROPERTY_TYPES, Property, PropertyGroup
+from posthog.models.property.property import OperatorType, ValueT
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates, is_valid_regex
@@ -164,6 +174,22 @@ def match_property(property: Property, override_property_values: Dict[str, Any])
     return False
 
 
+def empty_or_null_with_value_q(
+    column: str, key: str, operator: Optional[OperatorType], value: ValueT, negated: bool = False
+) -> Q:
+
+    if operator == "exact" or operator is None:
+        target_filter = lookup_q(f"{column}__{key}", Property._parse_value(value))
+    else:
+        target_filter = Q(**{f"{column}__{key}__{operator}": value})
+
+    query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
+
+    if negated:
+        return ~query_filter
+    return query_filter
+
+
 def lookup_q(key: str, value: Any) -> Q:
     # exact and is_not operators can pass lists as arguments. Handle those lookups!
     if isinstance(value, list):
@@ -217,21 +243,16 @@ def property_to_Q(property: Property, override_property_values: Dict[str, Any] =
         # Return no data for invalid regexes
         return Q(pk=-1)
     if isinstance(property.operator, str) and property.operator.startswith("not_"):
-        return Q(
-            ~Q(**{f"{column}__{property.key}__{property.operator[4:]}": value})
-            | ~Q(**{f"{column}__has_key": property.key})
-            | Q(**{f"{column}__{property.key}": None})
+        return empty_or_null_with_value_q(
+            column, property.key, cast(OperatorType, property.operator[4:]), value, negated=True
         )
 
     if property.operator in ("is_date_after", "is_date_before"):
         effective_operator = "gt" if property.operator == "is_date_after" else "lt"
         return Q(**{f"{column}__{property.key}__{effective_operator}": value})
 
-    if property.operator == "exact" or property.operator is None:
-        return lookup_q(f"{column}__{property.key}", value)
-    else:
-        assert not isinstance(value, list)
-        return Q(**{f"{column}__{property.key}__{property.operator}": value})
+    # NOTE: existence clause necessary when overall clause is negated
+    return empty_or_null_with_value_q(column, property.key, property.operator, property.value)
 
 
 def property_group_to_Q(property_group: PropertyGroup, override_property_values: Dict[str, Any] = {}) -> Q:

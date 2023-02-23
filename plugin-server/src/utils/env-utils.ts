@@ -39,3 +39,8 @@ export function determineNodeEnv(): NodeEnv {
 export const isTestEnv = (): boolean => determineNodeEnv() === NodeEnv.Test
 export const isDevEnv = (): boolean => determineNodeEnv() === NodeEnv.Development
 export const isProdEnv = (): boolean => determineNodeEnv() === NodeEnv.Production
+
+export function isIngestionOverflowEnabled(): boolean {
+    const ingestionOverflowEnabled = process.env.INGESTION_OVERFLOW_ENABLED
+    return stringToBoolean(ingestionOverflowEnabled)
+}

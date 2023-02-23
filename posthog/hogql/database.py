@@ -48,28 +48,58 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
-    def get_splash(self) -> Dict[str, DatabaseField]:
-        splash: Dict[str, DatabaseField] = {}
+    def avoid_asterisk_fields(self) -> List[str]:
+        return []
+
+    def get_asterisk(self) -> Dict[str, DatabaseField]:
+        asterisk: Dict[str, DatabaseField] = {}
+        fields_to_avoid = self.avoid_asterisk_fields() + ["team_id"]
         for key, field in self.__fields__.items():
+            if key in fields_to_avoid:
+                continue
             database_field = field.default
-            if key == "team_id":
-                pass  # skip team_id
-            elif isinstance(database_field, DatabaseField):
-                splash[key] = database_field
-            elif isinstance(database_field, Table) or isinstance(database_field, JoinedTable):
+            if isinstance(database_field, DatabaseField):
+                asterisk[key] = database_field
+            elif (
+                isinstance(database_field, Table)
+                or isinstance(database_field, LazyTable)
+                or isinstance(database_field, VirtualTable)
+                or isinstance(database_field, FieldTraverser)
+            ):
                 pass  # ignore virtual tables for now
             else:
-                raise ValueError(f"Unknown field type {type(database_field).__name__} for splash")
-        return splash
+                raise ValueError(f"Unknown field type {type(database_field).__name__} for asterisk")
+        return asterisk
 
 
-class JoinedTable(BaseModel):
+class LazyTable(BaseModel):
     class Config:
         extra = Extra.forbid
 
     join_function: Callable[[str, str, List[str]], Any]
     table: Table
     from_field: str
+
+
+class VirtualTable(Table):
+    class Config:
+        extra = Extra.forbid
+
+
+class FieldTraverser(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    chain: List[str]
+
+
+class EventsPersonSubTable(VirtualTable):
+    id: StringDatabaseField = StringDatabaseField(name="person_id")
+    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="person_created_at")
+    properties: StringJSONDatabaseField = StringJSONDatabaseField(name="person_properties")
+
+    def clickhouse_table(self):
+        return "events"
 
 
 class PersonsTable(Table):
@@ -131,16 +161,10 @@ class PersonDistinctIdTable(Table):
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
-    person: JoinedTable = JoinedTable(
-        from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table
-    )
+    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
 
-    def get_splash(self) -> Dict[str, DatabaseField]:
-        splash: Dict[str, DatabaseField] = {}
-        for key, value in super().get_splash().items():
-            if key != "is_deleted" and key != "version":
-                splash[key] = value
-        return splash
+    def avoid_asterisk_fields(self):
+        return ["is_deleted", "version"]
 
     def clickhouse_table(self):
         return "person_distinct_id2"
@@ -185,17 +209,6 @@ def join_with_max_person_distinct_id_table(from_table: str, to_table: str, reque
     )
 
 
-class GroupsTable(Table):
-    group_type_index: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    group_key: StringDatabaseField = StringDatabaseField(name="group_key")
-    created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
-    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
-    group_properties: StringJSONDatabaseField = StringJSONDatabaseField(name="group_properties")
-
-    def clickhouse_table(self):
-        return "groups"
-
-
 class EventsTable(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
     event: StringDatabaseField = StringDatabaseField(name="event")
@@ -206,9 +219,16 @@ class EventsTable(Table):
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
 
-    pdi: JoinedTable = JoinedTable(
+    # lazy table that adds a join to the persons table
+    pdi: LazyTable = LazyTable(
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
+    # person fields on the event itself
+    poe: EventsPersonSubTable = EventsPersonSubTable()
+
+    # TODO: swap these between pdi and person_on_events as needed
+    person: FieldTraverser = FieldTraverser(chain=["pdi", "person"])
+    person_id: FieldTraverser = FieldTraverser(chain=["pdi", "person_id"])
 
     def clickhouse_table(self):
         return "events"
@@ -232,7 +252,7 @@ class SessionRecordingEvents(Table):
     last_event_timestamp: DateTimeDatabaseField = DateTimeDatabaseField(name="last_event_timestamp")
     urls: StringDatabaseField = StringDatabaseField(name="urls", array=True)
 
-    pdi: JoinedTable = JoinedTable(
+    pdi: LazyTable = LazyTable(
         from_field="distinct_id", table=PersonDistinctIdTable(), join_function=join_with_max_person_distinct_id_table
     )
 
@@ -249,7 +269,6 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
-    groups: GroupsTable = GroupsTable()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
