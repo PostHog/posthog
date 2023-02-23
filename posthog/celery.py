@@ -432,6 +432,40 @@ def clickhouse_row_count():
 
 
 @app.task(ignore_result=True)
+def clickhouse_errors_count():
+    """
+    This task is used to track the recency of errors in ClickHouse.
+    We can use this to alert on errors that are consistently being generated recently
+    """
+    from posthog.client import sync_execute
+
+    with pushed_metrics_registry("celery_clickhouse_errors") as registry:
+        errors_gauge = Gauge(
+            "posthog_celery_clickhouse_errors",
+            "Age of the latest error per ClickHouse errors table.",
+            registry=registry,
+        )
+        try:
+            QUERY = """
+            select
+                getMacro('replica') replica,
+                getMacro('shard') shard,
+                name,
+                value as errors,
+                dateDiff('minute', last_error_time, now()) minutes_ago
+            from clusterAllReplicas('posthog', system, errors)
+            where code in (999, 225, 242)
+            order by minutes_ago
+            """
+            rows = sync_execute(QUERY)
+            if isinstance(rows, list):
+                for row in rows:
+                    errors_gauge.labels(replica=row[0], shard=row[1], name=row[2]).set(row[4])
+        except:
+            pass
+
+
+@app.task(ignore_result=True)
 def clickhouse_part_count():
     from statshog.defaults.django import statsd
 
