@@ -15,6 +15,7 @@ import {
     IconMessages,
     IconFlare,
     IconTrendingUp,
+    IconCoffee,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
@@ -105,6 +106,19 @@ export function HelpButton({
                             targetBlank
                         >
                             Ask us a question
+                        </LemonButton>
+                        <LemonButton
+                            icon={<IconCoffee />}
+                            status="stealth"
+                            fullWidth
+                            onClick={() => {
+                                reportHelpButtonUsed(HelpType.Updates)
+                                hideHelp()
+                            }}
+                            to={`https://posthog.com/blog/categories/posthog-news`}
+                            targetBlank
+                        >
+                            What's new?
                         </LemonButton>
                         <LemonButton
                             icon={<IconGithub />}
