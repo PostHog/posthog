@@ -166,7 +166,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -289,7 +290,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -514,7 +516,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
@@ -730,7 +733,8 @@
          "posthog_featureflag"."active",
          "posthog_featureflag"."rollback_conditions",
          "posthog_featureflag"."performed_rollback",
-         "posthog_featureflag"."ensure_experience_continuity"
+         "posthog_featureflag"."ensure_experience_continuity",
+         "posthog_featureflag"."usage_dashboard_id"
   FROM "posthog_featureflag"
   WHERE ("posthog_featureflag"."active"
          AND NOT "posthog_featureflag"."deleted"
