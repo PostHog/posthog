@@ -39,9 +39,12 @@ def run_events_query(
     select_input_raw = ["*"] if len(query.select) == 0 else query.select
     select_input: List[str] = []
     for col in select_input_raw:
+        # Selecting a "*" expands the list of columns, resulting in a table that's not what we asked for.
+        # Instead, ask for a tuple with all the columns we want. Later transform this back into a dict.
         if col == "*":
             select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
         elif col == "person":
+            # Select just enough person fields to show the name/email in the UI. Put it back into a dict later.
             select_input.append(
                 "tuple(distinct_id, person_id, person.created_at, person.properties.name, person.properties.email)"
             )
