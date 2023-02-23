@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/lemon-ui/Link'
-import { navigationLogic } from './navigationLogic'
+import { navigationLogic, ProjectNoticeVariant } from './navigationLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { IconPlus, IconSettings } from 'lib/lemon-ui/icons'
@@ -33,10 +33,7 @@ export function ProjectNotice(): JSX.Element | null {
 
     const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
 
-    const NOTICES: Record<
-        'demo_project' | 'real_project_with_no_events' | 'invite_teammates' | 'unverified_email',
-        ProjectNoticeBlueprint
-    > = {
+    const NOTICES: Record<ProjectNoticeVariant, ProjectNoticeBlueprint> = {
         demo_project: {
             message: (
                 <>

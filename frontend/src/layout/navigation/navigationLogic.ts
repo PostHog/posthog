@@ -194,6 +194,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
+                userLogic.selectors.user,
                 s.members,
                 s.membersLoading,
                 s.projectNoticesAcknowledged,
@@ -203,6 +204,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 organization,
                 currentTeam,
                 preflight,
+                user,
                 members,
                 membersLoading,
                 projectNoticesAcknowledged,
@@ -217,10 +219,7 @@ export const navigationLogic = kea<navigationLogicType>({
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
                     return ['demo_project', false]
-                } else if (
-                    !userLogic.values.user?.is_email_verified &&
-                    featureFlags['require-email-verification'] === true
-                ) {
+                } else if (!user?.is_email_verified && featureFlags['require-email-verification'] === true) {
                     return ['unverified_email', false]
                 } else if (
                     !projectNoticesAcknowledged['real_project_with_no_events'] &&

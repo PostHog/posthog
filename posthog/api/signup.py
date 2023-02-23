@@ -16,6 +16,7 @@ from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
+from posthog.api.email_verification import EmailVerifier
 from posthog.api.shared import UserBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.demo.matrix import MatrixManager
@@ -23,7 +24,6 @@ from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
-from posthog.tasks.email import send_email_verification
 from posthog.utils import get_can_create_org
 
 logger = structlog.get_logger(__name__)
@@ -32,7 +32,7 @@ logger = structlog.get_logger(__name__)
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
     require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.distinct_id))
     if is_cloud() and require_verification_feature:
-        send_email_verification(user.id)
+        EmailVerifier.create_token_and_send_email_verification(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 

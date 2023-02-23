@@ -83,16 +83,15 @@ def send_password_reset(user_id: int) -> None:
 
 
 @app.task(max_retries=1)
-def send_email_verification(user_id: int) -> None:
+def send_email_verification(user_id: int, token: str) -> None:
     user: User = User.objects.get(pk=user_id)
-    email_verification_token = default_token_generator.make_token(user)
     message = EmailMessage(
         campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Verify your email address",
         template_name="email_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your account.",
-            "link": f"/verify_email/{user.uuid}/{email_verification_token}",
+            "link": f"/verify_email/{user.uuid}/{token}",
             "site_url": settings.SITE_URL,
         },
     )

@@ -11,7 +11,6 @@ import requests
 from django.conf import settings
 from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
-from django.contrib.auth.tokens import default_token_generator
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect
@@ -29,6 +28,7 @@ from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
@@ -39,7 +39,7 @@ from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
 from posthog.tasks import user_identify
-from posthog.tasks.email import send_email_change_emails, send_email_verification
+from posthog.tasks.email import send_email_change_emails
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_js_url
 
@@ -194,14 +194,9 @@ class UserSerializer(serializers.ModelSerializer):
             and is_email_available()
         ):
             if require_verification_feature:
-                # Verification tokens remain valid until the user logs in again. So in order to invalidate existing tokens
-                # we need to log the user in first, and then generate a new token. This prevents people
-                # from generating a token for an email they have access to, then changing the email to one they don't
-                # and using the first token to verify the second email.
-                login(self.context["request"], instance, backend="django.contrib.auth.backends.ModelBackend")
                 instance.pending_email = validated_data.pop("email", None)
                 instance.save()
-                send_email_verification.delay(instance.id)
+                EmailVerifier.create_token_and_send_email_verification(instance)
             else:
                 send_email_change_emails.delay(
                     timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
@@ -301,7 +296,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         except User.DoesNotExist:
             user = None
 
-        if not user or not default_token_generator.check_token(user, token):
+        if not user or not EmailVerifier.check_token(user, token):
             raise serializers.ValidationError(
                 {"token": ["This verification token is invalid or has expired."]}, code="invalid_token"
             )
@@ -334,7 +329,7 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
         except User.DoesNotExist:
             user = None
         if user:
-            send_email_verification(user.id)
+            EmailVerifier.create_token_and_send_email_verification(user)
 
         # TODO: Limit number of requests for verification emails
         return Response({"success": True})
