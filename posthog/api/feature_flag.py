@@ -205,6 +205,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         self._attempt_set_tags(tags, instance)
 
+        from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
+        from posthog.models.dashboard import Dashboard
+
+        dashboard = Dashboard.objects.create(name=instance.key + " Usage", team=instance.team)
+        create_feature_flag_dashboard(instance, dashboard)
+
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
         return instance

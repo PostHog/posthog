@@ -14,6 +14,7 @@ from posthog.constants import (
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_BAR_VALUE,
     TRENDS_BOLD_NUMBER,
+    TRENDS_LINEAR,
     TRENDS_WORLD_MAP,
     UNIQUE_USERS,
     AvailableFeature,
@@ -450,3 +451,50 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
     _create_from_template(dashboard, template)
+
+
+def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
+    dashboard.filters = {DATE_FROM: "-30d"}
+    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
+        tag, _ = Tag.objects.get_or_create(
+            name="feature flags", team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+        )
+        dashboard.tagged_items.create(tag_id=tag.id)
+    dashboard.save(update_fields=["filters"])
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Website Unique Users (Total)",
+        description="Shows the number of unique users that use your app every day.",
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [{"id": "$feature_flag_called", "type": TREND_FILTER_TYPE_EVENTS}],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_LINEAR,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$feature_flag", "type": "event", "value": feature_flag.key},
+                        ],
+                    }
+                ],
+            },
+        },
+        layouts={
+            "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
+                "x": 0,
+                "y": 0,
+                "i": "21",
+                "minW": 1,
+                "minH": 5,
+            },
+        },
+        color="blue",
+    )
