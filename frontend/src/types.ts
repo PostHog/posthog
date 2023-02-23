@@ -50,6 +50,7 @@ export enum AvailableFeature {
     RECORDINGS_FILE_EXPORT = 'recordings_file_export',
     BOOLEAN_FLAGS = 'boolean_flags',
     MULTIVARIATE_FLAGS = 'multivariate_flags',
+    FEATURE_FLAG_PAYLOADS = 'feature_flag_payloads',
     EXPERIMENTATION = 'experimentation',
     APPS = 'apps',
     SLACK_INTEGRATION = 'slack_integration',

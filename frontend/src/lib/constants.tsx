@@ -173,6 +173,7 @@ export const FEATURE_MINIMUM_PLAN: Partial<Record<AvailableFeature, LicensePlan>
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
     [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
     [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
+    [AvailableFeature.FEATURE_FLAG_PAYLOADS]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

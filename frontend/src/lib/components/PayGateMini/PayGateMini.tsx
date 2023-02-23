@@ -16,6 +16,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
     | AvailableFeature.PATHS_ADVANCED
+    | AvailableFeature.FEATURE_FLAG_PAYLOADS
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -62,6 +63,11 @@ const FEATURE_SUMMARIES: Record<
             'Correlation Analysis reveals which events and properties go hand in hand with conversion or drop-off.',
         umbrella: 'advanced analysis capabilities',
         docsHref: 'https://posthog.com/manual/correlation',
+    },
+    [AvailableFeature.FEATURE_FLAG_PAYLOADS]: {
+        description: 'Send payloads (string, number, or JSON values) back with your matched flag.',
+        umbrella: 'feature flag payloads',
+        docsHref: 'https://posthog.com/docs/integrate/client/js#feature-flag-payloads',
     },
     [AvailableFeature.PATHS_ADVANCED]: {
         description:
