@@ -114,9 +114,11 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         checked={currentTeam?.session_recording_version === 'v2'}
                     />
                     <p>
-                        This setting controls if performance and network information will be captured alongside
-                        recordings. The network requests and timings will be shown in the recording player to help you
-                        debug any issues.
+                        Turn this setting on to opt into{' '}
+                        <Link to="https://github.com/rrweb-io/rrweb/releases/tag/rrweb%402.0.0-alpha.5" target="_blank">
+                            rrweb 2
+                        </Link>{' '}
+                        which comes with various fixes and improvements.
                     </p>
                 </div>
             </FlaggedFeature>
