@@ -1,11 +1,11 @@
 import { kea } from 'kea'
 import api from 'lib/api'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
-import { elementToActionStep, actionStepToAntdForm, stepToDatabaseFormat } from '~/toolbar/utils'
+import { actionStepToAntdForm, elementToActionStep, stepToDatabaseFormat } from '~/toolbar/utils'
 import { toolbarLogic } from '~/toolbar/toolbarLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import type { actionsTabLogicType } from './actionsTabLogicType'
-import { ActionType } from '~/types'
+import { ActionType, ElementType } from '~/types'
 import { ActionDraftType, ActionForm, AntdFieldData } from '~/toolbar/types'
 import { FormInstance } from 'antd/lib/form'
 import { posthog } from '~/toolbar/posthog'
@@ -19,6 +19,33 @@ function newAction(element: HTMLElement | null, dataAttributes: string[] = []): 
     }
 }
 
+function toElementsChain(element: HTMLElement): ElementType[] {
+    const chain: HTMLElement[] = []
+    let currentElement: HTMLElement | null | undefined = element
+    while (currentElement && chain.length <= 10 && currentElement !== document.body) {
+        chain.push(currentElement)
+        currentElement = currentElement.parentElement
+    }
+    return chain.map(
+        (element, index) =>
+            ({
+                attr_class: element.getAttribute('class') || undefined,
+                attr_id: element.getAttribute('id') || undefined,
+                attributes: Array.from(element.attributes).reduce((acc, attr) => {
+                    if (!acc[attr.name]) {
+                        acc[attr.name] = attr.value
+                    } else {
+                        acc[attr.name] += ` ${attr.value}`
+                    }
+                    return acc
+                }, {} as Record<string, string>),
+                href: element.getAttribute('href') || undefined,
+                tag_name: element.tagName.toLowerCase(),
+                text: index === 0 ? element.innerText : undefined,
+            } as ElementType)
+    )
+}
+
 export type ActionFormInstance = FormInstance<ActionForm>
 
 export const actionsTabLogic = kea<actionsTabLogicType>({
@@ -26,8 +53,11 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     actions: {
         setForm: (form: ActionFormInstance) => ({ form }),
         selectAction: (id: number | null) => ({ id: id || null }),
-        newAction: (element?: HTMLElement) => ({ element: element || null }),
+        newAction: (element?: HTMLElement) => ({
+            element: element || null,
+        }),
         inspectForElementWithIndex: (index: number | null) => ({ index }),
+        editSelectorWithIndex: (index: number | null) => ({ index }),
         inspectElementSelected: (element: HTMLElement, index: number | null) => ({ element, index }),
         setEditingFields: (editingFields: AntdFieldData[]) => ({ editingFields }),
         incrementCounter: true,
@@ -36,9 +66,25 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
         showButtonActions: true,
         hideButtonActions: true,
         setShowActionsTooltip: (showActionsTooltip: boolean) => ({ showActionsTooltip }),
+        setElementSelector: (selector: string, index: number) => ({ selector, index }),
     },
 
     reducers: {
+        actionFormElementsChains: [
+            {} as Record<number, ElementType[]>,
+            {
+                inspectElementSelected: (state, { element, index }) =>
+                    index === null
+                        ? []
+                        : {
+                              ...state,
+                              [index]: toElementsChain(element),
+                          },
+                newAction: (_, { element }) => ({
+                    0: element ? toElementsChain(element) : [],
+                }),
+            },
+        ],
         buttonActionsVisible: [
             false,
             {
@@ -67,6 +113,12 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
                 inspectElementSelected: () => null,
                 selectAction: () => null,
                 newAction: () => null,
+            },
+        ],
+        editingSelector: [
+            null as number | null,
+            {
+                editSelectorWithIndex: (_, { index }) => index,
             },
         ],
         editingFields: [
@@ -98,11 +150,42 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     },
 
     selectors: {
+        editingSelectorValue: [
+            (s) => [s.editingSelector, s.form],
+            (editingSelector, form: ActionFormInstance): string | null => {
+                if (editingSelector === null) {
+                    return null
+                } else {
+                    const selector = form.getFieldValue(`steps`)[editingSelector].selector
+                    return selector || null
+                }
+            },
+        ],
+        elementsChainBeingEdited: [
+            (s) => [s.editingSelector, s.actionFormElementsChains],
+            (editingSelector, elementChains): ElementType[] => {
+                if (editingSelector === null) {
+                    return []
+                } else {
+                    return elementChains[editingSelector] || []
+                }
+            },
+        ],
         selectedAction: [
-            (s) => [s.selectedActionId, s.newActionForElement, actionsLogic.selectors.allActions],
-            (selectedActionId, newActionForElement, allActions): ActionType | ActionDraftType | null => {
+            (s) => [
+                s.selectedActionId,
+                s.newActionForElement,
+                actionsLogic.selectors.allActions,
+                toolbarLogic.selectors.dataAttributes,
+            ],
+            (
+                selectedActionId,
+                newActionForElement,
+                allActions,
+                dataAttributes
+            ): ActionType | ActionDraftType | null => {
                 if (selectedActionId === 'new') {
-                    return newAction(newActionForElement, [])
+                    return newAction(newActionForElement, dataAttributes)
                 }
                 return allActions.find((a) => a.id === selectedActionId) || null
             },
@@ -127,6 +210,16 @@ export const actionsTabLogic = kea<actionsTabLogicType>({
     },
 
     listeners: ({ actions, values }) => ({
+        setElementSelector: ({ selector, index }) => {
+            if (values.form) {
+                const fieldsValue = { ...values.form.getFieldsValue() }
+                const steps = fieldsValue.steps
+                if (steps && steps[index]) {
+                    steps[index].selector = selector
+                }
+                values.form.setFieldsValue(fieldsValue)
+            }
+        },
         selectAction: ({ id }) => {
             if (id) {
                 if (!toolbarLogic.values.buttonVisible) {
