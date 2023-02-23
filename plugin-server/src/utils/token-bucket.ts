@@ -75,3 +75,5 @@ export const ConfiguredLimiter: Limiter = new Limiter(
 )
 
 export const WarningLimiter: Limiter = new Limiter(1, 1.0 / 3600)
+
+export const LoggingLimiter: Limiter = new Limiter(1, 1.0 / 60)

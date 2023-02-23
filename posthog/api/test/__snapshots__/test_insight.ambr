@@ -720,6 +720,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -790,7 +791,7 @@
          "posthog_insightcachingstate"."created_at",
          "posthog_insightcachingstate"."updated_at"
   FROM "posthog_insightcachingstate"
-  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_2dfd15f76fb6ac02f0972f7b0203a789'
+  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_8ae8e365cb79b085e2c476fd6742119e'
          AND "posthog_insightcachingstate"."insight_id" = 2
          AND "posthog_insightcachingstate"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -822,6 +823,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -954,6 +956,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -975,6 +978,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -1221,6 +1225,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -1313,6 +1318,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",

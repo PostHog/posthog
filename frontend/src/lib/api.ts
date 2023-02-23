@@ -976,6 +976,10 @@ const api = {
             return await new ApiRequest().recording(recordingId).withQueryString(params).get()
         },
 
+        async delete(recordingId: SessionRecordingType['id']): Promise<{ success: boolean }> {
+            return await new ApiRequest().recording(recordingId).delete()
+        },
+
         async listSnapshots(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
         },

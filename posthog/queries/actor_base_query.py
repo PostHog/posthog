@@ -17,7 +17,7 @@ from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
-from posthog.models import Entity, Filter, PersonDistinctId, Team
+from posthog.models import Entity, Filter, PersonDistinctId, SessionRecording, Team
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -137,7 +137,15 @@ class ActorBaseQuery:
                     if event[2]:
                         all_session_ids.add(event[2])
 
-        session_ids_with_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
+        session_ids_with_all_recordings = self.query_for_session_ids_with_recordings(all_session_ids)
+
+        # Prune out deleted recordings
+        session_ids_with_deleted_recordings = set(
+            SessionRecording.objects.filter(
+                team=self._team, session_id__in=session_ids_with_all_recordings, deleted=True
+            ).values_list("session_id", flat=True)
+        )
+        session_ids_with_recordings = session_ids_with_all_recordings.difference(session_ids_with_deleted_recordings)
 
         matched_recordings_by_actor_id: Dict[Union[uuid.UUID, str], List[MatchedRecording]] = {}
         for row in raw_result:

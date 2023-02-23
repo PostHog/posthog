@@ -5,6 +5,7 @@ import {
     EventsNode,
     EventsQuery,
     FunnelsQuery,
+    HogQLQuery,
     LegacyQuery,
     LifecycleQuery,
     Node,
@@ -290,6 +291,26 @@ const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
     },
 }
 
+const HogQL: HogQLQuery = {
+    kind: NodeKind.HogQLQuery,
+    query:
+        '   select event,\n' +
+        '          properties.$geoip_country_name as `Country Name`,\n' +
+        '          count() as `Event count`\n' +
+        '     from events\n' +
+        '    where timestamp > now() - interval 1 month\n' +
+        ' group by event,\n' +
+        '          properties.$geoip_country_name\n' +
+        ' order by count() desc\n' +
+        '    limit 100',
+}
+
+const HogQLTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: HogQL,
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
@@ -310,6 +331,8 @@ export const examples: Record<string, Node> = {
     TimeToSeeDataSessions,
     TimeToSeeDataWaterfall,
     TimeToSeeDataJSON,
+    HogQL,
+    HogQLTable,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
