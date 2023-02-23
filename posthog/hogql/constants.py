@@ -116,4 +116,5 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 ]
 
 # Never return more rows than this in top level HogQL SELECT statements
+DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 65535
