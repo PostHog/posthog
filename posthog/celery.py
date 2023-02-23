@@ -436,6 +436,9 @@ def clickhouse_errors_count():
     """
     This task is used to track the recency of errors in ClickHouse.
     We can use this to alert on errors that are consistently being generated recently
+    999 - KEEPER_EXCEPTION
+    225 - NO_ZOOKEEPER
+    242 - TABLE_IS_READ_ONLY
     """
     from posthog.client import sync_execute
 
