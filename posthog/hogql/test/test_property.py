@@ -1,6 +1,8 @@
+from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.property import property_to_expr
 from posthog.models import Property
+from posthog.models.property import PropertyGroup
 from posthog.schema import HogQLPropertyFilter
 from posthog.test.base import BaseTest
 
@@ -70,5 +72,130 @@ class TestProperty(BaseTest):
                 op=ast.CompareOperationType.Eq,
                 left=ast.Field(chain=["person", "properties", "a"]),
                 right=ast.Constant(value="b"),
+            ),
+        )
+
+    def test_property_groups(self):
+        self.assertEqual(
+            property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(type="person", key="a", value="b", operator="exact"),
+                        Property(type="event", key="e", value="b", operator="exact"),
+                    ],
+                )
+            ),
+            ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Eq,
+                        left=ast.Field(chain=["person", "properties", "a"]),
+                        right=ast.Constant(value="b"),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Eq,
+                        left=ast.Field(chain=["properties", "e"]),
+                        right=ast.Constant(value="b"),
+                    ),
+                ]
+            ),
+        )
+
+        self.assertEqual(
+            property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.OR,
+                    values=[
+                        Property(type="person", key="a", value="b", operator="exact"),
+                        Property(type="event", key="e", value="b", operator="exact"),
+                    ],
+                )
+            ),
+            ast.Or(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Eq,
+                        left=ast.Field(chain=["person", "properties", "a"]),
+                        right=ast.Constant(value="b"),
+                    ),
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Eq,
+                        left=ast.Field(chain=["properties", "e"]),
+                        right=ast.Constant(value="b"),
+                    ),
+                ]
+            ),
+        )
+
+    def test_property_groups_single(self):
+        self.assertEqual(
+            property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(type="person", key="a", value="b", operator="exact"),
+                    ],
+                )
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Eq,
+                left=ast.Field(chain=["person", "properties", "a"]),
+                right=ast.Constant(value="b"),
+            ),
+        )
+
+        self.assertEqual(
+            property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.OR, values=[Property(type="event", key="e", value="b", operator="exact")]
+                )
+            ),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Eq,
+                left=ast.Field(chain=["properties", "e"]),
+                right=ast.Constant(value="b"),
+            ),
+        )
+
+    def test_property_groups_combined(self):
+        self.assertEqual(
+            property_to_expr(
+                PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(type="person", key="a", value="b", operator="exact"),
+                        PropertyGroup(
+                            type=PropertyOperatorType.OR,
+                            values=[
+                                Property(type="person", key="a", value="b", operator="exact"),
+                                Property(type="event", key="e", value="b", operator="exact"),
+                            ],
+                        ),
+                    ],
+                )
+            ),
+            ast.And(
+                exprs=[
+                    ast.CompareOperation(
+                        op=ast.CompareOperationType.Eq,
+                        left=ast.Field(chain=["person", "properties", "a"]),
+                        right=ast.Constant(value="b"),
+                    ),
+                    ast.Or(
+                        exprs=[
+                            ast.CompareOperation(
+                                op=ast.CompareOperationType.Eq,
+                                left=ast.Field(chain=["person", "properties", "a"]),
+                                right=ast.Constant(value="b"),
+                            ),
+                            ast.CompareOperation(
+                                op=ast.CompareOperationType.Eq,
+                                left=ast.Field(chain=["properties", "e"]),
+                                right=ast.Constant(value="b"),
+                            ),
+                        ]
+                    ),
+                ]
             ),
         )

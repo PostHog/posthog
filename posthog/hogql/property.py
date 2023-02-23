@@ -2,6 +2,7 @@ from typing import Any, Tuple, Union, cast
 
 from pydantic import BaseModel
 
+from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.constants import HOGQL_AGGREGATIONS
 from posthog.hogql.parser import parse_expr
@@ -46,7 +47,15 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict]) 
     elif isinstance(property, Property):
         pass
     elif isinstance(property, PropertyGroup):
-        raise NotImplementedError("PropertyGroup not implemented")
+        if property.type == PropertyOperatorType.AND:
+            if len(property.values) == 1:
+                return property_to_expr(property.values[0])
+            return ast.And(exprs=[property_to_expr(p) for p in property.values])
+        if property.type == PropertyOperatorType.OR:
+            if len(property.values) == 1:
+                return property_to_expr(property.values[0])
+            return ast.Or(exprs=[property_to_expr(p) for p in property.values])
+        raise NotImplementedError(f'PropertyGroup of unknown type "{property.type}"')
     elif isinstance(property, BaseModel):
         property = Property(**property.dict())
     else:
