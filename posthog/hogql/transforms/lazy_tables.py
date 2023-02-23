@@ -33,6 +33,8 @@ class LazyTableResolver(TraversingVisitor):
             return select.get_alias_for_table_symbol(symbol)
         elif isinstance(symbol, ast.TableAliasSymbol):
             return symbol.name
+        elif isinstance(symbol, ast.SelectQueryAliasSymbol):
+            return symbol.name
         elif isinstance(symbol, ast.LazyTableSymbol):
             return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
         elif isinstance(symbol, ast.VirtualTableSymbol):

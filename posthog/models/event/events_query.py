@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, List, Literal, Optional, cast
+from typing import List, Literal, Optional, Tuple, cast
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
@@ -150,13 +150,13 @@ def run_events_query(
     if "person" in select_input_raw:
         person_idx = select_input_raw.index("person")
         for index, result in enumerate(query_result.results):
-            person: Dict = result[person_idx]
+            person_tuple: Tuple = result[person_idx]
             query_result.results[index] = list(result)
             query_result.results[index][person_idx] = {
-                "id": person[1],
-                "created_at": person[2],
-                "properties": {"name": person[3], "email": person[4]},
-                "distinct_ids": [person[0]],
+                "id": person_tuple[1],
+                "created_at": person_tuple[2],
+                "properties": {"name": person_tuple[3], "email": person_tuple[4]},
+                "distinct_ids": [person_tuple[0]],
             }
 
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
