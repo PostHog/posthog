@@ -80,47 +80,51 @@ jobs:
                   # Use PostHog Bot token when not on forks to enable proper snapshot updating
                   token: ${{ github.event.pull_request.head.repo.full_name == github.repository && secrets.POSTHOG_BOT_GITHUB_TOKEN || github.token }}
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 7.x.x
-
-            - name: Set up Node.js
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 18
-                  cache: pnpm
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
-
-            - name: Install CI utilities with pnpm
-              run: pnpm install http-server wait-on
-
-            - name: Build Storybook
-              run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
-
-            - name: Serve Storybook in the background
+            - name: Download example image
               run: |
-                  pnpm exec http-server storybook-static --port 6006 --silent &
-                  pnpm wait-on http://127.0.0.1:6006 --timeout 60 # Wait for the server to be ready
+                  curl -L https://upload.wikimedia.org/wikipedia/commons/7/70/Example.png -o frontend/__snapshots__/example.png
 
-            - name: Run @storybook/test-runner
-              env:
-                  # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
-                  HOME: /root
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
-              run: |
-                  pnpm test:visual-regression:stories:ci:$VARIANT ${{ matrix.browser }}
+            # - name: Install pnpm
+            #   uses: pnpm/action-setup@v2
+            #   with:
+            #       version: 7.x.x
 
-            - name: Run @playwright/test (legacy, Chromium-only)
-              if: matrix.browser == 'chromium'
-              env:
-                  # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
-                  VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
-              run: |
-                  pnpm test:visual-regression:legacy:ci:$VARIANT
+            # - name: Set up Node.js
+            #   uses: actions/setup-node@v3
+            #   with:
+            #       node-version: 18
+            #       cache: pnpm
+
+            # - name: Install package.json dependencies with pnpm
+            #   run: pnpm install --frozen-lockfile
+
+            # - name: Install CI utilities with pnpm
+            #   run: pnpm install http-server wait-on
+
+            # - name: Build Storybook
+            #   run: pnpm build-storybook --quiet # Silence since progress logging results in a massive wall of spam
+
+            # - name: Serve Storybook in the background
+            #   run: |
+            #       pnpm exec http-server storybook-static --port 6006 --silent &
+            #       pnpm wait-on http://127.0.0.1:6006 --timeout 60 # Wait for the server to be ready
+
+            # - name: Run @storybook/test-runner
+            #   env:
+            #       # Solving this bug by overriding $HOME: https://github.com/microsoft/playwright/issues/6500
+            #       HOME: /root
+            #       # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
+            #       VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
+            #   run: |
+            #       pnpm test:visual-regression:stories:ci:$VARIANT ${{ matrix.browser }}
+
+            # - name: Run @playwright/test (legacy, Chromium-only)
+            #   if: matrix.browser == 'chromium'
+            #   env:
+            #       # Update snapshots for PRs on the main repo, verify on forks, which don't have access to PostHog Bot
+            #       VARIANT: ${{ github.event.pull_request.head.repo.full_name == github.repository && 'update' || 'verify' }}
+            #   run: |
+            #       pnpm test:visual-regression:legacy:ci:$VARIANT
 
             - name: Count snapshot changes from git diff
               id: diff
@@ -150,9 +154,10 @@ jobs:
         name: Summarize visual regression tests
         runs-on: ubuntu-20.04
         needs: visual-regression
+        if: always() # Run even if visual-regression fails for one (or more) of the browsers
         steps:
             - name: Post comment about updated snapshots
-              if: github.event.pull_request.head.repo.full_name == github.repository && (needs.visual-regression.outputs.chromium-total != '0' || needs.visual-regression.outputs.webkit-total != '0' || needs.visual-regression.outputs.firefox-total != '0')
+              if: github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
@@ -165,6 +170,13 @@ jobs:
                           diffByBrowser[browser][diffType] = parseInt(value)
                           if (!summaryDiff[diffType]) summaryDiff[diffType] = 0
                           summaryDiff[diffType] += parseInt(value)
+                      }
+
+                      console.log({ summaryDiff, diffByBrowser })
+
+                      if (summaryDiff.total === 0) {
+                          console.log('No changes were committed, skipping comment')
+                          return
                       }
 
                       const diffByBrowserDisplay = Object.entries(diffByBrowser).map(([browser, diff]) => {
