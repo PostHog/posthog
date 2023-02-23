@@ -22,8 +22,6 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
             return
         }
 
-        console.log('templateSchema', templateSchema)
-
         const schemas = []
         if (templateSchema) {
             schemas.push({

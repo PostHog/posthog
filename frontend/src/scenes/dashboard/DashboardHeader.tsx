@@ -80,7 +80,7 @@ export function DashboardHeader(): JSX.Element | null {
         exportOptions.push({
             export_format: ExporterFormat.JSON,
             export_context: {
-                localData: JSON.stringify(asDashboardTemplate, null, 4),
+                localData: JSON.stringify(asDashboardTemplate),
                 filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
                 mediaType: ExporterFormat.JSON,
             },

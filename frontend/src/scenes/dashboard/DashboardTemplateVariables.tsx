@@ -44,7 +44,6 @@ export function DashboardTemplateVariables(): JSX.Element {
                                 events: variable.default ? [variable.default] : [FALLBACK_EVENT],
                             }}
                             setFilters={(filters: FilterType) => {
-                                console.log(variable.name, filters)
                                 setVariable(variable.name, filters)
                             }}
                             typeKey={'variable_' + variable.name}

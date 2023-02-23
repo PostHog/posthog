@@ -58,7 +58,6 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                         }
                                         setDashboardTemplateId(id)
                                         openDashboardTemplateEditor()
-                                        console.log('open the modal')
                                     }}
                                     fullWidth
                                 >

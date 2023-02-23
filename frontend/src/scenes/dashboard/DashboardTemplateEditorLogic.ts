@@ -41,10 +41,8 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             {
                 updateValidationErrors: (_, { markers }): string[] => {
                     if (!markers || markers.length === 0) {
-                        console.log('returning undefined')
                         return []
                     } else {
-                        console.log('updated with markers', markers)
                         return markers.map((marker: MonacoMarker) => marker.message)
                     }
                 },
@@ -142,7 +140,7 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                     const dashboardTemplate = JSON.parse(value)
                     actions.setDashboardTemplate(dashboardTemplate)
                 } catch (error) {
-                    console.log('error', error)
+                    console.error('error', error)
                     lemonToast.error('Unable to parse dashboard template')
                 }
             }
