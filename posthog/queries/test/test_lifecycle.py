@@ -804,7 +804,7 @@ class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
                     "date_to": "2020-01-19T00:00:00Z",
                     "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                    "sample_results": True,
+                    "sampling_factor": 0.1,
                 }
             ),
             self.team,

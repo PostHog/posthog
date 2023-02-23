@@ -218,6 +218,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconCoffee,
         inMenu: true,
     },
+    [NodeKind.HogQLQuery]: {
+        name: 'HogQL',
+        description: 'Direct HogQL query',
+        icon: IconCoffee,
+        inMenu: true,
+    },
 }
 
 export const INSIGHT_TYPE_OPTIONS: LemonSelectOptions<string> = [

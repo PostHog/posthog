@@ -80,6 +80,7 @@ class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSeriali
             "is_member_join_email_enabled",
             "metadata",
             "customer_id",
+            "enforce_2fa",
         ]
         read_only_fields = [
             "id",

@@ -14,6 +14,7 @@ import {
     ItemMode,
     SetInsightOptions,
     TrendsFilterType,
+    UserType,
 } from '~/types'
 import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
@@ -61,10 +62,11 @@ import { legacyInsightQuery, queryExportContext } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
 import { dayjs, now } from 'lib/dayjs'
 import { isInsightVizNode } from '~/queries/utils'
+import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
-const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
+export const UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES = 3
 
 export const defaultFilterTestAccounts = (current_filter_test_accounts: boolean): boolean => {
     // if the current _global_ value is true respect that over any local preference
@@ -107,6 +109,8 @@ export const insightLogic = kea<insightLogicType>([
             ['cohortsById'],
             mathsLogic,
             ['mathDefinitions'],
+            userLogic,
+            ['user'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
@@ -175,6 +179,7 @@ export const insightLogic = kea<insightLogicType>([
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
+        acknowledgeRefreshButtonChanged: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -513,7 +518,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
         timedOutQueryId: [
             null as string | null,
-            { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId, setActiveView: () => null },
+            { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId, loadResult: () => null },
         ],
         maybeShowTimeoutMessage: [
             false,
@@ -522,12 +527,12 @@ export const insightLogic = kea<insightLogicType>([
                 markInsightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
                 endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
-                setActiveView: () => false,
+                loadResult: () => false,
             },
         ],
         erroredQueryId: [
             null as string | null,
-            { markInsightErrored: (_, { erroredQueryId }) => erroredQueryId, setActiveView: () => null },
+            { markInsightErrored: (_, { erroredQueryId }) => erroredQueryId, loadResult: () => null },
         ],
         maybeShowErrorMessage: [
             false,
@@ -540,7 +545,7 @@ export const insightLogic = kea<insightLogicType>([
                 loadInsightFailure: (_, { errorObject }) => errorObject?.status === 0,
                 loadResultsFailure: (_, { errorObject }) => errorObject?.status === 0,
                 startQuery: () => false,
-                setActiveView: () => false,
+                loadResult: () => false,
             },
         ],
         timeout: [null as number | null, { setTimeout: (_, { timeout }) => timeout }],
@@ -549,7 +554,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setLastRefresh: (_, { lastRefresh }) => lastRefresh,
                 loadInsightSuccess: (_, { insight }) => insight.last_refresh || null,
-                setActiveView: () => null,
+                loadResult: () => null,
             },
         ],
         nextAllowedRefresh: [
@@ -557,7 +562,7 @@ export const insightLogic = kea<insightLogicType>([
             {
                 setNextAllowedRefresh: (_, { nextAllowedRefresh }) => nextAllowedRefresh,
                 loadInsightSuccess: (_, { insight }) => insight.next_allowed_client_refresh || null,
-                setActiveView: () => null,
+                loadResult: () => null,
             },
         ],
         insightLoading: [
@@ -590,6 +595,13 @@ export const insightLogic = kea<insightLogicType>([
                 saveInsight: () => true,
                 saveInsightSuccess: () => false,
                 saveInsightFailure: () => false,
+            },
+        ],
+        acknowledgedRefreshButtonChanged: [
+            false,
+            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
+            {
+                acknowledgeRefreshButtonChanged: () => true,
             },
         ],
     })),
@@ -625,10 +637,6 @@ export const insightLogic = kea<insightLogicType>([
                 insight.effective_privilege_level >= DashboardPrivilegeLevel.CanEdit,
         ],
         activeView: [(s) => [s.filters], (filters) => filters.insight || InsightType.TRENDS],
-        loadedView: [
-            (s) => [s.insight, s.activeView],
-            ({ filters }, activeView) => filters?.insight || activeView || InsightType.TRENDS,
-        ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight, s.filters],
             (insight, savedInsight, filters): boolean =>
@@ -785,6 +793,26 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+            },
+        ],
+        isTestGroupForNewRefreshUX: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
+            },
+        ],
+        displayRefreshButtonChangedNotice: [
+            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
+            (
+                isTestGroupForNewRefreshUX: boolean,
+                acknowledgedRefreshButtonChanged: boolean,
+                user: UserType
+            ): boolean => {
+                return (
+                    dayjs(user.date_joined).isBefore('2023-02-13') &&
+                    isTestGroupForNewRefreshUX &&
+                    !acknowledgedRefreshButtonChanged
+                )
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1003,6 +1031,8 @@ export const insightLogic = kea<insightLogicType>([
         },
         setActiveView: ({ type }) => {
             actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
+        },
+        loadResult: () => {
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
@@ -1133,6 +1163,9 @@ export const insightLogic = kea<insightLogicType>([
                 insightSceneLogic.findMounted()?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                 eventUsageLogic.actions.reportInsightsTabReset()
             }
+        },
+        acknowledgeRefreshButtonChanged: () => {
+            localStorage.setItem('acknowledged_refresh_button_changed', 'true')
         },
     })),
     events(({ props, values, actions }) => ({

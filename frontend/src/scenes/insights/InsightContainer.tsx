@@ -8,7 +8,7 @@ import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { InsightsTable } from 'scenes/insights/views/InsightsTable'
+import { InsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -58,7 +58,6 @@ export function InsightContainer({
         canEditInsight,
         insightLoading,
         activeView,
-        loadedView,
         filters,
         timedOutQueryId,
         erroredQueryId,
@@ -69,7 +68,7 @@ export function InsightContainer({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
+        if (insightLoading && timedOutQueryId === null) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -77,7 +76,7 @@ export function InsightContainer({
             )
         }
         // Insight specific empty states - note order is important here
-        if (loadedView === InsightType.FUNNELS) {
+        if (activeView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }

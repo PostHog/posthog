@@ -6,8 +6,6 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export type SessionRecordingSettingsProps = {
     inModal?: boolean
@@ -16,7 +14,6 @@ export type SessionRecordingSettingsProps = {
 export function SessionRecordingSettings({ inModal = false }: SessionRecordingSettingsProps): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="space-y-4">
@@ -78,29 +75,26 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                 </p>
             </div>
 
-            {featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] && (
-                <div className="space-y-2">
-                    <LemonSwitch
-                        data-attr="opt-in-capture-performance-switch"
-                        onChange={(checked) => {
-                            updateCurrentTeam({ capture_performance_opt_in: checked })
-                        }}
-                        label="Capture network performance"
-                        labelClassName={inModal ? 'text-base font-semibold' : ''}
-                        bordered={!inModal}
-                        fullWidth={inModal}
-                        checked={
-                            !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
-                        }
-                        disabled={!currentTeam?.session_recording_opt_in}
-                    />
-                    <p>
-                        This setting controls if performance and network information will be captured alongside
-                        recordings. The network requests and timings will be shown in the recording player to help you
-                        debug any issues.
-                    </p>
-                </div>
-            )}
+            <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="opt-in-capture-performance-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({ capture_performance_opt_in: checked })
+                    }}
+                    label="Capture network performance"
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
+                    bordered={!inModal}
+                    fullWidth={inModal}
+                    checked={
+                        !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
+                    }
+                    disabled={!currentTeam?.session_recording_opt_in}
+                />
+                <p>
+                    This setting controls if performance and network information will be captured alongside recordings.
+                    The network requests and timings will be shown in the recording player to help you debug any issues.
+                </p>
+            </div>
 
             <div className="space-y-2">
                 <LemonLabel className="text-base">Authorized domains for recordings</LemonLabel>
