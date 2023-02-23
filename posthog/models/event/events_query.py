@@ -1,27 +1,29 @@
+import json
 from datetime import timedelta
-from typing import List, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional, cast
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
+from posthog.api.element import ElementSerializer
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
+from posthog.hogql.constants import SELECT_STAR_FROM_EVENTS_FIELDS
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, has_aggregation, property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Action, Person, Team
-from posthog.models.event.query_event_list import (
-    QUERY_DEFAULT_LIMIT,
-    QUERY_MAXIMUM_LIMIT,
-    convert_person_select_to_dict,
-    convert_star_select_to_dict,
-)
+from posthog.models.element import chain_to_elements
 from posthog.schema import EventsQuery, EventsQueryResponse
 from posthog.utils import relative_date_parse
 
+QUERY_DEFAULT_LIMIT = 100
+QUERY_DEFAULT_EXPORT_LIMIT = 3_500
+QUERY_MAXIMUM_LIMIT = 100_000
 
-def run_events_query_v3(
+
+def run_events_query(
     team: Team,
     query: EventsQuery,
 ) -> EventsQueryResponse:
@@ -38,12 +40,10 @@ def run_events_query_v3(
     select_input: List[str] = []
     for col in select_input_raw:
         if col == "*":
-            select_input.append(
-                "tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, pdi.person_id, pdi.person.created_at, pdi.person.properties)"
-            )
+            select_input.append(f"tuple({', '.join(SELECT_STAR_FROM_EVENTS_FIELDS)})")
         elif col == "person":
             select_input.append(
-                "tuple(distinct_id, pdi.person_id, pdi.person.created_at, pdi.person.properties.name, pdi.person.properties.email)"
+                "tuple(distinct_id, person_id, person.created_at, person.properties.name, person.properties.email)"
             )
         else:
             select_input.append(col)
@@ -128,14 +128,36 @@ def run_events_query_v3(
         star_idx = select_input_raw.index("*")
         for index, result in enumerate(query_result.results):
             query_result.results[index] = list(result)
-            query_result.results[index][star_idx] = convert_star_select_to_dict(result[star_idx])
+            select = result[star_idx]
+            new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
+            new_result["properties"] = json.loads(new_result["properties"])
+            if new_result["elements_chain"]:
+                new_result["elements"] = ElementSerializer(
+                    chain_to_elements(new_result["elements_chain"]), many=True
+                ).data
+            new_result["person"] = {
+                "id": new_result["person_id"],
+                "created_at": new_result["person.created_at"],
+                "properties": json.loads(new_result["person.properties"]),
+                "distinct_ids": [new_result["distinct_id"]],
+            }
+            del new_result["person_id"]
+            del new_result["person.created_at"]
+            del new_result["person.properties"]
+            query_result.results[index][star_idx] = new_result
 
     # Convert person field from tuple to dict in each result
     if "person" in select_input_raw:
         person_idx = select_input_raw.index("person")
         for index, result in enumerate(query_result.results):
+            person: Dict = result[person_idx]
             query_result.results[index] = list(result)
-            query_result.results[index][person_idx] = convert_person_select_to_dict(result[person_idx])
+            query_result.results[index][person_idx] = {
+                "id": person[1],
+                "created_at": person[2],
+                "properties": {"name": person[3], "email": person[4]},
+                "distinct_ids": [person[0]],
+            }
 
     received_extra_row = len(query_result.results) == limit  # limit was +=1'd above
     return EventsQueryResponse(
