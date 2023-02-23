@@ -99,8 +99,9 @@ export async function eachBatchIngestionWithOverflow(
                 // We don't want to do it here to preserve the kafka offset handling
                 message.key = null
 
+                ingestionPartitionKeyOverflowed.labels(seenKey).inc()
+
                 if (LoggingLimiter.consume(seenKey, 1) === true) {
-                    ingestionPartitionKeyOverflowed.labels(seenKey).inc()
                     status.warn('🪣', `Partition key ${seenKey} overflowed ingestion capacity`)
                 }
             }
