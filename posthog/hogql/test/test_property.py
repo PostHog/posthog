@@ -33,6 +33,22 @@ class TestProperty(BaseTest):
             ),
         )
         self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.NotEq,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value=None),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Eq,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value=None),
+            ),
+        )
+        self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Eq,
@@ -49,11 +65,67 @@ class TestProperty(BaseTest):
             ),
         )
         self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Gt,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value="3"),
+            ),
+        )
+        self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
             ast.CompareOperation(
                 op=ast.CompareOperationType.Lt,
                 left=ast.Field(chain=["properties", "a"]),
                 right=ast.Constant(value="3"),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.GtE,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value="3"),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.LtE,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value="3"),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.ILike,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value="%3%"),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.NotILike,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value="%3%"),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.Regex,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value=".*"),
+            ),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
+            ast.CompareOperation(
+                op=ast.CompareOperationType.NotRegex,
+                left=ast.Field(chain=["properties", "a"]),
+                right=ast.Constant(value=".*"),
             ),
         )
 

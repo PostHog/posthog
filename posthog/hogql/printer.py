@@ -252,6 +252,10 @@ class _Printer(Visitor):
             return f"in({left}, {right})"
         elif node.op == ast.CompareOperationType.NotIn:
             return f"not(in({left}, {right}))"
+        elif node.op == ast.CompareOperationType.Regex:
+            return f"match({left}, {right})"
+        elif node.op == ast.CompareOperationType.NotRegex:
+            return f"not(match({left}, {right}))"
         else:
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
 

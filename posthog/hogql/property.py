@@ -104,13 +104,17 @@ def property_operator_to_compare_operator_type(
             raise NotImplementedError(
                 "property_operator_to_compare_operator_type not implemented for list of length > 1"
             )
-    if operator == PropertyOperator.exact or operator == PropertyOperator.is_set:
+    if operator == PropertyOperator.exact:
         return ast.CompareOperationType.Eq, value
-    elif operator == PropertyOperator.is_not or operator == PropertyOperator.is_not_set:
+    elif operator == PropertyOperator.is_not or operator == PropertyOperator.is_date_exact:
         return ast.CompareOperationType.NotEq, value
-    elif operator == PropertyOperator.lt:
+    elif operator == PropertyOperator.is_set:
+        return ast.CompareOperationType.NotEq, None
+    elif operator == PropertyOperator.is_not_set:
+        return ast.CompareOperationType.Eq, None
+    elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
         return ast.CompareOperationType.Lt, value
-    elif operator == PropertyOperator.gt:
+    elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
         return ast.CompareOperationType.Gt, value
     elif operator == PropertyOperator.lte:
         return ast.CompareOperationType.LtE, value
@@ -120,15 +124,9 @@ def property_operator_to_compare_operator_type(
         return ast.CompareOperationType.ILike, f"%{value}%"
     elif operator == PropertyOperator.not_icontains:
         return ast.CompareOperationType.NotILike, f"%{value}%"
+    elif operator == PropertyOperator.regex:
+        return ast.CompareOperationType.Regex, value
+    elif operator == PropertyOperator.not_regex:
+        return ast.CompareOperationType.NotRegex, value
 
-    #     regex = "regex"
-    #     not_regex = "not_regex"
-    #     is_date_exact = "is_date_exact"
-    #     is_date_before = "is_date_before"
-    #     is_date_after = "is_date_after"
-    #     between = "between"
-    #     not_between = "not_between"
-    #     min = "min"
-    #     max = "max"
-
-    raise NotImplementedError(f"PropertyOperator f{operator} not implemented")
+    raise NotImplementedError(f"PropertyOperator {operator} not implemented")
