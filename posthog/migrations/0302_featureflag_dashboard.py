@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="featureflag",
-            name="dashboard",
+            name="usage_dashboard",
             field=models.ForeignKey(
                 blank=True, null=True, on_delete=django.db.models.deletion.CASCADE, to="posthog.dashboard"
             ),

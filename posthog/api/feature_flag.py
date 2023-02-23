@@ -54,7 +54,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
     rollout_percentage = serializers.SerializerMethodField()
 
     experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
+    usage_dashboard: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(read_only=True)
 
     name = serializers.CharField(
         required=False,
@@ -82,7 +82,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             "performed_rollback",
             "can_edit",
             "tags",
-            "dashboard",
+            "usage_dashboard",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -210,9 +210,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
         from posthog.models.dashboard import Dashboard
 
-        dashboard = Dashboard.objects.create(name=instance.key + " Usage", team=instance.team)
-        create_feature_flag_dashboard(instance, dashboard)
-        instance.dashboard = dashboard
+        usage_dashboard = Dashboard.objects.create(name=instance.key + " Usage", team=instance.team)
+        create_feature_flag_dashboard(instance, usage_dashboard)
+        instance.usage_dashboard = usage_dashboard
         instance.save()
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())

@@ -1926,7 +1926,7 @@ export interface FeatureFlagType {
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
-    dashboard?: number
+    usage_dashboard?: number
 }
 
 export interface FeatureFlagRollbackConditions {

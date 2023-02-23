@@ -500,7 +500,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
-    const { key: featureFlagKey, dashboard: dashboardId } = featureFlag
+    const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
 
     const propertyFilter: AnyPropertyFilter[] = [
         {
