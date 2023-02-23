@@ -343,8 +343,8 @@
      GROUP BY distinct_id
      HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
   INNER JOIN
-    (SELECT argMax(person.properties, version) AS properties,
-            argMax(person.created_at, version) AS created_at,
+    (SELECT argMax(person.created_at, version) AS created_at,
+            argMax(person.properties, version) AS properties,
             id
      FROM person
      WHERE equals(team_id, 76)
