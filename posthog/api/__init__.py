@@ -10,7 +10,6 @@ from . import (
     async_migration,
     authentication,
     dead_letter_queue,
-    email_verification,
     event_definition,
     exports,
     feature_flag,
@@ -158,7 +157,6 @@ router.register(r"login", authentication.LoginViewSet, "login")
 router.register(r"login/token", authentication.TwoFactorViewSet)
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
-router.register(r"verify", email_verification.RequestVerifyEmailViewSet, "verify_email")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
