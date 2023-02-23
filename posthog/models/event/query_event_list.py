@@ -291,3 +291,12 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
+
+
+def convert_person_select_to_dict(select: Tuple[str, str, str, str, str]) -> Dict[str, Any]:
+    return {
+        "id": select[1],
+        "created_at": select[2],
+        "properties": {"name": select[3], "email": select[4]},
+        "distinct_ids": [select[0]],
+    }
