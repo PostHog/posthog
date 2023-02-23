@@ -226,8 +226,6 @@ export async function startPluginsServer(
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
         }
 
-        let piscina: Piscina | undefined
-
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
         // There is however the `queue` which is a little more complicated.
