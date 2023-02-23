@@ -131,6 +131,7 @@ jobs:
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   git config --global --add safe.directory '*' # Calm git down about file ownership
+                  git diff --name-status # This line is for debugging purposes
                   ADDED=$(git diff --name-status | grep '^A' | wc -l)
                   MODIFIED=$(git diff --name-status | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status | grep '^D' | wc -l)
@@ -201,9 +202,9 @@ jobs:
                           return `- \`${browser}\`: failed`
                         }
                         const { added: a, modified: m, deleted: d, commitHash } = diff
-                        const extraInfo = commitHash ? ` ([view diff](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${commitHash}))` : ''
+                        const commitInfo = commitHash ? `[view diff](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${commitHash})` : "wasn't pushed!"
                         const b = a + m + d > 0 ? '**' : '' // Bold list item if there were changes
-                        return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
+                        return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted (${commitInfo})`
                       }).join('\n')
 
                       github.rest.issues.createComment({
