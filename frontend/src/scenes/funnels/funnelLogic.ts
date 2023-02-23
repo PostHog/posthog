@@ -38,11 +38,10 @@ import {
     StepOrderValue,
     TrendResult,
 } from '~/types'
-import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
+import { BIN_COUNT_AUTO } from 'lib/constants'
 
 import {
     aggregateBreakdownResult,
-    generateBaselineConversionUrl,
     getBreakdownStepValues,
     getClampedStepRangeFilter,
     getIncompleteConversionWindowStartDate,
@@ -53,6 +52,7 @@ import {
     isStepsEmpty,
     isValidBreakdownParameter,
     stepsWithConversionMetrics,
+    flattenedStepsByBreakdown,
 } from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
@@ -723,62 +723,7 @@ export const funnelLogic = kea<funnelLogicType>({
         flattenedStepsByBreakdown: [
             () => [selectors.stepsWithConversionMetrics, selectors.filters, selectors.disableFunnelBreakdownBaseline],
             (steps, filters, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
-                // Initialize with two rows for rendering graph and header
-                const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
-                    { rowKey: 'steps-meta' },
-                    { rowKey: 'graph' },
-                    { rowKey: 'table-header' },
-                ]
-                if (steps.length > 0) {
-                    const baseStep = steps[0]
-                    const lastStep = steps[steps.length - 1]
-                    const hasBaseline =
-                        !baseStep.breakdown ||
-                        ((filters.layout || FunnelLayout.vertical) === FunnelLayout.vertical &&
-                            (baseStep.nested_breakdown?.length ?? 0) > 1)
-                    // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
-                    if (hasBaseline && !disableBaseline) {
-                        flattenedStepsByBreakdown.push({
-                            ...getBreakdownStepValues(baseStep, 0, true),
-                            isBaseline: true,
-                            breakdownIndex: 0,
-                            steps: steps.map((s) => ({
-                                ...s,
-                                nested_breakdown: undefined,
-                                breakdown_value: 'Baseline',
-                                converted_people_url: generateBaselineConversionUrl(s.converted_people_url),
-                                dropped_people_url: generateBaselineConversionUrl(s.dropped_people_url),
-                            })),
-                            conversionRates: {
-                                total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
-                            },
-                        })
-                    }
-                    // Per Breakdown
-                    if (baseStep.nested_breakdown?.length) {
-                        baseStep.nested_breakdown.forEach((breakdownStep, i) => {
-                            const stepsInBreakdown = steps
-                                .filter((s) => !!s?.nested_breakdown?.[i])
-                                .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
-                            const offset = hasBaseline ? 1 : 0
-                            flattenedStepsByBreakdown.push({
-                                ...getBreakdownStepValues(breakdownStep, i + offset),
-                                isBaseline: false,
-                                breakdownIndex: i + offset,
-                                steps: stepsInBreakdown,
-                                conversionRates: {
-                                    total:
-                                        (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
-                                        (stepsInBreakdown[0]?.count ?? 1),
-                                },
-                                significant: stepsInBreakdown.some(
-                                    (step) => step.significant?.total || step.significant?.fromPrevious
-                                ),
-                            })
-                        })
-                    }
-                }
-                return flattenedStepsByBreakdown
+                return flattenedStepsByBreakdown(steps, filters.layout, disableBaseline)
             },
         ],
         flattenedBreakdowns: [

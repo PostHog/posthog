@@ -12,6 +12,7 @@ import {
     InsightType,
     FunnelsFilterType,
     FunnelStepWithConversionMetrics,
+    FlattenedFunnelStepByBreakdown,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -21,7 +22,12 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
-import { aggregateBreakdownResult, isBreakdownFunnelResults, stepsWithConversionMetrics } from './funnelUtils'
+import {
+    aggregateBreakdownResult,
+    flattenedStepsByBreakdown,
+    isBreakdownFunnelResults,
+    stepsWithConversionMetrics,
+} from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -42,7 +48,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     }),
 
-    selectors: {
+    selectors: ({ props }) => ({
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
@@ -137,6 +143,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
+        flattenedStepsByBreakdown: [
+            (s) => [s.stepsWithConversionMetrics, s.funnelsFilter],
+            (steps, funnelsFilter): FlattenedFunnelStepByBreakdown[] => {
+                const disableBaseline = !!props.cachedInsight?.disable_baseline
+                return flattenedStepsByBreakdown(steps, funnelsFilter.layout, disableBaseline)
+            },
+        ],
 
         /*
          * Advanced options: funnel_order_type, funnel_step_reference, exclusions
@@ -175,5 +188,5 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 events: funnelsFilter?.exclusions,
             }),
         ],
-    },
+    }),
 })
