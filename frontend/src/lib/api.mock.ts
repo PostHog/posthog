@@ -156,6 +156,7 @@ export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
     level: OrganizationMembershipLevel.Member,
     joined_at: '2021-03-11T19:11:11Z',
     updated_at: '2021-03-11T19:11:11Z',
+    is_2fa_enabled: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
