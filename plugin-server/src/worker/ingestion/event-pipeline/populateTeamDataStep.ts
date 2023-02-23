@@ -3,6 +3,7 @@ import { Counter } from 'prom-client'
 
 import { eventDroppedCounter } from '../../../main/ingestion-queues/metrics'
 import { PipelineEvent } from '../../../types'
+import { status } from '../../../utils/status'
 import { EventPipelineRunner } from './runner'
 
 export const teamResolutionChecksCounter = new Counter({
@@ -53,6 +54,13 @@ export async function populateTeamDataStep(
             teamResolutionChecksCounter.labels({ check_ok: checkOk }).inc()
             // statsd copy as prometheus is currently not supported in worker threads.
             runner.hub.statsd?.increment('ingestion_team_resolution_checks', { check_ok: checkOk })
+            if (!checkOk) {
+                status.warn(
+                    '🔍',
+                    `Team resolution mismatch for event ${event.uuid}: token "${event.token}" ` +
+                        `resolves to team "${team?.id}" instead of "${event.team_id}"`
+                )
+            }
         }
         return event as PluginEvent
     }
