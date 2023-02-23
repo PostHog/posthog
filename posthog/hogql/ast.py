@@ -53,9 +53,9 @@ class FieldAliasSymbol(Symbol):
         return self.symbol.has_child(name)
 
 
-class TableLikeSymbol(Symbol):
+class BaseTableSymbol(Symbol):
     def resolve_database_table(self) -> Table:
-        raise NotImplementedError("TableLikeSymbol.resolve_database_table not overridden")
+        raise NotImplementedError("BaseTableSymbol.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.resolve_database_table().has_field(name)
@@ -75,14 +75,14 @@ class TableLikeSymbol(Symbol):
         raise ValueError(f"Field not found: {name}")
 
 
-class TableSymbol(TableLikeSymbol):
+class TableSymbol(BaseTableSymbol):
     table: Table
 
     def resolve_database_table(self) -> Table:
         return self.table
 
 
-class TableAliasSymbol(TableLikeSymbol):
+class TableAliasSymbol(BaseTableSymbol):
     name: str
     table_symbol: TableSymbol
 
@@ -90,8 +90,8 @@ class TableAliasSymbol(TableLikeSymbol):
         return self.table_symbol.table
 
 
-class LazyTableSymbol(TableLikeSymbol):
-    table: TableLikeSymbol
+class LazyTableSymbol(BaseTableSymbol):
+    table: BaseTableSymbol
     field: str
     lazy_table: LazyTable
 
@@ -99,8 +99,8 @@ class LazyTableSymbol(TableLikeSymbol):
         return self.lazy_table.table
 
 
-class VirtualTableSymbol(TableLikeSymbol):
-    table: TableLikeSymbol
+class VirtualTableSymbol(BaseTableSymbol):
+    table: BaseTableSymbol
     field: str
     virtual_table: VirtualTable
 
@@ -117,7 +117,7 @@ class SelectQuerySymbol(Symbol):
     # all symbols a select query exports
     columns: Dict[str, Symbol] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[str, Union[TableLikeSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]] = PydanticField(
+    tables: Dict[str, Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]] = PydanticField(
         default_factory=dict
     )
     # all from and join subqueries without aliases
@@ -125,7 +125,7 @@ class SelectQuerySymbol(Symbol):
 
     def get_alias_for_table_symbol(
         self,
-        table_symbol: Union[TableLikeSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"],
+        table_symbol: Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"],
     ) -> Optional[str]:
         for key, value in self.tables.items():
             if value == table_symbol:
@@ -171,20 +171,20 @@ class ConstantSymbol(Symbol):
 
 
 class AsteriskSymbol(Symbol):
-    table: Union[TableLikeSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 
 class FieldTraverserSymbol(Symbol):
     chain: List[str]
-    table: Union[TableLikeSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
 
 class FieldSymbol(Symbol):
     name: str
-    table: Union[TableLikeSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
-        if isinstance(self.table, TableLikeSymbol):
+        if isinstance(self.table, BaseTableSymbol):
             table = self.table.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)

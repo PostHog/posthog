@@ -16,7 +16,7 @@ class AsteriskExpander(TraversingVisitor):
         for column in node.select:
             if isinstance(column.symbol, ast.AsteriskSymbol):
                 asterisk = column.symbol
-                if isinstance(asterisk.table, ast.TableLikeSymbol):
+                if isinstance(asterisk.table, ast.BaseTableSymbol):
                     table = asterisk.table.resolve_database_table()
                     database_fields = table.get_asterisk()
                     for key in database_fields.keys():
