@@ -140,7 +140,6 @@ export const FEATURE_FLAGS = {
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
-    FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     NEW_REFRESH_UX: 'new-refresh-ux', // owner: @yakkomajuri
