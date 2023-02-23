@@ -63,14 +63,17 @@ jobs:
             chromium-modified: ${{ steps.diff.outputs.chromium-modified }}
             chromium-deleted: ${{ steps.diff.outputs.chromium-deleted }}
             chromium-total: ${{ steps.diff.outputs.chromium-total }}
+            chromium-commitHash: ${{ toJson(steps.commit-hash.outputs.chromium-commit-hash) }}
             webkit-added: ${{ steps.diff.outputs.webkit-added }}
             webkit-modified: ${{ steps.diff.outputs.webkit-modified }}
             webkit-deleted: ${{ steps.diff.outputs.webkit-deleted }}
             webkit-total: ${{ steps.diff.outputs.webkit-total }}
+            webkit-commitHash: ${{ toJson(steps.commit-hash.outputs.webkit-commit-hash) }}
             firefox-added: ${{ steps.diff.outputs.firefox-added }}
             firefox-modified: ${{ steps.diff.outputs.firefox-modified }}
             firefox-deleted: ${{ steps.diff.outputs.firefox-deleted }}
             firefox-total: ${{ steps.diff.outputs.firefox-total }}
+            firefox-commitHash: ${{ toJson(steps.commit-hash.outputs.firefox-commit-hash) }}
         steps:
             - uses: actions/checkout@v3
               with:
@@ -149,6 +152,11 @@ jobs:
                   default_author: github_actions
                   github_token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
 
+            - name: Add commit hash to outputs, including browser name
+              id: commit-hash
+              if: steps.commit.outputs.pushed == 'true'
+              run: echo "${{ matrix.browser }}-commit-hash=${{ steps.commit.outputs.commit_long_sha }}" >> $GITHUB_OUTPUT
+
     visual-regression-summary:
         name: Summarize visual regression tests
         runs-on: ubuntu-20.04
@@ -161,31 +169,42 @@ jobs:
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
                   script: |
+                      const BROWSERS = ['chromium', 'webkit', 'firefox']
+
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = {}
                       const diffByBrowser = {}
                       for (const [key, rawValue] of Object.entries(diffJobOutputs)) {
-                          const value = parseInt(rawValue)
-                          const [browser, diffType] = key.split('-')
-                          if (!diffByBrowser[browser]) diffByBrowser[browser] = {}
-                          diffByBrowser[browser][diffType] = parseInt(value)
-                          if (!summaryDiff[diffType]) summaryDiff[diffType] = 0
-                          summaryDiff[diffType] += parseInt(value)
+                        const value = JSON.parse(rawValue)
+                        // Split e.g. 'chromium-commitHash' into ['chromium', 'commitHash']
+                        const [browser, diffKey] = key.split('-')
+                        if (!diffByBrowser[browser]) diffByBrowser[browser] = {}
+                        diffByBrowser[browser][diffKey] = value
+                        // Sum up the counts - but not the commit hash
+                        if (typeof value === 'number') {
+                          if (!summaryDiff[diffKey]) summaryDiff[diffKey] = 0
+                          summaryDiff[diffKey] += value
+                        }
+                      }
+
+                      for (const browser of BROWSERS) {
+                        if (!diffByBrowser[browser]) diffByBrowser[browser] = null // Null means failure
                       }
 
                       if (summaryDiff.total === 0) {
-                          console.log('No changes were made, skipping comment')
-                          return
+                        console.log('No changes were made, skipping comment')
+                        return
                       }
 
                       const diffByBrowserDisplay = Object.entries(diffByBrowser).map(([browser, diff]) => {
-                          const { added: a, modified: m, deleted: d } = diff
-                          const b = a + m + d > 0 ? '**' : '' // Bold list item if there were changes
-                          return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted`
+                        if (!diff) {
+                          return `- \`${browser}\`: failed`
+                        }
+                        const { added: a, modified: m, deleted: d, commitHash } = diff
+                        const extraInfo = commitHash ? ` ([view diff](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${commitHash}))` : ''
+                        const b = a + m + d > 0 ? '**' : '' // Bold list item if there were changes
+                        return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
                       }).join('\n')
-
-                      const commitDiffUrl = 'https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${{ steps.commit.outputs.commit_long_sha }}/'
-                      const prDiffUrl = 'https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/'
 
                       github.rest.issues.createComment({
                         issue_number: context.issue.number,
@@ -197,8 +216,5 @@ jobs:
 
                       ${diffByBrowserDisplay}
 
-                      **Review the changes:**
-
-                      👉 **[View this update's diff.](${commitDiffUrl})**
-                      👉 [View this PR's final diff of snapshots.](${prDiffUrl})`
+                      👉 **[Review this PR's diff of snapshots.](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/files#:~:text=frontend/__snapshots__/)**`
                       })
