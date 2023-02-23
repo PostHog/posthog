@@ -846,6 +846,12 @@ class TestStaffUserAPI(APIBaseTest):
 class TestEmailVerificationAPI(APIBaseTest):
     CONFIG_AUTO_LOGIN = False
 
+    def setUp(self):
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+        return super().setUp()
+
     # Email verification request
 
     @patch("posthoganalytics.capture")
