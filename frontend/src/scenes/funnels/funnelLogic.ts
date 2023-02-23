@@ -14,7 +14,6 @@ import {
     ElementPropertyFilter,
     EntityTypes,
     FilterType,
-    FlattenedFunnelStep,
     FlattenedFunnelStepByBreakdown,
     FunnelResultType,
     FunnelConversionWindowTimeUnit,
@@ -685,39 +684,6 @@ export const funnelLogic = kea<funnelLogicType>({
                         }))
                         ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
                 }))
-            },
-        ],
-        flattenedSteps: [
-            () => [selectors.stepsWithConversionMetrics],
-            (steps): FlattenedFunnelStep[] => {
-                const flattenedSteps: FlattenedFunnelStep[] = []
-                steps.forEach((step) => {
-                    const isBreakdownParent = !!step.nested_breakdown?.length
-                    flattenedSteps.push({
-                        ...step,
-                        rowKey: step.order,
-                        nestedRowKeys: step.nested_breakdown
-                            ? step.nested_breakdown.map((breakdownStep) =>
-                                  getVisibilityKey(breakdownStep.breakdown_value)
-                              )
-                            : [],
-                        isBreakdownParent,
-                        breakdown_value: isBreakdownParent ? ['Baseline'] : step.breakdown_value,
-                        breakdown: isBreakdownParent ? ['baseline'] : step.breakdown,
-                    })
-                    if (step.nested_breakdown?.length) {
-                        step.nested_breakdown.forEach((breakdownStep, i) => {
-                            flattenedSteps.push({
-                                ...breakdownStep,
-                                order: step.order,
-                                breakdownIndex: i,
-                                rowKey: getVisibilityKey(breakdownStep.breakdown_value),
-                                isBreakdownParent: false,
-                            })
-                        })
-                    }
-                })
-                return flattenedSteps
             },
         ],
         flattenedStepsByBreakdown: [
