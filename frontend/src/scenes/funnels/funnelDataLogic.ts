@@ -11,6 +11,7 @@ import {
     StepOrderValue,
     InsightType,
     FunnelsFilterType,
+    FunnelStepWithConversionMetrics,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -20,7 +21,7 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
-import { aggregateBreakdownResult, isBreakdownFunnelResults } from './funnelUtils'
+import { aggregateBreakdownResult, isBreakdownFunnelResults, stepsWithConversionMetrics } from './funnelUtils'
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
@@ -127,6 +128,13 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 } else {
                     return []
                 }
+            },
+        ],
+        stepsWithConversionMetrics: [
+            (s) => [s.steps, s.funnelsFilter],
+            (steps, funnelsFilter): FunnelStepWithConversionMetrics[] => {
+                const stepReference = funnelsFilter?.funnel_step_reference || FunnelStepReference.total
+                return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
 
