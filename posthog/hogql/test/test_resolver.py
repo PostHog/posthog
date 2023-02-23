@@ -485,3 +485,48 @@ class TestResolver(BaseTest):
         self.assertEqual(expr.where, expected.where)
         self.assertEqual(expr.symbol, expected.symbol)
         self.assertEqual(expr, expected)
+
+    def test_resolve_virtual_events_poe(self):
+        expr = parse_select("select event, poe.id from events")
+        resolve_symbols(expr)
+        events_table_symbol = ast.TableSymbol(table=database.events)
+        expected = ast.SelectQuery(
+            select=[
+                ast.Field(
+                    chain=["event"],
+                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                ),
+                ast.Field(
+                    chain=["poe", "id"],
+                    symbol=ast.FieldSymbol(
+                        name="id",
+                        table=ast.VirtualTableSymbol(
+                            table=events_table_symbol, field="poe", virtual_table=database.events.poe
+                        ),
+                    ),
+                ),
+            ],
+            select_from=ast.JoinExpr(
+                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                symbol=events_table_symbol,
+            ),
+            symbol=ast.SelectQuerySymbol(
+                aliases={},
+                anonymous_tables=[],
+                columns={
+                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
+                    "id": ast.FieldSymbol(
+                        name="id",
+                        table=ast.VirtualTableSymbol(
+                            table=events_table_symbol, field="poe", virtual_table=database.events.poe
+                        ),
+                    ),
+                },
+                tables={"events": events_table_symbol},
+            ),
+        )
+        self.assertEqual(expr.select, expected.select)
+        self.assertEqual(expr.select_from, expected.select_from)
+        self.assertEqual(expr.where, expected.where)
+        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr, expected)
