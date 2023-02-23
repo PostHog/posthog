@@ -152,7 +152,7 @@ jobs:
         needs: visual-regression
         steps:
             - name: Post comment about updated snapshots
-              if: github.event.pull_request.head.repo.full_name == github.repository && (needs.visual-regression.outputs.chromium-diff-total != '0' || needs.visual-regression.outputs.webkit-diff-total != '0' || needs.visual-regression.outputs.firefox-diff-total != '0')
+              if: github.event.pull_request.head.repo.full_name == github.repository && (needs.visual-regression.outputs.chromium-total != '0' || needs.visual-regression.outputs.webkit-total != '0' || needs.visual-regression.outputs.firefox-total != '0')
               uses: actions/github-script@v6
               with:
                   github-token: ${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }}
