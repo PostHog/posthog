@@ -103,8 +103,8 @@ def convert_to_datetime_aware(date_obj):
     return date_obj
 
 
-def correct_result_for_sampling(result: Union[int, float], sampling_factor: Optional[float]) -> float:
+def correct_result_for_sampling(result: Union[int, float], sampling_factor: Optional[float]) -> int:
     if not sampling_factor:
         return result
 
-    return result * (1 / sampling_factor)
+    return round(result * (1 / sampling_factor))
