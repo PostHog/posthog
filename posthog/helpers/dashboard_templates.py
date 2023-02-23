@@ -7,6 +7,7 @@ from posthog.constants import (
     BREAKDOWN_TYPE,
     DATE_FROM,
     DISPLAY,
+    FILTER_TEST_ACCOUNTS,
     INSIGHT,
     INSIGHT_TRENDS,
     INTERVAL,
@@ -15,6 +16,7 @@ from posthog.constants import (
     TRENDS_BAR_VALUE,
     TRENDS_BOLD_NUMBER,
     TRENDS_LINEAR,
+    TRENDS_TABLE,
     TRENDS_WORLD_MAP,
     UNIQUE_USERS,
     AvailableFeature,
@@ -423,11 +425,12 @@ def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> 
 def _create_tile_for_insight(
     dashboard: Dashboard, name: str, filters: Dict, description: str, layouts: Dict, color: Optional[str]
 ) -> None:
+    filter_test_accounts = filters.get("filter_test_accounts", True)
     insight = Insight.objects.create(
         team=dashboard.team,
         name=name,
         description=description,
-        filters={**filters, "filter_test_accounts": True},
+        filters={**filters, "filter_test_accounts": filter_test_accounts},
         is_sample=True,
     )
     DashboardTile.objects.create(
@@ -462,12 +465,15 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
         dashboard.tagged_items.create(tag_id=tag.id)
     dashboard.save(update_fields=["filters"])
 
+    # 1 row
     _create_tile_for_insight(
         dashboard,
-        name="Website Unique Users (Total)",
-        description="Shows the number of unique users that use your app every day.",
+        name="Feature Flag Called Total Volume",
+        description="Shows the number of total calls made on feature flag with key: " + feature_flag.key,
         filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$feature_flag_called", "type": TREND_FILTER_TYPE_EVENTS}],
+            TREND_FILTER_TYPE_EVENTS: [
+                {"id": "$feature_flag_called", "name": "$feature_flag_called", "type": TREND_FILTER_TYPE_EVENTS}
+            ],
             INTERVAL: "day",
             INSIGHT: INSIGHT_TRENDS,
             DATE_FROM: "-30d",
@@ -483,6 +489,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
                     }
                 ],
             },
+            BREAKDOWN: "$feature_flag_response",
+            FILTER_TEST_ACCOUNTS: False,
         },
         layouts={
             "sm": {"i": "21", "x": 0, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
@@ -497,4 +505,50 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
             },
         },
         color="blue",
+    )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Feature Flag Called Unique Users",
+        description="Shows the number of unique user calls made on feature flag with key: " + feature_flag.key,
+        filters={
+            TREND_FILTER_TYPE_EVENTS: [
+                {
+                    "id": "$feature_flag_called",
+                    "name": "$feature_flag_called",
+                    "math": UNIQUE_USERS,
+                    "type": TREND_FILTER_TYPE_EVENTS,
+                }
+            ],
+            INTERVAL: "day",
+            INSIGHT: INSIGHT_TRENDS,
+            DATE_FROM: "-30d",
+            DISPLAY: TRENDS_TABLE,
+            PROPERTIES: {
+                "type": "AND",
+                "values": [
+                    {
+                        "type": "AND",
+                        "values": [
+                            {"key": "$feature_flag", "type": "event", "value": feature_flag.key},
+                        ],
+                    }
+                ],
+            },
+            BREAKDOWN: "$feature_flag_response",
+            FILTER_TEST_ACCOUNTS: False,
+        },
+        layouts={
+            "sm": {"i": "22", "x": 6, "y": 0, "w": 6, "h": 5, "minW": 3, "minH": 5},
+            "xs": {
+                "w": 1,
+                "h": 5,
+                "x": 0,
+                "y": 5,
+                "i": "22",
+                "minW": 1,
+                "minH": 5,
+            },
+        },
+        color="green",
     )

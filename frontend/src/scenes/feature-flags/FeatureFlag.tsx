@@ -29,10 +29,12 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AnyPropertyFilter,
     AvailableFeature,
+    DashboardPlacement,
     EventsTableRowItem,
     PropertyFilterType,
     PropertyOperator,
     Resource,
+    FeatureFlagType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -68,6 +70,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -461,7 +464,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
                                         <Tabs.TabPane tab="Usage" key="usage">
-                                            <UsageTab id={id} featureFlagKey={featureFlag.key} />
+                                            <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -496,7 +499,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+    const { key: featureFlagKey, dashboard: dashboardId } = featureFlag
+
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -504,17 +509,12 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
             value: featureFlagKey,
             operator: PropertyOperator.Exact,
         },
-        {
-            key: '$feature_flag_response',
-            type: PropertyFilterType.Event,
-            value: 'is_set',
-            operator: PropertyOperator.IsSet,
-        },
     ]
 
     // TODO: reintegrate HogQL Editor
     return (
         <div>
+            {dashboardId && <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />}
             <div className="mb-4">
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
