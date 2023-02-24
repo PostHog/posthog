@@ -21,7 +21,7 @@ import { CSSTransition } from 'react-transition-group'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyNumber } from 'lib/utils'
 import { TitleWithIcon } from '../TitleWithIcon'
-import { UseFloatingReturn } from '@floating-ui/react-dom-interactions'
+import { UseFloatingReturn } from '@floating-ui/react'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
 export const ThirtyDayVolumeTitle = ({ tooltipPlacement }: { tooltipPlacement?: 'top' | 'bottom' }): JSX.Element => (

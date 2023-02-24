@@ -17,6 +17,7 @@ import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import {
     comparePlayerPositions,
+    deleteRecording,
     getPlayerPositionFromPlayerTime,
     getPlayerTimeFromPlayerPosition,
     getSegmentFromPlayerPosition,
@@ -29,6 +30,9 @@ import { delay } from 'kea-test-utils'
 import { ExportedSessionRecordingFile } from '../file-playback/sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
 import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const PLAYBACK_SPEEDS = [0.5, 1, 2, 3, 4, 8, 16]
 export const ONE_FRAME_MS = 100 // We don't really have frames but this feels granular enough
@@ -118,6 +122,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setMatching: (matching: SessionRecordingType['matching_events']) => ({ matching }),
         updateFromMetadata: true,
         exportRecordingToFile: true,
+        deleteRecording: true,
     }),
     reducers(({ props }) => ({
         rootFrame: [
@@ -656,6 +661,29 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 error: 'Export failed!',
                 pending: 'Exporting recording...',
             })
+        },
+        deleteRecording: async () => {
+            await deleteRecording(props.sessionRecordingId)
+
+            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
+            const listLogic =
+                !!props.playlistShortId &&
+                sessionRecordingsListLogic.isMounted({ playlistShortId: props.playlistShortId })
+                    ? // On playlist page
+                      sessionRecordingsListLogic({ playlistShortId: props.playlistShortId })
+                    : // In any other context with a list of recordings (recent recordings)
+                      sessionRecordingsListLogic.findMounted({ updateSearchParams: true })
+
+            if (listLogic) {
+                listLogic.actions.loadAllRecordings()
+                // Reset selected recording to first one in the list
+                listLogic.actions.setSelectedRecordingId(null)
+            } else if (router.values.location.pathname.includes('/recordings')) {
+                // On a page that displays a single recording `recordings/:id` that doesn't contain a list
+                router.actions.push(urls.sessionRecordings())
+            } else {
+                // No-op a modal session recording. Delete icon is hidden in modal contexts since modals should be read only views.
+            }
         },
     })),
     windowValues({
