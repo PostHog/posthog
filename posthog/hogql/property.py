@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Union, cast
+from typing import Any, List, Optional, Union, cast
 
 from pydantic import BaseModel
 
@@ -69,7 +69,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
         return parse_expr(property.key)
     elif property.type == "event" or cast(Any, property.type) == "feature" or property.type == "person":
         value = property.value
-        operator = property.operator
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         chain = ["person", "properties"] if property.type == "person" else ["properties"]
         field = ast.Field(chain=chain + [property.key])
 
@@ -99,7 +99,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             return ast.Call(name="match", args=[field, ast.Constant(value=value)])
         elif operator == PropertyOperator.not_regex:
             return ast.Call(name="not", args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])])
-        elif operator is None or operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
+        elif operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
             op = ast.CompareOperationType.Eq
         elif operator == PropertyOperator.is_not:
             op = ast.CompareOperationType.NotEq
@@ -118,6 +118,7 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
 
     elif property.type == "element":
         value = property.value
+        operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
         if isinstance(value, list):
             if len(value) == 1:
                 value = value[0]
@@ -125,20 +126,20 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
                 raise NotImplementedError("property_to_expr for type element not implemented for list of length > 1")
 
         if property.key == "selector" or property.key == "tag_name":
-            if property.operator != PropertyOperator.exact and property.operator != PropertyOperator.is_not:
+            if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:
                 raise NotImplementedError(
-                    f"property_to_expr for element {property.key} only supports exact and is_not operators, not {property.operator}"
+                    f"property_to_expr for element {property.key} only supports exact and is_not operators, not {operator}"
                 )
             expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
-            if property.operator == PropertyOperator.is_not:
+            if operator == PropertyOperator.is_not:
                 return ast.Call(name="not", args=[expr])
             return expr
 
         if property.key == "href":
-            return element_chain_key_filter("href", str(value), property.operator or PropertyOperator.exact)
+            return element_chain_key_filter("href", str(value), operator)
 
         if property.key == "text":
-            return element_chain_key_filter("text", str(value), property.operator or PropertyOperator.exact)
+            return element_chain_key_filter("text", str(value), operator)
 
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort":
