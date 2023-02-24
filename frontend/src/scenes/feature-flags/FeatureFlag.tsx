@@ -743,7 +743,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 ) : (
                     <>
                         <h3 className="l4">Payload</h3>
-                        <PayGateMini feature={AvailableFeature.FEATURE_FLAG_PAYLOADS}>
+                        {hasAvailableFeature(AvailableFeature.FEATURE_FLAG_PAYLOADS) ? (
                             <Row gutter={16}>
                                 <Col span={12}>
                                     <div className="text-muted mb-4">
@@ -766,7 +766,9 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                                 </Col>
                             </Row>
-                        </PayGateMini>
+                        ) : (
+                            <FeatureFlagPayloadIntroduction />
+                        )}
                     </>
                 ))}
             {!readOnly && multivariateEnabled && (
@@ -893,6 +895,35 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 </div>
             )}
         </>
+    )
+}
+
+function FeatureFlagPayloadIntroduction(): JSX.Element {
+    return (
+        <div className="text-sm bg-mid rounded p-2" style={{ maxWidth: '50rem' }}>
+            <>
+                <LockOutlined
+                    style={{
+                        marginRight: 4,
+                        color: 'var(--warning)',
+                    }}
+                />
+                Specify a payload to be returned when the served value is true.{' '}
+                <Link className="font-medium" to="/organization/billing" target="_blank" data-attr="ff-payload-upgrade">
+                    Upgrade now
+                </Link>{' '}
+                or{' '}
+                <Link
+                    className="font-medium"
+                    to="https://posthog.com/docs/integrate/client/js#feature-flag-payloads"
+                    target="_blank"
+                    data-attr="ff-payloads-learn-more"
+                >
+                    learn more
+                </Link>
+                .
+            </>
+        </div>
     )
 }
 
