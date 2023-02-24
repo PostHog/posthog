@@ -192,6 +192,7 @@ class FilterLogicalOperator(str, Enum):
 
 
 class FunnelConversionWindowTimeUnit(str, Enum):
+    second = "second"
     minute = "minute"
     hour = "hour"
     day = "day"
