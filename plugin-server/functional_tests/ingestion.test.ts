@@ -376,7 +376,7 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
     const uuidOfSecondIdentifyEvent = new UUIDT().toString()
     await capture(producer, teamId, personIdentifier, uuidOfSecondIdentifyEvent, '$identify', {
         distinct_id: personIdentifier,
-        $anon_distinct_id: secondEventId,
+        $anon_distinct_id: secondDistinctId,
     })
 
     await waitForExpect(async () => {
