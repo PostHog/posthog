@@ -10,13 +10,25 @@ import { VersionType } from '~/types'
 import type { navigationLogicType } from './navigationLogicType'
 import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-export type ProjectNoticeVariant = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates'
+export type ProjectNoticeVariant =
+    | 'demo_project'
+    | 'real_project_with_no_events'
+    | 'invite_teammates'
+    | 'unverified_email'
 
 export const navigationLogic = kea<navigationLogicType>({
     path: ['layout', 'navigation', 'navigationLogic'],
     connect: {
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        values: [
+            sceneLogic,
+            ['sceneConfig'],
+            membersLogic,
+            ['members', 'membersLoading'],
+            featureFlagLogic,
+            ['featureFlags'],
+        ],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     },
     actions: {
@@ -182,17 +194,21 @@ export const navigationLogic = kea<navigationLogicType>({
                 organizationLogic.selectors.currentOrganization,
                 teamLogic.selectors.currentTeam,
                 preflightLogic.selectors.preflight,
+                userLogic.selectors.user,
                 s.members,
                 s.membersLoading,
                 s.projectNoticesAcknowledged,
+                s.featureFlags,
             ],
             (
                 organization,
                 currentTeam,
                 preflight,
+                user,
                 members,
                 membersLoading,
-                projectNoticesAcknowledged
+                projectNoticesAcknowledged,
+                featureFlags
             ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
                     return null
@@ -203,6 +219,8 @@ export const navigationLogic = kea<navigationLogicType>({
                     // Don't show this project-level warning in the PostHog demo environemnt though,
                     // as then Announcement is shown instance-wide
                     return ['demo_project', false]
+                } else if (!user?.is_email_verified && featureFlags['require-email-verification'] === true) {
+                    return ['unverified_email', false]
                 } else if (
                     !projectNoticesAcknowledged['real_project_with_no_events'] &&
                     currentTeam &&

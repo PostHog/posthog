@@ -119,6 +119,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     has_password: true,
     is_staff: true,
     is_impersonated: false,
+    is_email_verified: true,
     is_2fa_enabled: false,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,

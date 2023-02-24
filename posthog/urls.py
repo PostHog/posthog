@@ -205,6 +205,7 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    "verify_email",
 ]
 for route in frontend_unauthenticated_routes:
     urlpatterns.append(re_path(route, home))
