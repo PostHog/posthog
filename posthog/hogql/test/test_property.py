@@ -3,11 +3,13 @@ from typing import List, Union, cast
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import element_chain_key_filter, property_to_expr, selector_to_expr, tag_name_to_expr
 from posthog.models import Property
 from posthog.models.property import PropertyGroup
-from posthog.schema import HogQLPropertyFilter
+from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
+
+elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
 
 
 class TestProperty(BaseTest):
@@ -220,4 +222,63 @@ class TestProperty(BaseTest):
                     ),
                 ]
             ),
+        )
+
+    def test_tag_name_to_expr(self):
+        self.assertEqual(tag_name_to_expr("a"), elements_chain_match("(^|;)a(\\.|$|;|:)"))
+
+    def test_selector_to_expr(self):
+        self.assertEqual(
+            selector_to_expr("div"), elements_chain_match('div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))')
+        )
+        self.assertEqual(
+            selector_to_expr("div > div"),
+            elements_chain_match(
+                'div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))div([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s))).*'
+            ),
+        )
+        self.assertEqual(
+            selector_to_expr("a[href='boo']"),
+            elements_chain_match('a.*?href="boo".*?([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'),
+        )
+        self.assertEqual(
+            selector_to_expr(".class"),
+            elements_chain_match('.*?\\.class([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'),
+        )
+        self.assertEqual(
+            selector_to_expr("#withid"),
+            elements_chain_match('#withid([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'),
+        )
+
+    def test_elements_chain_key_filter(self):
+        not_call = lambda x: ast.Call(name="not", args=[x])
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.is_set), elements_chain_match('(href="[^"]+")')
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.is_not_set),
+            not_call(elements_chain_match('(href="[^"]+")')),
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.icontains),
+            elements_chain_match('(?i)(href="[^"]*boo\\.\\.[^"]*")'),
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.not_icontains),
+            not_call(elements_chain_match('(?i)(href="[^"]*boo\\.\\.[^"]*")')),
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.regex), elements_chain_match('(href="boo..")')
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.not_regex),
+            not_call(elements_chain_match('(href="boo..")')),
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.exact),
+            elements_chain_match('(href="boo\\.\\.")'),
+        )
+        self.assertEqual(
+            element_chain_key_filter("href", "boo..", PropertyOperator.is_not),
+            not_call(elements_chain_match('(href="boo\\.\\.")')),
         )
