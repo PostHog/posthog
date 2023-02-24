@@ -43,6 +43,7 @@ import { Tooltip } from 'antd'
 import { groupsModelType } from '~/models/groupsModelType'
 import { cohortsModelType } from '~/models/cohortsModelType'
 import { mathsLogicType } from 'scenes/trends/mathsLogicType'
+import { isNodeKind } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 function summariseInsight(
     isUsingDataExploration: boolean,
@@ -55,10 +56,11 @@ function summariseInsight(
 ): string {
     return isUsingDataExploration && isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
+        : isUsingDataExploration && isNodeKind(query.kind)
+        ? `QueryKind: ${query.kind}`
         : isFilterBasedInsight
         ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : // TODO placeholder for non insight viz queries
-          ''
+        : ''
 }
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
