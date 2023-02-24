@@ -1,13 +1,19 @@
+import datetime
 import uuid
 from unittest.mock import ANY, Mock, patch
 
 import pytest
+from django.contrib.auth.tokens import default_token_generator
+from django.core import mail
 from django.core.cache import cache
+from django.utils import timezone
 from django.utils.text import slugify
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Tag, Team, User
+from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.test.base import APIBaseTest
 
@@ -284,6 +290,49 @@ class TestUserAPI(APIBaseTest):
         assert self.user.email == "beta@example.com"
         mock_is_email_available.assert_called_once()
         mock_send_email_change_emails.assert_not_called()
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.user.is_email_available", return_value=True)
+    @patch("posthog.tasks.email.send_email_change_emails.delay")
+    @patch("posthog.tasks.email.send_email_verification.delay")
+    def test_update_current_user_email_with_email_verification(
+        self, mock_send_email_verification, mock_send_email_change_emails, mock_is_email_available, mock_feature_enabled
+    ):
+        """Test that when a user updates their email, they receive a verification email before the switch actually happens."""
+        self.user.email = "alpha@example.com"
+        self.user.save()
+        with self.is_cloud(True):
+            with freeze_time("2020-01-01T21:37:00+00:00"):
+                response = self.client.patch(
+                    "/api/users/@me/",
+                    {
+                        "email": "beta@example.com",
+                    },
+                )
+            response_data = response.json()
+            self.user.refresh_from_db()
+
+            assert response.status_code == status.HTTP_200_OK
+            assert response_data["email"] == "alpha@example.com"
+            assert response_data["pending_email"] == "beta@example.com"
+            assert self.user.email == "alpha@example.com"
+            assert self.user.pending_email == "beta@example.com"
+
+            mock_is_email_available.assert_called_once()
+            mock_send_email_verification.assert_called_once()
+
+            token = email_verification_token_generator.make_token(self.user)
+            with freeze_time("2020-01-01T21:37:00+00:00"):
+                response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            self.user.refresh_from_db()
+            assert self.user.email == "beta@example.com"
+            self.assertIsNone(self.user.pending_email)
+            mock_is_email_available.assert_called_once()
+            mock_send_email_change_emails.assert_called_once_with(
+                "2020-01-01T21:37:00+00:00", self.user.first_name, "alpha@example.com", "beta@example.com"
+            )
 
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
@@ -793,3 +842,105 @@ class TestStaffUserAPI(APIBaseTest):
         response = self.client.get(f"/api/users/@me/start_2fa_setup/")
         response = self.client.post(f"/api/users/@me/validate_2fa/", {"token": 123456})
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+
+class TestEmailVerificationAPI(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        # prevent throttling of user requests to pass on from one test
+        # to the next
+        cache.clear()
+        return super().setUp()
+
+    # Email verification request
+
+    @patch("posthoganalytics.capture")
+    def test_user_can_request_verification_email(self, mock_capture):
+        set_instance_setting("EMAIL_HOST", "localhost")
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, SITE_URL="https://my.posthog.net"):
+            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.content.decode(), '{"success":true}')
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
+
+        self.assertEqual(mail.outbox[0].subject, "Verify your email address")
+        self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
+
+        html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
+        self.validate_basic_html(
+            html_message, "https://my.posthog.net", preheader="Please follow the link inside to verify your account."
+        )
+        link_index = html_message.find("https://my.posthog.net/verify_email")
+        reset_link = html_message[link_index : html_message.find('"', link_index)]
+        token = reset_link.replace("https://my.posthog.net/verify_email/", "").replace(f"{self.user.uuid}/", "")
+
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        # check is_email_verified is changed to True
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.is_email_verified)
+
+        # assert events were captured
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "user logged in",
+            properties={"social_provider": ""},
+            groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
+        )
+        mock_capture.assert_any_call(
+            self.user.distinct_id,
+            "user verified email",
+            properties={"$set": ANY},
+        )
+        self.assertEqual(mock_capture.call_count, 2)
+
+    def test_cant_verify_if_email_is_not_configured(self):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+            response = self.client.post(f"/api/users/@me/request_email_verification/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "email_not_available",
+                "detail": "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
+                "attr": None,
+            },
+        )
+
+    # Token validation
+
+    def test_can_validate_email_verification_token(self):
+        token = email_verification_token_generator.make_token(self.user)
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cant_validate_email_verification_token_without_a_token(self):
+        response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {"type": "validation_error", "code": "required", "detail": "This field is required.", "attr": "token"},
+        )
+
+    def test_invalid_verification_token_returns_error(self):
+        valid_token = default_token_generator.make_token(self.user)
+
+        with freeze_time(timezone.now() - datetime.timedelta(seconds=86_401)):
+            # tokens expire after one day
+            expired_token = default_token_generator.make_token(self.user)
+
+        for token in [valid_token[:-1], "not_even_trying", self.user.uuid, expired_token]:
+            response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "invalid_token",
+                    "detail": "This verification token is invalid or has expired.",
+                    "attr": "token",
+                },
+            )
