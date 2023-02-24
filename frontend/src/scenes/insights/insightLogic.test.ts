@@ -969,20 +969,43 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('setFilters with new entity', () => {
-        it('does not call the api on empty filters', async () => {
+    describe('emptyFilters', () => {
+        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
+        beforeEach(() => {
             const insight = {
                 result: ['result from api'],
             }
-            logic = insightLogic({
+            theEmptyFiltersLogic = insightLogic({
                 dashboardItemId: undefined,
                 cachedInsight: insight,
             })
-            logic.mount()
+            theEmptyFiltersLogic.mount()
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
+        it('does not call the api on setting empty filters', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        it('does not call the api on update when empty filters and no query', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: undefined,
+                })
+            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
+        })
+
+        it('does call the api on update when empty filters but query is present', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
+                })
+            }).toDispatchActions(['updateInsightSuccess'])
         })
     })
 

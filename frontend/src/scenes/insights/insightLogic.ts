@@ -209,13 +209,14 @@ export const insightLogic = kea<insightLogicType>([
                         return values.insight
                     }
 
-                    if ('filters' in insight && emptyFilters(insight.filters)) {
+                    if ('filters' in insight && !insight.query && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
                             extra: {
                                 filters: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
                                 valuesInsight: JSON.stringify(values.insight),
+                                query: JSON.stringify(insight.query),
                             },
                         })
                         throw error
