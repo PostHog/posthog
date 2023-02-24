@@ -181,7 +181,7 @@ specifiers:
   ts-json-schema-generator: ^1.1.2
   ts-node: ^10.9.1
   typescript: ^4.6.4
-  use-debounce: ^6.0.1
+  use-debounce: ^9.0.3
   use-resize-observer: ^8.0.0
   webpack: ^4.46.0
   webpack-cli: ^4.5.0
@@ -271,7 +271,7 @@ dependencies:
   rrweb: 1.1.3
   sass: 1.56.0
   sql-formatter: 12.1.2
-  use-debounce: 6.0.1_react@16.14.0
+  use-debounce: 9.0.3_react@16.14.0
   use-resize-observer: 8.0.0_wcqkhtmu7mswc6yz4uyexck3ty
   wildcard-match: 5.1.2
   zxcvbn: 4.4.2
@@ -2028,7 +2028,7 @@ packages:
       aria-hidden: 1.2.1_edij4neeagymnxmr7qklvezyj4
       react: 16.14.0
       react-dom: 16.14.0_react@16.14.0
-      tabbable: 6.0.1
+      tabbable: 6.1.1
     transitivePeerDependencies:
       - '@types/react'
     dev: false
@@ -17349,8 +17349,8 @@ packages:
     resolution: {integrity: sha512-qImOD23aDfnIDNqlG1NOehdB9IYsn1V9oByPjKY1nakv2MQYCEMyX033/q+aEtYCpmYK1cv2+NTmlH+ra6GA5A==}
     dev: true
 
-  /tabbable/6.0.1:
-    resolution: {integrity: sha512-SYJSIgeyXW7EuX1ytdneO5e8jip42oHWg9xl/o3oTYhmXusZVgiA+VlPvjIN+kHii9v90AmzTZEBcsEvuAY+TA==}
+  /tabbable/6.1.1:
+    resolution: {integrity: sha512-4kl5w+nCB44EVRdO0g/UGoOp3vlwgycUVtkk/7DPyeLZUCuNFFKCFG6/t/DgHLrUPHjrZg6s5tNm+56Q2B0xyg==}
     dev: false
 
   /table/6.8.1:
@@ -18125,8 +18125,8 @@ packages:
       react: 16.14.0
     dev: false
 
-  /use-debounce/6.0.1_react@16.14.0:
-    resolution: {integrity: sha512-kpvIxpa0vOLz/2I2sfNJ72mUeaT2CMNCu5BT1f2HkV9qZK27UVSOFf1sSSu+wjJE4TcR2VTXS2SM569+m3TN7Q==}
+  /use-debounce/9.0.3_react@16.14.0:
+    resolution: {integrity: sha512-FhtlbDtDXILJV7Lix5OZj5yX/fW1tzq+VrvK1fnT2bUrPOGruU9Rw8NCEn+UI9wopfERBEZAOQ8lfeCJPllgnw==}
     engines: {node: '>= 10.0.0'}
     peerDependencies:
       react: '>=16.8.0'

@@ -18,6 +18,9 @@ export default {
     parameters: {
         layout: 'fullscreen',
         options: { showPanel: false },
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
         viewMode: 'story',
     },
 } as ComponentMeta<typeof SharingModal>

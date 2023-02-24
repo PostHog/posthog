@@ -13,8 +13,18 @@ declare module '@storybook/react' {
         options?: OptionsParameter
         layout?: 'padded' | 'fullscreen' | 'centered'
         testOptions?: {
-            /** Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that). **/
+            /**
+             * Whether the test should be a no-op (doesn't jest.skip as @storybook/test-runner doesn't allow that).
+             * @default false
+             */
             skip?: boolean
+            /**
+             * Whether we should wait for all loading indicators to disappear.
+             * If a number is passed, it will be used as an extra delay, in milliseconds.
+             * Enable for stories that take a bit to load, and which you aren't testing loading states for.
+             * @default false
+             */
+            waitForLoadersToDisappear?: boolean | number
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
@@ -23,6 +33,7 @@ declare module '@storybook/react' {
             /**
              * The test will always run for all the browers, but snapshots are only taken in Chromium by default.
              * Override this to take snapshots in other browsers too.
+             * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
         }
@@ -37,7 +48,6 @@ declare module '@storybook/react' {
 const RETRY_TIMES = 5
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
-const updateSnapshot = expect.getState().snapshotState._updateSnapshot === 'all'
 
 module.exports = {
     setup() {
@@ -46,15 +56,15 @@ module.exports = {
     },
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
+        const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
-        await page.evaluate(() => {
-            // Stop all animations for consistent snapshots
-            document.body.classList.add('storybook-test-runner')
-        })
+        if (!skip) {
+            await page.evaluate(() => {
+                // Stop all animations for consistent snapshots
+                document.body.classList.add('storybook-test-runner')
+            })
 
-        if (!storyContext.parameters?.testOptions?.skip) {
             const currentBrowser = page.context().browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
-            const snapshotBrowsers = storyContext.parameters?.testOptions?.snapshotBrowsers ?? ['chromium']
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
@@ -68,9 +78,12 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
+    const { waitForLoadersToDisappear = false, excludeNavigationFromSnapshot = false } =
+        storyContext.parameters?.testOptions ?? {}
+
     let check: (page: Page, context: TestContext, browser: SupportedBrowserName) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
-        if (storyContext.parameters.testOptions?.excludeNavigationFromSnapshot) {
+        if (excludeNavigationFromSnapshot) {
             check = expectStoryToMatchSceneSnapshot
         } else {
             check = expectStoryToMatchFullPageSnapshot
@@ -78,12 +91,21 @@ async function expectStoryToMatchSnapshot(
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
-    // You'd expect that the 'load' state which @storybook/test-runner waits for would already mean
-    // the story is ready, and definitely that 'networkidle' would indicate all assets to be ready.
-    // But that's not the case, so we need to introduce a bit of a delay.
-    // The delay is extended when updating snapshots, so that we're 100% sure they represent the final state.
-    const delayMultiplier: number = updateSnapshot ? RETRY_TIMES : 1
-    await page.waitForTimeout(150 * delayMultiplier)
+    // Wait for story to load
+    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached', timeout: 1000 })
+    await page.waitForTimeout(100) // Wait for initial UI to load
+    if (waitForLoadersToDisappear) {
+        await Promise.all([
+            page.waitForSelector('.ant-skeleton', { state: 'detached', timeout: 1000 }),
+            page.waitForSelector('.LemonSkeleton', { state: 'detached', timeout: 1000 }),
+            page.waitForSelector('.Spinner', { state: 'detached', timeout: 1000 }),
+            page.waitForSelector('.LemonTableLoader', { state: 'detached', timeout: 1000 }),
+        ])
+        if (typeof waitForLoadersToDisappear === 'number') {
+            await page.waitForTimeout(waitForLoadersToDisappear)
+        }
+    }
+    await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
     await check(page, context, browser)
 }
 
