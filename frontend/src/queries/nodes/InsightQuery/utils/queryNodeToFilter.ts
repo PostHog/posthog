@@ -66,7 +66,7 @@ export const seriesToActionsAndEvents = (
     return { actions, events, new_entity }
 }
 
-const insightMap: Record<InsightNodeKind, InsightType> = {
+export const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,

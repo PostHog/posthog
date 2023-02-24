@@ -139,6 +139,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     SITE_URL: string | null
     MAX_PENDING_PROMISES_PER_WORKER: number
     KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: number
+    RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: number
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS: boolean
     CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: string
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
@@ -154,7 +155,16 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'ingestion-overflow' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
+    PLUGIN_SERVER_MODE:
+        | 'ingestion'
+        | 'ingestion-overflow'
+        | 'async'
+        | 'exports'
+        | 'jobs'
+        | 'scheduler'
+        | 'analytics-ingestion'
+        | 'recordings-ingestion'
+        | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
@@ -214,6 +224,7 @@ export interface PluginServerCapabilities {
     pluginScheduledTasks?: boolean
     processPluginJobs?: boolean
     processAsyncHandlers?: boolean
+    sessionRecordingIngestion?: boolean
     http?: boolean
 }
 

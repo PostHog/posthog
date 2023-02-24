@@ -22,7 +22,7 @@ const BASE_MOCK_ANNOTATION: Pick<
         uuid: '0182cb27-8dfc-0000-1f45-c16dc0de95ea',
         distinct_id: 'XoBG3ygtKV8635pAFkEWHKboT6me1MTVaJETde7dm8V',
         first_name: 'Employee 427',
-        email: 'michael@posthog.com',
+        email: 'test@posthog.com',
     },
     created_at: '2022-08-26T12:22:00.892304Z',
     updated_at: '2022-08-29T11:21:25.022540Z',

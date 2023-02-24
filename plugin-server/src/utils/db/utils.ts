@@ -48,6 +48,7 @@ const campaignParams = new Set([
     'utm_term',
     'gclid',
     'fbclid',
+    'msclkid',
 ])
 const initialParams = new Set([
     '$browser',
