@@ -1,4 +1,4 @@
-import { Placement } from '@floating-ui/react-dom-interactions'
+import { Placement } from '@floating-ui/react'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { IconClose, IconChevronLeft, IconChevronRight } from 'lib/lemon-ui/icons'
