@@ -1,5 +1,3 @@
-import os from 'os'
-
 import { LogLevel, PluginsServerConfig } from '../types'
 import { isDevEnv, isTestEnv, stringToBoolean } from '../utils/env-utils'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from './constants'
@@ -13,8 +11,6 @@ export const defaultConfig = overrideWithEnv(getDefaultConfig())
 export const configHelp = getConfigHelp()
 
 export function getDefaultConfig(): PluginsServerConfig {
-    const coreCount = os.cpus().length
-
     return {
         DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_posthog'
@@ -56,7 +52,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PORT: 6379,
         BASE_DIR: '.',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
-        WORKER_CONCURRENCY: isDevEnv() ? 1 : coreCount,
+        WORKER_CONCURRENCY: 1,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
@@ -89,6 +85,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         SITE_URL: null,
         MAX_PENDING_PROMISES_PER_WORKER: 100,
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
+        RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY: 5,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
         CONVERSION_BUFFER_ENABLED: isDevEnv() ? true : !isTestEnv(),
@@ -224,9 +221,17 @@ export function overrideWithEnv(
     }
 
     if (
-        !['ingestion', 'async', 'exports', 'scheduler', 'jobs', 'ingestion-overflow', null].includes(
-            newConfig.PLUGIN_SERVER_MODE
-        )
+        ![
+            'ingestion',
+            'async',
+            'exports',
+            'scheduler',
+            'jobs',
+            'ingestion-overflow',
+            'analytics-ingestion',
+            'recordings-ingestion',
+            null,
+        ].includes(newConfig.PLUGIN_SERVER_MODE)
     ) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }
