@@ -461,12 +461,13 @@ export function summariseInsight(
     mathDefinitions: mathsLogicType['values']['mathDefinitions'],
     filters: Partial<FilterType>
 ): string {
-    const isFilterBasedInsight = Object.keys(filters || {}).length > 0 && !query
+    const hasFilters = Object.keys(filters || {}).length > 0
+
     return isUsingDataExploration && isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
         : isUsingDataExploration && !!query
         ? `QueryKind: ${query?.kind}`
-        : isFilterBasedInsight
+        : hasFilters
         ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
         : ''
 }
