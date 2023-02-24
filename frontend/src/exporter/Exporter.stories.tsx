@@ -18,6 +18,9 @@ export default {
             iframeHeight: 400,
             source: { state: 'close' },
         },
+        testOptions: {
+            waitForLoadersToDisappear: 200,
+        },
         mockDate: '2023-02-01',
         viewMode: 'story',
     },

@@ -149,10 +149,11 @@ jobs:
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   git config --global --add safe.directory '*' # Calm git down about file ownership
-                  ADDED=$(git diff frontend/__snapshots__/ --name-status | grep '^A' | wc -l)
-                  MODIFIED=$(git diff frontend/__snapshots__/ --name-status | grep '^M' | wc -l)
-                  DELETED=$(git diff frontend/__snapshots__/ --name-status | grep '^D' | wc -l)
-                  TOTAL=$(git diff frontend/__snapshots__/ --name-status | wc -l)
+                  ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
+                  MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
+                  DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
+                  TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
+                  echo A $ADDED + M $MODIFIED + D $DELETED = $TOTAL # Debugging
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
@@ -192,15 +193,17 @@ jobs:
                       const diffJobOutputs = ${{ toJson(needs.visual-regression.outputs) }}
                       const summaryDiff = { total: 0, added: 0, modified: 0, deleted: 0 }
                       const diffByBrowser = Object.fromEntries(BROWSERS.map(browser => [browser, {
-                        total: 0, added: 0, modified: 0, deleted: 0
+                        total: 0, added: 0, modified: 0, deleted: 0, commitHashes: []
                       }]))
                       for (const [key, rawValue] of Object.entries(diffJobOutputs)) {
-                        // Split e.g. 'chromium-commitHash' into ['chromium', 'commitHash']
+                        // Split e.g. 'chromium-1-commitHash' into ['chromium', '1' 'commitHash']
                         const [browser, shardNumber, diffKey] = key.split('-')
-                        const value = diffKey === 'commitHash' ? rawValue : parseInt(rawValue)
-                        diffByBrowser[browser][diffKey] += value
                         // Sum up the counts - but not the commit hash
-                        if (typeof value === 'number') {
+                        if (diffKey === 'commitHash') {
+                          diffByBrowser[browser].commitHashes.push([parseInt(shardNumber), rawValue])
+                        } else {
+                          const value = parseInt(rawValue)
+                          diffByBrowser[browser][diffKey] += value
                           summaryDiff[diffKey] += value
                         }
                       }
@@ -220,10 +223,17 @@ jobs:
                         if (!diff) {
                           return `- \`${browser}\`: failed`
                         }
-                        const { added: a, modified: m, deleted: d, commitHash } = diff
-                        const commitInfo = commitHash ? `[view diff](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${commitHash})` : "wasn't pushed!"
+                        const { added: a, modified: m, deleted: d, commitHashes } = diff
                         const b = a + m + d > 0 ? '**' : '' // Bold list item if there were changes
-                        return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted (${commitInfo})`
+                        let extraInfo = ''
+                        if (b) {
+                          const commitInfo = commitHashes.map(
+                            ([shardNumber, commitHash]) =>
+                            `[diff for shard ${shardNumber}](https://github.com/${{ github.repository }}/pull/${{ github.event.pull_request.number }}/commits/${commitHash})`
+                          ).join(', ') || "wasn't pushed!"
+                          extraInfo = ` (${commitInfo})`
+                        }
+                        return `- ${b}\`${browser}\`${b}: **${a}** added, **${m}** modified, **${d}** deleted${extraInfo}`
                       }).join('\n')
 
                       github.rest.issues.createComment({
