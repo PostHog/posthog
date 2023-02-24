@@ -150,6 +150,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline)
             },
         ],
+        flattenedBreakdowns: [
+            (s) => [s.flattenedStepsByBreakdown],
+            (flattenedStepsByBreakdown): FlattenedFunnelStepByBreakdown[] => {
+                return flattenedStepsByBreakdown.filter((b) => b.breakdown)
+            },
+        ],
 
         /*
          * Advanced options: funnel_order_type, funnel_step_reference, exclusions
