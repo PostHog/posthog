@@ -19,7 +19,8 @@
         animation: loading-bar 1.5s linear infinite;
         background: var(--primary);
     }
-    &.LemonTableLoader--loading {
+    &.LemonTableLoader--enter-active,
+    &.LemonTableLoader--enter-done {
         height: 0.25rem;
     }
 }

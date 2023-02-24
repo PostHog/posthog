@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { InsightType } from '~/types'
-import { insightLogic } from './insightLogic'
+import { insightLogic } from '../insightLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { FunnelsCue } from './views/Trends/FunnelsCue'
+import { FunnelsCue } from '../views/Trends/FunnelsCue'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 interface Tab {
     label: string
@@ -15,8 +16,9 @@ interface Tab {
 }
 
 export function InsightsNav(): JSX.Element {
-    const { activeView } = useValues(insightLogic)
-    const { setActiveView } = useActions(insightLogic)
+    const { insightProps } = useValues(insightLogic)
+    const { activeView } = useValues(insightNavLogic(insightProps))
+    const { setActiveView } = useActions(insightNavLogic(insightProps))
 
     const tabs: Tab[] = [
         {

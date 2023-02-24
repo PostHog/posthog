@@ -11,6 +11,7 @@ import {
     MOCK_DEFAULT_PLUGIN,
     MOCK_DEFAULT_PLUGIN_CONFIG,
     MOCK_TEAM_ID,
+    MOCK_SECOND_ORGANIZATION_MEMBER,
 } from 'lib/api.mock'
 import { getAvailableFeatures } from '~/mocks/features'
 import { SharingConfigurationType } from '~/types'
@@ -40,19 +41,23 @@ export const defaultMocks: Mocks = {
         } as SharingConfigurationType,
         '/api/projects/:team_id/property_definitions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/feature_flags/': EMPTY_PAGINATED_RESPONSE,
+        '/api/projects/:team_id/experiments/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/explicit_members/': [],
         '/api/organizations/@current/': (): MockSignature => [
             200,
             { ...MOCK_DEFAULT_ORGANIZATION, available_features: getAvailableFeatures() },
         ],
-        '/api/organizations/@current/members/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_MEMBER]),
+        '/api/organizations/@current/members/': toPaginatedResponse([
+            MOCK_DEFAULT_ORGANIZATION_MEMBER,
+            MOCK_SECOND_ORGANIZATION_MEMBER,
+        ]),
         '/api/organizations/@current/invites/': toPaginatedResponse([MOCK_DEFAULT_ORGANIZATION_INVITE]),
         '/api/organizations/@current/plugins/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN]),
         '/api/organizations/@current/plugins/repository/': [],
         '/api/plugin_config/': toPaginatedResponse([MOCK_DEFAULT_PLUGIN_CONFIG]),
         [`/api/projects/${MOCK_TEAM_ID}/plugin_configs/${MOCK_DEFAULT_PLUGIN_CONFIG.id}/`]: MOCK_DEFAULT_PLUGIN_CONFIG,
         '/api/projects/@current/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
-        '/api/projects/:team_id/persons': toPaginatedResponse([]),
+        '/api/projects/:team_id/persons': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/persons/properties/': toPaginatedResponse(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
         '/api/license/': toPaginatedResponse([MOCK_DEFAULT_LICENSE]),
