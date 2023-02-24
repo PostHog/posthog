@@ -84,7 +84,7 @@ class TestLoginAPI(APIBaseTest):
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
 
-    @patch("posthog.api.authentication.send_email_verification")
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_email_unverified_user_cant_log_in_if_email_verification_true(
         self, mock_feature_enabled, mock_send_email_verification
@@ -103,9 +103,9 @@ class TestLoginAPI(APIBaseTest):
             mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.distinct_id))
 
             # Assert the email was sent.
-            mock_send_email_verification.assert_called_once_with(self.user.id)
+            mock_send_email_verification.assert_called_once_with(self.user)
 
-    @patch("posthog.api.authentication.send_email_verification")
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_email_unverified_null_user_can_log_in_if_email_verification_true(
         self, mock_feature_enabled, mock_send_email_verification
@@ -123,7 +123,7 @@ class TestLoginAPI(APIBaseTest):
             # Assert we called the feature flag
             mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.distinct_id))
             # Assert the email was sent.
-            mock_send_email_verification.assert_called_once_with(self.user.id)
+            mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):

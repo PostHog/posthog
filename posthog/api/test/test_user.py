@@ -11,6 +11,7 @@ from django.utils.text import slugify
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.api.email_verification import email_verification_token_generator
 from posthog.models import Tag, Team, User
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
@@ -320,7 +321,7 @@ class TestUserAPI(APIBaseTest):
             mock_is_email_available.assert_called_once()
             mock_send_email_verification.assert_called_once()
 
-            token = default_token_generator.make_token(self.user)
+            token = email_verification_token_generator.make_token(self.user)
             with freeze_time("2020-01-01T21:37:00+00:00"):
                 response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -912,7 +913,7 @@ class TestEmailVerificationAPI(APIBaseTest):
     # Token validation
 
     def test_can_validate_email_verification_token(self):
-        token = default_token_generator.make_token(self.user)
+        token = email_verification_token_generator.make_token(self.user)
         response = self.client.post(f"/api/users/@me/verify_email/", {"uuid": self.user.uuid, "token": token})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
