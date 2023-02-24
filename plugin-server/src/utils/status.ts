@@ -88,8 +88,12 @@ function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string 
             return 'MAIN'
         case 'ingestion':
             return 'INGESTION'
+        case 'analytics-ingestion':
+            return 'ANALYTICS-INGESTION'
         case 'ingestion-overflow':
             return 'INGESTION-OVERFLOW'
+        case 'recordings-ingestion':
+            return 'RECORDINGS-INGESTION'
         case 'async':
             return 'ASYNC'
         case 'exports':
