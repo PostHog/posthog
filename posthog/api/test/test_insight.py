@@ -2373,7 +2373,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 data={
                     "events": json.dumps([{"id": "$pageview"}]),
                     "breakdown_type": "hogql",
-                    "breakdown": "ifElse(toInt(properties.int_value) < 10, 'le%ss', 'more')",
+                    "breakdown": "if(toInt(properties.int_value) < 10, 'le%ss', 'more')",
                 },
             )
             result = response.json()["result"]
