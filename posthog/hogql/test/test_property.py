@@ -4,13 +4,14 @@ from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import (
+    action_to_expr,
     element_chain_key_filter,
     has_aggregation,
     property_to_expr,
     selector_to_expr,
     tag_name_to_expr,
 )
-from posthog.models import Property
+from posthog.models import Action, ActionStep, Property
 from posthog.models.property import PropertyGroup
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
@@ -256,4 +257,41 @@ class TestProperty(BaseTest):
         self.assertEqual(
             element_chain_key_filter("href", "boo..", PropertyOperator.is_not),
             not_call(elements_chain_match('(href="boo\\.\\.")')),
+        )
+
+    def test_action_to_expr(self):
+        action1 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$autocapture", action=action1, selector="a.nav-link.active", tag_name="a")
+        self.assertEqual(
+            action_to_expr(action1),
+            parse_expr(
+                "event = '$autocapture' and match(elements_chain, {regex1}) and match(elements_chain, {regex2})",
+                {
+                    "regex1": ast.Constant(
+                        value='a.*?\\.active\\..*?nav-link([-_a-zA-Z0-9\\.:"= ]*?)?($|;|:([^;^\\s]*(;|$|\\s)))'
+                    ),
+                    "regex2": ast.Constant(value="(^|;)a(\\.|$|;|:)"),
+                },
+            ),
+        )
+
+        action2 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$pageview", action=action2, url="https://example.com", url_matching="contains")
+        self.assertEqual(
+            action_to_expr(action2),
+            parse_expr("event = '$pageview' and properties.$current_url like '%https://example.com%'"),
+        )
+
+        action3 = Action.objects.create(team=self.team)
+        ActionStep.objects.create(event="$pageview", action=action3, url="https://example2.com", url_matching="regex")
+        ActionStep.objects.create(event="custom", action=action3, url="https://example3.com", url_matching="exact")
+        self.assertEqual(
+            action_to_expr(action3),
+            parse_expr(
+                "{s1} or {s2}",
+                {
+                    "s1": parse_expr("event = '$pageview' and match(properties.$current_url, 'https://example2.com')"),
+                    "s2": parse_expr("event = 'custom' and properties.$current_url = 'https://example3.com'"),
+                },
+            ),
         )
