@@ -68,16 +68,28 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
     if property.type == "hogql":
         return parse_expr(property.key)
     elif property.type == "event" or cast(Any, property.type) == "feature" or property.type == "person":
-        value = property.value
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.exact
-        chain = ["person", "properties"] if property.type == "person" else ["properties"]
-        field = ast.Field(chain=chain + [property.key])
-
+        value = property.value
         if isinstance(value, list):
             if len(value) == 1:
                 value = value[0]
             else:
-                raise NotImplementedError("property_to_expr not implemented for list of length > 1")
+                exprs = [
+                    property_to_expr(
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v)
+                    )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.is_not
+                    or operator == PropertyOperator.not_icontains
+                    or operator == PropertyOperator.not_regex
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
+
+        chain = ["person", "properties"] if property.type == "person" else ["properties"]
+        field = ast.Field(chain=chain + [property.key])
 
         if operator == PropertyOperator.is_set:
             return ast.CompareOperation(op=ast.CompareOperationType.NotEq, left=field, right=ast.Constant(value=None))
@@ -123,7 +135,19 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             if len(value) == 1:
                 value = value[0]
             else:
-                raise NotImplementedError("property_to_expr for type element not implemented for list of length > 1")
+                exprs = [
+                    property_to_expr(
+                        Property(type=property.type, key=property.key, operator=property.operator, value=v)
+                    )
+                    for v in value
+                ]
+                if (
+                    operator == PropertyOperator.is_not
+                    or operator == PropertyOperator.not_icontains
+                    or operator == PropertyOperator.not_regex
+                ):
+                    return ast.And(exprs=exprs)
+                return ast.Or(exprs=exprs)
 
         if property.key == "selector" or property.key == "tag_name":
             if operator != PropertyOperator.exact and operator != PropertyOperator.is_not:

@@ -91,6 +91,34 @@ class TestProperty(BaseTest):
             parse_expr("not(match(properties.a, '.*'))"),
         )
 
+    def test_property_to_expr_event_list(self):
+        # positive
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "exact"}),
+            parse_expr("properties.a = 'b' or properties.a = 'c'"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "icontains"}),
+            parse_expr("properties.a ilike '%b%' or properties.a ilike '%c%'"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "regex"}),
+            parse_expr("match(properties.a, 'b') or match(properties.a, 'c')"),
+        )
+        # negative
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "is_not"}),
+            parse_expr("properties.a != 'b' and properties.a != 'c'"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_icontains"}),
+            parse_expr("properties.a not ilike '%b%' and properties.a not ilike '%c%'"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "event", "key": "a", "value": ["b", "c"], "operator": "not_regex"}),
+            parse_expr("not(match(properties.a, 'b')) and not(match(properties.a, 'c'))"),
+        )
+
     def test_property_to_expr_feature(self):
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
