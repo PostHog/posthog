@@ -1,16 +1,7 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
-import { Node } from '~/queries/schema'
+import { summariseInsight } from 'scenes/insights/utils'
 import { IconLock } from 'lib/lemon-ui/icons'
-import {
-    AvailableFeature,
-    ExporterFormat,
-    FilterType,
-    InsightLogicProps,
-    InsightModel,
-    InsightShortId,
-    ItemMode,
-} from '~/types'
+import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -40,28 +31,6 @@ import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
-import { groupsModelType } from '~/models/groupsModelType'
-import { cohortsModelType } from '~/models/cohortsModelType'
-import { mathsLogicType } from 'scenes/trends/mathsLogicType'
-import { isNodeKind } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-
-function summariseInsight(
-    isUsingDataExploration: boolean,
-    query: Node,
-    aggregationLabel: groupsModelType['values']['aggregationLabel'],
-    cohortsById: cohortsModelType['values']['cohortsById'],
-    mathDefinitions: mathsLogicType['values']['mathDefinitions'],
-    isFilterBasedInsight: boolean,
-    filters: Partial<FilterType>
-): string {
-    return isUsingDataExploration && isInsightVizNode(query)
-        ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
-        : isUsingDataExploration && isNodeKind(query.kind)
-        ? `QueryKind: ${query.kind}`
-        : isFilterBasedInsight
-        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-        : ''
-}
 
 export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
@@ -148,7 +117,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             aggregationLabel,
                             cohortsById,
                             mathDefinitions,
-                            isFilterBasedInsight,
                             filters
                         )}
                         onSave={(value) => setInsightMetadata({ name: value })}

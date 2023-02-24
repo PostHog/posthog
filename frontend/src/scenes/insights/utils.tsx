@@ -39,16 +39,18 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
 import {
     isEventsNode,
     isFunnelsQuery,
+    isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
+import { isNodeKind } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -450,6 +452,24 @@ export function summarizeInsightQuery(
     } else {
         return ''
     }
+}
+
+export function summariseInsight(
+    isUsingDataExploration: boolean,
+    query: Node | undefined,
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsById: cohortsModelType['values']['cohortsById'],
+    mathDefinitions: mathsLogicType['values']['mathDefinitions'],
+    filters: Partial<FilterType>
+): string {
+    const isFilterBasedInsight = Object.keys(filters || {}).length > 0 && !query
+    return isUsingDataExploration && isInsightVizNode(query)
+        ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
+        : isUsingDataExploration && isNodeKind(query?.kind)
+        ? `QueryKind: ${query?.kind}`
+        : isFilterBasedInsight
+        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+        : ''
 }
 
 export function formatAggregationValue(

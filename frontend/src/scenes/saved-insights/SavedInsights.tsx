@@ -40,7 +40,7 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/lemon-ui/LemonButton'
 import { InsightCard } from 'lib/components/Cards/InsightCard'
-import { summarizeInsightFilters } from 'scenes/insights/utils'
+import { summariseInsight } from 'scenes/insights/utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -53,6 +53,8 @@ import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters
 import { NodeKind } from '~/queries/schema'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -339,6 +341,9 @@ function SavedInsightsGrid(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const isUsingDataExploration = !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+
     const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
         useActions(savedInsightsLogic)
     const { insights, count, insightsLoading, filters, sorting, pagination } = useValues(savedInsightsLogic)
@@ -373,11 +378,13 @@ export function SavedInsights(): JSX.Element {
                             <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
-                                        {summarizeInsightFilters(
-                                            insight.filters,
+                                        {summariseInsight(
+                                            isUsingDataExploration,
+                                            insight.query,
                                             aggregationLabel,
                                             cohortsById,
-                                            mathDefinitions
+                                            mathDefinitions,
+                                            insight.filters
                                         )}
                                     </i>
                                 )}
