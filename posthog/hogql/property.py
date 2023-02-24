@@ -142,8 +142,6 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             return element_chain_key_filter("text", str(value), operator)
 
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
-    elif property.type == "cohort":
-        pass
     # "cohort",
     # "element",
     # "static-cohort",
