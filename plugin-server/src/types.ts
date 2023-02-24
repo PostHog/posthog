@@ -154,7 +154,16 @@ export interface PluginsServerConfig extends Record<string, any> {
     OBJECT_STORAGE_SECRET_ACCESS_KEY: string
     OBJECT_STORAGE_SESSION_RECORDING_FOLDER: string
     OBJECT_STORAGE_BUCKET: string
-    PLUGIN_SERVER_MODE: 'ingestion' | 'ingestion-overflow' | 'async' | 'exports' | 'jobs' | 'scheduler' | null
+    PLUGIN_SERVER_MODE:
+        | 'ingestion'
+        | 'ingestion-overflow'
+        | 'async'
+        | 'exports'
+        | 'jobs'
+        | 'scheduler'
+        | 'analytics-ingestion'
+        | 'recordings-ingestion'
+        | null
     KAFKAJS_LOG_LEVEL: 'NOTHING' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR'
     HISTORICAL_EXPORTS_ENABLED: boolean
     HISTORICAL_EXPORTS_MAX_RETRY_COUNT: number
