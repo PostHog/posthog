@@ -5,19 +5,10 @@ import ReactDOM from 'react-dom'
 import { useValues } from 'kea'
 import { router } from 'kea-router'
 
-export type LemonDialogButtonProps =
-    | (Pick<LemonButtonProps, 'type' | 'status' | 'icon' | 'onClick'> & {
-          content: ReactNode | ((close: () => void) => ReactNode) // If defined, content overrides default Lemon Button creation
-      })
-    | (Pick<LemonButtonProps, 'type' | 'status' | 'icon' | 'onClick'> & {
-          children: ReactNode
-          keepOpen?: boolean
-      })
-
 export type LemonDialogProps = Pick<LemonModalProps, 'title' | 'description' | 'width' | 'inline'> & {
-    primaryButton?: LemonDialogButtonProps
-    secondaryButton?: LemonDialogButtonProps
-    tertiaryButton?: LemonDialogButtonProps
+    primaryButton?: LemonButtonProps
+    secondaryButton?: LemonButtonProps
+    tertiaryButton?: LemonButtonProps
     content?: ReactNode
     onClose?: () => void
     onAfterClose?: () => void
@@ -43,16 +34,9 @@ export function LemonDialog({
     }
     primaryButton.type = primaryButton.type || 'primary'
 
-    const renderButton = (button: LemonDialogButtonProps | undefined): JSX.Element | null => {
+    const renderButton = (button: LemonButtonProps | undefined): JSX.Element | null => {
         if (!button) {
             return null
-        }
-        if ('content' in button) {
-            return typeof button?.content === 'function'
-                ? button?.content(() => {
-                      setIsOpen(false)
-                  })
-                : button?.content
         }
         return (
             <LemonButton
@@ -60,7 +44,7 @@ export function LemonDialog({
                 {...button}
                 onClick={(e) => {
                     button.onClick?.(e)
-                    !button?.keepOpen && setIsOpen(false)
+                    setIsOpen(false)
                 }}
             />
         )

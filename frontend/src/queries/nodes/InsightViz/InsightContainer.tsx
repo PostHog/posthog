@@ -32,6 +32,7 @@ import { FunnelsQuery, StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -59,11 +60,13 @@ export function InsightContainer({
         insightProps,
         canEditInsight,
         insightLoading,
-        activeView,
         timedOutQueryId,
         erroredQueryId,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
+
+    const { activeView } = useValues(insightNavLogic(insightProps))
+
     // const {
     //     areFiltersValid,
     //     isValidFunnel,

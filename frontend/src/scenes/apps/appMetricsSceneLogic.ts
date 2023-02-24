@@ -250,7 +250,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                         return false
                     }
                     const capabilities = values.pluginConfig.plugin_info.capabilities
-                    const isExportEvents = capabilities.methods.includes('exportEvents')
+                    const isExportEvents = capabilities.methods?.includes('exportEvents')
 
                     if (tab === AppMetricsTab.History) {
                         return true
@@ -277,7 +277,7 @@ export const appMetricsSceneLogic = kea<appMetricsSceneLogicType>([
                             )
                         )
                     } else {
-                        return capabilities.methods.includes(tab)
+                        return capabilities.methods?.includes(tab)
                     }
                 },
         ],

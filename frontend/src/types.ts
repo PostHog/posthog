@@ -119,6 +119,7 @@ interface UserBaseType {
 
 /* Type for User objects in nested serializers (e.g. created_by) */
 export interface UserBasicType extends UserBaseType {
+    is_email_verified?: any
     id: number
 }
 
@@ -138,6 +139,8 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+    is_email_verified?: boolean | null
+    pending_email?: string | null
     is_2fa_enabled: boolean
 }
 

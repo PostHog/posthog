@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -44,7 +44,7 @@ const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     source: filtersToQueryNode(filters),
 })
 
-const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: nodeKindToDefaultQuery[kind],
 })
@@ -65,7 +65,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
+            ['setFilters', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
             trendsLogic(props),
             ['setLifecycles as setTrendsLifecycles'],
         ],
@@ -172,21 +172,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                             : ['new', 'resurrecting', 'returning', 'dormant']
                     )
                 }
-            }
-        },
-        setActiveView: ({ type }) => {
-            if (type === InsightType.TRENDS) {
-                actions.setQuery(queryFromKind(NodeKind.TrendsQuery))
-            } else if (type === InsightType.FUNNELS) {
-                actions.setQuery(queryFromKind(NodeKind.FunnelsQuery))
-            } else if (type === InsightType.RETENTION) {
-                actions.setQuery(queryFromKind(NodeKind.RetentionQuery))
-            } else if (type === InsightType.PATHS) {
-                actions.setQuery(queryFromKind(NodeKind.PathsQuery))
-            } else if (type === InsightType.STICKINESS) {
-                actions.setQuery(queryFromKind(NodeKind.StickinessQuery))
-            } else if (type === InsightType.LIFECYCLE) {
-                actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
             }
         },
         setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
