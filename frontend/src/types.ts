@@ -1791,6 +1791,7 @@ export interface FunnelConversionWindow {
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
+    Second = 'second',
     Minute = 'minute',
     Hour = 'hour',
     Day = 'day',
