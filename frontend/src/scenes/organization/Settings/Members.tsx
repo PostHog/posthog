@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { OrganizationMemberType, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -22,6 +22,7 @@ import { Row } from 'antd'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { useState } from 'react'
 import { Setup2FA } from 'scenes/authentication/Setup2FA'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
@@ -143,6 +144,7 @@ export function Members({ user }: MembersProps): JSX.Element {
     const { setSearch } = useActions(membersLogic)
     const { updateOrganization } = useActions(organizationLogic)
     const [is2FAModalVisible, set2FAModalVisible] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -162,7 +164,22 @@ export function Members({ user }: MembersProps): JSX.Element {
         {
             title: 'Email',
             key: 'user_email',
-            render: (_, member) => member.user.email,
+            render: (_, member) => {
+                return (
+                    <>
+                        {member.user.email}
+                        {!member.user.is_email_verified &&
+                            featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === true && (
+                                <>
+                                    {' '}
+                                    <LemonTag type={'highlight'} data-attr="pending-email-verification">
+                                        pending email verification
+                                    </LemonTag>
+                                </>
+                            )}
+                    </>
+                )
+            },
             sorter: (a, b) => a.user.email.localeCompare(b.user.email),
         },
         {

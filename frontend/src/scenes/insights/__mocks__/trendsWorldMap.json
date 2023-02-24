@@ -138,7 +138,7 @@
         "uuid": "017f5653-cd43-0000-7d2a-0e01599ee2cd",
         "distinct_id": "5SnGi4opWlUsnwPFpfMMHsAicmYl6w4En87xyQty6oi",
         "first_name": "Michael",
-        "email": "michael@posthog.com"
+        "email": "michael@example.com"
     },
     "description": "",
     "updated_at": "2022-04-04T19:54:43.148560Z",
@@ -151,7 +151,7 @@
         "uuid": "017f5653-cd43-0000-7d2a-0e01599ee2cd",
         "distinct_id": "5SnGi4opWlUsnwPFpfMMHsAicmYl6w4En87xyQty6oi",
         "first_name": "Michael",
-        "email": "michael@posthog.com"
+        "email": "michael@example.com"
     },
     "is_sample": false,
     "effective_restriction_level": 21,

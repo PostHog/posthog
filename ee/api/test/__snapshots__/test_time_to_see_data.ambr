@@ -17,7 +17,8 @@
           "user": {
               "distinct_id": "",
               "first_name": "",
-              "email": ""
+              "email": "",
+              "is_email_verified": false
           }
       },
       "children": [

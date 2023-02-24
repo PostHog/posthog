@@ -18,6 +18,10 @@ export default {
             iframeHeight: 400,
             source: { state: 'close' },
         },
+        testOptions: {
+            waitForLoadersToDisappear: 800,
+        },
+        mockDate: '2023-02-01',
         viewMode: 'story',
     },
 } as ComponentMeta<typeof Exporter>
