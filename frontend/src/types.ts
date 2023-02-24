@@ -28,6 +28,8 @@ import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode, QuerySchema } from './queries/schema'
 
+import { components } from './generated-schema'
+
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
 // Keep this in sync with backend constants (constants.py)
@@ -1758,12 +1760,15 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
     nested_breakdown?: FunnelStep[]
 }
 
-export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
-    is_cached: boolean
-    last_refresh: string | null
-    result: ResultType
-    type: 'Funnel'
-}
+// export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
+//     is_cached: boolean
+//     last_refresh: string | null
+//     result: ResultType
+//     type: 'Funnel'
+// }
+
+export type FunnelStepsResults = components['schemas']['FunnelStepsResults']
+export type FunnelStepsResult = components['schemas']['FunnelStepsResult']
 
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
