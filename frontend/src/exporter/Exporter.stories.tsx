@@ -19,7 +19,7 @@ export default {
             source: { state: 'close' },
         },
         testOptions: {
-            waitForLoadersToDisappear: 200,
+            waitForLoadersToDisappear: 800,
         },
         mockDate: '2023-02-01',
         viewMode: 'story',

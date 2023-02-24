@@ -46,6 +46,7 @@ declare module '@storybook/react' {
 }
 
 const RETRY_TIMES = 5
+const LOADER_SELECTORS = ['.ant-skeleton', '.Spinner', '.LemonSkeleton', '.LemonTableLoader']
 
 const customSnapshotsDir = `${process.cwd()}/frontend/__snapshots__`
 
@@ -93,14 +94,11 @@ async function expectStoryToMatchSnapshot(
     }
     // Wait for story to load
     await page.waitForSelector('.sb-show-preparing-story', { state: 'detached', timeout: 1000 })
-    await page.waitForTimeout(100) // Wait for initial UI to load
     if (waitForLoadersToDisappear) {
-        await Promise.all([
-            page.waitForSelector('.ant-skeleton', { state: 'detached', timeout: 1000 }),
-            page.waitForSelector('.LemonSkeleton', { state: 'detached', timeout: 1000 }),
-            page.waitForSelector('.Spinner', { state: 'detached', timeout: 1000 }),
-            page.waitForSelector('.LemonTableLoader', { state: 'detached', timeout: 1000 }),
-        ])
+        await page.waitForTimeout(200) // Wait for initial UI to load
+        await Promise.all(
+            LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached', timeout: 1000 }))
+        )
         if (typeof waitForLoadersToDisappear === 'number') {
             await page.waitForTimeout(waitForLoadersToDisappear)
         }
