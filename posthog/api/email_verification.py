@@ -7,8 +7,10 @@ from posthog.tasks.email import send_email_verification
 
 class EmailVerificationTokenGenerator(PasswordResetTokenGenerator):
     def _make_hash_value(self, user: AbstractBaseUser, timestamp):
-        user = User(user)
-        return f"{user.pk}{user.email}{user.pending_email}{timestamp}"
+        # Due to type differences between the user model and the token generator, we need to
+        # re-fetch the user from the database to get the correct type.
+        usable_user: User = User.objects.get(pk=user.pk)
+        return f"{usable_user.pk}{usable_user.email}{usable_user.pending_email}{timestamp}"
 
 
 email_verification_token_generator = EmailVerificationTokenGenerator()
