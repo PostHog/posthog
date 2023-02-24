@@ -12,7 +12,7 @@ specifiers:
   '@babel/preset-react': ^7.17.10
   '@babel/preset-typescript': ^7.16.7
   '@babel/runtime': ^7.17.9
-  '@cypress/webpack-preprocessor': ^5.15.4
+  '@cypress/webpack-preprocessor': ^5.17.0
   '@floating-ui/react': ^0.16.0
   '@hot-loader/react-dom': ^16.14.0
   '@lottiefiles/react-lottie-player': ^3.4.7
@@ -84,9 +84,9 @@ specifiers:
   cors: ^2.8.5
   css-loader: ^3.4.2
   cssnano: ^4.1.10
-  cypress: ^10.11.0
-  cypress-axe: ^1.0.0
-  cypress-terminal-report: ^4.1.2
+  cypress: ^12.6.0
+  cypress-axe: ^1.4.0
+  cypress-terminal-report: ^5.0.2
   d3: ^5.15.0
   d3-sankey: ^0.12.3
   dayjs: ^1.10.7
@@ -290,7 +290,7 @@ devDependencies:
   '@babel/preset-react': 7.18.6_@babel+core@7.20.2
   '@babel/preset-typescript': 7.18.6_@babel+core@7.20.2
   '@babel/runtime': 7.20.1
-  '@cypress/webpack-preprocessor': 5.15.4_5j4ke4o34lz3j3743ikwv5ryvm
+  '@cypress/webpack-preprocessor': 5.17.0_5j4ke4o34lz3j3743ikwv5ryvm
   '@hot-loader/react-dom': 16.14.0_react@16.14.0
   '@playwright/test': 1.29.2
   '@sentry/types': 7.22.0
@@ -337,9 +337,9 @@ devDependencies:
   concurrently: 5.3.0
   css-loader: 3.6.0_webpack@4.46.0
   cssnano: 4.1.11
-  cypress: 10.11.0
-  cypress-axe: 1.0.0_zbyslzparjzi42gvvujtlkgxya
-  cypress-terminal-report: 4.1.2_cypress@10.11.0
+  cypress: 12.6.0
+  cypress-axe: 1.4.0_p3duhnsscsi6lhuv4jxh2qw3de
+  cypress-terminal-report: 5.0.2_cypress@12.6.0
   eslint: 7.32.0
   eslint-config-prettier: 8.5.0_eslint@7.32.0
   eslint-plugin-cypress: 2.12.1_eslint@7.32.0
@@ -1933,12 +1933,12 @@ packages:
       uuid: 8.3.2
     dev: true
 
-  /@cypress/webpack-preprocessor/5.15.4_5j4ke4o34lz3j3743ikwv5ryvm:
-    resolution: {integrity: sha512-spqrTlso5AC4tGET/bsgpC5aUiyZkPVi+aZnmg0xEvTdD/5QXRe3Tyh8t92en6rcJVzlc4PqLkZqDZEYySYyZQ==}
+  /@cypress/webpack-preprocessor/5.17.0_5j4ke4o34lz3j3743ikwv5ryvm:
+    resolution: {integrity: sha512-HyFqHkrOrIIYOt4G+r3VK0kVYTcev1tEcqBI/0DJ4AzEuEgW/TB+cX56txy4Cgn60XXdJoul2utclZwUqOsPZA==}
     peerDependencies:
       '@babel/core': ^7.0.1
       '@babel/preset-env': ^7.0.0
-      babel-loader: ^8.0.2
+      babel-loader: ^8.0.2 || ^9
       webpack: ^4 || ^5
     dependencies:
       '@babel/core': 7.20.2
@@ -1946,13 +1946,8 @@ packages:
       babel-loader: 8.3.0_tktscwi5cl3qcx6vcfwkvrwn6i
       bluebird: 3.7.1
       debug: 4.3.4
-      fs-extra: 10.1.0
-      loader-utils: 2.0.3
       lodash: 4.17.21
-      md5: 2.3.0
-      source-map: 0.6.1
       webpack: 4.46.0_webpack-cli@4.10.0
-      webpack-virtual-modules: 0.4.6
     transitivePeerDependencies:
       - supports-color
     dev: true
@@ -6722,6 +6717,7 @@ packages:
 
   /charenc/0.0.2:
     resolution: {integrity: sha512-yrLQ/yVUFXkzg7EDQsPieE/53+0RlaWTs+wBrvW36cyilJ2SaDWfl4Yj7MtLTXleV9uEKefbAGUPv2/iWSooRA==}
+    dev: false
 
   /chart.js/3.9.1:
     resolution: {integrity: sha512-Ro2JbLmvg83gXF5F4sniaQ+lTbSv18E+TIf2cOeiH1Iqd2PGFOtem+DUufMZsCJwFE7ywPOpfXFBwRTGq7dh6w==}
@@ -7359,6 +7355,7 @@ packages:
 
   /crypt/0.0.2:
     resolution: {integrity: sha512-mCxBlsHFYh9C+HVpiEacem8FEBnMXgU9gy4zmNC+SXAZNB/1idgp/aulFJ4FgCi7GPEVbfyng092GqL2k2rmow==}
+    dev: false
 
   /crypto-browserify/3.12.0:
     resolution: {integrity: sha512-fz4spIh+znjO2VjL+IdhEpRJ3YN6sMzITSBijk6FK2UvTqruSQW+/cCZTSNsMiZNvUeq0CqurF+dAbyiGOY6Wg==}
@@ -7597,32 +7594,32 @@ packages:
     resolution: {integrity: sha512-NJGVKPS81XejHcLhaLJS7plab0fK3slPh11mESeeDq2W4ZI5kUKK/LRRdVDvjJseojbPB7ZwjnyOybg3Igea/A==}
     dev: true
 
-  /cypress-axe/1.0.0_zbyslzparjzi42gvvujtlkgxya:
-    resolution: {integrity: sha512-QBlNMAd5eZoyhG8RGGR/pLtpHGkvgWXm2tkP68scJ+AjYiNNOlJihxoEwH93RT+rWOLrefw4iWwEx8kpEcrvJA==}
+  /cypress-axe/1.4.0_p3duhnsscsi6lhuv4jxh2qw3de:
+    resolution: {integrity: sha512-Ut7NKfzjyKm0BEbt2WxuKtLkIXmx6FD2j0RwdvO/Ykl7GmB/qRQkwbKLk3VP35+83hiIr8GKD04PDdrTK5BnyA==}
     engines: {node: '>=10'}
     peerDependencies:
       axe-core: ^3 || ^4
-      cypress: ^10
+      cypress: ^10 || ^11 || ^12
     dependencies:
       axe-core: 4.5.1
-      cypress: 10.11.0
+      cypress: 12.6.0
     dev: true
 
-  /cypress-terminal-report/4.1.2_cypress@10.11.0:
-    resolution: {integrity: sha512-UyCR7AJXMJYt87JXBAxdZxWC+FXG1S7+ePVACcumUQZq5lH490pXPPg47KY/7J6yyFatT6da+Mb1/J6E7K8sLg==}
+  /cypress-terminal-report/5.0.2_cypress@12.6.0:
+    resolution: {integrity: sha512-YJ6HODTvxKD0FYQX2p3f1DlBRcJcMJjRh3JWZZrBte4dQdnTuIElb4jPh3zbcqsV4MJ+QwF6XyJoXybZgg6kHg==}
     peerDependencies:
       cypress: '>=4.10.0'
     dependencies:
       chalk: 4.1.2
-      cypress: 10.11.0
+      cypress: 12.6.0
       fs-extra: 10.1.0
       semver: 7.3.8
       tv4: 1.3.0
     dev: true
 
-  /cypress/10.11.0:
-    resolution: {integrity: sha512-lsaE7dprw5DoXM00skni6W5ElVVLGAdRUUdZjX2dYsGjbY/QnpzWZ95Zom1mkGg0hAaO/QVTZoFVS7Jgr/GUPA==}
-    engines: {node: '>=12.0.0'}
+  /cypress/12.6.0:
+    resolution: {integrity: sha512-WdHSVaS1lumSd5XpVTslZd8ui9GIGphrzvXq9+3DtVhqjRZC5M70gu5SW/Y/SLPq3D1wiXGZoHC6HJ7ESVE2lw==}
+    engines: {node: ^14.0.0 || ^16.0.0 || >=18.0.0}
     hasBin: true
     requiresBuild: true
     dependencies:
@@ -12951,6 +12948,7 @@ packages:
       charenc: 0.0.2
       crypt: 0.0.2
       is-buffer: 1.1.6
+    dev: false
 
   /mdast-add-list-metadata/1.0.1:
     resolution: {integrity: sha512-fB/VP4MJ0LaRsog7hGPxgOrSL3gE/2uEdZyDuSEnKCv/8IkYHiDkIQSbChiJoHyxZZXZ9bzckyRk+vNxFzh8rA==}
@@ -18508,10 +18506,6 @@ packages:
       debug: 3.2.7
     transitivePeerDependencies:
       - supports-color
-    dev: true
-
-  /webpack-virtual-modules/0.4.6:
-    resolution: {integrity: sha512-5tyDlKLqPfMqjT3Q9TAqf2YqjwmnUleZwzJi1A5qXnlBCdj2AtOJ6wAWdglTIDOPgOiOrXeBeFcsQ8+aGQ6QbA==}
     dev: true
 
   /webpack/4.46.0_webpack-cli@4.10.0:
