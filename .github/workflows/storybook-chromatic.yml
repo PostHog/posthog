@@ -61,7 +61,7 @@ jobs:
             NODE_OPTIONS: --max-old-space-size=4096
             JEST_IMAGE_SNAPSHOT_TRACK_OBSOLETE: '1' # Remove obsolete snapshots
         outputs:
-            # The below have to manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
+            # The below have to be manually listed unfortunately, as GitHub Actions doesn't allow matrix-dependent outputs
             chromium-1-added: ${{ steps.diff.outputs.chromium-1-added }}
             chromium-1-modified: ${{ steps.diff.outputs.chromium-1-modified }}
             chromium-1-deleted: ${{ steps.diff.outputs.chromium-1-deleted }}
