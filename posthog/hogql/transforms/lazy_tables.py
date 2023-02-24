@@ -33,6 +33,8 @@ class LazyTableResolver(TraversingVisitor):
             return select.get_alias_for_table_symbol(symbol)
         elif isinstance(symbol, ast.TableAliasSymbol):
             return symbol.name
+        elif isinstance(symbol, ast.SelectQueryAliasSymbol):
+            return symbol.name
         elif isinstance(symbol, ast.LazyTableSymbol):
             return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
         elif isinstance(symbol, ast.VirtualTableSymbol):
@@ -99,7 +101,9 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, scope in joins_to_add.items():
-            next_join = scope.lazy_table.join_function(scope.from_table, scope.to_table, list(scope.fields_accessed))
+            next_join = scope.lazy_table.join_function(
+                scope.from_table, scope.to_table, sorted(list(scope.fields_accessed))
+            )
             resolve_symbols(next_join, select_symbol)
             select_symbol.tables[to_table] = next_join.symbol
 
