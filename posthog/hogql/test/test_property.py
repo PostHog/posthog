@@ -10,6 +10,7 @@ from posthog.schema import HogQLPropertyFilter, PropertyOperator
 from posthog.test.base import BaseTest
 
 elements_chain_match = lambda x: parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(x))})
+not_call = lambda x: ast.Call(name="not", args=[x])
 
 
 class TestProperty(BaseTest):
@@ -21,11 +22,11 @@ class TestProperty(BaseTest):
     def test_property_to_expr_event(self):
         self.assertEqual(
             property_to_expr({"key": "a", "value": "b"}),
-            parse_expr("properties.a == 'b'"),
+            parse_expr("properties.a = 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b"}),
-            parse_expr("properties.a == 'b'"),
+            parse_expr("properties.a = 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
@@ -37,7 +38,7 @@ class TestProperty(BaseTest):
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
-            parse_expr("properties.a == 'b'"),
+            parse_expr("properties.a = 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not"}),
@@ -79,21 +80,39 @@ class TestProperty(BaseTest):
     def test_property_to_expr_feature(self):
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("properties.a = 'b'"),
         )
 
     def test_property_to_expr_person(self):
         self.assertEqual(
             property_to_expr({"type": "person", "key": "a", "value": "b", "operator": "exact"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["person", "properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("person.properties.a = 'b'"),
+        )
+
+    def test_property_to_expr_element(self):
+        self.assertEqual(
+            property_to_expr({"type": "element", "key": "selector", "value": "div", "operator": "exact"}),
+            selector_to_expr("div"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "element", "key": "selector", "value": "div", "operator": "is_not"}),
+            not_call(selector_to_expr("div")),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "element", "key": "tag_name", "value": "div", "operator": "exact"}),
+            tag_name_to_expr("div"),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "element", "key": "tag_name", "value": "div", "operator": "is_not"}),
+            not_call(tag_name_to_expr("div")),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "element", "key": "href", "value": "href-text.", "operator": "exact"}),
+            element_chain_key_filter("href", "href-text.", PropertyOperator.exact),
+        )
+        self.assertEqual(
+            property_to_expr({"type": "element", "key": "text", "value": "text-text.", "operator": "regex"}),
+            element_chain_key_filter("text", "text-text.", PropertyOperator.regex),
         )
 
     def test_property_groups(self):
@@ -107,20 +126,7 @@ class TestProperty(BaseTest):
                     ],
                 )
             ),
-            ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationType.Eq,
-                        left=ast.Field(chain=["person", "properties", "a"]),
-                        right=ast.Constant(value="b"),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationType.Eq,
-                        left=ast.Field(chain=["properties", "e"]),
-                        right=ast.Constant(value="b"),
-                    ),
-                ]
-            ),
+            parse_expr("person.properties.a = 'b' and properties.e = 'b'"),
         )
 
         self.assertEqual(
@@ -133,20 +139,7 @@ class TestProperty(BaseTest):
                     ],
                 )
             ),
-            ast.Or(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationType.Eq,
-                        left=ast.Field(chain=["person", "properties", "a"]),
-                        right=ast.Constant(value="b"),
-                    ),
-                    ast.CompareOperation(
-                        op=ast.CompareOperationType.Eq,
-                        left=ast.Field(chain=["properties", "e"]),
-                        right=ast.Constant(value="b"),
-                    ),
-                ]
-            ),
+            parse_expr("person.properties.a = 'b' or properties.e = 'b'"),
         )
 
     def test_property_groups_single(self):
@@ -159,11 +152,7 @@ class TestProperty(BaseTest):
                     ],
                 )
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["person", "properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("person.properties.a = 'b'"),
         )
 
         self.assertEqual(
@@ -172,11 +161,7 @@ class TestProperty(BaseTest):
                     type=PropertyOperatorType.OR, values=[Property(type="event", key="e", value="b", operator="exact")]
                 )
             ),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["properties", "e"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("properties.e = 'b'"),
         )
 
     def test_property_groups_combined(self):
@@ -199,29 +184,7 @@ class TestProperty(BaseTest):
                     ),
                 )
             ),
-            ast.And(
-                exprs=[
-                    ast.CompareOperation(
-                        op=ast.CompareOperationType.Eq,
-                        left=ast.Field(chain=["person", "properties", "a"]),
-                        right=ast.Constant(value="b"),
-                    ),
-                    ast.Or(
-                        exprs=[
-                            ast.CompareOperation(
-                                op=ast.CompareOperationType.Eq,
-                                left=ast.Field(chain=["person", "properties", "a"]),
-                                right=ast.Constant(value="b"),
-                            ),
-                            ast.CompareOperation(
-                                op=ast.CompareOperationType.Eq,
-                                left=ast.Field(chain=["properties", "e"]),
-                                right=ast.Constant(value="b"),
-                            ),
-                        ]
-                    ),
-                ]
-            ),
+            parse_expr("person.properties.a = 'b' and (person.properties.a = 'b' or properties.e = 'b')"),
         )
 
     def test_tag_name_to_expr(self):
@@ -251,7 +214,6 @@ class TestProperty(BaseTest):
         )
 
     def test_elements_chain_key_filter(self):
-        not_call = lambda x: ast.Call(name="not", args=[x])
         self.assertEqual(
             element_chain_key_filter("href", "boo..", PropertyOperator.is_set), elements_chain_match('(href="[^"]+")')
         )
