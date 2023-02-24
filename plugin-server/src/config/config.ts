@@ -224,9 +224,17 @@ export function overrideWithEnv(
     }
 
     if (
-        !['ingestion', 'async', 'exports', 'scheduler', 'jobs', 'ingestion-overflow', null].includes(
-            newConfig.PLUGIN_SERVER_MODE
-        )
+        ![
+            'ingestion',
+            'async',
+            'exports',
+            'scheduler',
+            'jobs',
+            'ingestion-overflow',
+            'analytics-ingestion',
+            'recordings-ingestion',
+            null,
+        ].includes(newConfig.PLUGIN_SERVER_MODE)
     ) {
         throw Error(`Invalid PLUGIN_SERVER_MODE ${newConfig.PLUGIN_SERVER_MODE}`)
     }

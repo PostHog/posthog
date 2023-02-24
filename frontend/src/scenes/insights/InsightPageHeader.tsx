@@ -1,8 +1,16 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
 import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { Node } from '~/queries/schema'
 import { IconLock } from 'lib/lemon-ui/icons'
-import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, ItemMode } from '~/types'
+import {
+    AvailableFeature,
+    ExporterFormat,
+    FilterType,
+    InsightLogicProps,
+    InsightModel,
+    InsightShortId,
+    ItemMode,
+} from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -29,18 +37,37 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { InsightSceneProps } from 'scenes/insights/Insight'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
+import { groupsModelType } from '~/models/groupsModelType'
+import { cohortsModelType } from '~/models/cohortsModelType'
+import { mathsLogicType } from 'scenes/trends/mathsLogicType'
 
-export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element {
+function summariseInsight(
+    isUsingDataExploration: boolean,
+    query: Node,
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsById: cohortsModelType['values']['cohortsById'],
+    mathDefinitions: mathsLogicType['values']['mathDefinitions'],
+    isFilterBasedInsight: boolean,
+    filters: Partial<FilterType>
+): string {
+    return isUsingDataExploration && isInsightVizNode(query)
+        ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
+        : isFilterBasedInsight
+        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+        : // TODO placeholder for non insight viz queries
+          ''
+}
+
+export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
+    const logic = insightLogic(insightLogicProps)
     const {
         insightProps,
         filters,
@@ -52,7 +79,6 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
         isUsingDataExploration,
         isFilterBasedInsight,
         isQueryBasedInsight,
-        isInsightVizQuery,
         isTestGroupForNewRefreshUX,
         displayRefreshButtonChangedNotice,
         insightRefreshButtonDisabledReason,
@@ -88,19 +114,19 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
 
     return (
         <>
-            {insightId !== 'new' && (
+            {insight.short_id !== 'new' && (
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insightId}
+                        insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
 
                     <SharingModal
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insightId}
+                        insightShortId={insight.short_id}
                         insight={insight}
                     />
                 </>
@@ -110,19 +136,15 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={
-                            isUsingDataExploration && isInsightVizQuery
-                                ? summarizeInsightQuery(
-                                      (query as InsightVizNode).source,
-                                      aggregationLabel,
-                                      cohortsById,
-                                      mathDefinitions
-                                  )
-                                : isFilterBasedInsight
-                                ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-                                : // TODO placeholder for non insight viz queries
-                                  ''
-                        }
+                        placeholder={summariseInsight(
+                            isUsingDataExploration,
+                            query,
+                            aggregationLabel,
+                            cohortsById,
+                            mathDefinitions,
+                            isFilterBasedInsight,
+                            filters
+                        )}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model

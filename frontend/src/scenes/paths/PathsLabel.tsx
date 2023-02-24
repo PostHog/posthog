@@ -5,9 +5,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightType } from '~/types'
 
 export function PathCanvasLabel(): JSX.Element | null {
-    const { activeView } = useValues(insightLogic)
+    const { filters } = useValues(insightLogic)
 
-    if (activeView !== InsightType.PATHS) {
+    if (filters.insight !== InsightType.PATHS) {
         return null
     }
 
