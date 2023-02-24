@@ -3,7 +3,13 @@ from typing import List, Union, cast
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import element_chain_key_filter, property_to_expr, selector_to_expr, tag_name_to_expr
+from posthog.hogql.property import (
+    element_chain_key_filter,
+    has_aggregation,
+    property_to_expr,
+    selector_to_expr,
+    tag_name_to_expr,
+)
 from posthog.models import Property
 from posthog.models.property import PropertyGroup
 from posthog.schema import HogQLPropertyFilter, PropertyOperator
@@ -14,6 +20,13 @@ not_call = lambda x: ast.Call(name="not", args=[x])
 
 
 class TestProperty(BaseTest):
+    def test_has_aggregation(self):
+        self.assertEqual(has_aggregation(parse_expr("properties.a = 'b'")), False)
+        self.assertEqual(has_aggregation(parse_expr("if(1,2,3)")), False)
+        self.assertEqual(has_aggregation(parse_expr("if(1,2,avg(3))")), True)
+        self.assertEqual(has_aggregation(parse_expr("count()")), True)
+        self.assertEqual(has_aggregation(parse_expr("sum(properties.bla)")), True)
+
     def test_property_to_expr_hogql(self):
         self.assertEqual(property_to_expr({"type": "hogql", "key": "1"}), ast.Constant(value=1))
         self.assertEqual(property_to_expr(Property(type="hogql", key="1")), ast.Constant(value=1))
