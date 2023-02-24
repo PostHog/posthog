@@ -14,7 +14,7 @@ import {
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
-import { isNodeKind, queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import {
     filterForQuery,
@@ -132,7 +132,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isQueryBasedInsight: [
             (s) => [s.query],
             (query) => {
-                return !isInsightVizNode(query) && isNodeKind(query.kind)
+                return !isInsightVizNode(query) && !!query
             },
         ],
 

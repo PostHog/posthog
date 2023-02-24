@@ -50,7 +50,6 @@ import {
     isStickinessQuery,
     isTrendsQuery,
 } from '~/queries/utils'
-import { isNodeKind } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -465,7 +464,7 @@ export function summariseInsight(
     const isFilterBasedInsight = Object.keys(filters || {}).length > 0 && !query
     return isUsingDataExploration && isInsightVizNode(query)
         ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
-        : isUsingDataExploration && isNodeKind(query?.kind)
+        : isUsingDataExploration && !!query
         ? `QueryKind: ${query?.kind}`
         : isFilterBasedInsight
         ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)

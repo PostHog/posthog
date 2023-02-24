@@ -9,7 +9,7 @@ import { NodeKind } from '~/queries/schema'
 import { insightDataLogic, queryFromKind } from 'scenes/insights/insightDataLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { insightMap, isNodeKind } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isInsightVizNode } from '~/queries/utils'
 import { TotalEventsTable } from '~/queries/examples'
 
@@ -48,7 +48,7 @@ export const insightNavLogic = kea<insightNavLogicType>([
                 if (isUsingDataExploration) {
                     if (isInsightVizNode(query)) {
                         return insightMap[query.source.kind] || InsightType.TRENDS
-                    } else if (isNodeKind(query.kind)) {
+                    } else if (!!query) {
                         return InsightType.QUERY
                     } else {
                         return InsightType.TRENDS

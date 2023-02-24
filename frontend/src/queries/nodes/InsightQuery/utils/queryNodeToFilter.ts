@@ -84,8 +84,6 @@ const filterMap: Record<InsightNodeKind, string> = {
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
 
-export const isNodeKind = (needle: unknown): needle is NodeKind => (needle as any) in NodeKind
-
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
     const filters: Partial<FilterType> = objectClean({
         insight: insightMap[query.kind],
