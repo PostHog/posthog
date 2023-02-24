@@ -55,6 +55,7 @@ import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { isNodeKind } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 
 interface NewInsightButtonProps {
     dataAttr: string
@@ -250,7 +251,11 @@ export const scene: SceneExport = {
 }
 
 export function InsightIcon({ insight }: { insight: InsightModel }): JSX.Element | null {
-    const insightMetadata = INSIGHT_TYPES_METADATA[insight?.filters?.insight || InsightType.TRENDS]
+    let insightType = insight?.filters?.insight || InsightType.TRENDS
+    if (isNodeKind(insight?.query?.kind)) {
+        insightType = InsightType.QUERY
+    }
+    const insightMetadata = INSIGHT_TYPES_METADATA[insightType]
     if (insightMetadata && insightMetadata.icon) {
         return <insightMetadata.icon style={{ display: 'block', fontSize: '2rem' }} />
     }
