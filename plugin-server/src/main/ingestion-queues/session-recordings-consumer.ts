@@ -18,10 +18,12 @@ export const startSessionRecordingEventsConsumer = async ({
     teamManager,
     kafka,
     statsd,
+    partitionsConsumedConcurrently = 5,
 }: {
     teamManager: TeamManager
     kafka: Kafka
     statsd?: StatsD
+    partitionsConsumedConcurrently: number
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.
@@ -49,6 +51,7 @@ export const startSessionRecordingEventsConsumer = async ({
     await consumer.connect()
     await consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
     await consumer.run({
+        partitionsConsumedConcurrently,
         eachBatch: async (payload) => {
             return await instrumentEachBatch(
                 KAFKA_SESSION_RECORDING_EVENTS,

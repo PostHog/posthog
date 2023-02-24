@@ -274,6 +274,7 @@ export async function startPluginsServer(
             sessionRecordingEventsConsumer = await startSessionRecordingEventsConsumer({
                 teamManager: hub.teamManager,
                 kafka: hub.kafka,
+                partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
                 statsd: hub.statsd,
             })
         }
