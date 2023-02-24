@@ -2,6 +2,7 @@ from typing import List, Union, cast
 
 from posthog.constants import PropertyOperatorType
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.models import Property
 from posthog.models.property import PropertyGroup
@@ -18,115 +19,59 @@ class TestProperty(BaseTest):
     def test_property_to_expr_event(self):
         self.assertEqual(
             property_to_expr({"key": "a", "value": "b"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("properties.a == 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("properties.a == 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_set"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.NotEq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value=None),
-            ),
+            parse_expr("properties.a is not null"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not_set"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value=None),
-            ),
+            parse_expr("properties.a is null"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "exact"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Eq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("properties.a == 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "b", "operator": "is_not"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.NotEq,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="b"),
-            ),
+            parse_expr("properties.a != 'b'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gt"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Gt,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="3"),
-            ),
+            parse_expr("properties.a > '3'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lt"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Lt,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="3"),
-            ),
+            parse_expr("properties.a < '3'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "gte"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.GtE,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="3"),
-            ),
+            parse_expr("properties.a >= '3'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "lte"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.LtE,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="3"),
-            ),
+            parse_expr("properties.a <= '3'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "icontains"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.ILike,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="%3%"),
-            ),
+            parse_expr("properties.a ilike '%3%'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": "3", "operator": "not_icontains"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.NotILike,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value="%3%"),
-            ),
+            parse_expr("properties.a not ilike '%3%'"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "regex"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.Regex,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value=".*"),
-            ),
+            parse_expr("match(properties.a, '.*')"),
         )
         self.assertEqual(
             property_to_expr({"type": "event", "key": "a", "value": ".*", "operator": "not_regex"}),
-            ast.CompareOperation(
-                op=ast.CompareOperationType.NotRegex,
-                left=ast.Field(chain=["properties", "a"]),
-                right=ast.Constant(value=".*"),
-            ),
+            parse_expr("not(match(properties.a, '.*'))"),
         )
 
     def test_property_to_expr_feature(self):
