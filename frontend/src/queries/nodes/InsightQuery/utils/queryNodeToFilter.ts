@@ -1,22 +1,22 @@
 import {
-    InsightQueryNode,
-    EventsNode,
     ActionsNode,
-    NodeKind,
     BreakdownFilter,
-    NewEntityNode,
+    EventsNode,
     InsightNodeKind,
+    InsightQueryNode,
+    NewEntityNode,
+    NodeKind,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType, StickinessFilterType, TrendsFilterType } from '~/types'
 import {
-    isEventsNode,
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
     isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { objectClean } from 'lib/utils'
 
@@ -83,6 +83,8 @@ const filterMap: Record<InsightNodeKind, string> = {
     [NodeKind.StickinessQuery]: 'stickinessFilter',
     [NodeKind.LifecycleQuery]: 'lifecycleFilter',
 }
+
+export const isNodeKind = (kind: NodeKind): kind is NodeKind => kind in NodeKind
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
     const filters: Partial<FilterType> = objectClean({

@@ -25,6 +25,7 @@ import {
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
+    InsightsQueryIcon,
     InsightsRetentionIcon,
     InsightsStickinessIcon,
     InsightsTrendsIcon,
@@ -100,6 +101,12 @@ export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = 
         description: 'Understand growth by breaking down new, resurrected, returning and dormant users',
         icon: InsightsLifecycleIcon,
         inMenu: true,
+    },
+    [InsightType.QUERY]: {
+        name: 'Query',
+        description: 'Build custom insights with our powerful query language',
+        icon: InsightsQueryIcon,
+        inMenu: false, // until data exploration is released
     },
 }
 
