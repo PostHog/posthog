@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Tuple, Union, cast
+from typing import Any, List, Union, cast
 
 from pydantic import BaseModel
 
@@ -65,27 +65,84 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
     else:
         raise NotImplementedError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
-    if property.type == "event" or cast(Any, property.type) == "feature":
-        op, value = property_operator_to_compare_operator_type(
-            cast(PropertyOperator, property.operator or PropertyOperator.exact), property.value
-        )
-        return ast.CompareOperation(
-            op=op,
-            left=ast.Field(chain=["properties", property.key]),
-            right=ast.Constant(value=value),
-        )
-    elif property.type == "person":
-        op, value = property_operator_to_compare_operator_type(
-            cast(PropertyOperator, property.operator or PropertyOperator.exact), property.value
-        )
-        return ast.CompareOperation(
-            op=op,
-            left=ast.Field(chain=["person", "properties", property.key]),
-            right=ast.Constant(value=value),
-        )
-    elif property.type == "hogql":
+    if property.type == "hogql":
         return parse_expr(property.key)
+    elif property.type == "event" or cast(Any, property.type) == "feature" or property.type == "person":
+        value = property.value
+        operator = property.operator
+        chain = ["person", "properties"] if property.type == "person" else ["properties"]
+        field = ast.Field(chain=chain + [property.key])
 
+        if isinstance(value, list):
+            if len(value) == 1:
+                value = value[0]
+            else:
+                raise NotImplementedError("property_to_expr not implemented for list of length > 1")
+
+        if operator == PropertyOperator.is_set:
+            return ast.CompareOperation(op=ast.CompareOperationType.NotEq, left=field, right=ast.Constant(value=None))
+        elif operator == PropertyOperator.is_not_set:
+            return ast.CompareOperation(op=ast.CompareOperationType.Eq, left=field, right=ast.Constant(value=None))
+        elif operator == PropertyOperator.icontains:
+            return ast.CompareOperation(
+                op=ast.CompareOperationType.ILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator == PropertyOperator.not_icontains:
+            return ast.CompareOperation(
+                op=ast.CompareOperationType.NotILike,
+                left=field,
+                right=ast.Constant(value=f"%{value}%"),
+            )
+        elif operator == PropertyOperator.regex:
+            return ast.Call(name="match", args=[field, ast.Constant(value=value)])
+        elif operator == PropertyOperator.not_regex:
+            return ast.Call(name="not", args=[ast.Call(name="match", args=[field, ast.Constant(value=value)])])
+        elif operator is None or operator == PropertyOperator.exact or operator == PropertyOperator.is_date_exact:
+            op = ast.CompareOperationType.Eq
+        elif operator == PropertyOperator.is_not:
+            op = ast.CompareOperationType.NotEq
+        elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
+            op = ast.CompareOperationType.Lt
+        elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
+            op = ast.CompareOperationType.Gt
+        elif operator == PropertyOperator.lte:
+            op = ast.CompareOperationType.LtE
+        elif operator == PropertyOperator.gte:
+            op = ast.CompareOperationType.GtE
+        else:
+            raise NotImplementedError(f"PropertyOperator {operator} not implemented")
+
+        return ast.CompareOperation(op=op, left=field, right=ast.Constant(value=value))
+
+    elif property.type == "element":
+        value = property.value
+        if isinstance(value, list):
+            if len(value) == 1:
+                value = value[0]
+            else:
+                raise NotImplementedError("property_to_expr for type element not implemented for list of length > 1")
+
+        if property.key == "selector" or property.key == "tag_name":
+            if property.operator != PropertyOperator.exact and property.operator != PropertyOperator.is_not:
+                raise NotImplementedError(
+                    f"property_to_expr for element {property.key} only supports exact and is_not operators, not {property.operator}"
+                )
+            expr = selector_to_expr(str(value)) if property.key == "selector" else tag_name_to_expr(str(value))
+            if property.operator == PropertyOperator.is_not:
+                return ast.Call(name="not", args=[expr])
+            return expr
+
+        if property.key == "href":
+            return element_chain_key_filter("href", str(value), property.operator or PropertyOperator.exact)
+
+        if property.key == "text":
+            return element_chain_key_filter("text", str(value), property.operator or PropertyOperator.exact)
+
+        raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
+    elif property.type == "cohort":
+        pass
     # "cohort",
     # "element",
     # "static-cohort",
@@ -96,44 +153,6 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
     # "session",
 
     raise NotImplementedError(f"property_to_expr not implemented for filter type {type(property).__name__}")
-
-
-def property_operator_to_compare_operator_type(
-    operator: PropertyOperator, value: Any
-) -> Tuple[ast.CompareOperationType, Any]:
-    if isinstance(value, list):
-        if len(value) == 1:
-            value = value[0]
-        else:
-            raise NotImplementedError(
-                "property_operator_to_compare_operator_type not implemented for list of length > 1"
-            )
-    if operator == PropertyOperator.exact:
-        return ast.CompareOperationType.Eq, value
-    elif operator == PropertyOperator.is_not or operator == PropertyOperator.is_date_exact:
-        return ast.CompareOperationType.NotEq, value
-    elif operator == PropertyOperator.is_set:
-        return ast.CompareOperationType.NotEq, None
-    elif operator == PropertyOperator.is_not_set:
-        return ast.CompareOperationType.Eq, None
-    elif operator == PropertyOperator.lt or operator == PropertyOperator.is_date_before:
-        return ast.CompareOperationType.Lt, value
-    elif operator == PropertyOperator.gt or operator == PropertyOperator.is_date_after:
-        return ast.CompareOperationType.Gt, value
-    elif operator == PropertyOperator.lte:
-        return ast.CompareOperationType.LtE, value
-    elif operator == PropertyOperator.gte:
-        return ast.CompareOperationType.GtE, value
-    elif operator == PropertyOperator.icontains:
-        return ast.CompareOperationType.ILike, f"%{value}%"
-    elif operator == PropertyOperator.not_icontains:
-        return ast.CompareOperationType.NotILike, f"%{value}%"
-    elif operator == PropertyOperator.regex:
-        return ast.CompareOperationType.Regex, value
-    elif operator == PropertyOperator.not_regex:
-        return ast.CompareOperationType.NotRegex, value
-
-    raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
 def action_to_expr(action: Action) -> ast.Expr:
@@ -148,21 +167,13 @@ def action_to_expr(action: Action) -> ast.Expr:
 
         if step.event == AUTOCAPTURE_EVENT:
             if step.selector:
-                regex = build_selector_regex(Selector(step.selector, escape_slashes=False))
-                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=regex)})
-                exprs.append(expr)
+                exprs.append(selector_to_expr(step.selector))
             if step.tag_name is not None:
-                regex = rf"(^|;){step.tag_name}(\.|$|;|:)"
-                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
-                exprs.append(expr)
+                exprs.append(tag_name_to_expr(step.tag_name))
             if step.href is not None:
-                href = str(re.escape(step.href.replace('"', r"\"")))
-                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=f'(href="{href}")')})
-                exprs.append(expr)
+                exprs.append(element_chain_key_filter("href", step.href, PropertyOperator.exact))
             if step.text is not None:
-                text = str(re.escape(step.text.replace('"', r"\"")))
-                expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=f'(text="{text}")')})
-                exprs.append(expr)
+                exprs.append(element_chain_key_filter("text", step.text, PropertyOperator.exact))
 
         if step.url:
             if step.url_matching == ActionStep.EXACT:
@@ -185,3 +196,42 @@ def action_to_expr(action: Action) -> ast.Expr:
         return or_queries[0]
     else:
         return ast.Or(exprs=or_queries)
+
+
+def element_chain_key_filter(key: str, text: str, operator: PropertyOperator):
+    escaped = text.replace('"', r"\"")
+    if operator == PropertyOperator.is_set or operator == PropertyOperator.is_not_set:
+        value = r'[^"]+'
+    elif operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains:
+        value = rf'[^"]*{re.escape(escaped)}[^"]*'
+    elif operator == PropertyOperator.regex or operator == PropertyOperator.not_regex:
+        value = escaped
+    elif operator == PropertyOperator.exact or operator == PropertyOperator.is_not:
+        value = re.escape(escaped)
+    else:
+        raise NotImplementedError(f"element_href_to_expr not implemented for operator {operator}")
+    optional_flag = (
+        "(?i)" if operator == PropertyOperator.icontains or operator == PropertyOperator.not_icontains else ""
+    )
+    regex = f'{optional_flag}({key}="{value}")'
+    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+    if (
+        operator == PropertyOperator.is_not_set
+        or operator == PropertyOperator.not_icontains
+        or operator == PropertyOperator.is_not
+        or operator == PropertyOperator.not_regex
+    ):
+        expr = ast.Call(name="not", args=[expr])
+    return expr
+
+
+def tag_name_to_expr(tag_name: str):
+    regex = rf"(^|;){tag_name}(\.|$|;|:)"
+    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=str(regex))})
+    return expr
+
+
+def selector_to_expr(selector: str):
+    regex = build_selector_regex(Selector(selector, escape_slashes=False))
+    expr = parse_expr("match(elements_chain, {regex})", {"regex": ast.Constant(value=regex)})
+    return expr
