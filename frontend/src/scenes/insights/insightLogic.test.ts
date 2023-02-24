@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import api from 'lib/api'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -1271,6 +1272,45 @@ describe('insightLogic', () => {
                     `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
                     {
                         client_query_id: seenQueryIDs[seenQueryIDs.length - 2],
+                    },
+                ],
+            ])
+        })
+    })
+
+    describe('saving query based insights', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: 'new',
+            })
+            logic.mount()
+        })
+
+        it('sends query when saving', async () => {
+            jest.spyOn(api, 'create')
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsight(
+                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { overrideFilter: true }
+                )
+                logic.actions.saveInsight()
+            })
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            // there will be at least two used client query ids
+            // the most recent has not been cancelled
+            // the one before that has been
+            expect(mockCreateCalls).toEqual([
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights/`,
+                    {
+                        derived_name: '',
+                        filters: {},
+                        query: {
+                            kind: 'DataTableNode',
+                        },
+                        saved: true,
                     },
                 ],
             ])

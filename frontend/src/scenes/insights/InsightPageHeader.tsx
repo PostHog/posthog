@@ -92,11 +92,13 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
     // insightDataLogic
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+    const { setQuery: insightVizSetQuery, saveInsight: saveQueryBasedInsight } = useActions(
+        insightDataLogic(insightProps)
+    )
 
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
-    let setQuery = insighVizSetQuery
+    let setQuery = insightVizSetQuery
     if (!!insight.query && isQueryBasedInsight) {
         query = insight.query
         setQuery = () => {
@@ -113,6 +115,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { tags } = useValues(tagsModel)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
+
+    const saveInsightHandler = isUsingDataExploration ? saveQueryBasedInsight : saveInsight
 
     return (
         <>
@@ -323,7 +327,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                         ) : (
                             <InsightSaveButton
                                 saveAs={saveAs}
-                                saveInsight={saveInsight}
+                                saveInsight={saveInsightHandler}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
