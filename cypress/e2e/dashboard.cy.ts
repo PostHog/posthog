@@ -62,12 +62,21 @@ describe('Dashboard', () => {
 
         cy.contains('Embed dashboard').should('be.visible')
         cy.get('[data-attr=copy-code-button]').click()
-        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '<iframe')
-        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '/embedded/')
+        cy.window()
+            .its('navigator.clipboard')
+            .then((c) => c.readText())
+            .should('contain', '<iframe')
+        cy.window()
+            .its('navigator.clipboard')
+            .then((c) => c.readText())
+            .should('contain', '/embedded/')
 
         cy.contains('Copy share link').should('be.visible')
         cy.get('[data-attr=sharing-link-button]').click()
-        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '/shared/')
+        cy.window()
+            .its('navigator.clipboard')
+            .then((c) => c.readText())
+            .should('contain', '/shared/')
     })
 
     it('Create an empty dashboard', () => {
