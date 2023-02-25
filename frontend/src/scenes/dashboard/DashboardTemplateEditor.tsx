@@ -7,15 +7,16 @@ import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
 
-    const { editorValue, validationErrors, templateSchema } = useValues(dashboardTemplateEditorLogic)
-    const { setEditorValue, updateValidationErrors } = useActions(dashboardTemplateEditorLogic)
+    const {
+        closeDashboardTemplateEditor,
+        createDashboardTemplate,
+        updateDashboardTemplate,
+        setEditorValue,
+        updateValidationErrors,
+    } = useActions(dashboardTemplateEditorLogic)
 
-    const { closeDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
-    const { isOpenNewDashboardTemplateModal } = useValues(dashboardTemplateEditorLogic)
-
-    const { createDashboardTemplate, updateDashboardTemplate } = useActions(dashboardTemplateEditorLogic)
-
-    const { id } = useValues(dashboardTemplateEditorLogic)
+    const { isOpenNewDashboardTemplateModal, editorValue, validationErrors, templateSchema, id } =
+        useValues(dashboardTemplateEditorLogic)
 
     useEffect(() => {
         if (!monaco) {
@@ -70,7 +71,6 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                         data-attr="create-dashboard-template-button"
                         onClick={() => {
                             createDashboardTemplate()
-                            closeDashboardTemplateEditor()
                         }}
                         disabledReason={
                             validationErrors.length
