@@ -99,7 +99,7 @@
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
   FROM events
-  WHERE equals(team_id, 68)
+  WHERE equals(team_id, 69)
   ORDER BY timestamp ASC
   LIMIT 1000
   '
@@ -111,7 +111,7 @@
          distinct_id,
          mat_key
   FROM events
-  WHERE equals(team_id, 69)
+  WHERE equals(team_id, 70)
   ORDER BY timestamp ASC
   LIMIT 1000
   '
