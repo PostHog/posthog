@@ -41,19 +41,25 @@ class Migration(migrations.Migration):
             field=models.JSONField(blank=True, null=True),
         ),
         migrations.AlterField(
-            # addition of blank=True
+            # --not-null-ignore
+            # safe to ignore null locking this table it has fewer than 10 items on it
+            # Addition of blank=True
             model_name="dashboardtemplate",
             name="dashboard_description",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AlterField(
-            # addition of blank=True
+            # --not-null-ignore
+            # safe to ignore null locking this table it has fewer than 10 items on it
+            # Addition of blank=True
             model_name="dashboardtemplate",
             name="dashboard_filters",
             field=models.JSONField(blank=True, null=True),
         ),
         migrations.AlterField(
-            # addition of blank=True
+            # --not-null-ignore
+            # safe to ignore null locking this table it has fewer than 10 items on it
+            # Addition of blank=True
             model_name="dashboardtemplate",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
@@ -61,13 +67,17 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AlterField(
-            # addition of blank=True
+            # --not-null-ignore
+            # safe to ignore null locking this table it has fewer than 10 items on it
+            # Addition of blank=True
             model_name="dashboardtemplate",
             name="template_name",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
         migrations.AlterField(
-            # addition of blank=True
+            # --not-null-ignore
+            # safe to ignore null locking this table it has fewer than 10 items on it
+            # Addition of blank=True
             model_name="dashboardtemplate",
             name="tiles",
             field=models.JSONField(blank=True, null=True),
