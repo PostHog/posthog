@@ -397,7 +397,7 @@ def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> 
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        for template_tag in template.tags:
+        for template_tag in template.tags or []:
             tag, _ = Tag.objects.get_or_create(
                 name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
             )

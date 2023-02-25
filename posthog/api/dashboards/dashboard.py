@@ -441,8 +441,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         dashboard = Dashboard.objects.create(team_id=self.team_id)
 
         try:
-            dashboardTemplate = DashboardTemplate(**request.data["template"])
-            _create_from_template(dashboard, dashboardTemplate)
+            dashboard_template = DashboardTemplate(**request.data["template"])
+            _create_from_template(dashboard, dashboard_template)
         except Exception as e:
             dashboard.delete()
             if type(e) == KeyError or type(e) == TypeError:
