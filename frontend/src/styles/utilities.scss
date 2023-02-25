@@ -878,14 +878,13 @@ $decorations: underline, overline, line-through, no-underline;
     box-shadow: var(--shadow-elevation);
 }
 
-.object-contain {
-    object-fit: contain;
-}
-.object-cover {
-    object-fit: cover;
-}
-.object-center {
-    object-position: center;
+@each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
+    .object-#{$fitOption} {
+        object-fit: $fitOption;
+    }
+    hover\:object-#{$fitOption}:hover {
+        object-fit: $fitOption;
+    }
 }
 
 .tracking-tighter {
