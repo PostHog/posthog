@@ -19,7 +19,7 @@ export default {
                 '/api/projects/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
                 '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
                 '/api/projects/:team_id/dashboards/1/collaborators/': [],
-                '/api/projects/:team_id/dashboard_templates/': [],
+                '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
                 '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
                 '/api/projects/:team_id/dashboards/:dash_id/sharing/': {
                     created_at: '2023-02-25T13:28:20.454940Z',
@@ -54,77 +54,6 @@ export const New = (): JSX.Element => {
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
         dashboardTemplatesLogic.mount()
-        dashboardTemplatesLogic.actions.setTemplates([
-            {
-                id: '1',
-                template_name: 'Simple Dashboard Template',
-                dashboard_description: 'A simple dashboard template',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [],
-                tags: [],
-                image_url:
-                    'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
-            },
-            {
-                id: '2',
-                template_name: 'Very long named dashboard template',
-                dashboard_description:
-                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [],
-                tags: [],
-                image_url:
-                    'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
-            },
-            {
-                id: '3',
-                template_name: 'Same again template',
-                dashboard_description:
-                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [],
-                tags: [],
-                image_url:
-                    'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
-            },
-            {
-                id: '4',
-                template_name: 'Same again template',
-                dashboard_description:
-                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [],
-                tags: [],
-                image_url:
-                    'https://posthog.com/static/2ba70f2c4650b4b77e4d8cd10324a093/b5380/posthog-ceo-diary-blog.png',
-            },
-            {
-                id: '4',
-                template_name: 'Broken image',
-                dashboard_description:
-                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [],
-                tags: [],
-                image_url: 'broken-image.png',
-            },
-            {
-                id: '5',
-                template_name: 'Broken image 2',
-                dashboard_description:
-                    'Very long dashboard description, it keeps going and going and going and going and going and going and going and going and going and going and going and going and going',
-                dashboard_filters: {},
-                tiles: [],
-                variables: [],
-                tags: [],
-                image_url: 'broken-image.png',
-            },
-        ])
     }, [])
     return <App />
 }
