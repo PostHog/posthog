@@ -67,13 +67,6 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
-        allTemplates: [
-            [] as DashboardTemplateType[],
-            {
-                getAllTemplatesSuccess: (_, { allTemplates }) => allTemplates,
-                setTemplates: (_, { allTemplates }) => allTemplates,
-            },
-        ],
     })),
     listeners(({ actions }) => ({
         installTemplateSuccess: () => actions.loadRepository(),
