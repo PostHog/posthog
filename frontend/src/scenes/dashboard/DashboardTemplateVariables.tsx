@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
-import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
+import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
 
 import './DashboardTemplateVariables.scss'

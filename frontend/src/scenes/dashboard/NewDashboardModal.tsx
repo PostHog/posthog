@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
-import { dashboardTemplateVariablesLogic } from './DashboardTemplateVariablesLogic'
+import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { DashboardTemplateType } from '~/types'
 import { useState } from 'react'
 

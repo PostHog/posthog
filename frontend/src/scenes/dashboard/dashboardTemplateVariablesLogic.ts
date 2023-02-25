@@ -1,7 +1,7 @@
 import { actions, kea, path, reducers } from 'kea'
 import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
 
-import type { dashboardTemplateVariablesLogicType } from './DashboardTemplateVariablesLogicType'
+import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
 
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
