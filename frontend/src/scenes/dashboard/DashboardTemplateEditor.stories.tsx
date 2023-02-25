@@ -10,7 +10,7 @@ export default {
 
 export const CreateTemplate = (): JSX.Element => {
     useEffect(() => {
-        dashboardTemplateEditorLogic.mount()
+        const unmount = dashboardTemplateEditorLogic.mount()
         dashboardTemplateEditorLogic.actions.openDashboardTemplateEditor()
         dashboardTemplateEditorLogic.actions.setEditorValue(
             JSON.stringify(
@@ -22,6 +22,7 @@ export const CreateTemplate = (): JSX.Element => {
                 4
             )
         )
+        return unmount
     }, [])
 
     return (
@@ -33,7 +34,7 @@ export const CreateTemplate = (): JSX.Element => {
 
 export const EditTemplate = (): JSX.Element => {
     useEffect(() => {
-        dashboardTemplateEditorLogic.mount()
+        const unmount = dashboardTemplateEditorLogic.mount()
         dashboardTemplateEditorLogic.actions.openDashboardTemplateEditor()
         dashboardTemplateEditorLogic.actions.setEditorValue(
             JSON.stringify(
@@ -45,7 +46,8 @@ export const EditTemplate = (): JSX.Element => {
                 4
             )
         )
-        dashboardTemplateEditorLogic.actions.setDashboardTemplateId('123') // TODO: work out how to only have this action apply to this one story
+        dashboardTemplateEditorLogic.actions.setDashboardTemplateId('123')
+        return unmount
     }, [])
 
     return (
