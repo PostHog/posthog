@@ -5,7 +5,7 @@ import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
-import type { dashboardTemplateEditorLogicType } from './DashboardTemplateEditorLogicType'
+import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateEditorLogic']),
