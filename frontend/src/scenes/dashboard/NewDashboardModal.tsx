@@ -137,7 +137,6 @@ export function DashboardTemplateChooser(): JSX.Element {
                                     name: template.template_name,
                                     show: true,
                                 })
-                                return
                             } else {
                                 setActiveDashboardTemplate(template)
                             }
