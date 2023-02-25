@@ -267,6 +267,26 @@
     border-style: none;
 }
 
+$decorations: underline, overline, line-through, no-underline;
+@each $decoration in $decorations {
+    .#{$decoration} {
+        text-decoration-line: $decoration;
+    }
+    .hover\:#{$decoration}:hover {
+        text-decoration-line: $decoration;
+    }
+}
+
+.decoration-inherit {
+    text-decoration-color: inherit;
+}
+.decoration-current {
+    text-decoration-color: currentColor;
+}
+.decoration-transparent {
+    text-decoration-color: transparent;
+}
+
 @each $name, $hex in $colors {
     .text-#{$name} {
         color: $hex;
@@ -276,6 +296,9 @@
     }
     .border-#{$name} {
         border-color: $hex;
+    }
+    .decoration-#{$name} {
+        text-decoration-color: $hex;
     }
 }
 

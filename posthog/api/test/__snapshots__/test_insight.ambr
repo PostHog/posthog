@@ -500,12 +500,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -791,7 +793,7 @@
          "posthog_insightcachingstate"."created_at",
          "posthog_insightcachingstate"."updated_at"
   FROM "posthog_insightcachingstate"
-  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_2dfd15f76fb6ac02f0972f7b0203a789'
+  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_8ae8e365cb79b085e2c476fd6742119e'
          AND "posthog_insightcachingstate"."insight_id" = 2
          AND "posthog_insightcachingstate"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -891,12 +893,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -1078,12 +1082,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config",
          T4."id",
          T4."password",
@@ -1097,12 +1103,14 @@
          T4."current_organization_id",
          T4."current_team_id",
          T4."email",
+         T4."pending_email",
          T4."temporary_token",
          T4."distinct_id",
          T4."email_opt_in",
          T4."partial_notification_settings",
          T4."anonymize_data",
          T4."toolbar_mode",
+         T4."is_email_verified",
          T4."events_column_config"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")

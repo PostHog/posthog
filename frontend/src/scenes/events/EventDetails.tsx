@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { EventElements } from 'scenes/events/EventElements'
+import { HTMLElementsDisplay } from 'lib/components/HTMLElementsDisplay/HTMLElementsDisplay'
 import { Tabs } from 'antd'
 import { EventJSON } from 'scenes/events/EventJSON'
 import { EventType } from '../../types'
@@ -76,7 +76,7 @@ export function EventDetails({ event, tableProps, useReactJsonView }: EventDetai
             </TabPane>
             {event.elements && event.elements.length > 0 && (
                 <TabPane tab="Elements" key="elements">
-                    <EventElements event={event} />
+                    <HTMLElementsDisplay elements={event.elements} />
                 </TabPane>
             )}
         </Tabs>

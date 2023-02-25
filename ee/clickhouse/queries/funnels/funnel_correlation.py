@@ -29,6 +29,7 @@ from posthog.queries.funnels.utils import get_funnel_order_actor_class
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.util import correct_result_for_sampling
 
 
 class EventDefinition(TypedDict):
@@ -638,6 +639,9 @@ class FunnelCorrelation:
         """
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
+
+        success_total = correct_result_for_sampling(success_total, self._filter.sampling_factor)
+        failure_total = correct_result_for_sampling(failure_total, self._filter.sampling_factor)
 
         if not success_total or not failure_total:
             return [], True

@@ -114,7 +114,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
 
     return (
         <div className="flex justify-between items-center flex-wrap" data-attr="insight-filters">
-            <div className="flex items-center space-x-2 flex-wrap my-2">
+            <div className="flex items-center space-x-2 flex-wrap my-2 gap-y-2">
                 {filters.insight && showDateFilter[filters.insight] && !disableTable && (
                     <ConfigFilter>
                         <InsightDateFilter disabled={isFunnels && isFunnelEmpty(filters)} />
@@ -178,7 +178,7 @@ export function InsightDisplayConfig({ filters, disableTable }: InsightDisplayCo
                     </ConfigFilter>
                 )}
             </div>
-            <div className="flex items-center space-x-4 flex-wrap my-2">
+            <div className="flex items-center space-x-4 flex-wrap my-2 grow justify-end">
                 {isFilterWithDisplay(filters) && (
                     <>
                         {isTrendsFilter(filters) && (

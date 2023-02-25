@@ -240,6 +240,18 @@ class FunnelCorrelationPersonConverted1(str, Enum):
     false = "false"
 
 
+class HogQLQueryResponse(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    clickhouse: Optional[str] = None
+    columns: Optional[List] = None
+    hogql: Optional[str] = None
+    query: Optional[str] = None
+    results: Optional[List] = None
+    types: Optional[List] = None
+
+
 class InsightType(str, Enum):
     TRENDS = "TRENDS"
     STICKINESS = "STICKINESS"
@@ -538,6 +550,15 @@ class HogQLPropertyFilter(BaseModel):
     value: Optional[Union[str, float, List[Union[str, float]]]] = None
 
 
+class HogQLQuery(BaseModel):
+    class Config:
+        extra = Extra.forbid
+
+    kind: str = Field("HogQLQuery", const=True)
+    query: str
+    response: Optional[HogQLQueryResponse] = Field(None, description="Cached query response")
+
+
 class LifecycleFilter(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -827,11 +848,12 @@ class DataTableNode(BaseModel):
         None, description="Show warning about live events being buffered max 60 sec (default: false)"
     )
     showExport: Optional[bool] = Field(None, description="Show the export button")
+    showHogQLEditor: Optional[bool] = Field(None, description="Include a HogQL query editor above HogQL tables")
     showPropertyFilter: Optional[bool] = Field(None, description="Include a property filter above the table")
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode] = Field(
+    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery] = Field(
         ..., description="Source of the events"
     )
 
@@ -1005,7 +1027,7 @@ class AnyPartialFilterTypeItem(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
@@ -1061,7 +1083,7 @@ class AnyPartialFilterTypeItem1(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
     show_legend: Optional[bool] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
@@ -1135,7 +1157,7 @@ class AnyPartialFilterTypeItem2(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
 
 
 class AnyPartialFilterTypeItem3(BaseModel):
@@ -1199,7 +1221,7 @@ class AnyPartialFilterTypeItem3(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
     start_point: Optional[str] = None
     step_limit: Optional[float] = None
 
@@ -1254,7 +1276,7 @@ class AnyPartialFilterTypeItem4(BaseModel):
     retention_reference: Optional[RetentionReference] = None
     retention_type: Optional[RetentionType] = None
     returning_entity: Optional[Dict[str, Any]] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
     target_entity: Optional[Dict[str, Any]] = None
     total_intervals: Optional[float] = None
 
@@ -1305,7 +1327,7 @@ class AnyPartialFilterTypeItem5(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
     show_values_on_series: Optional[bool] = None
     shown_as: Optional[ShownAsValue] = None
 
@@ -1356,7 +1378,7 @@ class AnyPartialFilterTypeItem6(BaseModel):
             PropertyGroupFilter,
         ]
     ] = None
-    sample_results: Optional[bool] = None
+    sampling_factor: Optional[float] = None
 
 
 class FunnelsQuery(BaseModel):
@@ -1501,7 +1523,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode],
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery],
     ]
 
 
