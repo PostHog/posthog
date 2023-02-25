@@ -1,8 +1,10 @@
-.DashboardTemplateChooser {
-    max-width: 780px;
-}
+.NewDashboardModal {
+    .DashboardTemplateChooser {
+        max-width: 780px;
+    }
 
-.TemplateItem {
-    width: 240px;
-    height: 210px;
+    .TemplateItem {
+        width: 240px;
+        height: 210px;
+    }
 }

@@ -270,7 +270,9 @@ export function UpdatedNewDashboardModal(): JSX.Element {
                     : 'Choose a template or start with a blank slate'
             }
         >
-            {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
+            <div className="NewDashboardModal">
+                {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
+            </div>
         </LemonModal>
     )
 }
