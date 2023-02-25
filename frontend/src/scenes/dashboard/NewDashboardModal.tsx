@@ -111,7 +111,7 @@ export function DashboardTemplateChooser(): JSX.Element {
 
     return (
         <div>
-            <div className="flex flex-wrap gap-4 justify-center DashboardTemplateChooser">
+            <div className="flex flex-wrap gap-4 justify-between DashboardTemplateChooser">
                 <TemplateItem
                     template={{
                         template_name: 'Blank dashboard',
@@ -144,6 +144,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                         index={index + 1}
                     />
                 ))}
+                {/*TODO @lukeharries should we have an empty state here? When no templates let people know what to do?*/}
             </div>
         </div>
     )
