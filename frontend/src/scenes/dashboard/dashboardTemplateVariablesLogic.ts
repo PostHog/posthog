@@ -1,10 +1,15 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, path, props, propsChanged, reducers } from 'kea'
 import { DashboardTemplateVariableType, FilterType, Optional } from '~/types'
 
 import type { dashboardTemplateVariablesLogicType } from './dashboardTemplateVariablesLogicType'
 
+export interface DashboardTemplateVariablesLogicProps {
+    variables: DashboardTemplateVariableType[]
+}
+
 export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLogicType>([
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
+    props({ variables: [] } as DashboardTemplateVariablesLogicProps),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
         setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
@@ -28,5 +33,10 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
                 },
             },
         ],
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.variables !== oldProps.variables) {
+            actions.setVariables(props.variables)
+        }
     }),
 ])

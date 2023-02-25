@@ -1,6 +1,5 @@
 import { LemonLabel } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { FilterType, InsightType } from '~/types'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
@@ -11,18 +10,17 @@ import './DashboardTemplateVariables.scss'
 export function DashboardTemplateVariables(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
 
-    const { variables } = useValues(dashboardTemplateVariablesLogic)
-    const { setVariables, setVariable } = useActions(dashboardTemplateVariablesLogic)
+    const theDashboardTemplateVariablesLogic = dashboardTemplateVariablesLogic({
+        variables: activeDashboardTemplate?.variables || [],
+    })
+    const { variables } = useValues(theDashboardTemplateVariablesLogic)
+    const { setVariable } = useActions(theDashboardTemplateVariablesLogic)
 
     const FALLBACK_EVENT = {
         id: '$pageview',
         math: 'dau',
         type: 'events',
     }
-
-    useEffect(() => {
-        setVariables(activeDashboardTemplate?.variables || [])
-    }, [activeDashboardTemplate])
 
     return (
         <div className="mb-4 DashboardTemplateVariables">
