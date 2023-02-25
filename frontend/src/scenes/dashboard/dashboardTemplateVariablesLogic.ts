@@ -7,8 +7,8 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
     path(['scenes', 'dashboard', 'DashboardTemplateVariablesLogic']),
     actions({
         setVariables: (variables: DashboardTemplateVariableType[]) => ({ variables }),
-        setVariable: (variable_name: string, filterGroup: Optional<FilterType, 'type'>) => ({
-            variable_name,
+        setVariable: (variableName: string, filterGroup: Optional<FilterType, 'type'>) => ({
+            variable_name: variableName,
             filterGroup,
         }),
     }),
@@ -17,14 +17,11 @@ export const dashboardTemplateVariablesLogic = kea<dashboardTemplateVariablesLog
             [] as DashboardTemplateVariableType[],
             {
                 setVariables: (_, { variables }) => variables,
-                setVariable: (
-                    variables: DashboardTemplateVariableType[],
-                    { variable_name, filterGroup }
-                ): DashboardTemplateVariableType[] => {
+                setVariable: (state, { variable_name: variableName, filterGroup }): DashboardTemplateVariableType[] => {
                     // TODO: handle actions as well as events
-                    return variables.map((v: DashboardTemplateVariableType) => {
-                        if (v.name === variable_name && filterGroup?.events?.length && filterGroup.events[0]) {
-                            v.default = filterGroup.events[0]
+                    return state.map((v: DashboardTemplateVariableType) => {
+                        if (v.name === variableName && filterGroup?.events?.length && filterGroup.events[0]) {
+                            return { ...v, default: filterGroup.events[0] }
                         }
                         return v
                     })

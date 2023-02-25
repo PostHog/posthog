@@ -101,7 +101,6 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             undefined as Record<string, any> | undefined,
             {
                 getTemplateSchema: async (): Promise<Record<string, any>> => {
-                    debugger
                     const response = await api.dashboardTemplates.getSchema()
                     return response
                 },
@@ -123,9 +122,9 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
         closeDashboardTemplateEditor: () => {
             actions.clear()
         },
-        setDashboardTemplateId: async ({ id }) => {
+        setDashboardTemplateId: ({ id }) => {
             if (id) {
-                await actions.getDashboardTemplate(id)
+                actions.getDashboardTemplate(id)
             }
         },
         getDashboardTemplateSuccess: async ({ dashboardTemplate }) => {
