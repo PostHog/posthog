@@ -6,6 +6,12 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+# :KLUDGE: Work around test_migrations_are_safe
+class AlterFieldNullSafe(migrations.AlterField):
+    def describe(self):
+        return super().describe() + " -- not-null-ignore"
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -40,24 +46,21 @@ class Migration(migrations.Migration):
             name="variables",
             field=models.JSONField(blank=True, null=True),
         ),
-        migrations.AlterField(
-            # --not-null-ignore
+        AlterFieldNullSafe(
             # safe to ignore null locking this table it has fewer than 10 items on it
             # Addition of blank=True
             model_name="dashboardtemplate",
             name="dashboard_description",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.AlterField(
-            # --not-null-ignore
+        AlterFieldNullSafe(
             # safe to ignore null locking this table it has fewer than 10 items on it
             # Addition of blank=True
             model_name="dashboardtemplate",
             name="dashboard_filters",
             field=models.JSONField(blank=True, null=True),
         ),
-        migrations.AlterField(
-            # --not-null-ignore
+        AlterFieldNullSafe(
             # safe to ignore null locking this table it has fewer than 10 items on it
             # Addition of blank=True
             model_name="dashboardtemplate",
@@ -66,16 +69,14 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(max_length=255), blank=True, null=True, size=None
             ),
         ),
-        migrations.AlterField(
-            # --not-null-ignore
+        AlterFieldNullSafe(
             # safe to ignore null locking this table it has fewer than 10 items on it
             # Addition of blank=True
             model_name="dashboardtemplate",
             name="template_name",
             field=models.CharField(blank=True, max_length=400, null=True),
         ),
-        migrations.AlterField(
-            # --not-null-ignore
+        AlterFieldNullSafe(
             # safe to ignore null locking this table it has fewer than 10 items on it
             # Addition of blank=True
             model_name="dashboardtemplate",
