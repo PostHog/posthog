@@ -46,23 +46,11 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                 closeDashboardTemplateEditor()
             }}
             inline={inline}
-        >
-            <MonacoEditor
-                theme="vs-light"
-                className="border"
-                language="json"
-                value={editorValue}
-                onChange={(v) => {
-                    setEditorValue(v ?? '')
-                }}
-                onValidate={(markers) => {
-                    updateValidationErrors(markers)
-                }}
-                height={600}
-            />
-            <div className="flex justify-end mt-4">
-                {id ? (
+            footer={
+                id ? (
                     <LemonButton
+                        type={'primary'}
+                        data-attr="update-dashboard-template-button"
                         onClick={() => {
                             updateDashboardTemplate(id)
                         }}
@@ -78,6 +66,8 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                     </LemonButton>
                 ) : (
                     <LemonButton
+                        type={'primary'}
+                        data-attr="create-dashboard-template-button"
                         onClick={() => {
                             createDashboardTemplate()
                             closeDashboardTemplateEditor()
@@ -92,8 +82,22 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                     >
                         Create new template
                     </LemonButton>
-                )}
-            </div>
+                )
+            }
+        >
+            <MonacoEditor
+                theme="vs-light"
+                className="border"
+                language="json"
+                value={editorValue}
+                onChange={(v) => {
+                    setEditorValue(v ?? '')
+                }}
+                onValidate={(markers) => {
+                    updateValidationErrors(markers)
+                }}
+                height={600}
+            />
         </LemonModal>
     )
 }
