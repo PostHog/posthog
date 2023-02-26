@@ -4,6 +4,8 @@ from typing import Dict, List
 
 import requests
 import structlog
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import cache_page
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -149,7 +151,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, ForbidDestroyModel, views
 
         return installed_templates
 
-    # TODO: Add caching as this is static
+    @method_decorator(cache_page(60 * 2))  # cache for 2 minutes
     @action(methods=["GET"], detail=False)
     def json_schema(self, request: request.Request, **kwargs) -> response.Response:
         # Could switch from this being a static file to being dynamically generated from the serializer
