@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
@@ -6,9 +6,14 @@ import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/t
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { DashboardTemplateType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
     actions({
         setTemplates: (allTemplates: DashboardTemplateType[]) => ({ allTemplates }),
     }),
@@ -17,12 +22,7 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             {} as Record<string, DashboardTemplatesRepositoryEntry>,
             {
                 loadRepository: async () => {
-                    const results = await api.get('/api/projects/@current/dashboard_templates/repository')
-                    const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
-                    for (const template of results as DashboardTemplatesRepositoryEntry[]) {
-                        repository[template.name] = template
-                    }
-                    return repository
+                    return api.dashboardTemplates.repository()
                 },
             },
         ],
@@ -38,9 +38,8 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
             [] as DashboardTemplateType[],
             {
                 getAllTemplates: async () => {
-                    return await api
-                        .get('api/projects/@current/dashboard_templates/')
-                        .then((response) => response.results)
+                    const page = await api.dashboardTemplates.list()
+                    return page.results
                 },
             },
         ],
@@ -71,8 +70,18 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     listeners(({ actions }) => ({
         installTemplateSuccess: () => actions.loadRepository(),
     })),
-    afterMount(({ actions }) => {
-        actions.loadRepository()
-        actions.getAllTemplates()
+    selectors({
+        isUsingDashboardTemplates: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+            },
+        ],
+    }),
+    afterMount(({ actions, values }) => {
+        if (values.isUsingDashboardTemplates) {
+            actions.loadRepository()
+            actions.getAllTemplates()
+        }
     }),
 ])
