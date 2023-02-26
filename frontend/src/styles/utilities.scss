@@ -93,6 +93,27 @@
     }
 }
 
+@each $name, $size in $screens {
+    .w-#{$name} {
+        width: $size;
+    }
+    .h-#{$name} {
+        height: $size;
+    }
+    .min-w-#{$name} {
+        min-width: $size;
+    }
+    .max-w-#{$name} {
+        max-width: $size;
+    }
+    .min-h-#{$name} {
+        min-height: $size;
+    }
+    .max-h-#{$name} {
+        max-height: $size;
+    }
+}
+
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
 @each $space in $all_spaces {
     .w-#{escape-number($space)} {

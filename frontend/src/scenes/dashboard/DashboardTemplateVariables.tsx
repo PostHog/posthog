@@ -23,7 +23,7 @@ export function DashboardTemplateVariables(): JSX.Element {
     }
 
     return (
-        <div className="mb-4 DashboardTemplateVariables">
+        <div className="mb-4 DashboardTemplateVariables max-w-md">
             {variables.map((variable, index) => (
                 <div key={index} className="mb-6">
                     <div className="mb-2">
