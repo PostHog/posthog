@@ -1,22 +1,24 @@
 import { lemonToast } from '@posthog/lemon-ui'
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplateEditorType, DashboardTemplateType, MonacoMarker } from '~/types'
 import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 import type { dashboardTemplateEditorLogicType } from './dashboardTemplateEditorLogicType'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType>([
-    path(['scenes', 'dashboard', 'DashboardTemplateEditorLogic']),
-    connect(dashboardTemplatesLogic),
+    path(['scenes', 'dashboard', 'dashboardTemplateEditorLogic']),
+    connect({ logic: [dashboardTemplatesLogic], values: [featureFlagLogic, ['featureFlags']] }),
     actions({
         setEditorValue: (value: string) => ({ value }),
         setDashboardTemplate: (dashboardTemplate: DashboardTemplateEditorType) => ({
             dashboardTemplate,
         }),
         clear: true,
-        setDashboardTemplateId: (id: string | undefined) => ({ id }),
+        setDashboardTemplateId: (id: string | null) => ({ id }),
         openDashboardTemplateEditor: true,
         closeDashboardTemplateEditor: true,
         updateValidationErrors: (markers: MonacoMarker[] | undefined) => ({ markers }),
@@ -30,9 +32,9 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
         dashboardTemplate: [
-            undefined as DashboardTemplateEditorType | undefined,
+            null as DashboardTemplateEditorType | null,
             {
-                clear: () => undefined,
+                clear: () => null,
                 setDashboardTemplate: (_, { dashboardTemplate }) => dashboardTemplate,
             },
         ],
@@ -50,10 +52,10 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             },
         ],
         id: [
-            undefined as string | undefined,
+            null as string | null,
             {
                 setDashboardTemplateId: (_, { id }) => id,
-                clear: () => undefined,
+                clear: () => null,
             },
         ],
         isOpenNewDashboardTemplateModal: [
@@ -93,20 +95,27 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                 deleteDashboardTemplate: async (id: string): Promise<null> => {
                     await api.dashboardTemplates.delete(id)
                     lemonToast.success('Dashboard template deleted')
-                    return null // for some reason this errors when it's undefined instead
+                    return null
                 },
             },
         ],
         templateSchema: [
-            undefined as Record<string, any> | undefined,
+            null as Record<string, any> | null,
             {
                 getTemplateSchema: async (): Promise<Record<string, any>> => {
-                    const response = await api.dashboardTemplates.getSchema()
-                    return response
+                    return await api.dashboardTemplates.getSchema()
                 },
             },
         ],
     })),
+    selectors({
+        isUsingDashboardTemplates: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+            },
+        ],
+    }),
     listeners(({ values, actions }) => ({
         createDashboardTemplateSuccess: async () => {
             actions.closeDashboardTemplateEditor()
@@ -132,8 +141,8 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
                 actions.setEditorValue(JSON.stringify(dashboardTemplate))
             }
         },
-        setEditorValue: async ({ value }, breakdpoint) => {
-            await breakdpoint(500)
+        setEditorValue: async ({ value }, breakpoint) => {
+            await breakpoint(500)
             if (values.validationErrors.length == 0 && value?.length) {
                 try {
                     const dashboardTemplate = JSON.parse(value)
@@ -150,7 +159,9 @@ export const dashboardTemplateEditorLogic = kea<dashboardTemplateEditorLogicType
             }
         },
     })),
-    afterMount(({ actions }) => {
-        actions.getTemplateSchema()
+    afterMount(({ actions, values }) => {
+        if (values.isUsingDashboardTemplates) {
+            actions.getTemplateSchema()
+        }
     }),
 ])
