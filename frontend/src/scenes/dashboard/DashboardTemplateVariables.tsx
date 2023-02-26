@@ -5,8 +5,6 @@ import { FilterType, InsightType } from '~/types'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { newDashboardLogic } from './newDashboardLogic'
 
-import './DashboardTemplateVariables.scss'
-
 export function DashboardTemplateVariables(): JSX.Element {
     const { activeDashboardTemplate } = useValues(newDashboardLogic)
 
