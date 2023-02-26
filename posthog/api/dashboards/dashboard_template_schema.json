@@ -33,7 +33,8 @@
         "tiles": {
             "description": "The tiles of the dashboard template",
             "type": "array",
-            "items": "object"
+            "minItems": 1,
+            "items": { "type": "object" }
         },
         "variables": {
             "description": "The variables of the dashboard template",

@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
 
+from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -436,7 +437,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         )
         return Response(serializer.data)
 
-    @action(methods=["POST"], detail=False)
+    @action(methods=["POST"], detail=False, parser_classes=[DashboardTemplateCreationJSONSchemaParser])
     def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         dashboard = Dashboard.objects.create(team_id=self.team_id)
 
@@ -445,10 +446,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             _create_from_template(dashboard, dashboard_template)
         except Exception as e:
             dashboard.delete()
-            if type(e) == KeyError or type(e) == TypeError:
-                return Response({"detail": f"Invalid template, missing key {e.args[0]}"}, status=400)
-            else:
-                raise e
+            raise e
 
         return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 

@@ -446,3 +446,4 @@ class TestDashboardTemplates(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         assert response.json() == dashboard_template_schema
+        assert response.headers["Cache-Control"] == "max-age=120"
