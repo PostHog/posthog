@@ -2,6 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 describe('dashboardTemplatesLogic', () => {
     let logic: ReturnType<typeof dashboardTemplatesLogic.build>
@@ -9,7 +11,7 @@ describe('dashboardTemplatesLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                'api/projects/@current/dashboard_templates/repository/': [
+                'api/projects/:team_id/dashboard_templates/repository/': [
                     {
                         name: 'Product analytics',
                         url: null,
@@ -27,9 +29,17 @@ describe('dashboardTemplatesLogic', () => {
                         installed: false,
                     },
                 ],
+                'api/projects/:team_id/dashboard_templates/': [],
             },
         })
+
         initKeaTests()
+
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_TEMPLATES], {
+            [FEATURE_FLAGS.DASHBOARD_TEMPLATES]: true,
+        })
+
         logic = dashboardTemplatesLogic()
         logic.mount()
     })
