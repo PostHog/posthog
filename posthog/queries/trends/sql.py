@@ -62,8 +62,8 @@ SELECT counts AS total, timestamp AS day_start FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
-        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS timestamp
-        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
+        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number)) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
     ) d
     /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
        but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
