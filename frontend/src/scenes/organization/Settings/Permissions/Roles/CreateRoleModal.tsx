@@ -37,12 +37,8 @@ export function CreateRoleModal(): JSX.Element {
     }
 
     const handleSubmit = (): void => {
-        if (isNewRole) {
-            createRole(roleName)
-            setRoleName('')
-        } else {
-            setCreateRoleModalShown(false)
-        }
+        createRole(roleName)
+        setRoleName('')
     }
 
     return (
@@ -74,9 +70,11 @@ export function CreateRoleModal(): JSX.Element {
                                 </LemonButton>
                             )}
                         </div>
-                        <LemonButton type="primary" onClick={handleSubmit}>
-                            Save
-                        </LemonButton>
+                        {isNewRole && (
+                            <LemonButton type="primary" onClick={handleSubmit}>
+                                Save
+                            </LemonButton>
+                        )}
                     </div>
                 ) : undefined
             }
