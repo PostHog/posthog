@@ -1816,13 +1816,6 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
 }
 
-export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
-    rowKey: number | string
-    nestedRowKeys?: string[]
-    isBreakdownParent?: boolean
-    breakdownIndex?: number
-}
-
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
