@@ -48,21 +48,14 @@ SELECT {aggregate_operation} as data FROM (
 )
 """
 
-# This query performs poorly due to aggregation happening outside of subqueries.
-# :TODO: Fix this!
-# Query intuition:
-# 1. Derive all the buckets we care about
-# 2. Query all events within the specified range
-# 3. For each event timestamp, calculate all the buckets it would fall in
-#    Note that this can be a bit confusing. For hourly intervals, we round to the
-#    start of the hour and look 7/30 days into the future
+
 ACTIVE_USERS_SQL = """
 SELECT counts AS total, timestamp AS day_start FROM (
     SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
-        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number)) AS timestamp
+        SELECT toDateTime({interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number))) AS timestamp
         FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
     ) d
     /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),

@@ -4083,17 +4083,17 @@
         FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC'))
-        UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'UTC') AS date_to,
-                       toDateTime('2019-12-01 00:00:00', 'UTC') AS date_from,
-                       arrayMap(n -> toStartOfDay(toDateTime(n, 'UTC')), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                     timestamp AS day_start
+        UNION ALL SELECT counts AS total,
+                         timestamp AS day_start
         FROM
-          (SELECT count(DISTINCT actor_id) AS counts,
-                  toStartOfDay(arrayJoin(event_buckets)) as timestamp
+          (SELECT d.timestamp,
+                  COUNT(DISTINCT actor_id) AS counts
            FROM
-             (SELECT pdi.person_id as actor_id,
-                     toTimeZone(timestamp, 'UTC') as tz_adjusted_timestamp,
-                     arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)))), toUInt32(if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL 6 DAY), 86400)) AS event_buckets
+             (SELECT toDateTime(toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC') - toIntervalMonth(number))) AS timestamp
+              FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-11-24 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))) d
+           CROSS JOIN
+             (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
+                     pdi.person_id AS actor_id
               FROM events e
               INNER JOIN
                 (SELECT distinct_id,
@@ -4106,11 +4106,15 @@
                 AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
-              GROUP BY pdi.person_id,
-                       tz_adjusted_timestamp)
-           GROUP BY timestamp
-           HAVING has(buckets, timestamp)
-           ORDER BY timestamp))
+              GROUP BY timestamp,
+                       actor_id) e
+           WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
+             AND e.timestamp > d.timestamp - INTERVAL 6 DAY
+           GROUP BY d.timestamp
+           ORDER BY d.timestamp)
+        WHERE 1 = 1
+          AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')
+          AND toTimeZone(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') )
      GROUP BY day_start
      ORDER BY day_start)
   '
