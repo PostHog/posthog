@@ -27,7 +27,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { objectCleanWithEmpty } from 'lib/utils'
 
-const reverseInsightMap: Record<InsightType, InsightNodeKind> = {
+const reverseInsightMap: Record<Exclude<InsightType, InsightType.QUERY>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,
