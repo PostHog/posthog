@@ -1,7 +1,7 @@
 // Postgres
 
 import { StatsD } from 'hot-shots'
-import { Client, Pool, QueryResult, QueryResultRow } from 'pg'
+import { Client, Pool, PoolClient, QueryResult, QueryResultRow } from 'pg'
 
 import { instrumentQuery } from '../../utils/metrics'
 import { POSTGRES_UNAVAILABLE_ERROR_MESSAGES } from './db'
@@ -9,7 +9,7 @@ import { DependencyUnavailableError } from './error'
 import { getFinalPostgresQuery, timeoutGuard } from './utils'
 
 export function postgresQuery<R extends QueryResultRow = any, I extends any[] = any[]>(
-    client: Client | Pool,
+    client: Client | Pool | PoolClient,
     queryString: string,
     values: I | undefined,
     tag: string,
