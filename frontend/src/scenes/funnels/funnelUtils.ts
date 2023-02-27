@@ -1,18 +1,27 @@
 import { clamp } from 'lib/utils'
 import {
     FunnelStepRangeEntityFilter,
-    FunnelRequestParams,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
-    FunnelAPIResponse,
+    FunnelResultType,
     FunnelStepReference,
     FunnelConversionWindow,
     FunnelsFilterType,
+    Breakdown,
+    FunnelStepWithConversionMetrics,
+    FlattenedFunnelStepByBreakdown,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
 import { FunnelsQuery } from '~/queries/schema'
+import { FunnelLayout } from 'lib/constants'
+
+/* Chosen via heuristics by eyeballing some values
+ * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
+ * which gives a ballpark of 1 highlighting every 10 breakdown values
+ */
+const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
 
 const EMPTY_BREAKDOWN_KEY = '__empty_string__'
 const EMPTY_BREAKDOWN_VALUE = '(empty string)'
@@ -126,14 +135,14 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelResultType): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
 // breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
 export function isValidBreakdownParameter(
-    breakdown: FunnelRequestParams['breakdown'],
-    breakdowns: FunnelRequestParams['breakdowns']
+    breakdown: BreakdownKeyType | undefined,
+    breakdowns: Breakdown[] | undefined
 ): boolean {
     return (
         (Array.isArray(breakdowns) && breakdowns.length > 0) ||
@@ -314,4 +323,165 @@ export function generateBaselineConversionUrl(url?: string | null): string {
     }
     const parsed = combineUrl(url)
     return combineUrl(parsed.url, { funnel_step_breakdown: undefined }).url
+}
+
+export function stepsWithConversionMetrics(
+    steps: FunnelStepWithNestedBreakdown[],
+    stepReference: FunnelStepReference
+): FunnelStepWithConversionMetrics[] {
+    const stepsWithConversionMetrics = steps.map((step, i) => {
+        const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
+        const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
+
+        const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
+            const firstBreakdownCount = steps[0]?.nested_breakdown?.[breakdownIndex].count || 0
+            // firstBreakdownCount serves as previousBreakdownCount for the first step so that
+            // "Relative to previous step" is shown correctly – later series use the actual previous steps
+            const previousBreakdownCount =
+                i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || 0
+            const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
+            const conversionRates = {
+                fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
+                total: breakdown.count / firstBreakdownCount,
+            }
+            return {
+                ...breakdown,
+                droppedOffFromPrevious: nestedDroppedOffFromPrevious,
+                conversionRates: {
+                    ...conversionRates,
+                    fromBasisStep:
+                        stepReference === FunnelStepReference.total
+                            ? conversionRates.total
+                            : conversionRates.fromPrevious,
+                },
+            }
+        })
+
+        const conversionRatesTotal = step.count / steps[0].count
+        const conversionRates = {
+            fromPrevious: previousCount === 0 ? 0 : step.count / previousCount,
+
+            // We get NaN from dividing 0/0 so we just show 0 instead
+            // This is an empty funnel so dropped off percentage will show as 100%
+            // and conversion percentage as 0% but that's better for users than `NaN%`
+            total: Number.isNaN(conversionRatesTotal) ? 0 : conversionRatesTotal,
+        }
+        return {
+            ...step,
+            droppedOffFromPrevious,
+            nested_breakdown: nestedBreakdown,
+            conversionRates: {
+                ...conversionRates,
+                fromBasisStep:
+                    i > 0
+                        ? stepReference === FunnelStepReference.total
+                            ? conversionRates.total
+                            : conversionRates.fromPrevious
+                        : conversionRates.total,
+            },
+        }
+    })
+
+    if (!stepsWithConversionMetrics.length || !stepsWithConversionMetrics[0].nested_breakdown) {
+        return stepsWithConversionMetrics
+    }
+
+    return stepsWithConversionMetrics.map((step) => {
+        // Per step breakdown significance
+        const [meanFromPrevious, stdDevFromPrevious] = getMeanAndStandardDeviation(
+            step.nested_breakdown?.map((item) => item.conversionRates.fromPrevious)
+        )
+        const [meanFromBasis, stdDevFromBasis] = getMeanAndStandardDeviation(
+            step.nested_breakdown?.map((item) => item.conversionRates.fromBasisStep)
+        )
+        const [meanTotal, stdDevTotal] = getMeanAndStandardDeviation(
+            step.nested_breakdown?.map((item) => item.conversionRates.total)
+        )
+
+        const isOutlier = (value: number, mean: number, stdDev: number): boolean => {
+            return (
+                value > mean + stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER ||
+                value < mean - stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER
+            )
+        }
+
+        const nestedBreakdown = step.nested_breakdown?.map((item) => {
+            return {
+                ...item,
+                significant: {
+                    fromPrevious: isOutlier(item.conversionRates.fromPrevious, meanFromPrevious, stdDevFromPrevious),
+                    fromBasisStep: isOutlier(item.conversionRates.fromBasisStep, meanFromBasis, stdDevFromBasis),
+                    total: isOutlier(item.conversionRates.total, meanTotal, stdDevTotal),
+                },
+            }
+        })
+
+        return {
+            ...step,
+            nested_breakdown: nestedBreakdown,
+        }
+    })
+}
+
+export function flattenedStepsByBreakdown(
+    steps: FunnelStepWithConversionMetrics[],
+    layout: FunnelLayout | undefined,
+    disableBaseline: boolean
+): FlattenedFunnelStepByBreakdown[] {
+    // Initialize with two rows for rendering graph and header
+    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
+        { rowKey: 'steps-meta' },
+        { rowKey: 'graph' },
+        { rowKey: 'table-header' },
+    ]
+    if (steps.length > 0) {
+        const baseStep = steps[0]
+        const lastStep = steps[steps.length - 1]
+        const hasBaseline =
+            !baseStep.breakdown ||
+            ((layout || FunnelLayout.vertical) === FunnelLayout.vertical &&
+                (baseStep.nested_breakdown?.length ?? 0) > 1)
+        // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
+        if (hasBaseline && !disableBaseline) {
+            flattenedStepsByBreakdown.push({
+                ...getBreakdownStepValues(baseStep, 0, true),
+                isBaseline: true,
+                breakdownIndex: 0,
+                steps: steps.map((s) => ({
+                    ...s,
+                    nested_breakdown: undefined,
+                    breakdown_value: 'Baseline',
+                    converted_people_url: generateBaselineConversionUrl(s.converted_people_url),
+                    dropped_people_url: generateBaselineConversionUrl(s.dropped_people_url),
+                })),
+                conversionRates: {
+                    total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
+                },
+            })
+        }
+        // Per Breakdown
+        if (baseStep.nested_breakdown?.length) {
+            baseStep.nested_breakdown.forEach((breakdownStep, i) => {
+                const stepsInBreakdown = steps
+                    .filter((s) => !!s?.nested_breakdown?.[i])
+                    .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
+                const offset = hasBaseline ? 1 : 0
+                flattenedStepsByBreakdown.push({
+                    ...getBreakdownStepValues(breakdownStep, i + offset),
+                    isBaseline: false,
+                    breakdownIndex: i + offset,
+                    steps: stepsInBreakdown,
+                    conversionRates: {
+                        total:
+                            (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
+                            (stepsInBreakdown[0]?.count ?? 1),
+                    },
+                    significant: stepsInBreakdown.some(
+                        (step) => step.significant?.total || step.significant?.fromPrevious
+                    ),
+                })
+            })
+        }
+    }
+    return flattenedStepsByBreakdown
 }
