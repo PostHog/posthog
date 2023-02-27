@@ -119,6 +119,7 @@ interface UserBaseType {
 
 /* Type for User objects in nested serializers (e.g. created_by) */
 export interface UserBasicType extends UserBaseType {
+    is_email_verified?: any
     id: number
 }
 
@@ -138,6 +139,8 @@ export interface UserType extends UserBaseType {
     organizations: OrganizationBasicType[]
     realm?: Realm
     posthog_version?: string
+    is_email_verified?: boolean | null
+    pending_email?: string | null
     is_2fa_enabled: boolean
 }
 
@@ -290,6 +293,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: PathCleaningFilter[]
@@ -1480,7 +1484,7 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number // Groups aggregation
-    sample_results?: boolean | null
+    sampling_factor?: number | null
 }
 
 export interface PropertiesTimelineFilterType {
@@ -1742,27 +1746,16 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
-    breakdowns?: Breakdown[]
+    breakdowns?: BreakdownKeyType[]
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]
 
-    // Url that you can GET to retrieve the people that converted in this step
+    /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 
-    // Url that you can GET to retrieve the people that dropped in this step
+    /** Url that you can GET to retrieve the people that dropped in this step  */
     dropped_people_url: string | null
-}
-
-export interface FunnelStepWithNestedBreakdown extends FunnelStep {
-    nested_breakdown?: FunnelStep[]
-}
-
-export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
-    is_cached: boolean
-    last_refresh: string | null
-    result: ResultType
-    type: 'Funnel'
 }
 
 export interface FunnelsTimeConversionBins {
@@ -1770,12 +1763,17 @@ export interface FunnelsTimeConversionBins {
     average_conversion_time: number
 }
 
-export interface HistogramGraphDatum {
-    id: number
-    bin0: number
-    bin1: number
-    count: number
-    label: string
+export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
+export interface FunnelResult<ResultType = FunnelResultType> {
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+}
+
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
+    nested_breakdown?: FunnelStep[]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -1796,19 +1794,6 @@ export enum FunnelConversionWindowTimeUnit {
     Day = 'day',
     Week = 'week',
     Month = 'month',
-}
-
-export interface FunnelRequestParams extends FilterType {
-    refresh?: boolean
-    from_dashboard?: boolean | number
-    funnel_window_days?: number
-}
-
-export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
-
-export interface LoadedRawFunnelResults {
-    results: FunnelAPIResponse
-    filters: Partial<FilterType>
 }
 
 export enum FunnelStepReference {
@@ -1832,13 +1817,6 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
 }
 
-export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
-    rowKey: number | string
-    nestedRowKeys?: string[]
-    isBreakdownParent?: boolean
-    breakdownIndex?: number
-}
-
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
@@ -1853,6 +1831,31 @@ export interface FlattenedFunnelStepByBreakdown {
     significant?: boolean
 }
 
+export interface FunnelCorrelation {
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>
+    odds_ratio: number
+    success_count: number
+    success_people_url: string
+    failure_count: number
+    failure_people_url: string
+    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+    result_type:
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum FunnelCorrelationType {
+    Success = 'success',
+    Failure = 'failure',
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
 export enum BreakdownAttributionType {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
@@ -1864,6 +1867,14 @@ export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
+}
+
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
@@ -2279,37 +2290,12 @@ export interface PathEdgeParameters {
     max_edge_weight?: number | undefined
 }
 
-export interface FunnelCorrelation {
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>
-    odds_ratio: number
-    success_count: number
-    success_people_url: string
-    failure_count: number
-    failure_people_url: string
-    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
-    result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
-}
-
 export enum SignificanceCode {
     Significant = 'significant',
     NotEnoughExposure = 'not_enough_exposure',
     LowWinProbability = 'low_win_probability',
     HighLoss = 'high_loss',
     HighPValue = 'high_p_value',
-}
-
-export enum FunnelCorrelationType {
-    Success = 'success',
-    Failure = 'failure',
-}
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
 }
 
 export enum HelpType {

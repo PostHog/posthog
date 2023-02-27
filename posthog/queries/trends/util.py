@@ -17,7 +17,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp
+from posthog.queries.util import TIME_IN_SECONDS, correct_result_for_sampling, get_earliest_timestamp
 
 logger = structlog.get_logger(__name__)
 
@@ -85,8 +85,8 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
-    if filter.sample_factor:
-        counts = [c * (1 / filter.sample_factor) for c in counts]
+
+    counts = [correct_result_for_sampling(c, filter.sampling_factor) for c in counts]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),

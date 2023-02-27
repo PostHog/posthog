@@ -216,6 +216,7 @@ export function cleanFilters(
             ...(filters.aggregation_group_type_index != undefined
                 ? { aggregation_group_type_index: filters.aggregation_group_type_index }
                 : {}),
+            ...(filters.sampling_factor ? { sampling_factor: filters.sampling_factor } : {}),
         }
 
         cleanBreakdownParams(cleanedParams, filters, featureFlags || {})

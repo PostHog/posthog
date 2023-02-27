@@ -1,12 +1,14 @@
 from typing import Any, Dict, Optional, Union, cast
 from urllib.parse import urlencode
 
+import posthoganalytics
 import structlog
 from django import forms
 from django.conf import settings
 from django.contrib.auth import login, password_validation
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
+from django.http import HttpRequest
 from django.shortcuts import redirect
 from django.urls.base import reverse
 from rest_framework import exceptions, generics, permissions, response, serializers
@@ -14,7 +16,9 @@ from sentry_sdk import capture_exception
 from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
+from posthog.api.email_verification import EmailVerifier
 from posthog.api.shared import UserBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
@@ -23,6 +27,19 @@ from posthog.permissions import CanCreateOrg
 from posthog.utils import get_can_create_org
 
 logger = structlog.get_logger(__name__)
+
+
+def verify_email_or_login(request: HttpRequest, user: User) -> None:
+    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.distinct_id))
+    if is_cloud() and require_verification_feature:
+        EmailVerifier.create_token_and_send_email_verification(user)
+    else:
+        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+
+
+def get_verification_redirect_url(uuid: str, distinct_id: str):
+    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(distinct_id))
+    return "/verify_email/" + uuid if is_cloud() and require_verification_feature and not settings.DEMO else "/"
 
 
 class SignupSerializer(serializers.Serializer):
@@ -75,6 +92,7 @@ class SignupSerializer(serializers.Serializer):
                 create_team=self.create_team,
                 **validated_data,
                 is_staff=is_instance_first_user,
+                is_email_verified=False,
             )
         except IntegrityError:
             raise exceptions.ValidationError(
@@ -82,8 +100,6 @@ class SignupSerializer(serializers.Serializer):
             )
 
         user = self._user
-
-        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
 
         report_user_signed_up(
             user,
@@ -96,6 +112,8 @@ class SignupSerializer(serializers.Serializer):
             role_at_organization=role_at_organization,
             referral_source=referral_source,
         )
+
+        verify_email_or_login(self.context["request"], user)
 
         return user
 
@@ -122,7 +140,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/ingestion" if not settings.DEMO else "/"
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"])
         return data
 
 
@@ -142,8 +160,9 @@ class InviteSignupSerializer(serializers.Serializer):
         return value
 
     def to_representation(self, instance):
-        serializer = UserBasicSerializer(instance=instance)
-        return serializer.data
+        data = UserBasicSerializer(instance=instance).data
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"])
+        return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:
 
@@ -183,6 +202,7 @@ class InviteSignupSerializer(serializers.Serializer):
                         invite.target_email,
                         validated_data.pop("password"),
                         validated_data.pop("first_name"),
+                        is_email_verified=False,
                         **validated_data,
                     )
                 except IntegrityError:
@@ -196,7 +216,7 @@ class InviteSignupSerializer(serializers.Serializer):
                 raise serializers.ValidationError(str(e))
 
         if is_new_user:
-            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+            verify_email_or_login(self.context["request"], user)
 
             report_user_signed_up(
                 user,
@@ -336,7 +356,7 @@ def process_social_invite_signup(strategy: DjangoStrategy, invite_id: str, email
     invite.validate(user=None, email=email)
 
     try:
-        user = strategy.create_user(email=email, first_name=full_name, password=None)
+        user = strategy.create_user(email=email, first_name=full_name, password=None, is_email_verified=True)
     except Exception as e:
         capture_exception(e)
         message = "Account unable to be created. This account may already exist. Please try again or use different credentials."
@@ -368,7 +388,11 @@ def process_social_domain_jit_provisioning_signup(
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
                 user = User.objects.create_and_join(
-                    organization=domain_instance.organization, email=email, password=None, first_name=full_name
+                    organization=domain_instance.organization,
+                    email=email,
+                    password=None,
+                    first_name=full_name,
+                    is_email_verified=True,
                 )
                 logger.info(
                     f"process_social_domain_jit_provisioning_join_complete",
@@ -389,9 +413,16 @@ def process_social_domain_jit_provisioning_signup(
 
 
 @partial
-def social_create_user(strategy: DjangoStrategy, details, backend, request, user=None, *args, **kwargs):
+def social_create_user(
+    strategy: DjangoStrategy, details, backend, request, user: Union[User, None] = None, *args, **kwargs
+):
     if user:
         logger.info(f"social_create_user_is_not_new")
+        if not user.is_email_verified and user.password is not None:
+            logger.info(f"social_create_user_is_not_new_unverified_has_password")
+            user.set_unusable_password()
+            user.is_email_verified = True
+            user.save()
         process_social_domain_jit_provisioning_signup(user.email, user.first_name, user)
         return {"is_new": False}
 

@@ -40,6 +40,7 @@ def fetch_cached_insight_result(target: Union[Insight, DashboardTile], refresh_f
     """
 
     cache_key = calculate_cache_key(target)
+
     if cache_key is None:
         return NothingInCacheResult(cache_key=None)
 
