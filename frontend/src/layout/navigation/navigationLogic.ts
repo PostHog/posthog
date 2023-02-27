@@ -223,7 +223,7 @@ export const navigationLogic = kea<navigationLogicType>({
                 } else if (
                     !user?.is_email_verified &&
                     !user?.has_social_auth &&
-                    featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === true
+                    featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === 'test'
                 ) {
                     return ['unverified_email', false]
                 } else if (
