@@ -267,6 +267,12 @@ describe('PropertyDefinitionsManager()', () => {
                 // extra query for `cacheEventNamesAndProperties` that we did manually before
                 expect(hub.db.postgresQuery).toHaveBeenCalledTimes(2)
             })
+
+            it('ignores non-billable events', async () => {
+                await manager.updateEventNamesAndProperties(teamId, '$$non_billable_event', {})
+                const results = await hub.db.postgresQuery('select * from posthog_eventdefinition', [])
+                expect(results.rows[0]).toEqual(0)
+            })
         })
 
         it('saves person property definitions', async () => {

@@ -22,7 +22,7 @@ import { PropertyDefinitionsCache } from './property-definitions-cache'
 import { TeamManager } from './team-manager'
 
 // for e.g. internal events we don't want to be available for users in the UI
-const EVENTS_WITHOUT_EVENT_DEFINITION = ['$$plugin_metrics']
+const EVENTS_WITHOUT_EVENT_DEFINITION_PREFIX = '$$'
 // These are used internally for manipulating person/group properties
 const NOT_SYNCED_PROPERTIES = new Set([
     '$set',
@@ -86,7 +86,7 @@ export class PropertyDefinitionsManager {
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
-        if (EVENTS_WITHOUT_EVENT_DEFINITION.includes(event)) {
+        if (event.indexOf(EVENTS_WITHOUT_EVENT_DEFINITION_PREFIX) === 0) {
             return
         }
 

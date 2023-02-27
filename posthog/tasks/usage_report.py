@@ -292,6 +292,7 @@ def get_teams_with_event_count_lifetime() -> List[Tuple[int, int]]:
         """
         SELECT team_id, count(1) as count
         FROM events
+        WHERE not startsWith(event, '$$')
         GROUP BY team_id
     """
     )
@@ -304,6 +305,7 @@ def get_teams_with_event_count_in_period(begin: datetime, end: datetime) -> List
         SELECT team_id, count(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
+        AND not startsWith(event, '$$')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -318,6 +320,7 @@ def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datet
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
+        AND not startsWith(event, '$$')
         GROUP BY team_id
     """,
         {"begin": begin, "end": end},
@@ -331,6 +334,7 @@ def get_teams_with_event_count_by_lib(begin: datetime, end: datetime) -> List[Tu
         SELECT team_id, JSONExtractString(properties, '$lib') as lib, COUNT(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
+        AND not startsWith(event, '$$')
         GROUP BY lib, team_id
     """,
         {"begin": begin, "end": end},
@@ -344,6 +348,7 @@ def get_teams_with_event_count_by_name(begin: datetime, end: datetime) -> List[T
         SELECT team_id, event, COUNT(1) as count
         FROM events
         WHERE timestamp between %(begin)s AND %(end)s
+        AND not startsWith(event, '$$')
         GROUP BY event, team_id
     """,
         {"begin": begin, "end": end},
