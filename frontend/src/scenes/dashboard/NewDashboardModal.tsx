@@ -277,13 +277,5 @@ export function UpdatedNewDashboardModal(): JSX.Element {
 export function NewDashboardModal(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
 
-    return (
-        <>
-            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] ? (
-                <UpdatedNewDashboardModal />
-            ) : (
-                <OriginalNewDashboardModal />
-            )}
-        </>
-    )
+    return <>{!!featureFlags[FEATURE_FLAGS.TEMPLUKES] ? <UpdatedNewDashboardModal /> : <OriginalNewDashboardModal />}</>
 }

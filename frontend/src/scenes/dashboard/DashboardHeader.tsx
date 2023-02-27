@@ -61,7 +61,7 @@ export function DashboardHeader(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
 
     const { tags } = useValues(tagsModel)
 

@@ -77,10 +77,18 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 return featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
             },
         ],
+        isUsingDashboardTemplatesV2: [
+            (s) => [s.featureFlags],
+            (featureFlags) => {
+                return featureFlags[FEATURE_FLAGS.TEMPLUKES]
+            },
+        ],
     }),
     afterMount(({ actions, values }) => {
         if (values.isUsingDashboardTemplates) {
             actions.loadRepository()
+        }
+        if (values.isUsingDashboardTemplatesV2) {
             actions.getAllTemplates()
         }
     }),
