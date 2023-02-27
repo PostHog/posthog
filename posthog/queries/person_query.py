@@ -98,7 +98,7 @@ class PersonQuery:
         distinct_id_clause, distinct_id_params = self._get_distinct_id_clause()
         email_clause, email_params = self._get_email_clause()
         filter_future_persons_query = (
-            "and max(created_at) < now() + interval '1 minute'" if filter_future_persons else ""
+            "and argMax(created_at, version) < now() + interval '1 day'" if filter_future_persons else ""
         )
 
         return (
