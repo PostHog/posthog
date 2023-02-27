@@ -2274,6 +2274,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 0)
 
+        @freeze_time("2012-01-01T03:21:34.000Z")
         @snapshot_clickhouse_queries
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
