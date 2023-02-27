@@ -135,9 +135,7 @@ export class TeamManager {
     }
 }
 
-// Team
-
-async function fetchTeam(client: Client | Pool, teamId: Team['id']): Promise<Team | null> {
+export async function fetchTeam(client: Client | Pool, teamId: Team['id']): Promise<Team | null> {
     const selectResult = await postgresQuery<Team>(
         client,
         `
@@ -160,7 +158,7 @@ async function fetchTeam(client: Client | Pool, teamId: Team['id']): Promise<Tea
     return selectResult.rows[0] ?? null
 }
 
-async function fetchTeamByToken(client: Client | Pool, token: string): Promise<Team | null> {
+export async function fetchTeamByToken(client: Client | Pool, token: string): Promise<Team | null> {
     const selectResult = await postgresQuery<Team>(
         client,
         `
