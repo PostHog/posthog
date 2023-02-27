@@ -13,7 +13,7 @@ export function GroupAnalytics(): JSX.Element | null {
 
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 
-    if (groupsAccessStatus !== GroupsAccessStatus.NoAccess) {
+    if (groupsAccessStatus === GroupsAccessStatus.NoAccess) {
         // Hide settings if the user doesn't have access
         return null
     }
