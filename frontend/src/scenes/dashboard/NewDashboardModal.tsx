@@ -107,7 +107,7 @@ export function DashboardTemplateChooser(): JSX.Element {
     const { allTemplates } = useValues(dashboardTemplatesLogic)
     const { addDashboard } = useActions(newDashboardLogic)
 
-    const { setActiveDashboardTemplate } = useActions(newDashboardLogic)
+    const { setActiveDashboardTemplate, createDashboardFromTemplate } = useActions(newDashboardLogic)
 
     return (
         <div>
@@ -133,10 +133,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                         template={template}
                         onClick={() => {
                             if (template.variables?.length === 0) {
-                                addDashboard({
-                                    name: template.template_name,
-                                    show: true,
-                                })
+                                createDashboardFromTemplate(template, template.variables)
                             } else {
                                 setActiveDashboardTemplate(template)
                             }

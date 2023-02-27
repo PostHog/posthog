@@ -622,6 +622,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                       name: tile.insight.name,
                                       description: tile.insight.description || '',
                                       filters: tile.insight.filters,
+                                      query: tile.insight.query,
                                       layouts: tile.layouts,
                                       color: tile.color,
                                   }

@@ -20,7 +20,7 @@ from posthog.constants import (
 )
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
@@ -410,26 +410,44 @@ def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> 
                 dashboard,
                 name=template_tile.get("name"),
                 filters=template_tile.get("filters"),
+                query=template_tile.get("query"),
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
             )
         elif template_tile["type"] == "TEXT":
-            # TODO support text tiles
-            pass
+            _create_tile_for_text(
+                dashboard,
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                body=template_tile.get("body"),
+            )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
+def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: Dict, color: Optional[str]) -> None:
+    text = Text.objects.create(
+        team=dashboard.team,
+        body=body,
+    )
+    DashboardTile.objects.create(
+        text=text,
+        dashboard=dashboard,
+        layouts=layouts,
+        color=color,
+    )
+
+
 def _create_tile_for_insight(
-    dashboard: Dashboard, name: str, filters: Dict, description: str, layouts: Dict, color: Optional[str]
+    dashboard: Dashboard, name: str, filters: Dict, query: Dict, description: str, layouts: Dict, color: Optional[str]
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
         name=name,
         description=description,
-        filters={**filters, "filter_test_accounts": True},
-        is_sample=True,
+        filters=filters,
+        query=query,
     )
     DashboardTile.objects.create(
         insight=insight,

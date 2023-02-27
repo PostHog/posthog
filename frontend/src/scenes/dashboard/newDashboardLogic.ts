@@ -1,8 +1,7 @@
-import { DashboardTemplateVariableType, DashboardTile, JsonType } from './../../types'
 import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
-import { DashboardTemplateType, DashboardType } from '~/types'
+import { DashboardTemplateType, DashboardType, DashboardTemplateVariableType, DashboardTile, JsonType } from '~/types'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { router } from 'kea-router'
@@ -10,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export interface NewDashboardForm {
     name: string
@@ -58,7 +58,7 @@ function makeTilesUsingVariables(tiles: DashboardTile[], variables: DashboardTem
 
 export const newDashboardLogic = kea<newDashboardLogicType>([
     path(['scenes', 'dashboard', 'newDashboardLogic']),
-    connect(dashboardsModel),
+    connect({ logic: [dashboardsModel], values: [featureFlagLogic, ['featureFlags']] }),
     actions({
         showNewDashboardModal: true,
         hideNewDashboardModal: true,
