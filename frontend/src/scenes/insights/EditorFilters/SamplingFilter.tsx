@@ -9,6 +9,8 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Slider } from 'antd'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
+const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([InsightType.LIFECYCLE, InsightType.FUNNELS, InsightType.TRENDS])
+
 export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
     const initializedInsightLogic = insightLogic(insightProps)
     const initializedFunnelLogic = funnelLogic(insightProps)
@@ -23,7 +25,8 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
     // Sampling is currently behind a feature flag and only available on lifecycle queries
     const insightSupportsSampling =
         featureFlags[FEATURE_FLAGS.SAMPLING] &&
-        (editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS)
+        editorFilters.insight &&
+        INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(editorFilters.insight)
 
     if (insightSupportsSampling) {
         return (
