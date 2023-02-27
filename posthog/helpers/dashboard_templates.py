@@ -440,7 +440,13 @@ def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: Dict, color:
 
 
 def _create_tile_for_insight(
-    dashboard: Dashboard, name: str, filters: Dict, query: Dict, description: str, layouts: Dict, color: Optional[str]
+    dashboard: Dashboard,
+    name: str,
+    filters: Dict,
+    description: str,
+    layouts: Dict,
+    color: Optional[str],
+    query: Optional[Dict] = None,
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
