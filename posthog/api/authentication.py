@@ -25,7 +25,6 @@ from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
 
 from posthog.api.email_verification import EmailVerifier
-from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
@@ -122,7 +121,7 @@ class LoginSerializer(serializers.Serializer):
             "require-email-verification", str(user.distinct_id)
         )
         # We still let them log in if is_email_verified is null so existing users don't get locked out
-        if is_cloud() and require_verification_feature and user.is_email_verified is not True:
+        if is_email_available() and require_verification_feature and user.is_email_verified is not True:
             EmailVerifier.create_token_and_send_email_verification(user)
             if user.is_email_verified is False:
                 # If it's None, we want to let them log in still since they are an existing user
