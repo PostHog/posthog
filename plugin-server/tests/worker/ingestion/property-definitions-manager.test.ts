@@ -270,8 +270,8 @@ describe('PropertyDefinitionsManager()', () => {
 
             it('ignores non-billable events', async () => {
                 await manager.updateEventNamesAndProperties(teamId, '$$non_billable_event', {})
-                const results = await hub.db.postgresQuery('select * from posthog_eventdefinition', [])
-                expect(results.rows[0]).toEqual(0)
+                const results = await hub.db.postgresQuery('select count(1) as c from posthog_eventdefinition', [])
+                expect(results.rows[0].c).toEqual(2)
             })
         })
 
