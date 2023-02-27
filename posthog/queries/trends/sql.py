@@ -77,14 +77,6 @@ SELECT counts AS total, timestamp AS day_start FROM (
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
-
-
-
-
--- bucket_increment_seconds
--- grouping_increment_seconds
--- rounding_func
-
 """
 
 ACTIVE_USERS_AGGREGATE_SQL = """
