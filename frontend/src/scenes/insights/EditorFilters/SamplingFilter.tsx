@@ -1,13 +1,13 @@
 import { EditorFilterProps, InsightType } from '~/types'
 import './LifecycleToggles.scss'
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
-
-const DEFAULT_SAMPLING_FACTOR = 0.1
+import { Slider } from 'antd'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
     const initializedInsightLogic = insightLogic(insightProps)
@@ -28,27 +28,35 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
     if (insightSupportsSampling) {
         return (
             <>
+                <span>
+                    <b>Sampling percentage</b>{' '}
+                    <Link to="https://posthog.com/manual/sampling" target="_blank">
+                        <IconInfo className="text-xl text-muted-alt shrink-0" />
+                    </Link>
+                </span>
                 <div className="SamplingFilter">
-                    <LemonSwitch
-                        checked={!!filters.sampling_factor}
-                        label={
-                            <>
-                                <span>Show sampled results</span>
-                            </>
-                        }
-                        onChange={(newChecked) => {
+                    <Slider
+                        defaultValue={100}
+                        min={5}
+                        max={100}
+                        step={5}
+                        trackStyle={{ background: 'var(--primary)' }}
+                        handleStyle={{ background: 'var(--primary)' }}
+                        style={{ maxWidth: 150 }}
+                        onAfterChange={(newValue) => {
                             if (editorFilters.insight === InsightType.FUNNELS) {
                                 setFunnelFilters({
                                     ...filters,
-                                    sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null,
+                                    sampling_factor: newValue / 100,
                                 })
                                 return
                             }
                             setInsightFilters({
                                 ...filters,
-                                sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null,
+                                sampling_factor: newValue / 100,
                             })
                         }}
+                        tipFormatter={(value) => `${value}%`}
                     />
                 </div>
             </>

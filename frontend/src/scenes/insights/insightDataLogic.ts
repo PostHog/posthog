@@ -25,6 +25,7 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
+    isInsightVizNode,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -65,7 +66,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setFilters', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
+            [
+                'setFilters',
+                'setInsight',
+                'loadInsightSuccess',
+                'loadResultsSuccess',
+                'saveInsight as insightLogicSaveInsight',
+            ],
             trendsLogic(props),
             ['setLifecycles as setTrendsLifecycles'],
         ],
@@ -77,6 +84,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
     }),
 
     reducers(({ props }) => ({
@@ -119,6 +127,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
+        ],
+
+        isQueryBasedInsight: [
+            (s) => [s.query],
+            (query) => {
+                return !isInsightVizNode(query) && !!query
+            },
         ],
 
         exportContext: [
@@ -194,6 +209,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 const query = queryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
+        },
+        saveInsight: ({ redirectToViewMode }) => {
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    ...(values.isQueryBasedInsight ? { query: values.query, filters: {} } : {}),
+                },
+                { overrideFilter: true, fromPersistentApi: false }
+            )
+            actions.insightLogicSaveInsight(redirectToViewMode)
         },
     })),
 ])
