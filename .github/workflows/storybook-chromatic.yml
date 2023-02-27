@@ -112,6 +112,9 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
+            - name: Install OptiPNG in the background
+              run: apt update && apt install -y optipng &
+
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
