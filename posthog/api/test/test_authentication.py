@@ -101,7 +101,9 @@ class TestLoginAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
         mock_is_email_available.assert_called_once()
-        mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.distinct_id))
+        mock_feature_enabled.assert_called_once_with(
+            "require-email-verification", str(self.user.distinct_id), person_properties={"email": self.CONFIG_EMAIL}
+        )
 
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
@@ -122,7 +124,9 @@ class TestLoginAPI(APIBaseTest):
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Assert we called the feature flag
-        mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.distinct_id))
+        mock_feature_enabled.assert_called_once_with(
+            "require-email-verification", str(self.user.distinct_id), person_properties={"email": self.CONFIG_EMAIL}
+        )
         mock_is_email_available.assert_called_once()
         # Assert the email was sent.
         mock_send_email_verification.assert_called_once_with(self.user)
