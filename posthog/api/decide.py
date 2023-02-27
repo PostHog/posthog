@@ -178,6 +178,7 @@ def get_decide(request: HttpRequest):
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
+                    "recorderVersion": "v2" if team.session_recording_version == "v2" else "v1",
                 }
 
             site_apps = []

@@ -209,7 +209,7 @@ export const insightLogic = kea<insightLogicType>([
                         return values.insight
                     }
 
-                    if ('filters' in insight && emptyFilters(insight.filters)) {
+                    if ('filters' in insight && !insight.query && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
                             extra: {
@@ -1035,7 +1035,7 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, dashboards, tags } = values.insight
+            const { name, description, favorited, filters, query, deleted, dashboards, tags } = values.insight
             let savedInsight: InsightModel
 
             try {
@@ -1046,6 +1046,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
+                    query,
                     deleted,
                     saved: true,
                     dashboards,
