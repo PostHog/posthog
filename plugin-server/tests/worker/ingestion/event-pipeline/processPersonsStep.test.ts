@@ -37,6 +37,7 @@ describe('processPersonsStep()', () => {
                     },
                 },
             },
+            poEEmbraceJoin: true,
         }
         personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)
 
@@ -96,7 +97,8 @@ describe('processPersonsStep()', () => {
             'hub.db',
             'hub.statsd',
             'hub.personManager',
-            personContainer
+            personContainer,
+            runner.poEEmbraceJoin
         )
         expect(response).toEqual([pluginEvent, updatedContainer])
     })
