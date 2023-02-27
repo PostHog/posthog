@@ -1,14 +1,14 @@
 import { clamp } from 'lib/utils'
 import {
     FunnelStepRangeEntityFilter,
-    FunnelRequestParams,
     FunnelStep,
     FunnelStepWithNestedBreakdown,
     BreakdownKeyType,
-    FunnelAPIResponse,
+    FunnelResultType,
     FunnelStepReference,
     FunnelConversionWindow,
     FunnelsFilterType,
+    Breakdown,
 } from '~/types'
 import { dayjs } from 'lib/dayjs'
 import { combineUrl } from 'kea-router'
@@ -126,14 +126,14 @@ export function aggregateBreakdownResult(
     return []
 }
 
-export function isBreakdownFunnelResults(results: FunnelAPIResponse): results is FunnelStep[][] {
+export function isBreakdownFunnelResults(results: FunnelResultType): results is FunnelStep[][] {
     return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
 }
 
 // breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
 export function isValidBreakdownParameter(
-    breakdown: FunnelRequestParams['breakdown'],
-    breakdowns: FunnelRequestParams['breakdowns']
+    breakdown: BreakdownKeyType | undefined,
+    breakdowns: Breakdown[] | undefined
 ): boolean {
     return (
         (Array.isArray(breakdowns) && breakdowns.length > 0) ||
