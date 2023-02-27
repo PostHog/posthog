@@ -55,7 +55,7 @@ const TotalEvents: EventsQuery = {
     select: ['count()'],
 }
 
-const TotalEventsTable: DataTableNode = {
+export const TotalEventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
     source: TotalEvents,

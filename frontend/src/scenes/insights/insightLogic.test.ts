@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import api from 'lib/api'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -968,20 +969,43 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('setFilters with new entity', () => {
-        it('does not call the api on empty filters', async () => {
+    describe('emptyFilters', () => {
+        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
+        beforeEach(() => {
             const insight = {
                 result: ['result from api'],
             }
-            logic = insightLogic({
+            theEmptyFiltersLogic = insightLogic({
                 dashboardItemId: undefined,
                 cachedInsight: insight,
             })
-            logic.mount()
+            theEmptyFiltersLogic.mount()
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
+        it('does not call the api on setting empty filters', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        it('does not call the api on update when empty filters and no query', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: undefined,
+                })
+            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
+        })
+
+        it('does call the api on update when empty filters but query is present', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
+                })
+            }).toDispatchActions(['updateInsightSuccess'])
         })
     })
 
@@ -1271,6 +1295,42 @@ describe('insightLogic', () => {
                     `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
                     {
                         client_query_id: seenQueryIDs[seenQueryIDs.length - 2],
+                    },
+                ],
+            ])
+        })
+    })
+
+    describe('saving query based insights', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: 'new',
+            })
+            logic.mount()
+        })
+
+        it('sends query when saving', async () => {
+            jest.spyOn(api, 'create')
+
+            await expectLogic(logic, () => {
+                logic.actions.setInsight(
+                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { overrideFilter: true }
+                )
+                logic.actions.saveInsight()
+            })
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            expect(mockCreateCalls).toEqual([
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights/`,
+                    {
+                        derived_name: '',
+                        filters: {},
+                        query: {
+                            kind: 'DataTableNode',
+                        },
+                        saved: true,
                     },
                 ],
             ])

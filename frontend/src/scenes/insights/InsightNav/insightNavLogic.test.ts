@@ -5,10 +5,14 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 import { useMocks } from '~/mocks/jest'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 describe('insightNavLogic', () => {
     let theInsightLogic: ReturnType<typeof insightLogic.build>
     let theInsightNavLogic: ReturnType<typeof insightNavLogic.build>
+    let theFeatureFlagLogic: ReturnType<typeof featureFlagLogic.build>
 
     describe('active view', () => {
         beforeEach(async () => {
@@ -23,6 +27,12 @@ describe('insightNavLogic', () => {
                 },
             })
             initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
+
+            theFeatureFlagLogic = featureFlagLogic()
+            theFeatureFlagLogic.mount()
+            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
+                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: false,
+            })
 
             const insightLogicProps: InsightLogicProps = {
                 dashboardItemId: 'new',
@@ -111,6 +121,26 @@ describe('insightNavLogic', () => {
             await expectLogic(theInsightLogic).toMatchValues({ erroredQueryId: null })
         })
 
+        it('can ignore set active view to QUERY when data exploration off', async () => {
+            await expectLogic(theInsightNavLogic, () => {
+                theInsightNavLogic.actions.setActiveView(InsightType.QUERY)
+            }).toMatchValues({
+                activeView: InsightType.TRENDS,
+            })
+        })
+
+        it('can set active view to QUERY when data exploration on', async () => {
+            theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
+                [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: true,
+            })
+
+            await expectLogic(theInsightNavLogic, () => {
+                theInsightNavLogic.actions.setActiveView(InsightType.QUERY)
+            }).toMatchValues({
+                activeView: InsightType.QUERY,
+            })
+        })
+
         describe('filters changing changes active view', () => {
             it('takes view from cached insight filters', async () => {
                 const propsWithCachedInsight = {
@@ -176,6 +206,32 @@ describe('insightNavLogic', () => {
                     theInsightLogic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
                 }).toMatchValues({
                     activeView: InsightType.FUNNELS,
+                })
+            })
+
+            it('ignores sets QUERY view from loadResultsSuccess when data exploration is off', async () => {
+                await expectLogic(theInsightNavLogic, () => {
+                    theInsightLogic.actions.loadResultsSuccess({
+                        filters: {},
+                        query: { kind: NodeKind.DataTableNode } as DataTableNode,
+                    })
+                }).toMatchValues({
+                    activeView: InsightType.TRENDS,
+                })
+            })
+
+            it('sets QUERY view from loadResultsSuccess when data exploration is on', async () => {
+                theFeatureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS], {
+                    [FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]: true,
+                })
+
+                await expectLogic(theInsightNavLogic, () => {
+                    theInsightLogic.actions.loadResultsSuccess({
+                        filters: {},
+                        query: { kind: NodeKind.DataTableNode } as DataTableNode,
+                    })
+                }).toMatchValues({
+                    activeView: InsightType.QUERY,
                 })
             })
 
