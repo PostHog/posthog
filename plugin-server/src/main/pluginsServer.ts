@@ -420,9 +420,9 @@ export async function startPluginsServer(
         const healthChecks: { [service: string]: () => Promise<boolean> } = {}
 
         if (capabilities.sessionRecordingIngestion) {
-            const kafka = createKafkaClient(serverConfig as KafkaConfig)
-            const postgres = createPostgresPool(serverConfig.DATABASE_URL)
-            const teamManager = new TeamManager(postgres, serverConfig)
+            const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
+            const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
+            const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
             const { consumer, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
                 kafka: kafka,
