@@ -86,7 +86,7 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
     def test_email_unverified_user_cant_log_in_if_email_verification_true(
         self, mock_feature_enabled, mock_send_email_verification, mock_is_email_available
     ):
@@ -108,7 +108,7 @@ class TestLoginAPI(APIBaseTest):
 
     @patch("posthog.api.authentication.is_email_available", return_value=True)
     @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
     def test_email_unverified_null_user_can_log_in_if_email_verification_true(
         self, mock_feature_enabled, mock_send_email_verification, mock_is_email_available
     ):

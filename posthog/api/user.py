@@ -32,7 +32,6 @@ from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
-from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
 from posthog.models import Team, User
@@ -190,7 +189,7 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_organization"] = current_team.organization
 
         require_verification_feature = (
-            posthoganalytics.feature_enabled("require-email-verification", str(instance.distinct_id)) and is_cloud()
+            posthoganalytics.get_feature_flag("require-email-verification", str(instance.distinct_id)) == "test"
         )
 
         if (
