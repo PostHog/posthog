@@ -144,34 +144,18 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 return stepsWithConversionMetrics(steps, stepReference)
             },
         ],
-        flattenedStepsByBreakdown: [
+        flattenedBreakdowns: [
             (s) => [s.stepsWithConversionMetrics, s.funnelsFilter],
             (steps, funnelsFilter): FlattenedFunnelStepByBreakdown[] => {
                 const disableBaseline = !!props.cachedInsight?.disable_baseline
-                return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline)
-            },
-        ],
-        flattenedBreakdowns: [
-            (s) => [s.flattenedStepsByBreakdown],
-            (flattenedStepsByBreakdown): FlattenedFunnelStepByBreakdown[] => {
-                return flattenedStepsByBreakdown.filter((b) => b.breakdown)
+                return flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
             },
         ],
         visibleStepsWithConversionMetrics: [
-            (s) => [
-                s.stepsWithConversionMetrics,
-                s.hiddenLegendKeys,
-                s.flattenedStepsByBreakdown,
-                s.flattenedBreakdowns,
-            ],
-            (
-                steps,
-                hiddenLegendKeys,
-                flattenedStepsByBreakdown,
-                flattenedBreakdowns
-            ): FunnelStepWithConversionMetrics[] => {
+            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedBreakdowns],
+            (steps, hiddenLegendKeys, flattenedBreakdowns): FunnelStepWithConversionMetrics[] => {
                 const isOnlySeries = flattenedBreakdowns.length <= 1
-                const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
+                const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
                 return steps.map((step, stepIndex) => ({
                     ...step,
                     nested_breakdown: (!!baseLineSteps?.steps
