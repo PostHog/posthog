@@ -67,6 +67,12 @@ PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     labelnames=["partition_key"],
 )
 
+TOKEN_SHAPE_INVALID_COUNTER = Counter(
+    "capture_token_shape_invalid_total",
+    "Events (soon to be) dropped due to an invalid token shape, per reason.",
+    labelnames=["reason"],
+)
+
 
 def parse_kafka_event_data(
     distinct_id: str,
@@ -185,6 +191,18 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
                 ),
             ),
         )
+
+
+def _check_token_shape(token: str) -> Optional[str]:
+    if not token:
+        return "empty"
+    if token.startswith("phx_"):  # Used by previous versions of the zapier integration, should not happen now
+        return "personal_token"
+    if len(token) > 64:
+        return "too_long"
+    if not token.isascii():  # Legacy tokens were base64, so let's be permissive
+        return "not_ascii"
+    return None
 
 
 def get_distinct_id(data: Dict[str, Any]) -> str:
@@ -307,6 +325,16 @@ def get_event(request):
 
             if db_error:
                 send_events_to_dead_letter_queue = True
+
+    try:
+        invalid_token_reason = _check_token_shape(token)
+        if invalid_token_reason:
+            # TODO: check the capture_token_shape_invalid_total metric for false positives,
+            #  then move higher and refuse requests
+            TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
+            logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
+    except Exception as e:
+        logger.warning("capture_token_shape_invalid", token=token, exception=e)
 
     team_id = ingestion_context.team_id if ingestion_context else None
     structlog.contextvars.bind_contextvars(team_id=team_id)
