@@ -196,12 +196,12 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
 def _check_token_shape(token: str) -> Optional[str]:
     if not token:
         return "empty"
-    if token.startswith("phx_"):  # Used by previous versions of the zapier integration, should not happen now
-        return "personal_token"
     if len(token) > 64:
         return "too_long"
     if not token.isascii():  # Legacy tokens were base64, so let's be permissive
         return "not_ascii"
+    if token.startswith("phx_"):  # Used by previous versions of the zapier integration, should not happen now
+        return "personal_token"
     return None
 
 
