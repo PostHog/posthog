@@ -64,7 +64,7 @@ function TemplateItem({
     index: number
 }): JSX.Element {
     return (
-        <div className="cursor-pointer border-2 rounded TemplateItem" onClick={onClick}>
+        <div className="cursor-pointer border rounded TemplateItem" onClick={onClick}>
             <div className="w-full h-30 overflow-hidden">
                 <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
             </div>
