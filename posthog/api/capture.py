@@ -334,7 +334,8 @@ def get_event(request):
             TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
             logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
     except Exception as e:
-        logger.warning("capture_token_shape_invalid", token=token, exception=e)
+        TOKEN_SHAPE_INVALID_COUNTER.labels(reason="exception").inc()
+        logger.warning("capture_token_shape_invalid", token=token, reason="exception", exception=e)
 
     team_id = ingestion_context.team_id if ingestion_context else None
     structlog.contextvars.bind_contextvars(team_id=team_id)
