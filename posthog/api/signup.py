@@ -30,17 +30,26 @@ logger = structlog.get_logger(__name__)
 
 
 def verify_email_or_login(request: HttpRequest, user: User) -> None:
-    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.distinct_id))
+    require_verification_feature = (
+        posthoganalytics.get_feature_flag(
+            "require-email-verification", str(user.distinct_id), person_properties={"email": user.email}
+        )
+        == "test"
+    )
     if is_email_available() and require_verification_feature:
         EmailVerifier.create_token_and_send_email_verification(user)
     else:
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
 
 
-def get_verification_redirect_url(uuid: str, distinct_id: str):
-    require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(distinct_id))
+def get_verification_redirect_url(uuid: str, distinct_id: str, email: str) -> str:
+    require_verification_feature = posthoganalytics.get_feature_flag(
+        "require-email-verification", str(distinct_id), person_properties={"email": email}
+    )
     return (
-        "/verify_email/" + uuid if is_email_available() and require_verification_feature and not settings.DEMO else "/"
+        "/verify_email/" + uuid
+        if is_email_available() and require_verification_feature == "test" and not settings.DEMO
+        else "/"
     )
 
 
@@ -142,7 +151,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"])
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"], data["email"])
         return data
 
 
@@ -163,7 +172,7 @@ class InviteSignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance):
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"])
+        data["redirect_url"] = get_verification_redirect_url(data["uuid"], data["distinct_id"], data["email"])
         return data
 
     def validate(self, data: Dict[str, Any]) -> Dict[str, Any]:

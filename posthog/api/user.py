@@ -189,7 +189,10 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_organization"] = current_team.organization
 
         require_verification_feature = (
-            posthoganalytics.get_feature_flag("require-email-verification", str(instance.distinct_id)) == "test"
+            posthoganalytics.get_feature_flag(
+                "require-email-verification", str(instance.distinct_id), person_properties={"email": instance.email}
+            )
+            == "test"
         )
 
         if (
