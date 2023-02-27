@@ -108,8 +108,7 @@ def correct_result_for_sampling(value: int, sampling_factor: Optional[float], en
 
     # We don't adjust results for sampling if:
     # - There's no sampling_factor specified i.e. the query isn't sampled
-    # - The query performs a property math operation because math operations on sampled data yield results in the correct format
-    # - The query performs a math operation on actor counts, since we disallow sampling for these cases
+    # - The query performs a math operation because math operations on sampled data yield results in the correct format
     if (not sampling_factor) or (entity_math is not None and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS):
         return value
 
