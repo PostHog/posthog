@@ -54,6 +54,7 @@ export enum Scene {
     IntegrationsRedirect = 'IntegrationsRedirect',
     // Authentication, onboarding & initialization routes
     Login = 'Login',
+    Login2FA = 'Login2FA',
     Signup = 'Signup',
     InviteSignup = 'InviteSignup',
     PasswordReset = 'PasswordReset',
@@ -63,6 +64,7 @@ export enum Scene {
     OrganizationCreationConfirm = 'OrganizationCreationConfirm',
     Unsubscribe = 'Unsubscribe',
     Query = 'Query',
+    VerifyEmail = 'VerifyEmail',
 }
 
 export type SceneProps = Record<string, any>

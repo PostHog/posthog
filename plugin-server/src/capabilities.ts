@@ -13,12 +13,26 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
                 pluginScheduledTasks: true,
                 processPluginJobs: true,
                 processAsyncHandlers: true,
+                sessionRecordingIngestion: true,
                 ...sharedCapabilities,
             }
         case 'ingestion':
-            return { ingestion: true, ...sharedCapabilities }
+            // NOTE: this mode will be removed in the future and replaced with
+            // `analytics-ingestion` and `recordings-ingestion` modes.
+            return { ingestion: true, sessionRecordingIngestion: true, ...sharedCapabilities }
         case 'ingestion-overflow':
             return { ingestionOverflow: true, ...sharedCapabilities }
+        case 'analytics-ingestion':
+            return {
+                ingestion: true,
+                ...sharedCapabilities,
+            }
+        case 'recordings-ingestion':
+            return {
+                sessionRecordingIngestion: true,
+                ...sharedCapabilities,
+            }
+
         case 'async':
             return {
                 processPluginJobs: true,

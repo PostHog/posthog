@@ -54,6 +54,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.FrontendAppScene]: () => import('./apps/FrontendAppScene'),
     [Scene.AppMetrics]: () => import('./apps/AppMetricsScene'),
     [Scene.Login]: () => import('./authentication/Login'),
+    [Scene.Login2FA]: () => import('./authentication/Login2FA'),
     [Scene.SavedInsights]: () => import('./saved-insights/SavedInsights'),
     [Scene.PasswordReset]: () => import('./authentication/PasswordReset'),
     [Scene.PasswordResetComplete]: () => import('./authentication/PasswordResetComplete'),
@@ -61,4 +62,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
     [Scene.Query]: () => import('./query/QueryScene'),
+    [Scene.VerifyEmail]: () => import('./authentication/signup/verify-email/VerifyEmail'),
 }

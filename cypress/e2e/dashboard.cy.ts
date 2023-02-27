@@ -34,6 +34,25 @@ describe('Dashboard', () => {
         cy.get('.CardMeta h4').should('have.text', insightName)
     })
 
+    it('Adding new insight to dashboard does not clear filters', () => {
+        const dashboardName = randomString('to add an insight to')
+        const firstInsight = randomString('insight to add to dashboard')
+        const secondInsight = randomString('another insight to add to dashboard')
+
+        // create and visit a dashboard to get it into turbomode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+        dashboard.addInsightToEmptyDashboard(firstInsight)
+
+        dashboard.addAnyFilter()
+
+        dashboard.addInsightToEmptyDashboard(secondInsight)
+
+        cy.get('.PropertyFilterButton').should('have.length', 1)
+
+        cy.get('.CardMeta h4').should('contain.text', firstInsight)
+        cy.get('.CardMeta h4').should('contain.text', secondInsight)
+    })
+
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('h1').should('contain', 'Dashboards')
         cy.get('th').contains('Description').should('not.exist')
@@ -62,12 +81,21 @@ describe('Dashboard', () => {
 
         cy.contains('Embed dashboard').should('be.visible')
         cy.get('[data-attr=copy-code-button]').click()
-        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '<iframe')
-        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '/embedded/')
+        cy.window()
+            .its('navigator.clipboard')
+            .then((c) => c.readText())
+            .should('contain', '<iframe')
+        cy.window()
+            .its('navigator.clipboard')
+            .then((c) => c.readText())
+            .should('contain', '/embedded/')
 
         cy.contains('Copy share link').should('be.visible')
         cy.get('[data-attr=sharing-link-button]').click()
-        cy.window().its('navigator.clipboard').invoke('readText').should('contain', '/shared/')
+        cy.window()
+            .its('navigator.clipboard')
+            .then((c) => c.readText())
+            .should('contain', '/shared/')
     })
 
     it('Create an empty dashboard', () => {
