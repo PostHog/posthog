@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0302_add_user_pending_email_and_is_verified"),
+        ("posthog", "0303_team_session_recording_version"),
     ]
 
     operations = [

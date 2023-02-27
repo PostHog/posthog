@@ -118,7 +118,6 @@ class TrendsTotalVolume:
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
-                # null_sql = ""
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
                 # :TODO: Consider using bitmap-per-date to speed this up
                 tag_queries(trend_volume_type="cumulative_actors")
