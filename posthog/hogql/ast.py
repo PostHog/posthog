@@ -34,64 +34,64 @@ class AST(BaseModel):
         raise ValueError(f"Visitor has no method {method_name}")
 
 
-class Symbol(AST):
-    def get_child(self, name: str) -> "Symbol":
-        raise NotImplementedError("Symbol.get_child not overridden")
+class Pointer(AST):
+    def get_child(self, name: str) -> "Pointer":
+        raise NotImplementedError("Pointer.get_child not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
 
 
-class FieldAliasSymbol(Symbol):
+class FieldAliasPointer(Pointer):
     name: str
-    symbol: Symbol
+    pointer: Pointer
 
-    def get_child(self, name: str) -> Symbol:
-        return self.symbol.get_child(name)
+    def get_child(self, name: str) -> Pointer:
+        return self.pointer.get_child(name)
 
     def has_child(self, name: str) -> bool:
-        return self.symbol.has_child(name)
+        return self.pointer.has_child(name)
 
 
-class BaseTableSymbol(Symbol):
+class BaseTablePointer(Pointer):
     def resolve_database_table(self) -> Table:
-        raise NotImplementedError("BaseTableSymbol.resolve_database_table not overridden")
+        raise NotImplementedError("BaseTablePointer.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.resolve_database_table().has_field(name)
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Pointer:
         if name == "*":
-            return AsteriskSymbol(table=self)
+            return AsteriskPointer(table=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
             if isinstance(field, LazyTable):
-                return LazyTableSymbol(table=self, field=name, lazy_table=field)
+                return LazyTablePointer(table=self, field=name, lazy_table=field)
             if isinstance(field, FieldTraverser):
-                return FieldTraverserSymbol(table=self, chain=field.chain)
+                return FieldTraverserPointer(table=self, chain=field.chain)
             if isinstance(field, VirtualTable):
-                return VirtualTableSymbol(table=self, field=name, virtual_table=field)
-            return FieldSymbol(name=name, table=self)
+                return VirtualTablePointer(table=self, field=name, virtual_table=field)
+            return FieldPointer(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 
 
-class TableSymbol(BaseTableSymbol):
+class TablePointer(BaseTablePointer):
     table: Table
 
     def resolve_database_table(self) -> Table:
         return self.table
 
 
-class TableAliasSymbol(BaseTableSymbol):
+class TableAliasPointer(BaseTablePointer):
     name: str
-    table_symbol: TableSymbol
+    table_pointer: TablePointer
 
     def resolve_database_table(self) -> Table:
-        return self.table_symbol.table
+        return self.table_pointer.table
 
 
-class LazyTableSymbol(BaseTableSymbol):
-    table: BaseTableSymbol
+class LazyTablePointer(BaseTablePointer):
+    table: BaseTablePointer
     field: str
     lazy_table: LazyTable
 
@@ -99,8 +99,8 @@ class LazyTableSymbol(BaseTableSymbol):
         return self.lazy_table.table
 
 
-class VirtualTableSymbol(BaseTableSymbol):
-    table: BaseTableSymbol
+class VirtualTablePointer(BaseTablePointer):
+    table: BaseTablePointer
     field: str
     virtual_table: VirtualTable
 
@@ -111,103 +111,103 @@ class VirtualTableSymbol(BaseTableSymbol):
         return self.virtual_table.has_field(name)
 
 
-class SelectQuerySymbol(Symbol):
+class SelectQueryPointer(Pointer):
     # all aliases a select query has access to in its scope
-    aliases: Dict[str, FieldAliasSymbol] = PydanticField(default_factory=dict)
-    # all symbols a select query exports
-    columns: Dict[str, Symbol] = PydanticField(default_factory=dict)
+    aliases: Dict[str, FieldAliasPointer] = PydanticField(default_factory=dict)
+    # all pointers a select query exports
+    columns: Dict[str, Pointer] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[str, Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]] = PydanticField(
+    tables: Dict[str, Union[BaseTablePointer, "SelectQueryPointer", "SelectQueryAliasPointer"]] = PydanticField(
         default_factory=dict
     )
     # all from and join subqueries without aliases
-    anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
+    anonymous_tables: List["SelectQueryPointer"] = PydanticField(default_factory=list)
 
-    def get_alias_for_table_symbol(
+    def get_alias_for_table_pointer(
         self,
-        table_symbol: Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"],
+        table_pointer: Union[BaseTablePointer, "SelectQueryPointer", "SelectQueryAliasPointer"],
     ) -> Optional[str]:
         for key, value in self.tables.items():
-            if value == table_symbol:
+            if value == table_pointer:
                 return key
         return None
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Pointer:
         if name == "*":
-            return AsteriskSymbol(table=self)
+            return AsteriskPointer(table=self)
         if name in self.columns:
-            return FieldSymbol(name=name, table=self)
+            return FieldPointer(name=name, table=self)
         raise ValueError(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
 
 
-class SelectQueryAliasSymbol(Symbol):
+class SelectQueryAliasPointer(Pointer):
     name: str
-    symbol: SelectQuerySymbol
+    pointer: SelectQueryPointer
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Pointer:
         if name == "*":
-            return AsteriskSymbol(table=self)
-        if self.symbol.has_child(name):
-            return FieldSymbol(name=name, table=self)
+            return AsteriskPointer(table=self)
+        if self.pointer.has_child(name):
+            return FieldPointer(name=name, table=self)
         raise ValueError(f"Field {name} not found on query with alias {self.name}")
 
     def has_child(self, name: str) -> bool:
-        return self.symbol.has_child(name)
+        return self.pointer.has_child(name)
 
 
-SelectQuerySymbol.update_forward_refs(SelectQueryAliasSymbol=SelectQueryAliasSymbol)
+SelectQueryPointer.update_forward_refs(SelectQueryAliasPointer=SelectQueryAliasPointer)
 
 
-class CallSymbol(Symbol):
+class CallPointer(Pointer):
     name: str
-    args: List[Symbol]
+    args: List[Pointer]
 
 
-class ConstantSymbol(Symbol):
+class ConstantPointer(Pointer):
     value: Any
 
 
-class AsteriskSymbol(Symbol):
-    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+class AsteriskPointer(Pointer):
+    table: Union[BaseTablePointer, SelectQueryPointer, SelectQueryAliasPointer]
 
 
-class FieldTraverserSymbol(Symbol):
+class FieldTraverserPointer(Pointer):
     chain: List[str]
-    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTablePointer, SelectQueryPointer, SelectQueryAliasPointer]
 
 
-class FieldSymbol(Symbol):
+class FieldPointer(Pointer):
     name: str
-    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTablePointer, SelectQueryPointer, SelectQueryAliasPointer]
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
-        if isinstance(self.table, BaseTableSymbol):
+        if isinstance(self.table, BaseTablePointer):
             table = self.table.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)
         return None
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Pointer:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertySymbol(name=name, parent=self)
+            return PropertyPointer(name=name, parent=self)
         raise ValueError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
-class PropertySymbol(Symbol):
+class PropertyPointer(Pointer):
     name: str
-    parent: FieldSymbol
+    parent: FieldPointer
 
 
 class Expr(AST):
-    symbol: Optional[Symbol]
+    pointer: Optional[Pointer]
 
 
 class Alias(Expr):
@@ -300,7 +300,7 @@ class JoinExpr(Expr):
 
 
 class SelectQuery(Expr):
-    symbol: Optional[SelectQuerySymbol] = None
+    pointer: Optional[SelectQueryPointer] = None
 
     select: List[Expr]
     distinct: Optional[bool] = None

@@ -14,35 +14,35 @@ class AsteriskExpander(TraversingVisitor):
 
         columns: List[ast.Expr] = []
         for column in node.select:
-            if isinstance(column.symbol, ast.AsteriskSymbol):
-                asterisk = column.symbol
-                if isinstance(asterisk.table, ast.TableSymbol) or isinstance(asterisk.table, ast.TableAliasSymbol):
+            if isinstance(column.pointer, ast.AsteriskPointer):
+                asterisk = column.pointer
+                if isinstance(asterisk.table, ast.TablePointer) or isinstance(asterisk.table, ast.TableAliasPointer):
                     table = asterisk.table
-                    while isinstance(table, ast.TableAliasSymbol):
-                        table = table.table_symbol
-                    if isinstance(table, ast.TableSymbol):
+                    while isinstance(table, ast.TableAliasPointer):
+                        table = table.table_pointer
+                    if isinstance(table, ast.TablePointer):
                         database_fields = table.table.get_asterisk()
                         for key in database_fields.keys():
-                            symbol = ast.FieldSymbol(name=key, table=asterisk.table)
-                            columns.append(ast.Field(chain=[key], symbol=symbol))
-                            node.symbol.columns[key] = symbol
+                            pointer = ast.FieldPointer(name=key, table=asterisk.table)
+                            columns.append(ast.Field(chain=[key], pointer=pointer))
+                            node.pointer.columns[key] = pointer
                     else:
                         raise ValueError("Can't expand asterisk (*) on table")
-                elif isinstance(asterisk.table, ast.SelectQuerySymbol) or isinstance(
-                    asterisk.table, ast.SelectQueryAliasSymbol
+                elif isinstance(asterisk.table, ast.SelectQueryPointer) or isinstance(
+                    asterisk.table, ast.SelectQueryAliasPointer
                 ):
                     select = asterisk.table
-                    while isinstance(select, ast.SelectQueryAliasSymbol):
-                        select = select.symbol
-                    if isinstance(select, ast.SelectQuerySymbol):
+                    while isinstance(select, ast.SelectQueryAliasPointer):
+                        select = select.pointer
+                    if isinstance(select, ast.SelectQueryPointer):
                         for name in select.columns.keys():
-                            symbol = ast.FieldSymbol(name=name, table=asterisk.table)
-                            columns.append(ast.Field(chain=[name], symbol=symbol))
-                            node.symbol.columns[name] = symbol
+                            pointer = ast.FieldPointer(name=name, table=asterisk.table)
+                            columns.append(ast.Field(chain=[name], pointer=pointer))
+                            node.pointer.columns[name] = pointer
                     else:
                         raise ValueError("Can't expand asterisk (*) on subquery")
                 else:
-                    raise ValueError(f"Can't expand asterisk (*) on a symbol of type {type(asterisk.table).__name__}")
+                    raise ValueError(f"Can't expand asterisk (*) on a pointer of type {type(asterisk.table).__name__}")
 
             else:
                 columns.append(column)

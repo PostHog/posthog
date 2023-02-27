@@ -45,7 +45,7 @@ def get_parser(query: str) -> HogQLParser:
 
 
 class HogQLErrorListener(ErrorListener):
-    def syntaxError(self, recognizer, offendingSymbol, line, column, msg, e):
+    def syntaxError(self, recognizer, offendingPointer, line, column, msg, e):
         raise SyntaxError(f"line {line}, column {column}: {msg}")
 
 
