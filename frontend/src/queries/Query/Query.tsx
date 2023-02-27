@@ -47,6 +47,8 @@ export function Query(props: QueryProps): JSX.Element {
         }
     }
 
+    console.log('Query', query)
+
     let component
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />

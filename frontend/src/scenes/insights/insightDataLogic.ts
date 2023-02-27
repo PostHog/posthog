@@ -175,17 +175,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
 
-            const querySource = (query as InsightVizNode).source
-            if (isLifecycleQuery(querySource)) {
-                const filters = queryNodeToFilter(querySource)
-                actions.setFilters(filters)
+            if (isInsightVizNode(query)) {
+                const querySource = (query as InsightVizNode).source
+                if (isLifecycleQuery(querySource)) {
+                    const filters = queryNodeToFilter(querySource)
+                    actions.setFilters(filters)
 
-                if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
-                    actions.setTrendsLifecycles(
-                        querySource.lifecycleFilter?.toggledLifecycles
-                            ? querySource.lifecycleFilter.toggledLifecycles
-                            : ['new', 'resurrecting', 'returning', 'dormant']
-                    )
+                    if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
+                        actions.setTrendsLifecycles(
+                            querySource.lifecycleFilter?.toggledLifecycles
+                                ? querySource.lifecycleFilter.toggledLifecycles
+                                : ['new', 'resurrecting', 'returning', 'dormant']
+                        )
+                    }
                 }
             }
         },
