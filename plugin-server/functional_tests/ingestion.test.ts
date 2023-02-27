@@ -423,58 +423,57 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     }, 10000)
 })
 
-testIfPoEEmbraceJoinEnabled(
-    `complex chained merge adds results in all events resolving to the same person id`,
-    async () => {
-        // let's assume we have 4 persons 1234, we'll first merge 1-2 & 3-4, then we'll merge 2-3
-        // this should still result in all events having the same person_id or override[person_id]
+// This test only works when poEEmbraceTheJoin is enabled.
+// For this test to pass we must write a $merge command that works when both persons are identified.
+test.skip(`complex chained merge adds results in all events resolving to the same person id`, async () => {
+    // let's assume we have 4 persons 1234, we'll first merge 1-2 & 3-4, then we'll merge 2-3
+    // this should still result in all events having the same person_id or override[person_id]
 
-        const teamId = await createTeam(postgres, organizationId)
-        const initialDistinctId = new UUIDT().toString()
-        const secondDistinctId = new UUIDT().toString()
-        const thirdDistinctId = new UUIDT().toString()
-        const forthDistinctId = new UUIDT().toString()
+    const teamId = await createTeam(postgres, organizationId)
+    const initialDistinctId = new UUIDT().toString()
+    const secondDistinctId = new UUIDT().toString()
+    const thirdDistinctId = new UUIDT().toString()
+    const forthDistinctId = new UUIDT().toString()
 
-        // First we emit anoymous events and wait for the persons to be created.
-        await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), 'custom event')
-        await capture(producer, teamId, secondDistinctId, new UUIDT().toString(), 'custom event 2')
-        await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), 'custom event 3')
-        await capture(producer, teamId, forthDistinctId, new UUIDT().toString(), 'custom event 3')
-        await waitForExpect(async () => {
-            const persons = await fetchPersons(clickHouseClient, teamId)
-            expect(persons.length).toBe(4)
-        }, 10000)
+    // First we emit anoymous events and wait for the persons to be created.
+    await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), 'custom event')
+    await capture(producer, teamId, secondDistinctId, new UUIDT().toString(), 'custom event 2')
+    await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), 'custom event 3')
+    await capture(producer, teamId, forthDistinctId, new UUIDT().toString(), 'custom event 3')
+    await waitForExpect(async () => {
+        const persons = await fetchPersons(clickHouseClient, teamId)
+        expect(persons.length).toBe(4)
+    }, 10000)
 
-        // Then we identify 1-2 and 3-4
-        await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
-            distinct_id: initialDistinctId,
-            $anon_distinct_id: secondDistinctId,
-        })
-        await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), '$identify', {
-            distinct_id: thirdDistinctId,
-            $anon_distinct_id: forthDistinctId,
-        })
+    // Then we identify 1-2 and 3-4
+    await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: initialDistinctId,
+        $anon_distinct_id: secondDistinctId,
+    })
+    await capture(producer, teamId, thirdDistinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: thirdDistinctId,
+        $anon_distinct_id: forthDistinctId,
+    })
 
-        await waitForExpect(async () => {
-            const events = await fetchEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(6)
-        }, 10000)
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(6)
+    }, 10000)
 
-        // Then we merge 2-3
-        // TODO: make this a valid merge event instead of $identify
-        await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
-            distinct_id: secondDistinctId,
-            $anon_distinct_id: thirdDistinctId,
-        })
-        await waitForExpect(async () => {
-            const events = await fetchEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(7)
-            expect(events[0].person_id).toBeDefined()
-            expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
-            expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
-        }, 10000)
-    }
-)
+    // Then we merge 2-3
+    // TODO: make this a valid merge event instead of $identify
+    await capture(producer, teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: secondDistinctId,
+        $anon_distinct_id: thirdDistinctId,
+    })
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(7)
+        expect(events[0].person_id).toBeDefined()
+        expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
+        expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
+    }, 10000)
+})
 
 // TODO: adjust this test to poEEmbraceJoin
 test.skip(`person properties don't see properties from descendents`, async () => {

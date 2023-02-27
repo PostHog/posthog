@@ -14,7 +14,7 @@
 from django.conf import settings
 
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
-from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS_FOR_CLICKHOUSE
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
@@ -91,7 +91,7 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
     ENGINE = Kafka(
-        '{KAFKA_HOSTS}', -- Kafka hosts
+        '{KAFKA_HOSTS_FOR_CLICKHOUSE}', -- Kafka hosts
         '{KAFKA_PERSON_OVERRIDE}', -- Kafka topic
         'clickhouse-person-overrides', -- Kafka consumer group id
         'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
