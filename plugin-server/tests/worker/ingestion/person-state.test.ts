@@ -2124,18 +2124,19 @@ describe('person id overrides', () => {
         await closeHub()
     })
 
-    async function updatePersonStateFromEvent(event: Partial<PluginEvent>) {
+    async function updatePersonStateFromEvent(event: Partial<PluginEvent>, ts = '') {
         const fullEvent = {
             team_id: teamId,
             properties: {},
             ...event,
         }
+        const t = ts ? DateTime.fromISO(ts).toUTC() : timestamp
         const personContainer = new LazyPersonContainer(teamId, event.distinct_id!, hub)
         const state = new PersonState(
             fullEvent as any,
             teamId,
             event.distinct_id!,
-            timestamp,
+            t,
             hub.db,
             hub.statsd,
             hub.personManager,
@@ -2342,20 +2343,44 @@ describe('person id overrides', () => {
     })
 
     it('handles a chain of overrides being applied concurrently', async () => {
-        await updatePersonStateFromEvent({
-            event: 'event',
-            distinct_id: 'first',
-        })
+        await updatePersonStateFromEvent(
+            {
+                event: 'event',
+                distinct_id: 'first',
+                properties: {
+                    $set: {
+                        first: true,
+                    },
+                },
+            },
+            '2021-01-01T12:00:05.200Z'
+        )
 
-        await updatePersonStateFromEvent({
-            event: 'event',
-            distinct_id: 'second',
-        })
+        await updatePersonStateFromEvent(
+            {
+                event: 'event',
+                distinct_id: 'second',
+                properties: {
+                    $set: {
+                        second: true,
+                    },
+                },
+            },
+            '2022-01-01T12:00:05.200Z'
+        )
 
-        await updatePersonStateFromEvent({
-            event: 'event',
-            distinct_id: 'third',
-        })
+        await updatePersonStateFromEvent(
+            {
+                event: 'event',
+                distinct_id: 'third',
+                properties: {
+                    $set: {
+                        third: true,
+                    },
+                },
+            },
+            '2023-01-01T12:00:05.200Z'
+        )
 
         const [first, second, third] = await fetchPostgresPersons()
 
@@ -2385,20 +2410,25 @@ describe('person id overrides', () => {
             }
         })
 
+        // Due to usage of identify, the same distinct_id must be used as distinct_id, so
+        // which ever order merges happen we will always be able to merge and not be blocked
+        // due to the mergefrom user being already identified
+        // To create a chain we ideally want the merges to be A -> B -> C. Which person we
+        // merge into is determined by the creation timestamps (merging into oldest)
         await expect(
             Promise.all([
                 updatePersonStateFromEvent({
                     event: '$identify',
                     distinct_id: 'second',
                     properties: {
-                        $anon_distinct_id: 'first',
+                        $anon_distinct_id: 'third',
                     },
                 }),
                 updatePersonStateFromEvent({
                     event: '$identify',
-                    distinct_id: 'third',
+                    distinct_id: 'second',
                     properties: {
-                        $anon_distinct_id: 'second',
+                        $anon_distinct_id: 'first',
                     },
                 }),
             ])
@@ -2409,14 +2439,14 @@ describe('person id overrides', () => {
                 event: '$identify',
                 distinct_id: 'second',
                 properties: {
-                    $anon_distinct_id: 'first',
+                    $anon_distinct_id: 'third',
                 },
             }),
             updatePersonStateFromEvent({
                 event: '$identify',
-                distinct_id: 'third',
+                distinct_id: 'second',
                 properties: {
-                    $anon_distinct_id: 'second',
+                    $anon_distinct_id: 'first',
                 },
             }),
         ])
@@ -2425,35 +2455,28 @@ describe('person id overrides', () => {
         const personsAfterFailure = await fetchPostgresPersons()
         expect(personsAfterFailure).toEqual([
             expect.objectContaining({
-                id: third.id,
-                uuid: third.uuid,
-                properties: third.properties,
-                created_at: third.created_at,
-                // TODO: fix this. It seems that we update some person
-                // properties. In this case we'll raised an error,
-                // successfully updated distinct_ids and overrides but then
-                // will not send messages to Kafka. If there is logic that
-                // relies on e.g. is_identified being false, we will also
-                // end up not running the same logic even if we did have a
-                // retry.
-                // is_identified: person.is_identified,
-                // version: person.version,
+                id: first.id, // guaranteed to merge into first due to created_at timestamps
+                uuid: first.uuid,
+                properties: { first: true, second: true, third: true },
+                created_at: first.created_at,
+                is_identified: true,
+                version: '1', // the test intends for it to be a chain, so must get v1, we get v2 if second->first and third->first, but we want it to be third->second->first
             }),
         ])
 
         // verify Postgres distinct_ids
         const distinctIdsAfterFailure = await fetchDistinctIds()
         expect(distinctIdsAfterFailure).toEqual([
-            ['first', third.id],
-            ['second', third.id],
-            ['third', third.id],
+            ['first', first.id],
+            ['second', first.id],
+            ['third', first.id],
         ])
 
         // verify Postgres person_id overrides
         const overridesfterFailure = await fetchPersonIdOverrides()
         expect(overridesfterFailure).toEqual([
-            [first.uuid, third.uuid],
-            [second.uuid, third.uuid],
+            [second.uuid, first.uuid],
+            [third.uuid, first.uuid],
         ])
     })
 
@@ -2497,7 +2520,7 @@ describe('person id overrides', () => {
             expect.objectContaining({
                 id: third.id,
                 uuid: third.uuid,
-                properties: third.properties,
+                properties: {},
                 created_at: third.created_at,
                 // TODO: fix this. It seems that we update some person
                 // properties. In this case we'll raised an error,
