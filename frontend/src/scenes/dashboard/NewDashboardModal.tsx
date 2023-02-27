@@ -132,8 +132,13 @@ export function DashboardTemplateChooser(): JSX.Element {
                         key={index}
                         template={template}
                         onClick={() => {
-                            if (template.variables?.length === 0) {
-                                createDashboardFromTemplate(template, template.variables)
+                            // while we might receive templates from the external repository
+                            // we need to handle templates that don't have variables
+                            if ((template.variables || []).length === 0) {
+                                if (template.variables === null) {
+                                    template.variables = []
+                                }
+                                createDashboardFromTemplate(template, template.variables || [])
                             } else {
                                 setActiveDashboardTemplate(template)
                             }
