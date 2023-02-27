@@ -17,8 +17,8 @@ class HogQLContext:
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: Dict = field(default_factory=dict)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
-    legacy_person_property_handling: bool = False
-    # Do we need to join the persons table or not. Has effect if legacy_person_property_handling = True
+    within_non_hogql_query: bool = False
+    # Do we need to join the persons table or not. Has effect if within_non_hogql_query = True
     using_person_on_events: bool = True
     # If set, allows printing full SELECT queries in ClickHouse
     select_team_id: Optional[int] = None
