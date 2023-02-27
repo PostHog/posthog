@@ -1,6 +1,6 @@
 import json
 from typing import Dict
-from unittest.mock import MagicMock
+from unittest.mock import ANY, MagicMock
 
 from dateutil import parser
 from django.test import override_settings
@@ -995,6 +995,88 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"template": template},
         )
         assert response.status_code == 400, response.json()
+
+    def test_create_from_template_json_cam_provide_text_tile(self) -> None:
+        template: Dict = {**valid_template, "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200
+
+        assert response.json()["tiles"] == [
+            {
+                "color": None,
+                "id": ANY,
+                "insight": None,
+                "is_cached": False,
+                "last_refresh": None,
+                "layouts": {},
+                "text": {
+                    "body": "hello world",
+                    "created_by": None,
+                    "id": ANY,
+                    "last_modified_at": ANY,
+                    "last_modified_by": None,
+                    "team": self.team.pk,
+                },
+            },
+        ]
+
+    def test_create_from_template_json_cam_provide_query_tile(self) -> None:
+        template: Dict = {
+            **valid_template,
+            # client provides an incorrect "empty" filter alongside a query
+            "tiles": [{"type": "INSIGHT", "query": "a datatable", "filters": {"date_from": None}, "layouts": {}}],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200
+
+        assert response.json()["tiles"] == [
+            {
+                "color": None,
+                "id": ANY,
+                "insight": {
+                    "created_at": ANY,
+                    "created_by": None,
+                    "dashboard_tiles": [{"dashboard_id": response.json()["id"], "deleted": None, "id": ANY}],
+                    "dashboards": [response.json()["id"]],
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": None,
+                    "effective_privilege_level": 37,
+                    "effective_restriction_level": 21,
+                    "favorited": False,
+                    "filters": {},
+                    "filters_hash": ANY,
+                    "id": ANY,
+                    "is_cached": False,
+                    "is_sample": False,
+                    "last_modified_at": ANY,
+                    "last_modified_by": None,
+                    "last_refresh": None,
+                    "name": None,
+                    "next_allowed_client_refresh": None,
+                    "order": None,
+                    "query": "a datatable",
+                    "result": None,
+                    "saved": False,
+                    "short_id": ANY,
+                    "tags": [],
+                    "timezone": None,
+                    "updated_at": ANY,
+                },
+                "is_cached": False,
+                "last_refresh": None,
+                "layouts": {},
+                "text": None,
+            },
+        ]
 
     def test_invalid_template_receives_400_response(self) -> None:
         invalid_template = {"not a": "template"}

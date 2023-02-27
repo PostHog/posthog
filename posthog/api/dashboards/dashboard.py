@@ -22,7 +22,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
-from posthog.helpers.dashboard_templates import _create_from_template
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
@@ -326,6 +326,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
+
             tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
             serialized_tiles.append(tile_data)
 
@@ -443,7 +444,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
 
         try:
             dashboard_template = DashboardTemplate(**request.data["template"])
-            _create_from_template(dashboard, dashboard_template)
+            create_from_template(dashboard, dashboard_template)
         except Exception as e:
             dashboard.delete()
             raise e

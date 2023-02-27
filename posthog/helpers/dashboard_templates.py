@@ -380,7 +380,7 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
     template = DashboardTemplate.original_template()
-    _create_from_template(dashboard, template)
+    create_from_template(dashboard, template)
 
 
 DASHBOARD_TEMPLATES: Dict[str, Callable] = {
@@ -391,7 +391,7 @@ DASHBOARD_TEMPLATES: Dict[str, Callable] = {
 # end of area to be removed
 
 
-def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
+def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
     if not dashboard.name or dashboard.name == "":
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
@@ -406,11 +406,13 @@ def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> 
 
     for template_tile in template.tiles:
         if template_tile["type"] == "INSIGHT":
+            query = template_tile.get("query", None)
+            filters = template_tile.get("filters") if not query else {}
             _create_tile_for_insight(
                 dashboard,
                 name=template_tile.get("name"),
-                filters=template_tile.get("filters"),
-                query=template_tile.get("query"),
+                filters=filters,
+                query=query,
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
@@ -475,4 +477,4 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
         else:
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
-    _create_from_template(dashboard, template)
+    create_from_template(dashboard, template)
