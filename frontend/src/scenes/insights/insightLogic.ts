@@ -216,7 +216,6 @@ export const insightLogic = kea<insightLogicType>([
                                 filters: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
                                 valuesInsight: JSON.stringify(values.insight),
-                                query: JSON.stringify(insight.query),
                             },
                         })
                         throw error
