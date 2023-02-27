@@ -130,7 +130,7 @@ export interface CachedGroupData {
     created_at: ClickHouseTimestamp
 }
 
-const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
+export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
     'could not translate host',
     'server conn crashed',
@@ -1459,53 +1459,6 @@ export class DB {
             'fetchOrganization'
         )
         return selectResult.rows[0]
-    }
-
-    // Team
-
-    public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        const selectResult = await this.postgresQuery<Team>(
-            `
-            SELECT
-                id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                ingested_event
-            FROM posthog_team
-            WHERE id = $1
-            `,
-            [teamId],
-            'fetchTeam'
-        )
-        return selectResult.rows[0] ?? null
-    }
-
-    public async fetchTeamByToken(token: string): Promise<Team | null> {
-        const selectResult = await this.postgresQuery<Team>(
-            `
-            SELECT
-                id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                ingested_event
-            FROM posthog_team
-            WHERE api_token = $1
-            LIMIT 1
-                `,
-            [token],
-            'fetchTeamByToken'
-        )
-        return selectResult.rows[0] ?? null
     }
 
     // Hook (EE)

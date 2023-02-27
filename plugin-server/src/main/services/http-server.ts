@@ -8,11 +8,29 @@ export const HTTP_SERVER_PORT = 6738
 
 prometheus.collectDefaultMetrics()
 
-export function createHttpServer(analyticsEventsIngestionConsumer?: IngestionConsumer): Server {
-    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+export function createHttpServer(
+    healthChecks: { [service: string]: () => Promise<boolean> },
+    analyticsEventsIngestionConsumer?: IngestionConsumer
+): Server {
+    const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
             status.info('💚', 'Server liveness check succeeded')
-            res.end(JSON.stringify({ status: 'ok' }))
+            const checkResults = await Promise.allSettled(
+                Object.entries(healthChecks).map(async ([service, check]) => {
+                    try {
+                        return { service, status: (await check()) ? 'ok' : 'error' }
+                    } catch (error) {
+                        return { service, status: 'error', error: error.message }
+                    }
+                })
+            )
+            const statusCode = checkResults.every(
+                (result) => result.status === 'fulfilled' && result.value.status === 'ok'
+            )
+                ? 200
+                : 503
+            res.statusCode = statusCode
+            res.end(JSON.stringify({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResults }))
         } else if (req.url === '/_ready' && req.method === 'GET') {
             // Check that, if the server should have a kafka queue,
             // the Kafka consumer is ready to consume messages

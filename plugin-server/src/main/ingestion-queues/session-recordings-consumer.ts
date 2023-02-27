@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { StatsD } from 'hot-shots'
 import { EachBatchPayload, Kafka } from 'kafkajs'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
@@ -17,12 +16,10 @@ import { latestOffsetTimestampGauge } from './metrics'
 export const startSessionRecordingEventsConsumer = async ({
     teamManager,
     kafka,
-    statsd,
     partitionsConsumedConcurrently = 5,
 }: {
     teamManager: TeamManager
     kafka: Kafka
-    statsd?: StatsD
     partitionsConsumedConcurrently: number
 }) => {
     /*
@@ -40,10 +37,11 @@ export const startSessionRecordingEventsConsumer = async ({
     // the Kafka consumer handler.
     const producer = kafka.producer()
     await producer.connect()
-    const producerWrapper = new KafkaProducerWrapper(producer, statsd, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
+    const producerWrapper = new KafkaProducerWrapper(producer, undefined, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
 
     const groupId = 'session-recordings'
-    const consumer = kafka.consumer({ groupId: groupId })
+    const sessionTimeout = 30000
+    const consumer = kafka.consumer({ groupId: groupId, sessionTimeout: sessionTimeout })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting session recordings consumer')
@@ -61,7 +59,31 @@ export const startSessionRecordingEventsConsumer = async ({
         },
     })
 
-    return consumer
+    // Subscribe to the heatbeat event to track when the consumer has last
+    // successfully consumed a message. This is used to determine if the
+    // consumer is healthy.
+    const { HEARTBEAT } = consumer.events
+    let lastHeartbeat: number = Date.now()
+    consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+
+    const isHealthy = async () => {
+        // Consumer has heartbeat within the session timeout, so it is healthy.
+        if (Date.now() - lastHeartbeat < sessionTimeout) {
+            return true
+        }
+
+        // Consumer has not heartbeat, but maybe it's because the group is
+        // currently rebalancing.
+        try {
+            const { state } = await consumer.describeGroup()
+
+            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+        } catch (error) {
+            return false
+        }
+    }
+
+    return { consumer, isHealthy }
 }
 
 export const eachBatch =
