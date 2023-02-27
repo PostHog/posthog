@@ -482,7 +482,7 @@ describe('funnelDataLogic', () => {
             })
         })
 
-        describe('flattenedStepsByBreakdown', () => {
+        describe('flattenedBreakdowns', () => {
             it('for standard funnel', async () => {
                 const insight: Partial<InsightModel> = {
                     filters: {
@@ -494,10 +494,7 @@ describe('funnelDataLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.setInsight(insight, {})
                 }).toMatchValues({
-                    flattenedStepsByBreakdown: [
-                        { rowKey: 'steps-meta' },
-                        { rowKey: 'graph' },
-                        { rowKey: 'table-header' },
+                    flattenedBreakdowns: [
                         {
                             rowKey: 'baseline_0',
                             breakdown: ['baseline'],
@@ -539,10 +536,7 @@ describe('funnelDataLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.setInsight(insight, {})
                 }).toMatchValues({
-                    flattenedStepsByBreakdown: [
-                        { rowKey: 'steps-meta' },
-                        { rowKey: 'graph' },
-                        { rowKey: 'table-header' },
+                    flattenedBreakdowns: [
                         expect.objectContaining({ breakdown: ['baseline'] }),
                         expect.objectContaining({
                             rowKey: 'Chrome_1',
@@ -588,10 +582,7 @@ describe('funnelDataLogic', () => {
                 await expectLogic(logic, () => {
                     builtInsightLogic.actions.setInsight(insight, {})
                 }).toMatchValues({
-                    flattenedStepsByBreakdown: [
-                        { rowKey: 'steps-meta' },
-                        { rowKey: 'graph' },
-                        { rowKey: 'table-header' },
+                    flattenedBreakdowns: [
                         expect.objectContaining({ breakdown: ['baseline'] }),
                         expect.objectContaining({
                             rowKey: 'Chrome_Mac OS X_1',
