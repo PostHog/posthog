@@ -34,6 +34,25 @@ describe('Dashboard', () => {
         cy.get('.CardMeta h4').should('have.text', insightName)
     })
 
+    it('Adding new insight to dashboard does not clear filters', () => {
+        const dashboardName = randomString('to add an insight to')
+        const firstInsight = randomString('insight to add to dashboard')
+        const secondInsight = randomString('another insight to add to dashboard')
+
+        // create and visit a dashboard to get it into turbomode cache
+        dashboards.createAndGoToEmptyDashboard(dashboardName)
+        dashboard.addInsightToEmptyDashboard(firstInsight)
+
+        dashboard.addAnyFilter()
+
+        dashboard.addInsightToEmptyDashboard(secondInsight)
+
+        cy.get('.PropertyFilterButton').should('have.length', 1)
+
+        cy.get('.CardMeta h4').should('contain.text', firstInsight)
+        cy.get('.CardMeta h4').should('contain.text', secondInsight)
+    })
+
     it('Cannot see tags or description (non-FOSS feature)', () => {
         cy.get('h1').should('contain', 'Dashboards')
         cy.get('th').contains('Description').should('not.exist')
