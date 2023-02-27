@@ -23,6 +23,7 @@ export default {
             excludeNavigationFromSnapshot: true,
         },
         viewMode: 'story',
+        mockDate: '2023-02-18',
     },
     decorators: [
         mswDecorator({
