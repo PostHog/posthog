@@ -59,6 +59,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
+    has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -94,6 +95,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
             "is_2fa_enabled",
+            "has_social_auth",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -104,6 +106,9 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def get_has_social_auth(self, instance: User) -> bool:
+        return instance.social_auth.exists()
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None

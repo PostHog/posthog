@@ -216,6 +216,7 @@ export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
