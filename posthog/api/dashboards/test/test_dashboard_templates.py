@@ -415,7 +415,12 @@ class TestDashboardTemplates(APIBaseTest):
                 "image_url": {"description": "The image of the dashboard template", "type": ["string", "null"]},
                 "dashboard_description": {"description": "The description of the dashboard template", "type": "string"},
                 "dashboard_filters": {"description": "The filters of the dashboard template", "type": "object"},
-                "tiles": {"description": "The tiles of the dashboard template", "type": "array", "items": "object"},
+                "tiles": {
+                    "description": "The tiles of the dashboard template",
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "minItems": 1,
+                },
                 "variables": {
                     "description": "The variables of the dashboard template",
                     "type": "array",
