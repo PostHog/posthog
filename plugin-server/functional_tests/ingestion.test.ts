@@ -5,7 +5,7 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric, reloadDictionary } from './api'
 import { waitForExpect } from './expectations'
 
 let producer: Producer
@@ -415,6 +415,7 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     })
 
     await waitForExpect(async () => {
+        await reloadDictionary(clickHouseClient, 'person_overrides_dict')
         const events = await fetchEvents(clickHouseClient, teamId)
         expect(events.length).toBe(5)
         expect(events[0].person_id).toBeDefined()

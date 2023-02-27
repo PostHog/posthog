@@ -104,6 +104,10 @@ export const reloadAction = async (redis: Redis.Redis, teamId: number, actionId:
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
+export const reloadDictionary = async (clickHouseClient: ClickHouse, dict: string) => {
+    await clickHouseClient.querying(`SYSTEM RELOAD DICTIONARY '${dict}'`)
+}
+
 export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
         SELECT
