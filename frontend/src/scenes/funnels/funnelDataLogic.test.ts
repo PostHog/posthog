@@ -617,5 +617,138 @@ describe('funnelDataLogic', () => {
                 })
             })
         })
+
+        describe('visibleStepsWithConversionMetrics', () => {
+            it('for standard funnel', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    visibleStepsWithConversionMetrics: [
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 291,
+                            conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                        }),
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 134,
+                            conversionRates: {
+                                fromPrevious: 0.46048109965635736,
+                                total: 0.46048109965635736,
+                                fromBasisStep: 0.46048109965635736,
+                            },
+                            nested_breakdown: [
+                                expect.objectContaining({
+                                    breakdown_value: 'Baseline',
+                                }),
+                            ],
+                        }),
+                    ],
+                })
+            })
+
+            it('with breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    visibleStepsWithConversionMetrics: [
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 201,
+                            conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                        }),
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 99,
+                            conversionRates: {
+                                fromPrevious: 0.4925373134328358,
+                                total: 0.4925373134328358,
+                                fromBasisStep: 0.4925373134328358,
+                            },
+                            nested_breakdown: [
+                                expect.objectContaining({
+                                    breakdown_value: 'Baseline',
+                                    count: 99,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Chrome'],
+                                    count: 66,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Firefox'],
+                                    count: 27,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Safari'],
+                                    count: 6,
+                                }),
+                            ],
+                        }),
+                    ],
+                })
+            })
+
+            it('with multi breakdown', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultWithMultiBreakdown.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    visibleStepsWithConversionMetrics: [
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 69,
+                            conversionRates: { fromPrevious: 1, total: 1, fromBasisStep: 1 },
+                        }),
+                        expect.objectContaining({
+                            name: '$pageview',
+                            count: 37,
+                            conversionRates: {
+                                fromPrevious: 0.5362318840579711,
+                                total: 0.5362318840579711,
+                                fromBasisStep: 0.5362318840579711,
+                            },
+                            nested_breakdown: [
+                                expect.objectContaining({
+                                    breakdown_value: 'Baseline',
+                                    count: 37,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Chrome', 'Mac OS X'],
+                                    count: 26,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Chrome', 'Linux'],
+                                    count: 8,
+                                }),
+                                expect.objectContaining({
+                                    breakdown_value: ['Internet Explorer', 'Windows'],
+                                    count: 3,
+                                }),
+                            ],
+                        }),
+                    ],
+                })
+            })
+        })
     })
 })

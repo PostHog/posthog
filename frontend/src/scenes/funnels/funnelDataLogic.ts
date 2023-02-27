@@ -25,6 +25,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 import {
     aggregateBreakdownResult,
     flattenedStepsByBreakdown,
+    getVisibilityKey,
     isBreakdownFunnelResults,
     stepsWithConversionMetrics,
 } from './funnelUtils'
@@ -43,7 +44,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             groupsModel,
             ['aggregationLabel'],
             insightLogic(props),
-            ['insight'],
+            ['insight', 'hiddenLegendKeys'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     }),
@@ -154,6 +155,35 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             (s) => [s.flattenedStepsByBreakdown],
             (flattenedStepsByBreakdown): FlattenedFunnelStepByBreakdown[] => {
                 return flattenedStepsByBreakdown.filter((b) => b.breakdown)
+            },
+        ],
+        visibleStepsWithConversionMetrics: [
+            (s) => [
+                s.stepsWithConversionMetrics,
+                s.hiddenLegendKeys,
+                s.flattenedStepsByBreakdown,
+                s.flattenedBreakdowns,
+            ],
+            (
+                steps,
+                hiddenLegendKeys,
+                flattenedStepsByBreakdown,
+                flattenedBreakdowns
+            ): FunnelStepWithConversionMetrics[] => {
+                const isOnlySeries = flattenedBreakdowns.length <= 1
+                const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
+                return steps.map((step, stepIndex) => ({
+                    ...step,
+                    nested_breakdown: (!!baseLineSteps?.steps
+                        ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
+                        : step?.nested_breakdown
+                    )
+                        ?.map((b, breakdownIndex) => ({
+                            ...b,
+                            order: breakdownIndex,
+                        }))
+                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
+                }))
             },
         ],
 
