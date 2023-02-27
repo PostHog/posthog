@@ -166,10 +166,54 @@ def property_to_expr(property: Union[BaseModel, PropertyGroup, Property, dict, l
             return element_chain_key_filter("text", str(value), operator)
 
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
-    # "cohort",
-    # "element",
-    # "static-cohort",
-    # "precalculated-cohort",
+
+    # elif property.type == "cohort":
+    #     try:
+    #         cohort = Cohort.objects.get(pk=prop.value)
+    #     except Cohort.DoesNotExist:
+    #         return ast.Constant(value=False)
+    #
+    #     if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
+    #         person_id_query, cohort_filter_params = format_filter_query(
+    #             cohort, idx, hogql_context, custom_match_field=person_id_joined_alias
+    #         )
+    #         params = {**params, **cohort_filter_params}
+    #         final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
+    #     elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+    #         person_id_query, cohort_filter_params = format_cohort_subquery(
+    #             cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
+    #         )
+    #         params = {**params, **cohort_filter_params}
+    #         final.append(f"{property_operator} {person_id_query}")
+    #     else:
+    #         person_id_query, cohort_filter_params = format_cohort_subquery(
+    #             cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
+    #         )
+    #         params = {**params, **cohort_filter_params}
+    #         final.append(f"{property_operator} {person_id_query}")
+    # elif property.type == 'static-cohort':
+    #      q = f"SELECT person_id as id FROM person_static_cohort WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s"
+    # elif property.type == 'precalculated-cohort':
+    #     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
+    #     SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
+    #     """
+    #
+    #     cohort_id = cast(int, prop.value)
+    #
+    #     method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
+    #     filter_query, filter_params = method(cohort_id, idx, prepend=prepend)  # type: ignore
+    #     filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
+    #
+    #     if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+    #         final.append(f"{property_operator} {filter_query}")
+    #     else:
+    #         # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
+    #         subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
+    #             filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
+    #         )
+    #         final.append(f"{property_operator} {table_formatted}distinct_id IN ({subquery})")
+    #     params.update(filter_params)
+
     # "group",
     # "recording",
     # "behavioral",
