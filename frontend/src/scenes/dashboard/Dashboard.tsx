@@ -45,7 +45,8 @@ export function Dashboard({ id, dashboard, placement }: Props = {}): JSX.Element
 function DashboardScene(): JSX.Element {
     const {
         placement,
-        dashboard,
+        // dashboard on dashboardLogic isn't the dashboard on dashboardLogic (╯°□°)╯︵ ┻━┻
+        allItems: dashboard,
         canEditDashboard,
         tiles,
         itemsLoading,

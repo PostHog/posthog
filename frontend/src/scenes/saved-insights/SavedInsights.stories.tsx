@@ -21,8 +21,10 @@ export default {
         options: { showPanel: false },
         testOptions: {
             excludeNavigationFromSnapshot: true,
+            waitForLoadersToDisappear: 1000,
         },
         viewMode: 'story',
+        mockDate: '2023-02-18',
     },
     decorators: [
         mswDecorator({
