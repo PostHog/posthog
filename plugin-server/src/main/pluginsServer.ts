@@ -7,6 +7,7 @@ import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
 
+import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
 import { Hub, PluginServerCapabilities, PluginsServerConfig } from '../types'
 import { createHub, createKafkaClient, KafkaConfig } from '../utils/db/hub'
@@ -47,7 +48,7 @@ export type ServerInstance = {
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina = defaultMakePiscina,
-    capabilities: PluginServerCapabilities
+    capabilities: PluginServerCapabilities | undefined
 ): Promise<Partial<ServerInstance> | undefined> {
     const timer = new Date()
 
@@ -209,6 +210,7 @@ export async function startPluginsServer(
         process.exit(1)
     })
 
+    capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
     let serverInstance: (Partial<ServerInstance> & Pick<ServerInstance, 'hub'>) | undefined
 
     try {
