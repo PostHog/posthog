@@ -16,7 +16,7 @@ import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
 
-const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 3
+const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 0
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
