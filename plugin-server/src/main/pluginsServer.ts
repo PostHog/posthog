@@ -49,7 +49,7 @@ export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina = defaultMakePiscina,
     capabilities: PluginServerCapabilities | undefined
-): Promise<Partial<ServerInstance> | undefined> {
+): Promise<Partial<ServerInstance>> {
     const timer = new Date()
 
     const serverConfig: PluginsServerConfig = {
@@ -436,7 +436,7 @@ export async function startPluginsServer(
             httpServer = createHttpServer(healthChecks, analyticsEventsIngestionConsumer)
         }
 
-        return serverInstance
+        return serverInstance ?? { stop: closeJobs }
     } catch (error) {
         Sentry.captureException(error)
         status.error('💥', 'Launchpad failure!', { error: error.stack ?? error })
