@@ -114,9 +114,6 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
-            - name: Install OptiPNG in the background
-              run: apt update && apt install -y optipng &
-
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
@@ -164,13 +161,14 @@ jobs:
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
 
-            - name: Compress new/changed images
+            - name: Compress new/changed images using OptiPNG
               if: |
                   github.event.pull_request.head.repo.full_name == github.repository && (
                     steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-added != '0'
                     || steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-modified != '0'
                   )
               run: |
+                  apt update && apt install -y optipng
                   git add frontend/__snapshots__/ playwright/
                   pnpm lint-staged
 
