@@ -226,6 +226,7 @@ export interface PluginServerCapabilities {
     processAsyncHandlers?: boolean
     sessionRecordingIngestion?: boolean
     http?: boolean
+    mmdb?: boolean
 }
 
 export type EnqueuedJob = EnqueuedPluginJob | GraphileWorkerCronScheduleJob

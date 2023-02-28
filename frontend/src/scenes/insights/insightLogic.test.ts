@@ -1321,9 +1321,6 @@ describe('insightLogic', () => {
             })
 
             const mockCreateCalls = (api.create as jest.Mock).mock.calls
-            // there will be at least two used client query ids
-            // the most recent has not been cancelled
-            // the one before that has been
             expect(mockCreateCalls).toEqual([
                 [
                     `api/projects/${MOCK_TEAM_ID}/insights/`,
