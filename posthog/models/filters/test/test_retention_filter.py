@@ -44,6 +44,7 @@ class TestFilter(BaseTest):
             },
             "breakdown_attribution_type": "first_touch",
             "breakdown_normalize_url": False,
+            "sampling_factor": "",
         }
 
         with freeze_time("2020-10-01T12:00:00Z"):
