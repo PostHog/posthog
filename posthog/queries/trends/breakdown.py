@@ -56,6 +56,7 @@ from posthog.queries.trends.sql import (
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    correct_result_for_sampling,
     ensure_value_is_json_serializable,
     enumerate_time_range,
     get_active_user_params,
@@ -203,6 +204,8 @@ class TrendsBreakdown:
         self.params = {**self.params, **_params, **person_join_params, **groups_join_params, **sessions_join_params}
         breakdown_filter_params = {**breakdown_filter_params, **_breakdown_filter_params}
 
+        sample_clause = f"SAMPLE {self.filter.sampling_factor}" if self.filter.sampling_factor else ""
+
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
@@ -225,6 +228,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    sample_clause=sample_clause,
                     **active_user_format_params,
                     **breakdown_filter_params,
                 )
@@ -239,6 +243,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
+                    sample_clause=sample_clause,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL.format(
@@ -249,6 +254,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                 )
             else:
                 content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
@@ -290,6 +296,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    sample_clause=sample_clause,
                     **active_user_format_params,
                     **breakdown_filter_params,
                 )
@@ -303,6 +310,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
             elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
@@ -317,7 +325,7 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
-                    **breakdown_filter_params,
+                    sample_clause=sample_clause**breakdown_filter_params,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 inner_sql = VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL.format(
@@ -329,6 +337,7 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     aggregator=self.actor_aggregator,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
             else:
@@ -340,6 +349,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                     **breakdown_filter_params,
                 )
 
@@ -492,7 +502,7 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": aggregated_value,
+                    "aggregated_value": correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity),
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
