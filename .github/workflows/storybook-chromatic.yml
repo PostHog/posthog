@@ -15,6 +15,7 @@ jobs:
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
@@ -48,6 +49,7 @@ jobs:
     visual-regression:
         name: Visual regression tests
         runs-on: ubuntu-20.04
+        timeout-minutes: 15
         container:
             image: mcr.microsoft.com/playwright:v1.29.2-focal
         strategy:
@@ -191,6 +193,7 @@ jobs:
     visual-regression-summary:
         name: Summarize visual regression tests
         runs-on: ubuntu-20.04
+        timeout-minutes: 5
         needs: visual-regression
         if: always() # Run even if visual-regression fails for one (or more) of the browsers
         steps:
