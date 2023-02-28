@@ -107,7 +107,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                     const theInsightLogic = insightLogic.build({ dashboardItemId: insightId })
                     const unmount = theInsightLogic.mount()
                     actions.setInsightLogic(theInsightLogic, unmount)
-                    debugger
+
                     const theInsightDataLogic = insightDataLogic.build({ dashboardItemId: insightId })
                     const unmountTheInsightDataLogic = theInsightDataLogic.mount()
                     actions.setInsightDataLogic(theInsightDataLogic, unmountTheInsightDataLogic)

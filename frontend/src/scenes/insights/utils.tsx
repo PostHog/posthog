@@ -155,7 +155,6 @@ export function findInsightFromMountedLogic(
 }
 
 export async function getInsightId(shortId: InsightShortId): Promise<number | undefined> {
-    debugger
     const insightId = insightLogic.findMounted({ dashboardItemId: shortId })?.values?.insight?.id
 
     return insightId
