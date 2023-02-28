@@ -1,22 +1,22 @@
 import {
-    InsightQueryNode,
-    EventsNode,
     ActionsNode,
-    NodeKind,
     BreakdownFilter,
-    NewEntityNode,
+    EventsNode,
     InsightNodeKind,
+    InsightQueryNode,
+    NewEntityNode,
+    NodeKind,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
+import { ActionFilter, EntityTypes, FilterType, InsightType, StickinessFilterType, TrendsFilterType } from '~/types'
 import {
-    isEventsNode,
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
     isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { objectClean } from 'lib/utils'
 
@@ -66,7 +66,7 @@ export const seriesToActionsAndEvents = (
     return { actions, events, new_entity }
 }
 
-const insightMap: Record<InsightNodeKind, InsightType> = {
+export const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,

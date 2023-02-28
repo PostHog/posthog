@@ -30,17 +30,17 @@ const trendTypeCanShowLegendDenyList = [
 
 const insightViewCanShowLegendAllowList = [InsightType.TRENDS, InsightType.STICKINESS]
 
-const shouldShowLegend = (filters: Partial<FilterType>, activeView: InsightType): boolean =>
-    insightViewCanShowLegendAllowList.includes(activeView) &&
+const shouldShowLegend = (filters: Partial<FilterType>): boolean =>
+    insightViewCanShowLegendAllowList.includes(filters.insight || InsightType.TRENDS) &&
     isFilterWithDisplay(filters) &&
     !!filters.display &&
     !trendTypeCanShowLegendDenyList.includes(filters.display)
 
 export function InsightLegendButton(): JSX.Element | null {
-    const { filters, activeView } = useValues(insightLogic)
+    const { filters } = useValues(insightLogic)
     const { toggleInsightLegend } = useActions(insightLogic)
 
-    return shouldShowLegend(filters, activeView) && isFilterWithDisplay(filters) ? (
+    return shouldShowLegend(filters) && isFilterWithDisplay(filters) ? (
         <Button className="InsightLegendButton" onClick={toggleInsightLegend}>
             <IconLegend />
             <span className="InsightLegendButton-title">{filters.show_legend ? 'Hide' : 'Show'} legend</span>
@@ -124,12 +124,12 @@ function InsightLegendRow({
 }
 
 export function InsightLegend({ horizontal, inCardView, readOnly = false }: InsightLegendProps): JSX.Element | null {
-    const { insightProps, filters, highlightedSeries, activeView } = useValues(insightLogic)
+    const { insightProps, filters, highlightedSeries } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
     const { indexedResults, hiddenLegendKeys } = useValues(logic)
     const { toggleVisibility } = useActions(logic)
 
-    return shouldShowLegend(filters, activeView) ? (
+    return shouldShowLegend(filters) ? (
         <div
             className={clsx('InsightLegendMenu', 'flex overflow-auto border rounded', {
                 'InsightLegendMenu--horizontal': horizontal,

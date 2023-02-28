@@ -1,22 +1,4 @@
-import {
-    ActionFilter,
-    FlattenedFunnelStep,
-    FlattenedFunnelStepByBreakdown,
-    FunnelStep,
-    FunnelStepWithConversionMetrics,
-} from '~/types'
-
-/**
- * While we have both multi and single property breakdown modes.
- * And FlattenedFunnelStep['breakdowns'] property is being copied onto FlattenedFunnelStep['breakdown']
- * This might receive an Array of strings
- * @param stepBreakdown
- */
-export function isBreakdownChildType(
-    stepBreakdown: FlattenedFunnelStep['breakdown'] | Array<string | number>
-): stepBreakdown is string | number | undefined | Array<string | number> {
-    return Array.isArray(stepBreakdown) || ['string', 'number'].includes(typeof stepBreakdown)
-}
+import { ActionFilter, FlattenedFunnelStepByBreakdown, FunnelStep, FunnelStepWithConversionMetrics } from '~/types'
 
 export function getActionFilterFromFunnelStep(step: FunnelStep): ActionFilter {
     return {

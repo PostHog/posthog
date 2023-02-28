@@ -12,11 +12,11 @@ import React from 'react'
 import { IconInfo } from 'lib/lemon-ui/icons'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { insightProps, activeView } = useValues(insightLogic)
+    const { insightProps } = useValues(insightLogic)
     const { conversionMetrics, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
     const { setFilters } = useActions(funnelLogic(insightProps))
 
-    if (activeView !== InsightType.FUNNELS) {
+    if (filters.insight !== InsightType.FUNNELS) {
         return null
     }
 

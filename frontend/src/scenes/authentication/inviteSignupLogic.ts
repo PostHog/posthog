@@ -3,7 +3,6 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import { forms } from 'kea-forms'
 import api from 'lib/api'
-import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { PrevalidatedInvite } from '~/types'
 import type { inviteSignupLogicType } from './inviteSignupLogicType'
 
@@ -94,12 +93,8 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
                 }
 
                 try {
-                    await api.create(`api/signup/${values.invite.id}/`, payload)
-                    lemonToast.success(
-                        `You have joined ${values.invite?.organization_name}! Taking you to PostHog now…`
-                    )
-                    await breakpoint(2000) // timeout for the user to read the toast
-                    window.location.href = '/' // hard refresh because the current_organization changed
+                    const res = await api.create(`api/signup/${values.invite.id}/`, payload)
+                    location.href = res.redirect_url || '/' // hard refresh because the current_organization changed
                 } catch (e) {
                     actions.setSignupManualErrors({
                         generic: {

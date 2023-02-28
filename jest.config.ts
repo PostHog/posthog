@@ -93,6 +93,8 @@ const config: Config = {
         '^scenes/(.*)$': '<rootDir>/scenes/$1',
         '^antd/es/(.*)$': 'antd/lib/$1',
         '^react-virtualized/dist/es/(.*)$': 'react-virtualized/dist/commonjs/$1',
+        d3: '<rootDir>/../../node_modules/d3/dist/d3.min.js',
+        '^d3-(.*)$': `d3-$1/dist/d3-$1`,
     },
 
     // An array of regexp pattern strings, matched against all module paths before considered 'visible' to the module loader

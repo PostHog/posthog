@@ -44,6 +44,7 @@ class TestSignupAPI(APIBaseTest):
                 "organization_name": "Hedgehogs United, LLC",
                 "role_at_organization": "product",
                 "email_opt_in": False,
+                "is_email_verified": False,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
@@ -60,7 +61,8 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "John",
                 "email": "hedgehog@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -69,6 +71,7 @@ class TestSignupAPI(APIBaseTest):
         self.assertEqual(user.email, "hedgehog@posthog.com")
         self.assertFalse(user.email_opt_in)
         self.assertTrue(user.is_staff)  # True because this is the first user in the instance
+        self.assertFalse(user.is_email_verified)
 
         # Assert that the team was properly created
         self.assertEqual(team.name, "Default Project")
@@ -178,7 +181,8 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog2@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -313,7 +317,8 @@ class TestSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Jane",
                 "email": "hedgehog75@posthog.com",
-                "redirect_url": "/ingestion",
+                "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -764,6 +769,8 @@ class TestInviteSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "Alice",
                 "email": "test+99@posthog.com",
+                "redirect_url": "/",
+                "is_email_verified": False,
             },
         )
 
@@ -918,6 +925,8 @@ class TestInviteSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "",
                 "email": "test+159@posthog.com",
+                "redirect_url": "/",
+                "is_email_verified": None,
             },
         )
 
@@ -985,6 +994,8 @@ class TestInviteSignupAPI(APIBaseTest):
                 "distinct_id": user.distinct_id,
                 "first_name": "",
                 "email": "test+189@posthog.com",
+                "redirect_url": "/",
+                "is_email_verified": None,
             },  # note the unchanged attributes
         )
 

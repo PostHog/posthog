@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { FilterType, InsightLogicProps, InsightType } from '~/types'
+import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
@@ -25,6 +25,7 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isLifecycleQuery,
+    isInsightVizNode,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -44,7 +45,7 @@ const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
     source: filtersToQueryNode(filters),
 })
 
-const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
+export const queryFromKind = (kind: InsightNodeKind): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
     source: nodeKindToDefaultQuery[kind],
 })
@@ -65,7 +66,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         ],
         actions: [
             insightLogic,
-            ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
+            [
+                'setFilters',
+                'setInsight',
+                'loadInsightSuccess',
+                'loadResultsSuccess',
+                'saveInsight as insightLogicSaveInsight',
+            ],
             trendsLogic(props),
             ['setLifecycles as setTrendsLifecycles'],
         ],
@@ -77,6 +84,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange) => ({ dateRange }),
         updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
+        saveInsight: (redirectToViewMode = true) => ({ redirectToViewMode }),
     }),
 
     reducers(({ props }) => ({
@@ -119,6 +127,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isNonTimeSeriesDisplay: [
             (s) => [s.display],
             (display) => !!display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display),
+        ],
+
+        isQueryBasedInsight: [
+            (s) => [s.query],
+            (query) => {
+                return !isInsightVizNode(query) && !!query
+            },
         ],
 
         exportContext: [
@@ -174,21 +189,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 }
             }
         },
-        setActiveView: ({ type }) => {
-            if (type === InsightType.TRENDS) {
-                actions.setQuery(queryFromKind(NodeKind.TrendsQuery))
-            } else if (type === InsightType.FUNNELS) {
-                actions.setQuery(queryFromKind(NodeKind.FunnelsQuery))
-            } else if (type === InsightType.RETENTION) {
-                actions.setQuery(queryFromKind(NodeKind.RetentionQuery))
-            } else if (type === InsightType.PATHS) {
-                actions.setQuery(queryFromKind(NodeKind.PathsQuery))
-            } else if (type === InsightType.STICKINESS) {
-                actions.setQuery(queryFromKind(NodeKind.StickinessQuery))
-            } else if (type === InsightType.LIFECYCLE) {
-                actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
-            }
-        },
         setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
             if (overrideFilter) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
@@ -209,6 +209,16 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 const query = queryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
+        },
+        saveInsight: ({ redirectToViewMode }) => {
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    ...(values.isQueryBasedInsight ? { query: values.query, filters: {} } : {}),
+                },
+                { overrideFilter: true, fromPersistentApi: false }
+            )
+            actions.insightLogicSaveInsight(redirectToViewMode)
         },
     })),
 ])
