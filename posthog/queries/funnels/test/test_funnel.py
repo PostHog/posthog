@@ -2274,7 +2274,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 0)
 
-        @snapshot_clickhouse_queries
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
             ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")
