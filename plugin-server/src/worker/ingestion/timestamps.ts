@@ -8,7 +8,10 @@ type IngestionWarningCallback = (type: string, details: Record<string, any>) => 
 
 const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
 
-export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
+export function parseEventTimestamp(
+    data: Pick<PluginEvent, 'now' | 'sent_at' | 'timestamp' | 'uuid' | 'offset' | 'event'>,
+    callback?: IngestionWarningCallback
+): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
 
     let sentAt: DateTime | null = null
@@ -38,7 +41,7 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
 }
 
 function handleTimestamp(
-    data: PluginEvent,
+    data: Pick<PluginEvent, 'now' | 'sent_at' | 'timestamp' | 'uuid' | 'offset' | 'event'>,
     now: DateTime,
     sentAt: DateTime | null,
     callback?: IngestionWarningCallback

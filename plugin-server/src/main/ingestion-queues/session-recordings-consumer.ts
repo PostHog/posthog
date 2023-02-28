@@ -1,4 +1,3 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, Kafka } from 'kafkajs'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
@@ -120,35 +119,105 @@ export const eachBatch =
             let messagePayload: RawEventMessage
             let event: PipelineEvent
 
-            try {
-                // NOTE: we need to parse the JSON for these events because we
-                // need to add in the team_id to events, as it is possible due
-                // to a drive to remove postgres dependency on the the capture
-                // endpoint we may only have `token`.
-                messagePayload = JSON.parse(message.value.toString())
-                event = JSON.parse(messagePayload.data)
-            } catch (error) {
-                status.warn('⚠️', 'invalid_message', {
-                    reason: 'invalid_json',
-                    error: error,
-                    partition: batch.partition,
-                    offset: message.offset,
-                })
-                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
-                continue
+            const schemaVersion = message.headers?.schema_version?.toString()
+
+            let eventName = message.headers?.event_name?.toString()
+            let token
+            let teamId
+            let distinctId
+            let timestamp
+            let uuid
+            let sentAt
+            let offset
+            let now
+            let sessionId
+            let windowId
+            let snapshotData
+
+            if (schemaVersion === '2' && eventName === '$snapshot') {
+                // Version 2 of $snapshot messages are a first step towards
+                // moving the format to be as lightlweight as possible.
+                // Previously, with "version 1" of $snapshot messages, we
+                // would send the entire event payload as a JSON object which we
+                // would then double parse with JSON.parse, then JSON.stringify
+                // again. This was a lot of unnecessary work.
+                //
+                // With version 2, we expect the message value to just be what
+                // was the event.properties.$snapshot_data property. The other
+                // data is then sent as headers.
+                //
+                // As the next step, we could move to the message value only
+                // being an individual `chunk` of the snapshot data, and the
+                // coordinating check index etc. would be sent as headers. This
+                // is a little more involved a change as we'd need to also index
+                // to ClickHouse from the consumer (or have a separate consumer
+                // for this) that would be able to create the structure that we
+                // expect to ingest into ClickHouse i.e. including the
+                // chunk_index etc and event_summary.
+                //
+                // The key thing that the above improvement would give us is
+                // proper chunking logic. At the moment, we chunk the data rrweb
+                // to fixed sizes but then we also add in other attributes to
+                // the payload, which means that the message payloads can be
+                // larger than the Kafka message size limit.
+                const teamIdString = message.headers?.team_id?.toString()
+                token = message.headers?.token?.toString()
+                teamId = teamIdString ? parseInt(teamIdString) : undefined
+                distinctId = message.headers?.distinct_id?.toString()
+                timestamp = message.headers?.timestamp?.toString()
+                uuid = message.headers?.uuid?.toString()
+                sentAt = message.headers?.sent_at?.toString()
+                const offsetString = message.headers?.offset?.toString()
+                offset = offsetString ? parseInt(offsetString) : undefined
+                now = message.headers?.now?.toString()
+                sessionId = message.headers?.session_id?.toString()
+                windowId = message.headers?.window_id?.toString()
+                snapshotData = message.value.toString()
+            } else {
+                try {
+                    // NOTE: we need to parse the JSON for these events because we
+                    // need to add in the team_id to events, as it is possible due
+                    // to a drive to remove postgres dependency on the the capture
+                    // endpoint we may only have `token`.
+                    messagePayload = JSON.parse(message.value.toString())
+                    event = JSON.parse(messagePayload.data) as PipelineEvent
+                    eventName = event.event
+                    token = messagePayload.token
+                    teamId = messagePayload.team_id
+                    distinctId = event.distinct_id
+                    uuid = event.uuid
+                    timestamp = event.timestamp
+                    sentAt = messagePayload.sent_at
+                    offset = 0
+                    now = messagePayload.now
+                    sessionId = event.properties?.session_id
+                    windowId = event.properties?.window_id
+                    snapshotData = event.properties?.snapshot_data
+                } catch (error) {
+                    status.warn('⚠️', 'invalid_message', {
+                        reason: 'invalid_json',
+                        error: error,
+                        partition: batch.partition,
+                        offset: message.offset,
+                        schemaVersion,
+                        eventName,
+                    })
+                    await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                    continue
+                }
             }
 
-            status.debug('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
+            status.debug('⬆️', 'processing_session_recording', { uuid })
 
             consumedMessageSizeBytes
                 .labels({
                     topic: batch.topic,
                     groupId,
-                    messageType: event.event,
+                    messageType: eventName,
                 })
                 .observe(message.value.length)
 
-            if (messagePayload.team_id == null && !messagePayload.token) {
+            if (teamId == null && !token) {
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'no_token',
                     partition: batch.partition,
@@ -160,10 +229,10 @@ export const eachBatch =
 
             let team: Team | null = null
 
-            if (messagePayload.team_id != null) {
-                team = await teamManager.fetchTeam(messagePayload.team_id)
-            } else if (messagePayload.token) {
-                team = await teamManager.getTeamByToken(messagePayload.token)
+            if (teamId != null) {
+                team = await teamManager.fetchTeam(teamId)
+            } else if (token) {
+                team = await teamManager.getTeamByToken(token)
             }
 
             if (team == null) {
@@ -178,30 +247,45 @@ export const eachBatch =
 
             if (team.session_recording_opt_in) {
                 try {
-                    if (event.event === '$snapshot') {
+                    if (eventName === '$snapshot') {
                         await createSessionRecordingEvent(
-                            messagePayload.uuid,
+                            uuid!,
                             team.id,
-                            messagePayload.distinct_id,
-                            parseEventTimestamp(event as PluginEvent),
-                            event.ip,
-                            event.properties || {},
+                            distinctId!,
+                            parseEventTimestamp({
+                                timestamp,
+                                sent_at: sentAt,
+                                offset,
+                                now: now!,
+                                uuid: uuid!,
+                                event: eventName,
+                            }),
+                            snapshotData!,
+                            sessionId!,
+                            windowId!,
                             producer
                         )
-                    } else if (event.event === '$performance_event') {
+                    } else if (eventName === '$performance_event') {
                         await createPerformanceEvent(
-                            messagePayload.uuid,
+                            uuid!,
                             team.id,
-                            messagePayload.distinct_id,
-                            event.properties || {},
-                            event.ip,
-                            parseEventTimestamp(event as PluginEvent),
+                            distinctId!,
+                            event!.properties || {},
+                            event!.ip,
+                            parseEventTimestamp({
+                                timestamp,
+                                sent_at: sentAt,
+                                offset,
+                                now: now!,
+                                uuid: uuid!,
+                                event: eventName,
+                            }),
                             producer
                         )
                     }
                 } catch (error) {
                     status.error('⚠️', 'processing_error', {
-                        eventId: event.uuid,
+                        eventId: uuid,
                         error: error,
                     })
 

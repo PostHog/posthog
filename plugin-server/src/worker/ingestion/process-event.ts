@@ -258,38 +258,28 @@ export class EventsProcessor {
 
 export const createSessionRecordingEvent = async (
     uuid: string,
-    team_id: number,
-    distinct_id: string,
+    teamId: number,
+    distinctId: string,
     timestamp: DateTime,
-    ip: string | null,
-    properties: Properties,
+    snapshotData: string,
+    sessionId: string,
+    windowId: string,
     kafkaProducer: KafkaProducerWrapper
-): Promise<PostIngestionEvent> => {
+): Promise<void> => {
     const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
     const data: Partial<RawSessionRecordingEvent> = {
         uuid,
-        team_id: team_id,
-        distinct_id: distinct_id,
-        session_id: properties['$session_id'],
-        window_id: properties['$window_id'],
-        snapshot_data: JSON.stringify(properties['$snapshot_data']),
+        team_id: teamId,
+        distinct_id: distinctId,
+        session_id: sessionId,
+        window_id: windowId,
+        snapshot_data: snapshotData,
         timestamp: timestampString,
         created_at: timestampString,
     }
 
     await kafkaProducer.queueSingleJsonMessage(KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, uuid, data)
-
-    return {
-        eventUuid: uuid,
-        event: '$snapshot',
-        ip,
-        distinctId: distinct_id,
-        properties,
-        timestamp: timestamp.toISO() as ISOTimestamp,
-        elementsList: [],
-        teamId: team_id,
-    }
 }
 export async function createPerformanceEvent(
     uuid: string,

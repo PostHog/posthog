@@ -129,6 +129,71 @@ test.concurrent(
 )
 
 test.concurrent(
+    `can ingest recording events with snapshot data at top level`,
+    async () => {
+        // We have switched from pushing the `events_plugin_ingestion` to
+        // pushing to `session_recording_events`. There will still be session
+        // recording events in the `events_plugin_ingestion` topic for a while
+        // so we need to still handle these events with the current consumer.
+        // TODO: we push recording events that we get from
+        // `events_plugin_ingestion` to `session_recording_events`. We should be
+        // able to remove this push and this test once we know there are no more
+        // recording events in `events_plugin_ingestion`.
+        const token = uuidv4()
+        const teamId = await createTeam(postgres, organizationId, undefined, token)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        await producer.send({
+            topic: 'session_recording_events',
+            messages: [
+                {
+                    key: teamId ? teamId.toString() : '',
+                    value: '"yes way"',
+                    headers: {
+                        session_id: '1234abc',
+                        window_id: 'abc1234',
+                        distinct_id: distinctId,
+                        uuid: uuid,
+                        token: token,
+                        schema_version: '2',
+                        event_name: '$snapshot',
+                    },
+                },
+            ],
+        })
+
+        const events = await waitForExpect(async () => {
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+            return events
+        })
+
+        expect(events[0]).toEqual({
+            _offset: expect.any(Number),
+            _timestamp: expect.any(String),
+            click_count: 0,
+            created_at: expect.any(String),
+            distinct_id: distinctId,
+            events_summary: [],
+            first_event_timestamp: null,
+            has_full_snapshot: 0,
+            keypress_count: 0,
+            last_event_timestamp: null,
+            session_id: '1234abc',
+            snapshot_data: 'yes way',
+            team_id: teamId,
+            timestamp: expect.any(String),
+            timestamps_summary: [],
+            urls: [],
+            uuid: uuid,
+            window_id: 'abc1234',
+        })
+    },
+    20000
+)
+
+test.concurrent(
     `snapshot captured, processed, ingested via session_recording_events topic with no team_id set`,
     async () => {
         // We have switched from pushing the `events_plugin_ingestion` to
