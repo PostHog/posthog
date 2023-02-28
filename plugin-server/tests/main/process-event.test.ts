@@ -19,7 +19,6 @@ import {
     Person,
     PluginsServerConfig,
     PropertyDefinitionTypeEnum,
-    PropertyUpdateOperation,
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -286,6 +285,7 @@ test('capture new person', async () => {
         $referrer: 'https://google.com/?q=posthog',
         utm_medium: 'twitter',
         gclid: 'GOOGLE ADS ID',
+        msclkid: 'BING ADS ID',
         $elements: [
             { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
             { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
@@ -318,7 +318,9 @@ test('capture new person', async () => {
         $initial_os: 'Mac OS X',
         utm_medium: 'twitter',
         $initial_gclid: 'GOOGLE ADS ID',
+        $initial_msclkid: 'BING ADS ID',
         gclid: 'GOOGLE ADS ID',
+        msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
     }
@@ -335,7 +337,7 @@ test('capture new person', async () => {
     expect(events[0].properties).toEqual({
         $ip: '127.0.0.1',
         $os: 'Mac OS X',
-        $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID' },
+        $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID', msclkid: 'BING ADS ID' },
         token: 'THIS IS NOT A TOKEN FOR TEAM 2',
         $browser: 'Chrome',
         $set_once: {
@@ -345,6 +347,7 @@ test('capture new person', async () => {
             $initial_current_url: 'https://test.com',
             $initial_browser_version: '95',
             $initial_gclid: 'GOOGLE ADS ID',
+            $initial_msclkid: 'BING ADS ID',
             $initial_referrer: 'https://google.com/?q=posthog',
             $initial_referring_domain: 'https://google.com',
         },
@@ -353,6 +356,7 @@ test('capture new person', async () => {
         $current_url: 'https://test.com',
         $browser_version: '95',
         gclid: 'GOOGLE ADS ID',
+        msclkid: 'BING ADS ID',
         $referrer: 'https://google.com/?q=posthog',
         $referring_domain: 'https://google.com',
     })
@@ -397,7 +401,9 @@ test('capture new person', async () => {
         $initial_os: 'Mac OS X',
         utm_medium: 'instagram',
         $initial_gclid: 'GOOGLE ADS ID',
+        $initial_msclkid: 'BING ADS ID',
         gclid: 'GOOGLE ADS ID',
+        msclkid: 'BING ADS ID',
         $initial_referrer: 'https://google.com/?q=posthog',
         $initial_referring_domain: 'https://google.com',
     }
@@ -621,6 +627,18 @@ test('capture new person', async () => {
             {
                 id: expect.any(String),
                 is_numerical: false,
+                name: 'msclkid',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 1,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
                 name: '$ip',
                 property_type: 'String',
                 property_type_format: null,
@@ -646,6 +664,18 @@ test('capture new person', async () => {
                 id: expect.any(String),
                 is_numerical: false,
                 name: 'gclid',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: 'msclkid',
                 property_type: 'String',
                 property_type_format: null,
                 query_usage_30_day: null,
@@ -742,6 +772,18 @@ test('capture new person', async () => {
                 id: expect.any(String),
                 is_numerical: false,
                 name: '$initial_gclid',
+                property_type: 'String',
+                property_type_format: null,
+                query_usage_30_day: null,
+                team_id: 2,
+                type: 2,
+                group_type_index: null,
+                volume_30_day: null,
+            },
+            {
+                id: expect.any(String),
+                is_numerical: false,
+                name: '$initial_msclkid',
                 property_type: 'String',
                 property_type_format: null,
                 query_usage_30_day: null,
@@ -2259,8 +2301,8 @@ test('groupidentify', async () => {
         group_key: 'org::5',
         group_properties: { foo: 'bar' },
         created_at: now,
-        properties_last_updated_at: { foo: now.toISO() },
-        properties_last_operation: { foo: PropertyUpdateOperation.Set },
+        properties_last_updated_at: {},
+        properties_last_operation: {},
         version: 1,
     })
 })
@@ -2269,16 +2311,7 @@ test('$groupidentify updating properties', async () => {
     const next: DateTime = now.plus({ minutes: 1 })
 
     await createPerson(hub, team, ['distinct_id1'])
-    await hub.db.insertGroup(
-        team.id,
-        0,
-        'org::5',
-        { a: 1, b: 2 },
-        now,
-        { a: now.toISO(), b: now.toISO() },
-        { a: PropertyUpdateOperation.Set, b: PropertyUpdateOperation.Set },
-        1
-    )
+    await hub.db.insertGroup(team.id, 0, 'org::5', { a: 1, b: 2 }, now, {}, {}, 1)
 
     await processEvent(
         'distinct_id1',
@@ -2322,12 +2355,8 @@ test('$groupidentify updating properties', async () => {
         group_key: 'org::5',
         group_properties: { a: 3, b: 2, foo: 'bar' },
         created_at: now,
-        properties_last_updated_at: { a: next.toISO(), b: now.toISO(), foo: next.toISO() },
-        properties_last_operation: {
-            a: PropertyUpdateOperation.Set,
-            b: PropertyUpdateOperation.Set,
-            foo: PropertyUpdateOperation.Set,
-        },
+        properties_last_updated_at: {},
+        properties_last_operation: {},
         version: 2,
     })
 })

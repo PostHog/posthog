@@ -32,6 +32,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -59,12 +60,13 @@ export function InsightContainer({
         insightProps,
         canEditInsight,
         insightLoading,
-        activeView,
-        loadedView,
         timedOutQueryId,
         erroredQueryId,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
+
+    const { activeView } = useValues(insightNavLogic(insightProps))
+
     // const {
     //     areFiltersValid,
     //     isValidFunnel,
@@ -92,7 +94,7 @@ export function InsightContainer({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
+        if (insightLoading && timedOutQueryId === null) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -101,7 +103,7 @@ export function InsightContainer({
         }
 
         // Insight specific empty states - note order is important here
-        if (loadedView === InsightType.FUNNELS) {
+        if (activeView === InsightType.FUNNELS) {
             if (((querySource as FunnelsQuery).series || []).length <= 1) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }

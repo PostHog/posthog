@@ -483,7 +483,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         with freeze_time("2022-01-01T12:00:00.000Z"):
-
             self.create_snapshot(
                 "user",
                 "1",
@@ -507,3 +506,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 }
             ]
         }
+
+    def test_delete_session_recording(self):
+        self.create_snapshot("user", "1", now() - relativedelta(days=1), team_id=self.team.pk)
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        assert response_data["success"]
+
+        # Trying to delete same recording again returns 404
+        response = self.client.delete(f"/api/projects/{self.team.id}/session_recordings/1")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)

@@ -226,8 +226,6 @@ export async function startPluginsServer(
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
         }
 
-        piscina = makePiscina(serverConfig)
-
         // Based on the mode the plugin server was started, we start a number of
         // different services. Mostly this is reasonably obvious from the name.
         // There is however the `queue` which is a little more complicated.
@@ -249,6 +247,7 @@ export async function startPluginsServer(
             // it's that heavy so it may be fine, but something to watch out
             // for.
             await graphileWorker.connectProducer()
+            piscina = piscina ?? makePiscina(serverConfig)
             await startGraphileWorker(hub, graphileWorker, piscina)
 
             if (hub.capabilities.pluginScheduledTasks) {
@@ -271,13 +270,17 @@ export async function startPluginsServer(
             }
         }
 
-        if (hub.capabilities.ingestion) {
+        if (hub.capabilities.sessionRecordingIngestion) {
             sessionRecordingEventsConsumer = await startSessionRecordingEventsConsumer({
                 teamManager: hub.teamManager,
                 kafka: hub.kafka,
+                partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
                 statsd: hub.statsd,
             })
+        }
 
+        if (hub.capabilities.ingestion) {
+            piscina = piscina ?? makePiscina(serverConfig)
             analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -293,6 +296,7 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.ingestionOverflow) {
+            piscina = piscina ?? makePiscina(serverConfig)
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
                 hub: hub,
                 piscina: piscina,
@@ -300,59 +304,65 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.processAsyncHandlers) {
+            piscina = piscina ?? makePiscina(serverConfig)
             onEventHandlerConsumer = await startOnEventHandlerConsumer({
                 hub: hub,
                 piscina: piscina,
             })
         }
 
-        // use one extra Redis connection for pub-sub
-        pubSub = new PubSub(hub, {
-            [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
-                status.info('⚡', 'Reloading plugins!')
-                await piscina?.broadcastTask({ task: 'reloadPlugins' })
+        if (config.PLUGIN_SERVER_MODE !== 'recordings-ingestion') {
+            // If we are only running the recording ingestion, we don't need to
+            // start any pubsub or schedules.
 
-                if (hub?.capabilities.pluginScheduledTasks && piscina) {
-                    await piscina.broadcastTask({ task: 'reloadSchedule' })
-                    hub.pluginSchedule = await loadPluginSchedule(piscina)
-                }
-            },
-            'reset-available-features-cache': async (message) => {
-                await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
-            },
-            ...(hub.capabilities.processAsyncHandlers
-                ? {
-                      'reload-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
-                      'drop-action': async (message) =>
-                          await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
-                  }
-                : {}),
-        })
+            // use one extra Redis connection for pub-sub
+            pubSub = new PubSub(hub, {
+                [hub.PLUGINS_RELOAD_PUBSUB_CHANNEL]: async () => {
+                    status.info('⚡', 'Reloading plugins!')
+                    await piscina?.broadcastTask({ task: 'reloadPlugins' })
 
-        await pubSub.start()
-
-        // every 5 minutes all ActionManager caches are reloaded for eventual consistency
-        schedule.scheduleJob('*/5 * * * *', async () => {
-            await piscina?.broadcastTask({ task: 'reloadAllActions' })
-        })
-        // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
-        schedule.scheduleJob('*/5 * * * * *', async () => {
-            await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
-                jsonSerialize: false,
+                    if (hub?.capabilities.pluginScheduledTasks && piscina) {
+                        await piscina.broadcastTask({ task: 'reloadSchedule' })
+                        hub.pluginSchedule = await loadPluginSchedule(piscina)
+                    }
+                },
+                'reset-available-features-cache': async (message) => {
+                    await piscina?.broadcastTask({ task: 'resetAvailableFeaturesCache', args: JSON.parse(message) })
+                },
+                ...(hub.capabilities.processAsyncHandlers
+                    ? {
+                          'reload-action': async (message) =>
+                              await piscina?.broadcastTask({ task: 'reloadAction', args: JSON.parse(message) }),
+                          'drop-action': async (message) =>
+                              await piscina?.broadcastTask({ task: 'dropAction', args: JSON.parse(message) }),
+                      }
+                    : {}),
             })
-            await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
-        })
-        // every 10 seconds sends stuff to StatsD
-        schedule.scheduleJob('*/10 * * * * *', () => {
-            if (piscina) {
-                for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
-                    if (value !== undefined) {
-                        hub!.statsd?.gauge(`piscina.${key}`, value)
+
+            await pubSub.start()
+
+            // every 5 minutes all ActionManager caches are reloaded for eventual consistency
+            schedule.scheduleJob('*/5 * * * *', async () => {
+                await piscina?.broadcastTask({ task: 'reloadAllActions' })
+            })
+            // every 5 seconds set Redis keys @posthog-plugin-server/ping and @posthog-plugin-server/version
+            schedule.scheduleJob('*/5 * * * * *', async () => {
+                await hub!.db!.redisSet('@posthog-plugin-server/ping', new Date().toISOString(), 60, {
+                    jsonSerialize: false,
+                })
+                await hub!.db!.redisSet('@posthog-plugin-server/version', version, undefined, { jsonSerialize: false })
+            })
+            // every 10 seconds sends stuff to StatsD
+            schedule.scheduleJob('*/10 * * * * *', () => {
+                if (piscina) {
+                    for (const [key, value] of Object.entries(getPiscinaStats(piscina))) {
+                        if (value !== undefined) {
+                            hub!.statsd?.gauge(`piscina.${key}`, value)
+                        }
                     }
                 }
-            }
-        })
+            })
+        }
 
         if (hub.statsd) {
             stopEventLoopMetrics = captureEventLoopMetrics(hub.statsd, hub.instanceId)

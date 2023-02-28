@@ -80,6 +80,9 @@
                 },
                 {
                     "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/HogQLQuery"
                 }
             ]
         },
@@ -213,10 +216,13 @@
                                 }
                             ]
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
                         },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -343,10 +349,13 @@
                                 }
                             ]
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
                         },
                         "show_legend": {
+                            "type": "boolean"
+                        },
+                        "show_values_on_series": {
                             "type": "boolean"
                         },
                         "shown_as": {
@@ -550,8 +559,8 @@
                                 }
                             ]
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
                         }
                     },
                     "type": "object"
@@ -709,8 +718,8 @@
                                 }
                             ]
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
                         },
                         "start_point": {
                             "type": "string"
@@ -830,8 +839,8 @@
                         "returning_entity": {
                             "type": "object"
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
                         },
                         "target_entity": {
                             "type": "object"
@@ -938,8 +947,11 @@
                                 }
                             ]
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
+                        },
+                        "show_values_on_series": {
+                            "type": "boolean"
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
@@ -1043,8 +1055,8 @@
                                 }
                             ]
                         },
-                        "sample_results": {
-                            "type": ["boolean", "null"]
+                        "sampling_factor": {
+                            "type": ["number", "null"]
                         }
                     },
                     "type": "object"
@@ -1293,6 +1305,10 @@
                     "description": "Show the export button",
                     "type": "boolean"
                 },
+                "showHogQLEditor": {
+                    "description": "Include a HogQL query editor above HogQL tables",
+                    "type": "boolean"
+                },
                 "showPropertyFilter": {
                     "description": "Include a property filter above the table",
                     "type": "boolean"
@@ -1322,6 +1338,9 @@
                         },
                         {
                             "$ref": "#/definitions/RecentPerformancePageViewNode"
+                        },
+                        {
+                            "$ref": "#/definitions/HogQLQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -1993,6 +2012,51 @@
             "required": ["key", "type"],
             "type": "object"
         },
+        "HogQLQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "HogQLQuery",
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/HogQLQueryResponse",
+                    "description": "Cached query response"
+                }
+            },
+            "required": ["kind", "query"],
+            "type": "object"
+        },
+        "HogQLQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "clickhouse": {
+                    "type": "string"
+                },
+                "columns": {
+                    "items": {},
+                    "type": "array"
+                },
+                "hogql": {
+                    "type": "string"
+                },
+                "query": {
+                    "type": "string"
+                },
+                "results": {
+                    "items": {},
+                    "type": "array"
+                },
+                "types": {
+                    "items": {},
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
         "InsightQueryNode": {
             "anyOf": [
                 {
@@ -2016,7 +2080,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -2054,6 +2118,9 @@
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2626,6 +2693,9 @@
                 "show_legend": {
                     "type": "boolean"
                 },
+                "show_values_on_series": {
+                    "type": "boolean"
+                },
                 "shown_as": {
                     "$ref": "#/definitions/ShownAsValue"
                 },
@@ -2753,6 +2823,9 @@
                     "type": "object"
                 },
                 "show_legend": {
+                    "type": "boolean"
+                },
+                "show_values_on_series": {
                     "type": "boolean"
                 },
                 "shown_as": {

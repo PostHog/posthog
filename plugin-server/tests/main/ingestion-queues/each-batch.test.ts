@@ -2,8 +2,7 @@ import { KAFKA_EVENTS_PLUGIN_INGESTION, KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW }
 import { eachBatch } from '../../../src/main/ingestion-queues/batch-processing/each-batch'
 import { eachBatchAsyncHandlers } from '../../../src/main/ingestion-queues/batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from '../../../src/main/ingestion-queues/batch-processing/each-batch-ingestion'
-import { ClickHouseTimestamp, ISOTimestamp } from '../../../src/types'
-import { PostIngestionEvent, RawClickHouseEvent } from '../../../src/types'
+import { ClickHouseTimestamp, ISOTimestamp, PostIngestionEvent, RawClickHouseEvent } from '../../../src/types'
 import { ConfiguredLimiter } from '../../../src/utils/token-bucket'
 import { groupIntoBatches } from '../../../src/utils/utils'
 import { captureIngestionWarning } from './../../../src/worker/ingestion/utils'
@@ -114,6 +113,7 @@ describe('eachBatchX', () => {
             workerMethods: {
                 runAsyncHandlersEventPipeline: jest.fn(),
                 runEventPipeline: jest.fn(),
+                runLightweightCaptureEndpointEventPipeline: jest.fn(),
                 runBufferEventPipeline: jest.fn(),
             },
         }
@@ -157,11 +157,11 @@ describe('eachBatchX', () => {
     })
 
     describe('eachBatchIngestion', () => {
-        it('calls runEventPipeline', async () => {
+        it('calls runLightweightCaptureEndpointEventPipeline', async () => {
             const batch = createBatch(captureEndpointEvent)
             await eachBatchIngestion(batch, queue)
 
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
+            expect(queue.workerMethods.runLightweightCaptureEndpointEventPipeline).toHaveBeenCalledWith({
                 distinct_id: 'id',
                 event: 'event',
                 properties: {},
