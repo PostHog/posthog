@@ -2284,7 +2284,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     filters={
                         "events": [{"id": "user signed up", "type": "events", "order": 0}],
                         "actions": [{"id": action_play_movie.pk, "type": "actions", "order": 2}],
-                        "" "funnel_window_days": 14,
+                        "funnel_window_days": 14,
                         "sampling_factor": 1,
                     }
                 )
@@ -2294,7 +2294,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
                 person_factory(distinct_ids=["stopped_after_pay"], team_id=self.team.pk)
                 self._signup_event(distinct_id="stopped_after_pay")
-                self._movie_event(distinct_id="completed_movie")
 
                 person_factory(distinct_ids=["had_anonymous_id", "completed_movie"], team_id=self.team.pk)
                 self._signup_event(distinct_id="had_anonymous_id")
@@ -2308,6 +2307,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                 self._signup_event(distinct_id="wrong_order")
 
                 result = funnel.run()
+
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 4)
 
