@@ -68,7 +68,7 @@ const appendPathNodes = (
             const startNodeColor = c && d3.color(c) ? d3.color(c) : d3.color('#5375ff')
             return startNodeColor
         })
-        .on('mouseover', (data: PathNodeData) => {
+        .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
             if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
                 return
             }
@@ -117,7 +117,7 @@ const appendPathLinks = (
         .attr('stroke-width', (d: PathNodeData) => {
             return Math.max(1, d.width)
         })
-        .on('mouseover', (data: PathNodeData) => {
+        .on('mouseover', (_event: MouseEvent, data: PathNodeData) => {
             svg.select(`#path-${data.index}`).attr('stroke', 'blue')
             if (data?.source?.targetLinks.length === 0) {
                 return

@@ -1,7 +1,7 @@
 import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { QueryContext, DataTableNode } from '~/queries/schema'
-import { isEventsQuery } from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery } from '~/queries/utils'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { SortingIndicator } from 'lib/lemon-ui/LemonTable/sorting'
 
@@ -14,7 +14,9 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     let width: number | undefined
     let title: JSX.Element | string | undefined
 
-    if (key === 'timestamp') {
+    if (isHogQLQuery(query.source)) {
+        title = key
+    } else if (key === 'timestamp') {
         title = 'Time'
     } else if (key === 'created_at') {
         title = 'First seen'

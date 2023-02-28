@@ -460,7 +460,17 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </Row>
                                     </Tabs.TabPane>
                                     {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane tab="Usage" key="usage">
+                                        <Tabs.TabPane
+                                            tab={
+                                                <div>
+                                                    Usage
+                                                    <LemonTag type="warning" className="uppercase ml-2">
+                                                        Beta
+                                                    </LemonTag>
+                                                </div>
+                                            }
+                                            key="usage"
+                                        >
                                             <UsageTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
                                     )}

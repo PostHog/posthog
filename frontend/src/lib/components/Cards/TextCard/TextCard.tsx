@@ -7,10 +7,9 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import ReactMarkdown from 'react-markdown'
-import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import React, { useState } from 'react'
-import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
+import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
 
 interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable {
     dashboardId?: string | number
@@ -69,7 +68,6 @@ export function TextCardInternal(
     const { text } = textTile
 
     const [metaPrimaryHeight, setMetaPrimaryHeight] = useState<number | undefined>(undefined)
-    const [areDetailsShown, setAreDetailsShown] = useState(false)
 
     if (!text) {
         throw new Error('TextCard requires text')
@@ -86,17 +84,8 @@ export function TextCardInternal(
         >
             <CardMeta
                 showEditingControls={showEditingControls}
-                showDetailsControls={true}
-                setAreDetailsShown={setAreDetailsShown}
-                areDetailsShown={areDetailsShown}
+                showDetailsControls={false}
                 className={clsx(showResizeHandles ? 'border-b' : 'border rounded-t')}
-                metaDetails={
-                    <UserActivityIndicator
-                        className={'mt-1'}
-                        at={text.last_modified_at}
-                        by={text.created_by || text.last_modified_by}
-                    />
-                }
                 moreButtons={
                     <>
                         <LemonButton
@@ -166,11 +155,8 @@ export function TextCardInternal(
 
             <TextCardBody
                 text={text.body}
-                closeDetails={() => setAreDetailsShown(false)}
                 style={
-                    metaPrimaryHeight
-                        ? { height: `calc(100% - ${metaPrimaryHeight}px - 2rem /* margins */ - 1px /* border */)` }
-                        : undefined
+                    metaPrimaryHeight ? { height: `calc(100% - ${metaPrimaryHeight}px - 1px /* border */)` } : undefined
                 }
             />
 

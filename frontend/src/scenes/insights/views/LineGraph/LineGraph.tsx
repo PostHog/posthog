@@ -375,9 +375,12 @@ export function LineGraph_({
                     display: (context) => {
                         const datum = context.dataset.data[context.dataIndex]
                         return filters?.show_values_on_series === true && typeof datum === 'number' && datum !== 0
+                            ? 'auto'
+                            : false
                     },
                     formatter: (value: number) => formatAggregationAxisValue(filters, value),
                     borderWidth: 2,
+                    borderRadius: 4,
                     borderColor: 'white',
                 },
                 legend: {

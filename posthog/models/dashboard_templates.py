@@ -5,13 +5,26 @@ from django.db.models import UniqueConstraint
 from posthog.models.utils import UUIDModel
 
 
+class DashboardTemplateManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class DashboardTemplate(UUIDModel):
+    objects = DashboardTemplateManager()
+    objects_including_soft_deleted = models.Manager()
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
-    template_name: models.CharField = models.CharField(max_length=400, null=True)
-    dashboard_description: models.CharField = models.CharField(max_length=400, null=True)
-    dashboard_filters: models.JSONField = models.JSONField(null=True)
-    tiles: models.JSONField = models.JSONField(default=list)
-    tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list)
+    template_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    dashboard_description: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    dashboard_filters: models.JSONField = models.JSONField(null=True, blank=True)
+    tiles: models.JSONField = models.JSONField(blank=True, null=True)
+    variables: models.JSONField = models.JSONField(null=True, blank=True)
+    tags: ArrayField = ArrayField(models.CharField(max_length=255), blank=True, null=True)
+    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    created_by: models.ForeignKey = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    deleted: models.BooleanField = models.BooleanField(blank=True, null=True)
+    image_url: models.CharField = models.CharField(max_length=8201, null=True, blank=True)
     # URL length for browsers can be as much as 64Kb
     # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
     # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317

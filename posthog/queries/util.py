@@ -101,3 +101,11 @@ def convert_to_datetime_aware(date_obj):
     if date_obj.tzinfo is None:
         date_obj = date_obj.replace(tzinfo=timezone.utc)
     return date_obj
+
+
+def correct_result_for_sampling(value: int, sampling_factor: Optional[float]) -> int:
+    if not sampling_factor:
+        return value
+
+    result: int = round(value * (1 / sampling_factor))
+    return result

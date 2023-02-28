@@ -1,6 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import * as schedule from 'node-schedule'
+import { Counter } from 'prom-client'
 
 import {
     KAFKA_EVENTS_PLUGIN_INGESTION,
@@ -11,10 +12,16 @@ import { Hub } from '../../types'
 import { isIngestionOverflowEnabled } from '../../utils/env-utils'
 import { formPipelineEvent } from '../../utils/event'
 import { status } from '../../utils/status'
-import { ConfiguredLimiter } from '../../utils/token-bucket'
+import { ConfiguredLimiter, LoggingLimiter } from '../../utils/token-bucket'
 import { eachBatch } from './batch-processing/each-batch'
 import { eachBatchIngestion, eachMessageIngestion } from './batch-processing/each-batch-ingestion'
 import { IngestionConsumer } from './kafka-queue'
+
+export const ingestionPartitionKeyOverflowed = new Counter({
+    name: 'ingestion_partition_key_overflowed',
+    help: 'Indicates that a given key has overflowed capacity and been redirected to a different topic. Value incremented once a minute.',
+    labelNames: ['partition_key'],
+})
 
 export const startAnalyticsEventsIngestionConsumer = async ({
     hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
@@ -91,6 +98,12 @@ export async function eachBatchIngestionWithOverflow(
                 // Set message key to be null so we know to send it to overflow topic.
                 // We don't want to do it here to preserve the kafka offset handling
                 message.key = null
+
+                ingestionPartitionKeyOverflowed.labels(seenKey).inc()
+
+                if (LoggingLimiter.consume(seenKey, 1) === true) {
+                    status.warn('🪣', `Partition key ${seenKey} overflowed ingestion capacity`)
+                }
             }
 
             if (currentBatch.length >= batchSize || (message.key != null && seenIds.has(seenKey))) {

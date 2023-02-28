@@ -6,7 +6,7 @@ import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { InsightShortId, InsightType, ItemMode } from '~/types'
-import { InsightsNav } from './InsightsNav'
+import { InsightsNav } from './InsightNav/InsightsNav'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 import { EditorFilters } from './EditorFilters/EditorFilters'
@@ -80,7 +80,7 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
 
     const insightScene = (
         <div className={'insights-page'}>
-            <InsightPageHeader insightId={insightId} />
+            <InsightPageHeader insightLogicProps={insightProps} />
 
             {insightMode === ItemMode.Edit && <InsightsNav />}
 
