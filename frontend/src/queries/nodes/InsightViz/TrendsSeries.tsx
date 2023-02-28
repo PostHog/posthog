@@ -39,6 +39,11 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         TaxonomicFilterGroupType.HogQLExpression,
     ]
 
+    if (!querySource) {
+        // TODO: an error state? or make it impossible to get here like this?
+        return null
+    }
+
     const display = getDisplay(querySource)
     const filters = queryNodeToFilter(querySource)
 

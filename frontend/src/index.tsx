@@ -16,6 +16,7 @@ initKea()
 if (typeof window !== 'undefined') {
     // Disabled in production to prevent leaking secret data, personal API keys, etc
     if (process.env.NODE_ENV === 'development') {
+        ;(window as any).reduxStore = () => getContext().store
         ;(window as any).getReduxState = () => getContext().store.getState()
     } else {
         ;(window as any).getReduxState = () => 'Disabled outside development!'

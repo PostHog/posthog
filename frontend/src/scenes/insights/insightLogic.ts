@@ -1066,10 +1066,13 @@ export const insightLogic = kea<insightLogicType>([
                 throw e
             }
 
-            actions.setInsight(
-                { ...savedInsight, result: savedInsight.result || values.insight.result },
-                { fromPersistentApi: true, overrideFilter: true }
-            )
+            console.log('saved insight', savedInsight)
+            // the backend can't return the result for a query based insight,
+            // and so we shouldn't copy the result from `values.insight` as it might be stale
+            const result = savedInsight.result || (query === null ? values.insight.result : null)
+            console.log('saved insight - results', { si: savedInsight.result, v: values.insight.result, r: result })
+            debugger
+            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {
