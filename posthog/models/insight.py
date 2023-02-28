@@ -99,7 +99,8 @@ class Insight(models.Model):
         unique_together = ("team", "short_id")
 
     def dashboard_filters(self, dashboard: Optional[Dashboard] = None):
-        if dashboard:
+        # TODO dashboard filtering needs to know how to override query date ranges😱
+        if dashboard and not self.query:
             dashboard_filters = {**dashboard.filters}
             dashboard_properties = dashboard_filters.pop("properties") if dashboard_filters.get("properties") else None
 

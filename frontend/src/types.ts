@@ -1240,6 +1240,37 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateType {
+    id: string
+    team_id?: number
+    created_at?: string
+    template_name: string
+    dashboard_description?: string
+    dashboard_filters?: Record<string, JsonType>
+    tiles: DashboardTile[]
+    variables?: DashboardTemplateVariableType[]
+    tags?: string[]
+    image_url?: string
+}
+
+export interface MonacoMarker {
+    message: string
+}
+
+// makes the DashboardTemplateType properties optional and the tiles properties optional
+export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
+    tiles: Partial<DashboardTile>[]
+}
+
+export interface DashboardTemplateVariableType {
+    id: string
+    name: string
+    description: string
+    type: 'event'
+    default: Record<string, JsonType> | null | undefined
+    required: boolean
+}
+
 export type DashboardLayoutSize = 'sm' | 'xs'
 
 /** Explicit dashboard collaborator, based on DashboardPrivilege. */
