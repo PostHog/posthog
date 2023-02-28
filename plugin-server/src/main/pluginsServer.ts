@@ -429,7 +429,7 @@ export async function startPluginsServer(
                 partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
             })
             sessionRecordingEventsConsumer = consumer
-            healthChecks.sessionRecordings = isSessionRecordingsHealthy
+            healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 
         if (capabilities.http) {
