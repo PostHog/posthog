@@ -179,7 +179,9 @@ def empty_or_null_with_value_q(
 ) -> Q:
 
     if operator == "exact" or operator is None:
-        target_filter = lookup_q(f"{column}__{key}", Property._parse_value(value))
+        target_filter = lookup_q(f"{column}__{key}", Property._parse_value(value)) | lookup_q(
+            f"{column}__{key}", Property._parse_value(value, convert_to_number=True)
+        )
     else:
         target_filter = Q(**{f"{column}__{key}__{operator}": value})
 
