@@ -382,7 +382,7 @@ class SessionRecordingList(EventQuery):
         )
 
     def _get_core_events_query(self) -> Tuple[str, Dict[str, Any]]:
-        params = {}
+        params: Dict[str, Any] = {}
         event_filters = self.format_event_filters
         properties_select_clause = self._get_properties_select_clause
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause
@@ -499,7 +499,7 @@ class SessionRecordingListV2(SessionRecordingList):
         """
 
     def _get_core_events_query(self) -> Tuple[str, Dict[str, Any]]:
-        params = {}
+        params: Dict[str, Any] = {}
         event_filters = self.format_event_filters
         properties_select_clause = self._get_properties_select_clause
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause

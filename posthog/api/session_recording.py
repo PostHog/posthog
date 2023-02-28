@@ -1,5 +1,5 @@
 import json
-from typing import Any, List, cast
+from typing import Any, List, Type, cast
 
 import structlog
 from dateutil import parser
@@ -238,7 +238,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
-        session_recording_list_instance: SessionRecordingList = (
+        session_recording_list_instance: Type[SessionRecordingList] = (
             SessionRecordingListV2 if team.recordings_list_v2_query_enabled else SessionRecordingList
         )
         (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
