@@ -35,7 +35,6 @@
     left: 0;
     display: flex;
     flex-direction: column;
-    padding: 1rem 1rem;
     width: 100%;
     max-height: calc(100% - 2rem);
     background: #fff;
@@ -56,6 +55,13 @@
         font-weight: 600;
         margin-bottom: 0.125rem;
     }
+}
+
+.CardMeta--WithDetails {
+    padding: 1rem 1rem;
+}
+.CardMeta--WithoutDetails {
+    padding: 0.1rem; // needs the tiniest bump to make the "more" button centered
 }
 
 .CardMeta--expansion-enter-active,

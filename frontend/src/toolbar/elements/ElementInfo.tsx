@@ -31,10 +31,8 @@ function ElementStatistic({
 export function ElementInfo(): JSX.Element | null {
     const { clickCount: totalClickCount, dateRange } = useValues(heatmapLogic)
 
-    const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
+    const { activeMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
-
-    const activeMeta = hoverElementMeta || selectedElementMeta
 
     if (!activeMeta) {
         return null

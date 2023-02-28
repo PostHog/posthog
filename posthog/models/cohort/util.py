@@ -230,7 +230,7 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
 
-    hogql_context = HogQLContext()
+    hogql_context = HogQLContext(within_non_hogql_query=True)
     cohort_query, cohort_params = format_person_query(cohort, 0, hogql_context)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)

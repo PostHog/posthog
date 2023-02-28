@@ -1,14 +1,22 @@
 import { LemonButtonWithDropdown } from '.'
 import { IconEllipsis } from 'lib/lemon-ui/icons'
 import { PopoverProps } from '../Popover/Popover'
+import { LemonButtonWithDropdownProps } from './LemonButton'
 
 export interface MoreProps extends Partial<Pick<PopoverProps, 'overlay' | 'placement'>> {
     style?: React.CSSProperties
     className?: string
     'data-attr'?: string
+    onClick?: LemonButtonWithDropdownProps['onClick']
 }
 
-export function More({ overlay, placement = 'bottom-end', className, 'data-attr': dataAttr }: MoreProps): JSX.Element {
+export function More({
+    overlay,
+    placement = 'bottom-end',
+    className,
+    'data-attr': dataAttr,
+    onClick,
+}: MoreProps): JSX.Element {
     return (
         <LemonButtonWithDropdown
             aria-label="more"
@@ -23,6 +31,7 @@ export function More({ overlay, placement = 'bottom-end', className, 'data-attr'
             size="small"
             className={className}
             disabled={!overlay}
+            onClick={onClick}
         />
     )
 }

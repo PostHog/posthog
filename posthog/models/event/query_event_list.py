@@ -76,7 +76,7 @@ def query_events_list(
 ) -> List:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext()
+    hogql_context = HogQLContext(within_non_hogql_query=True)
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"
@@ -145,7 +145,7 @@ def run_events_query(
 ) -> EventsQueryResponse:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
-    hogql_context = HogQLContext()
+    hogql_context = HogQLContext(within_non_hogql_query=True)
 
     # adding +1 to the limit to check if there's a "next page" after the requested results
     limit = min(QUERY_MAXIMUM_LIMIT, QUERY_DEFAULT_LIMIT if query.limit is None else query.limit) + 1
@@ -210,6 +210,8 @@ def run_events_query(
 
     for expr in select:
         hogql_context.found_aggregation = False
+        if expr == "*":
+            expr = f'tuple({", ".join(SELECT_STAR_FROM_EVENTS_FIELDS)})'
         clickhouse_sql = translate_hogql(expr, hogql_context)
         select_columns.append(clickhouse_sql)
         if not hogql_context.found_aggregation:
@@ -273,13 +275,6 @@ def run_events_query(
             results[index] = list(result)
             results[index][star] = convert_star_select_to_dict(result[star])
 
-    # Convert person field from tuple to dict in each result
-    if "person" in select:
-        person = select.index("person")
-        for index, result in enumerate(results):
-            results[index] = list(result)
-            results[index][person] = convert_person_select_to_dict(result[person])
-
     received_extra_row = len(results) == limit  # limit was +=1'd above
 
     return EventsQueryResponse(
@@ -293,23 +288,6 @@ def run_events_query(
 def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
     new_result["properties"] = json.loads(new_result["properties"])
-    new_result["person"] = {
-        "id": new_result["person.id"],
-        "created_at": new_result["person.created_at"],
-        "properties": json.loads(new_result["person.properties"]),
-    }
-    new_result.pop("person.id")
-    new_result.pop("person.created_at")
-    new_result.pop("person.properties")
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
-
-
-def convert_person_select_to_dict(select: Tuple[str, str, str, str, str]) -> Dict[str, Any]:
-    return {
-        "id": select[1],
-        "created_at": select[2],
-        "properties": {"name": select[3], "email": select[4]},
-        "distinct_ids": [select[0]],
-    }

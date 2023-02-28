@@ -58,7 +58,7 @@ import {
     isRetentionFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
+import { CardMeta, Resizeable } from 'lib/components/Cards/CardMeta'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
 import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'

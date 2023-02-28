@@ -53,6 +53,7 @@ import {
     TeamId,
     TimestampFormat,
 } from '../../types'
+import { fetchTeam, fetchTeamByToken } from '../../worker/ingestion/team-manager'
 import { parseRawClickHouseEvent } from '../event'
 import { instrumentQuery } from '../metrics'
 import { status } from '../status'
@@ -70,9 +71,9 @@ import { OrganizationPluginsAccessLevel } from './../../types'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
+import { postgresQuery } from './postgres'
 import {
     generateKafkaPersonUpdateMessage,
-    getFinalPostgresQuery,
     safeClickhouseString,
     shouldStoreLog,
     timeoutGuard,
@@ -130,7 +131,7 @@ export interface CachedGroupData {
     created_at: ClickHouseTimestamp
 }
 
-const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
+export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
     'could not translate host',
     'server conn crashed',
@@ -193,37 +194,7 @@ export class DB {
         tag: string,
         client?: PoolClient
     ): Promise<QueryResult<R>> {
-        return instrumentQuery(this.statsd, 'query.postgres', tag, async () => {
-            let fullQuery = ''
-            try {
-                fullQuery = getFinalPostgresQuery(queryString, values as any[])
-            } catch {}
-            const timeout = timeoutGuard('Postgres slow query warning after 30 sec', {
-                queryString,
-                values,
-                fullQuery,
-            })
-
-            // Annotate query string to give context when looking at DB logs
-            queryString = `/* plugin-server:${tag} */ ${queryString}`
-            try {
-                if (client) {
-                    return await client.query(queryString, values)
-                } else {
-                    return await this.postgres.query(queryString, values)
-                }
-            } catch (error) {
-                if (
-                    error.message &&
-                    POSTGRES_UNAVAILABLE_ERROR_MESSAGES.some((message) => error.message.includes(message))
-                ) {
-                    throw new DependencyUnavailableError(error.message, 'Postgres', error)
-                }
-                throw error
-            } finally {
-                clearTimeout(timeout)
-            }
-        })
+        return postgresQuery(client ?? this.postgres, queryString, values, tag, this.statsd)
     }
 
     public postgresTransaction<ReturnType>(
@@ -1464,48 +1435,11 @@ export class DB {
     // Team
 
     public async fetchTeam(teamId: Team['id']): Promise<Team | null> {
-        const selectResult = await this.postgresQuery<Team>(
-            `
-            SELECT
-                id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                ingested_event
-            FROM posthog_team
-            WHERE id = $1
-            `,
-            [teamId],
-            'fetchTeam'
-        )
-        return selectResult.rows[0] ?? null
+        return await fetchTeam(this.postgres, teamId)
     }
 
     public async fetchTeamByToken(token: string): Promise<Team | null> {
-        const selectResult = await this.postgresQuery<Team>(
-            `
-            SELECT
-                id,
-                uuid,
-                organization_id,
-                name,
-                anonymize_ips,
-                api_token,
-                slack_incoming_webhook,
-                session_recording_opt_in,
-                ingested_event
-            FROM posthog_team
-            WHERE api_token = $1
-            LIMIT 1
-                `,
-            [token],
-            'fetchTeamByToken'
-        )
-        return selectResult.rows[0] ?? null
+        return await fetchTeamByToken(this.postgres, token)
     }
 
     // Hook (EE)

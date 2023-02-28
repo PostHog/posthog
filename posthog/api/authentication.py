@@ -2,6 +2,7 @@ import time
 from typing import Any, Dict, Optional, cast
 from uuid import uuid4
 
+import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
@@ -23,6 +24,8 @@ from two_factor.utils import default_device
 from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 from two_factor.views.utils import get_remember_device_cookie, validate_remember_device_cookie
 
+from posthog.api.email_verification import EmailVerifier
+from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
@@ -114,6 +117,19 @@ class LoginSerializer(serializers.Serializer):
 
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
+        require_verification_feature = posthoganalytics.feature_enabled(
+            "require-email-verification", str(user.distinct_id)
+        )
+        # We still let them log in if is_email_verified is null so existing users don't get locked out
+        if is_cloud() and require_verification_feature and user.is_email_verified is not True:
+            EmailVerifier.create_token_and_send_email_verification(user)
+            if user.is_email_verified is False:
+                # If it's None, we want to let them log in still since they are an existing user
+                raise serializers.ValidationError(
+                    "Your account is awaiting verification. Please check your email for a verification link.",
+                    code="not_verified",
+                )
 
         if self._check_if_2fa_required(user):
             request.session["user_authenticated_but_no_2fa"] = user.pk

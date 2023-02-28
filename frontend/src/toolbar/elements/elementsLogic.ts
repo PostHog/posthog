@@ -32,7 +32,9 @@ export const elementsLogic = kea<elementsLogicType>({
         enableInspect: true,
         disableInspect: true,
 
-        selectElement: (element: HTMLElement | null) => ({ element }),
+        selectElement: (element: HTMLElement | null) => ({
+            element,
+        }),
         createAction: (element: HTMLElement) => ({ element }),
 
         updateRects: true,
@@ -105,14 +107,19 @@ export const elementsLogic = kea<elementsLogicType>({
     }),
 
     selectors: {
+        activeMetaIsSelected: [
+            (s) => [s.selectedElementMeta, s.activeMeta],
+            (selectedElementMeta, activeMeta) =>
+                !!selectedElementMeta && !!activeMeta && selectedElementMeta.element === activeMeta.element,
+        ],
         inspectEnabled: [
             (s) => [
                 s.inspectEnabledRaw,
                 actionsTabLogic.selectors.inspectingElement,
                 actionsTabLogic.selectors.buttonActionsVisible,
             ],
-            (inpsectEnabledRaw, inspectingElement, buttonActionsVisible) =>
-                inpsectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
+            (inspectEnabledRaw, inspectingElement, buttonActionsVisible) =>
+                inspectEnabledRaw || (buttonActionsVisible && inspectingElement !== null),
         ],
 
         heatmapEnabled: [() => [heatmapLogic.selectors.heatmapEnabled], (heatmapEnabled) => heatmapEnabled],
@@ -175,21 +182,12 @@ export const elementsLogic = kea<elementsLogicType>({
             (heatmapElements, inspectElements, actionElements, actionsListElements): ElementMap => {
                 const elementMap = new Map<HTMLElement, ElementWithMetadata>()
 
-                inspectElements.forEach((e) => {
-                    elementMap.set(e.element, e)
-                })
-                heatmapElements.forEach((e) => {
+                ;[...inspectElements, ...heatmapElements, ...actionElements, ...actionsListElements].forEach((e) => {
+                    const elementWithMetadata: ElementWithMetadata = { ...e }
                     if (elementMap.get(e.element)) {
-                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
+                        elementMap.set(e.element, { ...elementMap.get(e.element), ...elementWithMetadata })
                     } else {
-                        elementMap.set(e.element, e)
-                    }
-                })
-                ;[...actionElements, ...actionsListElements].forEach((e) => {
-                    if (elementMap.get(e.element)) {
-                        elementMap.set(e.element, { ...elementMap.get(e.element), ...e })
-                    } else {
-                        elementMap.set(e.element, e)
+                        elementMap.set(e.element, elementWithMetadata)
                     }
                 })
                 return elementMap
@@ -330,6 +328,12 @@ export const elementsLogic = kea<elementsLogicType>({
                     }
                 }
                 return null
+            },
+        ],
+        activeMeta: [
+            (s) => [s.selectedElementMeta, s.hoverElementMeta],
+            (selectedElementMeta, hoverElementMeta) => {
+                return selectedElementMeta || hoverElementMeta
             },
         ],
     },
