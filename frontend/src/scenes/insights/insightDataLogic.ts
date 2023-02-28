@@ -62,7 +62,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['insight'],
+            ['insight', 'isUsingDataExploration'],
             featureFlagLogic,
             ['featureFlags'],
             trendsLogic,
@@ -234,6 +234,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
          * that haven't been refactored to use the data exploration yet.
          */
         response: (response: Record<string, any> | null) => {
+            if (!values.isUsingDataExploration) {
+                return
+            }
+
             actions.setInsight(
                 {
                     ...values.insight,
