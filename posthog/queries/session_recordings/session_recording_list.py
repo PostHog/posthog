@@ -458,6 +458,20 @@ class SessionRecordingListV2(SessionRecordingList):
             {events_timestamp_clause}
             AND notEmpty(session_id)
     """
+
+    _core_events_query_grouped = """
+        SELECT
+            session_id,
+            distinct_id,
+            sum(does_match) as matches,
+            {aggregate_event_select_clause}
+        FROM (
+            {ungrouped_core_events_query}
+        ) GROUP BY session_id, distinct_id
+        HAVING 1 = 1
+        {event_filter_aggregate_having_clause}
+    """
+
     _session_recordings_query_with_events = """
         SELECT
             session_recordings.session_id,
