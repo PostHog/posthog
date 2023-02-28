@@ -93,6 +93,27 @@
     }
 }
 
+@each $name, $size in $screens {
+    .w-#{$name} {
+        width: $size;
+    }
+    .h-#{$name} {
+        height: $size;
+    }
+    .min-w-#{$name} {
+        min-width: $size;
+    }
+    .max-w-#{$name} {
+        max-width: $size;
+    }
+    .min-h-#{$name} {
+        min-height: $size;
+    }
+    .max-h-#{$name} {
+        max-height: $size;
+    }
+}
+
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
 @each $space in $all_spaces {
     .w-#{escape-number($space)} {
@@ -878,8 +899,13 @@ $decorations: underline, overline, line-through, no-underline;
     box-shadow: var(--shadow-elevation);
 }
 
-.object-contain {
-    object-fit: contain;
+@each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
+    .object-#{$fitOption} {
+        object-fit: $fitOption;
+    }
+    hover\:object-#{$fitOption}:hover {
+        object-fit: $fitOption;
+    }
 }
 
 .tracking-tighter {
@@ -979,4 +1005,11 @@ $decorations: underline, overline, line-through, no-underline;
 
 .sticky {
     position: sticky;
+}
+
+.line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }

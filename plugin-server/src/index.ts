@@ -1,4 +1,5 @@
 import { Hub } from '../src/types'
+import { getPluginServerCapabilities } from './capabilities'
 import { defaultConfig, formatConfigHelp } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
@@ -62,6 +63,7 @@ switch (alternativeMode) {
     default:
         // void the returned promise
         initApp(defaultConfig)
-        void startPluginsServer(defaultConfig, makePiscina)
+        const capabilities = getPluginServerCapabilities(defaultConfig)
+        void startPluginsServer(defaultConfig, makePiscina, capabilities)
         break
 }

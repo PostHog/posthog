@@ -786,7 +786,7 @@ describe('PropertyDefinitionsManager()', () => {
             })
 
             it('does not keep trying to set a property type when it cannot', async () => {
-                const postgresQuery = jest.spyOn(hub.db, 'postgresQuery')
+                const postgresQuery = jest.spyOn(hub.db.postgres, 'query')
 
                 const properties = {
                     a_prop_with_a_type_we_do_not_set: { a: 1234567890 },

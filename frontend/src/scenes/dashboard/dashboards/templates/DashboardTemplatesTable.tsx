@@ -1,15 +1,19 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { DashboardTemplateType } from '~/types'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { More } from 'lib/lemon-ui/LemonButton/More'
+import { dashboardTemplateEditorLogic } from 'scenes/dashboard/dashboardTemplateEditorLogic'
+import { DashboardTemplateEditor } from 'scenes/dashboard/DashboardTemplateEditor'
+import { userLogic } from 'scenes/userLogic'
+import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { CommunityTag } from 'lib/CommunityTag'
 import { IconCloudUpload } from 'lib/lemon-ui/icons'
-import { userLogic } from 'scenes/userLogic'
 
-export const DashboardTemplatesTable = (): JSX.Element => {
+const ExternalDashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
     const { repository, repositoryLoading, templateLoading, templateBeingSaved } = useValues(dashboardTemplatesLogic)
     const { installTemplate } = useActions(dashboardTemplatesLogic)
@@ -91,5 +95,117 @@ export const DashboardTemplatesTable = (): JSX.Element => {
             }
             nouns={['template', 'templates']}
         />
+    )
+}
+
+export const DashboardTemplatesTable = (): JSX.Element | null => {
+    const { searchTerm } = useValues(dashboardsLogic)
+    const { allTemplates, repositoryLoading, isUsingDashboardTemplates, isUsingDashboardTemplatesV2 } =
+        useValues(dashboardTemplatesLogic)
+
+    const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
+        useActions(dashboardTemplateEditorLogic)
+
+    if (isUsingDashboardTemplates && !isUsingDashboardTemplatesV2) {
+        return <ExternalDashboardTemplatesTable />
+    }
+
+    if (!isUsingDashboardTemplatesV2) {
+        return null
+    }
+
+    const columns: LemonTableColumns<DashboardTemplateType> = [
+        {
+            title: 'Name',
+            dataIndex: 'template_name',
+            render: (_, { template_name }) => {
+                return <>{template_name}</>
+            },
+        },
+        {
+            title: 'Description',
+            dataIndex: 'dashboard_description',
+            render: (_, { dashboard_description }) => {
+                return <>{dashboard_description}</>
+            },
+        },
+        {
+            title: 'Source',
+            dataIndex: 'team_id',
+            render: (_, { team_id }) => {
+                if (team_id === null) {
+                    return <LemonSnack>Official</LemonSnack>
+                } else {
+                    return <LemonSnack>Team</LemonSnack>
+                }
+            },
+        },
+        {
+            width: 0,
+            render: (_, { id }: DashboardTemplateType) => {
+                return (
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => {
+                                        if (id === undefined) {
+                                            console.error('Dashboard template id not defined')
+                                            return
+                                        }
+                                        setDashboardTemplateId(id)
+                                        openDashboardTemplateEditor()
+                                    }}
+                                    fullWidth
+                                >
+                                    Edit
+                                </LemonButton>
+
+                                <LemonDivider />
+                                <LemonButton
+                                    onClick={() => {
+                                        if (id === undefined) {
+                                            console.error('Dashboard template id not defined')
+                                            return
+                                        }
+                                        deleteDashboardTemplate(id)
+                                    }}
+                                    fullWidth
+                                    status="danger"
+                                >
+                                    Delete dashboard
+                                </LemonButton>
+                            </>
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
+    return (
+        <>
+            <LemonTable
+                data-attr="dashboards-template-table"
+                pagination={{ pageSize: 10 }}
+                dataSource={Object.values(allTemplates)}
+                columns={columns}
+                loading={repositoryLoading}
+                defaultSorting={{
+                    columnKey: 'name',
+                    order: 1,
+                }}
+                emptyState={
+                    searchTerm ? (
+                        `No dashboard templates matching "${searchTerm}"!`
+                    ) : (
+                        <>There are no dashboard templates.</>
+                    )
+                }
+                nouns={['template', 'templates']}
+            />
+            <DashboardTemplateEditor />
+        </>
     )
 }

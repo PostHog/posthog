@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0303_team_session_recording_version"),
+        ("posthog", "0305_rework_person_overrides"),
     ]
 
     operations = [

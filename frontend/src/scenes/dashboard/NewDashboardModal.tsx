@@ -1,21 +1,158 @@
 import { useActions, useValues } from 'kea'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import { DashboardTemplateVariables } from './DashboardTemplateVariables'
+import { LemonButton } from '@posthog/lemon-ui'
+import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
+import { DashboardTemplateType } from '~/types'
+import { useState } from 'react'
+
 import { Field } from 'lib/forms/Field'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { AvailableFeature } from '~/types'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
-import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
-import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Form } from 'kea-forms'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
-import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
+import { pluralize } from 'lib/utils'
+import { getSeriesColor } from 'lib/colors'
 
-export function NewDashboardModal(): JSX.Element {
+import './NewDashboardModal.scss'
+
+function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
+    const [hasError, setHasError] = useState(false)
+
+    const handleImageError = (): void => {
+        setHasError(true)
+    }
+
+    return (
+        <>
+            {hasError || !src ? (
+                <div
+                    className="w-full h-full"
+                    // dynamic color based on index
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{
+                        background: getSeriesColor(index),
+                    }}
+                />
+            ) : (
+                <img
+                    className="w-full h-full object-cover object-center"
+                    src={src}
+                    alt={alt}
+                    onError={handleImageError}
+                />
+            )}
+        </>
+    )
+}
+
+function TemplateItem({
+    template,
+    onClick,
+    index,
+}: {
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url'>
+    onClick: () => void
+    index: number
+}): JSX.Element {
+    return (
+        <div className="cursor-pointer border rounded TemplateItem" onClick={onClick}>
+            <div className="w-full h-30 overflow-hidden">
+                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
+            </div>
+
+            <div className="p-2">
+                <p className="truncate mb-1">{template?.template_name}</p>
+                <p className="text-muted-alt text-xs line-clamp-2">{template?.dashboard_description ?? ' '}</p>
+            </div>
+        </div>
+    )
+}
+
+export function DashboardTemplatePreview(): JSX.Element {
+    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+    const { variables } = useValues(dashboardTemplateVariablesLogic)
+    const { createDashboardFromTemplate, clearActiveDashboardTemplate } = useActions(newDashboardLogic)
+
+    return (
+        <div>
+            <DashboardTemplateVariables />
+
+            <div className="flex justify-between my-4">
+                <LemonButton onClick={clearActiveDashboardTemplate} type="secondary">
+                    Back
+                </LemonButton>
+                <LemonButton
+                    onClick={() => {
+                        activeDashboardTemplate && createDashboardFromTemplate(activeDashboardTemplate, variables)
+                    }}
+                    type="primary"
+                >
+                    Create
+                </LemonButton>
+            </div>
+        </div>
+    )
+}
+
+export function DashboardTemplateChooser(): JSX.Element {
+    const { allTemplates } = useValues(dashboardTemplatesLogic)
+    const { addDashboard } = useActions(newDashboardLogic)
+
+    const { setActiveDashboardTemplate, createDashboardFromTemplate } = useActions(newDashboardLogic)
+
+    return (
+        <div>
+            <div className="DashboardTemplateChooser">
+                <TemplateItem
+                    template={{
+                        template_name: 'Blank dashboard',
+                        dashboard_description: 'Create a blank dashboard',
+                        image_url:
+                            'https://posthog.com/static/e49bbe6af9a669f1c07617e5cd2e3229/a764f/marketing-hog.jpg',
+                    }}
+                    onClick={() =>
+                        addDashboard({
+                            name: 'New Dashboard',
+                            show: true,
+                        })
+                    }
+                    index={0}
+                />
+                {allTemplates.map((template, index) => (
+                    <TemplateItem
+                        key={index}
+                        template={template}
+                        onClick={() => {
+                            // while we might receive templates from the external repository
+                            // we need to handle templates that don't have variables
+                            if ((template.variables || []).length === 0) {
+                                if (template.variables === null) {
+                                    template.variables = []
+                                }
+                                createDashboardFromTemplate(template, template.variables || [])
+                            } else {
+                                setActiveDashboardTemplate(template)
+                            }
+                        }}
+                        index={index + 1}
+                    />
+                ))}
+                {/*TODO @lukeharries should we have an empty state here? When no templates let people know what to do?*/}
+            </div>
+        </div>
+    )
+}
+
+export function OriginalNewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -111,4 +248,39 @@ export function NewDashboardModal(): JSX.Element {
             </Form>
         </LemonModal>
     )
+}
+
+export function UpdatedNewDashboardModal(): JSX.Element {
+    const { hideNewDashboardModal } = useActions(newDashboardLogic)
+    const { newDashboardModalVisible } = useValues(newDashboardLogic)
+
+    const { activeDashboardTemplate } = useValues(newDashboardLogic)
+
+    return (
+        <LemonModal
+            onClose={hideNewDashboardModal}
+            isOpen={newDashboardModalVisible}
+            title={activeDashboardTemplate ? 'Setup your events' : 'Create a dashboard'}
+            description={
+                activeDashboardTemplate
+                    ? `The dashboard template you selected requires you to set up ${pluralize(
+                          (activeDashboardTemplate.variables || []).length,
+                          'event',
+                          'events',
+                          true
+                      )}.`
+                    : 'Choose a template or start with a blank slate'
+            }
+        >
+            <div className="NewDashboardModal">
+                {activeDashboardTemplate ? <DashboardTemplatePreview /> : <DashboardTemplateChooser />}
+            </div>
+        </LemonModal>
+    )
+}
+
+export function NewDashboardModal(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    return <>{!!featureFlags[FEATURE_FLAGS.TEMPLUKES] ? <UpdatedNewDashboardModal /> : <OriginalNewDashboardModal />}</>
 }

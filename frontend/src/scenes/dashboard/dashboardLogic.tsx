@@ -29,6 +29,7 @@ import {
     DashboardLayoutSize,
     DashboardMode,
     DashboardPlacement,
+    DashboardTemplateEditorType,
     DashboardTile,
     DashboardType,
     FilterType,
@@ -599,40 +600,38 @@ export const dashboardLogic = kea<dashboardLogicType>([
     selectors(() => ({
         asDashboardTemplate: [
             (s) => [s.allItems],
-            (dashboard: DashboardType): string => {
+            (dashboard: DashboardType): DashboardTemplateEditorType | undefined => {
                 return dashboard
-                    ? JSON.stringify(
-                          {
-                              template_name: dashboard.name,
-                              dashboard_description: dashboard.description,
-                              dashboard_filters: dashboard.filters,
-                              tags: dashboard.tags || [],
-                              tiles: dashboard.tiles.map((tile) => {
-                                  if (!!tile.text) {
-                                      return {
-                                          type: 'TEXT',
-                                          body: tile.text.body,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
+                    ? {
+                          template_name: dashboard.name,
+                          dashboard_description: dashboard.description,
+                          dashboard_filters: dashboard.filters,
+                          tags: dashboard.tags || [],
+                          tiles: dashboard.tiles.map((tile) => {
+                              if (!!tile.text) {
+                                  return {
+                                      type: 'TEXT',
+                                      body: tile.text.body,
+                                      layouts: tile.layouts,
+                                      color: tile.color,
                                   }
-                                  if (!!tile.insight) {
-                                      return {
-                                          type: 'INSIGHT',
-                                          name: tile.insight.name,
-                                          description: tile.insight.description || '',
-                                          filters: tile.insight.filters,
-                                          layouts: tile.layouts,
-                                          color: tile.color,
-                                      }
+                              }
+                              if (!!tile.insight) {
+                                  return {
+                                      type: 'INSIGHT',
+                                      name: tile.insight.name,
+                                      description: tile.insight.description || '',
+                                      filters: tile.insight.filters,
+                                      query: tile.insight.query,
+                                      layouts: tile.layouts,
+                                      color: tile.color,
                                   }
-                                  throw new Error('Unknown tile type')
-                              }),
-                          },
-                          undefined,
-                          4
-                      )
-                    : ''
+                              }
+                              throw new Error('Unknown tile type')
+                          }),
+                          variables: [],
+                      }
+                    : undefined
             },
         ],
         placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],

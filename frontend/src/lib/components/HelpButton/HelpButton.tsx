@@ -15,6 +15,7 @@ import {
     IconMessages,
     IconFlare,
     IconTrendingUp,
+    IconLive,
 } from 'lib/lemon-ui/icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react'
@@ -93,6 +94,21 @@ export function HelpButton({
             <Popover
                 overlay={
                     <>
+                        {!contactOnly && (
+                            <LemonButton
+                                icon={<IconLive />}
+                                status="stealth"
+                                fullWidth
+                                onClick={() => {
+                                    reportHelpButtonUsed(HelpType.Updates)
+                                    hideHelp()
+                                }}
+                                to={`https://posthog.com/blog/categories/posthog-news`}
+                                targetBlank
+                            >
+                                What's new?
+                            </LemonButton>
+                        )}
                         <LemonButton
                             icon={<IconQuestionAnswer />}
                             status="stealth"
@@ -156,7 +172,7 @@ export function HelpButton({
                                 hideHelp()
                             }}
                         >
-                            Quick Start
+                            Open Quick Start
                         </LemonButton>
                         {validProductTourSequences.length > 0 && (
                             <LemonButton
