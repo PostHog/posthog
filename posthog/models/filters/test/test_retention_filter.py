@@ -87,6 +87,7 @@ class TestFilter(BaseTest):
             "breakdown_attribution_type": "first_touch",
             "date_from": "-7d",
             "breakdown_normalize_url": False,
+            "sampling_factor": "",
         }
 
     def test_entities(self):
