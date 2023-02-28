@@ -55,7 +55,7 @@ export function NotificationBell(): JSX.Element {
                 className={clsx('h-10 items-center cursor-pointer flex text-primary-alt text-2xl')}
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
-                data-ph-augment-autocapture-unread-notifications-count={unreadCount}
+                data-ph-capture-attribute-unread-notifications-count={unreadCount}
             >
                 <IconWithCount count={unreadCount} showZero={true} status={hasUnread ? 'primary' : 'muted'}>
                     <IconNotification />
