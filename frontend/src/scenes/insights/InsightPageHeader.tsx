@@ -156,7 +156,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     status="stealth"
                                                     onClick={() => loadResults(true)}
                                                     fullWidth
-                                                    data-attr="duplicate-insight-from-insight-view"
+                                                    data-attr="refresh-insight-from-insight-view"
                                                     disabledReason={insightRefreshButtonDisabledReason}
                                                 >
                                                     Refresh
@@ -188,7 +188,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     status="stealth"
                                                     onClick={() => loadResults(true)}
                                                     fullWidth
-                                                    data-attr="duplicate-insight-from-insight-view"
+                                                    data-attr="refresh-insight-from-insight-view"
                                                     disabledReason={insightRefreshButtonDisabledReason}
                                                 >
                                                     Refresh
