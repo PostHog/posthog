@@ -16,7 +16,7 @@ jobs:
     # Job that lists and chunks spec file names and caches node modules
     cypress_prep:
         name: Cypress preparation
-        runs-on: ubuntu-latest
+        runs-on: buildjet-4vcpu-ubuntu-2204
         timeout-minutes: 30
         outputs:
             specs: ${{ steps.set-specs.outputs.specs }}
@@ -39,7 +39,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: ubuntu-latest
+        runs-on: buildjet-4vcpu-ubuntu-2204
         timeout-minutes: 30
         needs: [cypress_prep]
         permissions:
