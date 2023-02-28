@@ -53,7 +53,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
-            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
+            (query): string[] | null =>
+                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
@@ -79,7 +80,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
 
                         const { results } = eventsQueryResponse
-                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
+                        const orderKey = orderBy?.[0]?.endsWith(' DESC')
+                            ? orderBy[0].replace(/ DESC$/, '')
+                            : orderBy?.[0]
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
