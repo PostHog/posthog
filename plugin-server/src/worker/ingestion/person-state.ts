@@ -16,7 +16,9 @@ import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
 
-const MAX_FAILED_PERSON_MERGE_ATTEMPTS = 0
+const MAX_FAILED_PERSON_MERGE_ATTEMPTS = process.env.MAX_FAILED_PERSON_MERGE_ATTEMPTS
+    ? Number(process.env.MAX_FAILED_PERSON_MERGE_ATTEMPTS)
+    : 3
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 const CASE_INSENSITIVE_ILLEGAL_IDS = new Set([
@@ -46,6 +48,7 @@ export class PersonState {
     eventProperties: Properties
     timestamp: DateTime
     newUuid: string
+    mergeAttempts: number
 
     personContainer: LazyPersonContainer
 
@@ -65,7 +68,8 @@ export class PersonState {
         personManager: PersonManager,
         personContainer: LazyPersonContainer,
         poEEmbraceJoin: boolean,
-        uuid: UUIDT | undefined = undefined
+        uuid: UUIDT | undefined = undefined,
+        mergeAttemps: number = MAX_FAILED_PERSON_MERGE_ATTEMPTS
     ) {
         this.event = event
         this.distinctId = distinctId
@@ -73,6 +77,7 @@ export class PersonState {
         this.eventProperties = event.properties!
         this.timestamp = timestamp
         this.newUuid = (uuid || new UUIDT()).toString()
+        this.mergeAttempts = mergeAttemps
 
         this.db = db
         this.statsd = statsd
@@ -399,7 +404,7 @@ export class PersonState {
             // In the rare case of the person changing VERY often however, it may happen even a few times,
             // in which case we'll bail and rethrow the error.
             totalMergeAttempts++
-            if (totalMergeAttempts >= MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
+            if (totalMergeAttempts >= this.mergeAttempts) {
                 throw error // Very much not OK, failed repeatedly so rethrowing the error
             }
             await this.mergeWithoutValidation(
