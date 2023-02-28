@@ -48,60 +48,28 @@ SELECT {aggregate_operation} as data FROM (
 )
 """
 
-# This query performs poorly due to aggregation happening outside of subqueries.
-# :TODO: Fix this!
-# Query intuition:
-# 1. Derive all the buckets we care about
-# 2. Query all events within the specified range
-# 3. For each event timestamp, calculate all the buckets it would fall in
-#    Note that this can be a bit confusing. For hourly intervals, we round to the
-#    start of the hour and look 7/30 days into the future
-ACTIVE_USERS_SQL = """
-WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
-toDateTime(%(date_from)s, %(timezone)s) AS date_from,
-arrayMap(
-    n -> {rounding_func}(toDateTime(n, %(timezone)s)),
-    range(
-        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s)), %(timezone)s)),
-        toUInt32(date_to),
-        %(bucket_increment_seconds)s
-    )
-) AS buckets
 
-SELECT counts AS total,
-    timestamp AS day_start
-FROM (
-    SELECT
-        count(DISTINCT actor_id) AS counts,
-        {rounding_func}(arrayJoin(event_buckets)) as timestamp
-    FROM (
+ACTIVE_USERS_SQL = """
+SELECT counts AS total, timestamp AS day_start FROM (
+    SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
+        /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
+           and not `events`, because we cannot rely on there being an event for each period (this assumption previously
+           caused active user counts to be off for sparse events). */
+        SELECT toDateTime({interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number))) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)), toDateTime(%(date_to)s, %(timezone)s)))
+    ) d
+    /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
+       but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
+    CROSS JOIN (
         SELECT
-            {aggregator} as actor_id,
-            toTimeZone(timestamp, %(timezone)s) as tz_adjusted_timestamp,
-            arrayMap(
-                n -> toDateTime(n, %(timezone)s),
-                range(
-                    toUInt32(
-                        toDateTime(
-                            {rounding_func}(
-                                if(greater(tz_adjusted_timestamp, date_from), tz_adjusted_timestamp, date_from)
-                            )
-                        )
-                    ),
-                    toUInt32(
-                        if(greater(tz_adjusted_timestamp, date_to), date_to, tz_adjusted_timestamp) + INTERVAL {prev_interval}
-                    ),
-                    %(grouping_increment_seconds)s
-                )
-            ) AS event_buckets
+            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
+            {aggregator} AS actor_id
         {event_query_base}
-        GROUP BY {aggregator}, tz_adjusted_timestamp
-    )
-    GROUP BY timestamp
-    HAVING
-        has(buckets, timestamp)
-    ORDER BY timestamp
-)
+        GROUP BY timestamp, actor_id
+    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
+    GROUP BY d.timestamp
+    ORDER BY d.timestamp
+) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
 """
 
 ACTIVE_USERS_AGGREGATE_SQL = """

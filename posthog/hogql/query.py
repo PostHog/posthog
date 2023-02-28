@@ -50,6 +50,9 @@ def execute_hogql_query(
     # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
     select_query_hogql = cast(ast.SelectQuery, clone_expr(select_query))
 
+    # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
+    select_query_hogql = clone_expr(select_query)
+
     hogql_context = HogQLContext(select_team_id=team.pk, using_person_on_events=team.person_on_events_querying_enabled)
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
 

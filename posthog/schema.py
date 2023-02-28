@@ -259,6 +259,7 @@ class InsightType(str, Enum):
     FUNNELS = "FUNNELS"
     RETENTION = "RETENTION"
     PATHS = "PATHS"
+    QUERY = "QUERY"
 
 
 class IntervalType(str, Enum):

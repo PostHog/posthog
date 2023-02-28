@@ -6,7 +6,7 @@ import { status } from '../../utils/status'
 
 type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
-const FutureEventHoursCutoffMillis = 23 * 3600 * 1000
+const FutureEventHoursCutoffMillis = 23 * 3600 * 1000 // 23 hours
 
 export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
@@ -85,6 +85,7 @@ function handleTimestamp(
 
     // Events in the future would indicate an instrumentation bug, lets' ingest them
     // but publish an integration warning to help diagnose such issues.
+    // We will also 'fix' the date to be now()
     if (nowDiff > FutureEventHoursCutoffMillis) {
         callback?.('event_timestamp_in_future', {
             timestamp: data['timestamp'] ?? '',
@@ -96,7 +97,7 @@ function handleTimestamp(
             eventName: data['event'],
         })
 
-        parsedTs = timestamp
+        parsedTs = now
     }
 
     return parsedTs
