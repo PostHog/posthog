@@ -55,7 +55,7 @@ const TotalEvents: EventsQuery = {
     select: ['count()'],
 }
 
-const TotalEventsTable: DataTableNode = {
+export const TotalEventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
     source: TotalEvents,
@@ -308,7 +308,21 @@ const HogQL: HogQLQuery = {
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
-    source: HogQL,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: `   select event,
+          person.properties.email,
+          properties.$browser,
+          count()
+     from events
+    where timestamp > now () - interval 1 month
+      and person.properties.email is not null
+ group by event,
+          properties.$browser,
+          person.properties.email
+ order by count() desc
+    limit 100`,
+    },
 }
 
 export const examples: Record<string, Node> = {

@@ -17,8 +17,8 @@ def translate_hogql(query: str, context: HogQLContext, dialect: Literal["hogql",
     try:
         # Create a fake query that selects from "events" to have fields to select from.
         select_query_symbol = ast.SelectQuerySymbol(tables={"events": ast.TableSymbol(table=database.events)})
-        select_query = ast.SelectQuery(select=[], symbol=select_query_symbol)
         node = parse_expr(query, no_placeholders=True)
+        select_query = ast.SelectQuery(select=[node], symbol=select_query_symbol)
         return print_ast(node, context=context, dialect=dialect, stack=[select_query])
 
     except SyntaxError as err:

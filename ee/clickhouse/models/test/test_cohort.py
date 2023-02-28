@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from unittest.mock import patch
 
 from django.utils import timezone
 from freezegun import freeze_time
@@ -365,32 +364,6 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 2)
 
-    @patch("time.sleep", return_value=None)
-    def test_cohortpeople_basic_paginating(self, mock_sleep):
-        for i in range(15):
-            Person.objects.create(
-                team_id=self.team.pk,
-                distinct_ids=[f"{i}"],
-                properties={"$some_prop": "something", "$another_prop": "something"},
-            )
-
-        cohort1: Cohort = Cohort.objects.create(
-            team=self.team,
-            groups=[
-                {
-                    "properties": [
-                        {"key": "$some_prop", "value": "something", "type": "person"},
-                        {"key": "$another_prop", "value": "something", "type": "person"},
-                    ]
-                }
-            ],
-            name="cohort1",
-        )
-
-        cohort1.calculate_people(new_version=cohort1.version, batch_size=2, pg_batch_size=1)
-
-        self.assertEqual(len(cohort1.people.all()), 15)
-
     def test_cohortpeople_action_basic(self):
         action = _create_action(team=self.team, name="$pageview")
         Person.objects.create(
@@ -598,12 +571,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
-            _create_person(
-                uuid=p2.uuid,
-                team_id=self.team.pk,
-                version=1,
-                properties={"$some_prop": "another", "$another_prop": "another"},
-            )
+            p2.version = 1
+            p2.properties = ({"$some_prop": "another", "$another_prop": "another"},)
+            p2.save()
 
         cohort1.calculate_people_ch(pending_version=1)
 

@@ -6,9 +6,10 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { useAvailableFeatures } from '~/mocks/features'
-import { AvailableFeature, DashboardMode } from '~/types'
+import { DashboardMode } from '~/types'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { dashboardTemplatesLogic } from './dashboards/templates/dashboardTemplatesLogic'
 
 export default {
     title: 'Scenes-App/Dashboards',
@@ -18,6 +19,13 @@ export default {
                 '/api/projects/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
                 '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
                 '/api/projects/:team_id/dashboards/1/collaborators/': [],
+                '/api/projects/:team_id/dashboard_templates/': require('./__mocks__/dashboard_templates.json'),
+                '/api/projects/:team_id/dashboard_templates/json_schema/': require('./__mocks__/dashboard_template_schema.json'),
+                '/api/projects/:team_id/dashboards/:dash_id/sharing/': {
+                    created_at: '2023-02-25T13:28:20.454940Z',
+                    enabled: false,
+                    access_token: 'a-secret-token',
+                },
             },
         }),
     ],
@@ -45,16 +53,65 @@ export const New = (): JSX.Element => {
         router.actions.push(urls.dashboards())
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
+        dashboardTemplatesLogic.mount()
     }, [])
     return <App />
 }
 
-export const NewPremium = (): JSX.Element => {
-    useAvailableFeatures([AvailableFeature.DASHBOARD_PERMISSIONING])
+export const NewSelectVariables = (): JSX.Element => {
+    useAvailableFeatures([])
     useEffect(() => {
         router.actions.push(urls.dashboards())
         newDashboardLogic.mount()
         newDashboardLogic.actions.showNewDashboardModal()
+        newDashboardLogic.actions.setActiveDashboardTemplate({
+            id: '1',
+            template_name: 'Dashboard name',
+            dashboard_description: 'The dashboard description',
+            dashboard_filters: {},
+            tiles: [],
+            variables: [
+                {
+                    id: 'SIGN_UP',
+                    name: 'Sign up page viewed',
+                    type: 'event',
+                    default: {
+                        id: '$pageview',
+                        math: 'dau',
+                        type: 'events',
+                    },
+                    required: true,
+                    description: 'Add the current_url filter that matches your sign up page',
+                },
+                {
+                    id: 'ACTIVATED',
+                    name: 'Very very long event name very very long. Very very long event name very very long',
+                    type: 'event',
+                    default: {
+                        id: '$pageview',
+                        math: 'dau',
+                        type: 'events',
+                    },
+                    required: true,
+                    description:
+                        'Very long description. Select the event which best represents when a user is activated. Select the event which best represents when a user is activated',
+                },
+                {
+                    id: 'ACTIVATED',
+                    name: 'Activated event',
+                    type: 'event',
+                    default: {
+                        id: '$pageview',
+                        math: 'dau',
+                        type: 'events',
+                    },
+                    required: false,
+                    description: 'Select the event which best represents when a user is activated',
+                },
+            ],
+            tags: [],
+            image_url: 'https://posthog.com/static/5e5cf65347bfb25f1dfc9792b18e87cb/6b063/posthog-bye-kubernetes.png',
+        })
     }, [])
     return <App />
 }
