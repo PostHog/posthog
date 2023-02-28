@@ -11,6 +11,13 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { insightMap } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { isInsightVizNode } from '~/queries/utils'
+import { TotalEventsTable } from '~/queries/examples'
+
+export interface Tab {
+    label: string
+    type: InsightType
+    dataAttr: string
+}
 
 export const insightNavLogic = kea<insightNavLogicType>([
     props({} as InsightLogicProps),
@@ -39,11 +46,63 @@ export const insightNavLogic = kea<insightNavLogicType>([
             (s) => [s.filters, s.query, s.isUsingDataExploration],
             (filters, query, isUsingDataExploration) => {
                 if (isUsingDataExploration) {
-                    const q = isInsightVizNode(query) ? query.source : query
-                    return insightMap[q.kind] || InsightType.TRENDS
+                    if (isInsightVizNode(query)) {
+                        return insightMap[query.source.kind] || InsightType.TRENDS
+                    } else if (!!query) {
+                        return InsightType.QUERY
+                    } else {
+                        return InsightType.TRENDS
+                    }
                 } else {
                     return filters.insight || InsightType.TRENDS
                 }
+            },
+        ],
+        tabs: [
+            (s) => [s.isUsingDataExploration],
+            (isUsingDataExploration) => {
+                const tabs: Tab[] = [
+                    {
+                        label: 'Trends',
+                        type: InsightType.TRENDS,
+                        dataAttr: 'insight-trends-tab',
+                    },
+                    {
+                        label: 'Funnels',
+                        type: InsightType.FUNNELS,
+                        dataAttr: 'insight-funnels-tab',
+                    },
+                    {
+                        label: 'Retention',
+                        type: InsightType.RETENTION,
+                        dataAttr: 'insight-retention-tab',
+                    },
+                    {
+                        label: 'User Paths',
+                        type: InsightType.PATHS,
+                        dataAttr: 'insight-path-tab',
+                    },
+                    {
+                        label: 'Stickiness',
+                        type: InsightType.STICKINESS,
+                        dataAttr: 'insight-stickiness-tab',
+                    },
+                    {
+                        label: 'Lifecycle',
+                        type: InsightType.LIFECYCLE,
+                        dataAttr: 'insight-lifecycle-tab',
+                    },
+                ]
+
+                if (isUsingDataExploration) {
+                    tabs.push({
+                        label: 'Query',
+                        type: InsightType.QUERY,
+                        dataAttr: 'insight-query-tab',
+                    })
+                }
+
+                return tabs
             },
         ],
     }),
@@ -62,9 +121,17 @@ export const insightNavLogic = kea<insightNavLogicType>([
                     actions.setQuery(queryFromKind(NodeKind.StickinessQuery))
                 } else if (view === InsightType.LIFECYCLE) {
                     actions.setQuery(queryFromKind(NodeKind.LifecycleQuery))
+                } else if (view === InsightType.QUERY) {
+                    actions.setQuery(TotalEventsTable)
                 }
             } else {
-                actions.setFilters(cleanFilters({ ...values.filters, insight: view as InsightType }, values.filters))
+                actions.setFilters(
+                    cleanFilters(
+                        // double-check that the view is valid
+                        { ...values.filters, insight: view === InsightType.QUERY ? InsightType.TRENDS : view },
+                        values.filters
+                    )
+                )
             }
         },
     })),

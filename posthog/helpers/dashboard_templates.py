@@ -20,7 +20,7 @@ from posthog.constants import (
 )
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_templates import DashboardTemplate
-from posthog.models.dashboard_tile import DashboardTile
+from posthog.models.dashboard_tile import DashboardTile, Text
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
@@ -380,7 +380,7 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
     template = DashboardTemplate.original_template()
-    _create_from_template(dashboard, template)
+    create_from_template(dashboard, template)
 
 
 DASHBOARD_TEMPLATES: Dict[str, Callable] = {
@@ -391,43 +391,71 @@ DASHBOARD_TEMPLATES: Dict[str, Callable] = {
 # end of area to be removed
 
 
-def _create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
+def create_from_template(dashboard: Dashboard, template: DashboardTemplate) -> None:
+    if not dashboard.name or dashboard.name == "":
+        dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description
     if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
-        for template_tag in template.tags:
+        for template_tag in template.tags or []:
             tag, _ = Tag.objects.get_or_create(
                 name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
             )
             dashboard.tagged_items.create(tag_id=tag.id)
-    dashboard.save(update_fields=["filters", "description"])
+    dashboard.save()
 
     for template_tile in template.tiles:
         if template_tile["type"] == "INSIGHT":
+            query = template_tile.get("query", None)
+            filters = template_tile.get("filters") if not query else {}
             _create_tile_for_insight(
                 dashboard,
                 name=template_tile.get("name"),
-                filters=template_tile.get("filters"),
+                filters=filters,
+                query=query,
                 description=template_tile.get("description"),
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
             )
         elif template_tile["type"] == "TEXT":
-            # TODO support text tiles
-            pass
+            _create_tile_for_text(
+                dashboard,
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+                body=template_tile.get("body"),
+            )
         else:
             logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
+def _create_tile_for_text(dashboard: Dashboard, body: str, layouts: Dict, color: Optional[str]) -> None:
+    text = Text.objects.create(
+        team=dashboard.team,
+        body=body,
+    )
+    DashboardTile.objects.create(
+        text=text,
+        dashboard=dashboard,
+        layouts=layouts,
+        color=color,
+    )
+
+
 def _create_tile_for_insight(
-    dashboard: Dashboard, name: str, filters: Dict, description: str, layouts: Dict, color: Optional[str]
+    dashboard: Dashboard,
+    name: str,
+    filters: Dict,
+    description: str,
+    layouts: Dict,
+    color: Optional[str],
+    query: Optional[Dict] = None,
 ) -> None:
     insight = Insight.objects.create(
         team=dashboard.team,
         name=name,
         description=description,
-        filters={**filters, "filter_test_accounts": True},
-        is_sample=True,
+        filters=filters,
+        query=query,
     )
     DashboardTile.objects.create(
         insight=insight,
@@ -449,4 +477,4 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
         else:
             raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
-    _create_from_template(dashboard, template)
+    create_from_template(dashboard, template)

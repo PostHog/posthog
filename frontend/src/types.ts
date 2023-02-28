@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, QuerySchema } from './queries/schema'
+import { InsightQueryNode, Node } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -294,6 +294,7 @@ export interface TeamType extends TeamBasicType {
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
     capture_performance_opt_in: boolean
+    session_recording_version: string
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: PathCleaningFilter[]
@@ -1217,7 +1218,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
-    query?: QuerySchema
+    query?: Node
 }
 
 export interface DashboardType {
@@ -1238,6 +1239,37 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardTemplateType {
+    id: string
+    team_id?: number
+    created_at?: string
+    template_name: string
+    dashboard_description?: string
+    dashboard_filters?: Record<string, JsonType>
+    tiles: DashboardTile[]
+    variables?: DashboardTemplateVariableType[]
+    tags?: string[]
+    image_url?: string
+}
+
+export interface MonacoMarker {
+    message: string
+}
+
+// makes the DashboardTemplateType properties optional and the tiles properties optional
+export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
+    tiles: Partial<DashboardTile>[]
+}
+
+export interface DashboardTemplateVariableType {
+    id: string
+    name: string
+    description: string
+    type: 'event'
+    default: Record<string, JsonType> | null | undefined
+    required: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -1413,6 +1445,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    QUERY = 'QUERY',
 }
 
 export enum PathType {
@@ -1746,27 +1779,16 @@ export interface FunnelStep {
     type: EntityType
     labels?: string[]
     breakdown?: BreakdownKeyType
-    breakdowns?: Breakdown[]
+    breakdowns?: BreakdownKeyType[]
     breakdown_value?: BreakdownKeyType
     data?: number[]
     days?: string[]
 
-    // Url that you can GET to retrieve the people that converted in this step
+    /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 
-    // Url that you can GET to retrieve the people that dropped in this step
+    /** Url that you can GET to retrieve the people that dropped in this step  */
     dropped_people_url: string | null
-}
-
-export interface FunnelStepWithNestedBreakdown extends FunnelStep {
-    nested_breakdown?: FunnelStep[]
-}
-
-export interface FunnelResult<ResultType = FunnelStep[] | FunnelsTimeConversionBins> {
-    is_cached: boolean
-    last_refresh: string | null
-    result: ResultType
-    type: 'Funnel'
 }
 
 export interface FunnelsTimeConversionBins {
@@ -1774,12 +1796,17 @@ export interface FunnelsTimeConversionBins {
     average_conversion_time: number
 }
 
-export interface HistogramGraphDatum {
-    id: number
-    bin0: number
-    bin1: number
-    count: number
-    label: string
+export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
+
+export interface FunnelResult<ResultType = FunnelResultType> {
+    is_cached: boolean
+    last_refresh: string | null
+    result: ResultType
+    timezone: string
+}
+
+export interface FunnelStepWithNestedBreakdown extends FunnelStep {
+    nested_breakdown?: FunnelStep[]
 }
 
 export interface FunnelTimeConversionMetrics {
@@ -1800,19 +1827,6 @@ export enum FunnelConversionWindowTimeUnit {
     Day = 'day',
     Week = 'week',
     Month = 'month',
-}
-
-export interface FunnelRequestParams extends FilterType {
-    refresh?: boolean
-    from_dashboard?: boolean | number
-    funnel_window_days?: number
-}
-
-export type FunnelAPIResponse = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
-
-export interface LoadedRawFunnelResults {
-    results: FunnelAPIResponse
-    filters: Partial<FilterType>
 }
 
 export enum FunnelStepReference {
@@ -1836,13 +1850,6 @@ export interface FunnelStepWithConversionMetrics extends FunnelStep {
     }
 }
 
-export interface FlattenedFunnelStep extends FunnelStepWithConversionMetrics {
-    rowKey: number | string
-    nestedRowKeys?: string[]
-    isBreakdownParent?: boolean
-    breakdownIndex?: number
-}
-
 export interface FlattenedFunnelStepByBreakdown {
     rowKey: number | string
     isBaseline?: boolean
@@ -1857,6 +1864,31 @@ export interface FlattenedFunnelStepByBreakdown {
     significant?: boolean
 }
 
+export interface FunnelCorrelation {
+    event: Pick<EventType, 'elements' | 'event' | 'properties'>
+    odds_ratio: number
+    success_count: number
+    success_people_url: string
+    failure_count: number
+    failure_people_url: string
+    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
+    result_type:
+        | FunnelCorrelationResultsType.Events
+        | FunnelCorrelationResultsType.Properties
+        | FunnelCorrelationResultsType.EventWithProperties
+}
+
+export enum FunnelCorrelationType {
+    Success = 'success',
+    Failure = 'failure',
+}
+
+export enum FunnelCorrelationResultsType {
+    Events = 'events',
+    Properties = 'properties',
+    EventWithProperties = 'event_with_properties',
+}
+
 export enum BreakdownAttributionType {
     FirstTouch = 'first_touch',
     LastTouch = 'last_touch',
@@ -1868,6 +1900,14 @@ export interface ChartParams {
     inCardView?: boolean
     inSharedMode?: boolean
     showPersonsModal?: boolean
+}
+
+export interface HistogramGraphDatum {
+    id: number
+    bin0: number
+    bin1: number
+    count: number
+    label: string
 }
 
 // Shared between insightLogic, dashboardItemLogic, trendsLogic, funnelLogic, pathsLogic, retentionLogic
@@ -2283,20 +2323,6 @@ export interface PathEdgeParameters {
     max_edge_weight?: number | undefined
 }
 
-export interface FunnelCorrelation {
-    event: Pick<EventType, 'elements' | 'event' | 'properties'>
-    odds_ratio: number
-    success_count: number
-    success_people_url: string
-    failure_count: number
-    failure_people_url: string
-    correlation_type: FunnelCorrelationType.Failure | FunnelCorrelationType.Success
-    result_type:
-        | FunnelCorrelationResultsType.Events
-        | FunnelCorrelationResultsType.Properties
-        | FunnelCorrelationResultsType.EventWithProperties
-}
-
 export enum SignificanceCode {
     Significant = 'significant',
     NotEnoughExposure = 'not_enough_exposure',
@@ -2305,22 +2331,12 @@ export enum SignificanceCode {
     HighPValue = 'high_p_value',
 }
 
-export enum FunnelCorrelationType {
-    Success = 'success',
-    Failure = 'failure',
-}
-
-export enum FunnelCorrelationResultsType {
-    Events = 'events',
-    Properties = 'properties',
-    EventWithProperties = 'event_with_properties',
-}
-
 export enum HelpType {
     Slack = 'slack',
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+    Updates = 'updates',
 }
 
 export interface VersionType {

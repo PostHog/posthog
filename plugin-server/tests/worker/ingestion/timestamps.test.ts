@@ -176,7 +176,7 @@ describe('parseEventTimestamp()', () => {
             ],
         ])
 
-        expect(timestamp.toISO()).toEqual('2021-10-29T02:30:00.000Z')
+        expect(timestamp.toISO()).toEqual('2021-10-29T01:00:00.000Z')
     })
 
     it('reports event_timestamp_in_future with negative offset', () => {
