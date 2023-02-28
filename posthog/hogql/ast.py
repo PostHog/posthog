@@ -256,6 +256,8 @@ class CompareOperationType(str, Enum):
     NotILike = "not ilike"
     In = "in"
     NotIn = "not in"
+    Regex = "=~"
+    NotRegex = "!~"
 
 
 class CompareOperation(Expr):

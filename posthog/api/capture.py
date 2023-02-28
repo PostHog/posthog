@@ -193,9 +193,11 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
-def _check_token_shape(token: Optional[str]) -> Optional[str]:
+def _check_token_shape(token: Any) -> Optional[str]:
     if not token:
         return "empty"
+    if not isinstance(token, str):
+        return "not_string"
     if len(token) > 64:
         return "too_long"
     if not token.isascii():  # Legacy tokens were base64, so let's be permissive

@@ -18,12 +18,8 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
-from posthog.models.event.query_event_list import (
-    QUERY_DEFAULT_EXPORT_LIMIT,
-    QUERY_DEFAULT_LIMIT,
-    QUERY_MAXIMUM_LIMIT,
-    query_events_list,
-)
+from posthog.models.event.events_query import QUERY_DEFAULT_EXPORT_LIMIT, QUERY_DEFAULT_LIMIT, QUERY_MAXIMUM_LIMIT
+from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
