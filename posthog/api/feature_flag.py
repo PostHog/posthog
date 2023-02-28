@@ -14,7 +14,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
-from posthog.models import FeatureFlag, User
+from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
@@ -206,7 +206,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         self._attempt_set_tags(tags, instance)
 
-        instance.usage_dashboard = _create_usage_dashboard(instance)
+        instance.usage_dashboard = _create_usage_dashboard(instance, request.user)
         instance.save()
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
@@ -234,7 +234,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             validated_data["performed_rollback"] = False
 
 
-def _create_usage_dashboard(feature_flag: FeatureFlag, user: User):
+def _create_usage_dashboard(feature_flag: FeatureFlag, user):
     from posthog.helpers.dashboard_templates import create_feature_flag_dashboard
     from posthog.models.dashboard import Dashboard
 
