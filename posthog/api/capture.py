@@ -193,7 +193,7 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
-def _check_token_shape(token: Optional[str]) -> Optional[str]:
+def _check_token_shape(token: Any) -> Optional[str]:
     if not token:
         return "empty"
     if not isinstance(token, str):
