@@ -78,14 +78,15 @@ export function OperatorValueSelect({
 
     const [operators, setOperators] = useState([] as Array<PropertyOperator>)
     useEffect(() => {
+        const limitedElementProperty = propkey === 'selector' || propkey === 'tag_name'
         const operatorMapping: Record<string, string> = chooseOperatorMap(
-            propkey === 'selector' || propkey === 'tag_name' ? PropertyType.Selector : propertyDefinition?.property_type
+            limitedElementProperty ? PropertyType.Selector : propertyDefinition?.property_type
         )
         const operators = Object.keys(operatorMapping) as Array<PropertyOperator>
         setOperators(operators)
         if (currentOperator !== operator) {
             setCurrentOperator(startingOperator)
-        } else if (!operators.includes(currentOperator)) {
+        } else if (limitedElementProperty && !operators.includes(currentOperator)) {
             setCurrentOperator(PropertyOperator.Exact)
         }
     }, [propertyDefinition, propkey, operator])
