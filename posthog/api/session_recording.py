@@ -22,7 +22,7 @@ from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
+from posthog.queries.session_recordings.session_recording_list import SessionRecordingList, SessionRecordingListV2
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.utils import format_query_params_absolute_url
@@ -238,7 +238,12 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
-        (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+        session_recording_list_instance: SessionRecordingList = (
+            SessionRecordingListV2 if team.recordings_list_v2_query_enabled else SessionRecordingList
+        )
+        (ch_session_recordings, more_recordings_available) = session_recording_list_instance(
+            filter=filter, team=team
+        ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 

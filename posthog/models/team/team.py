@@ -217,6 +217,26 @@ class Team(UUIDClassicModel):
         return get_instance_setting("PERSON_ON_EVENTS_ENABLED")
 
     @property
+    def recordings_list_v2_query_enabled(self) -> bool:
+        if is_cloud():
+            return posthoganalytics.feature_enabled(
+                "recordings-list-v2-enabled",
+                str(self.uuid),
+                groups={"organization": str(self.organization_id)},
+                group_properties={
+                    "organization": {
+                        "id": str(self.organization_id),
+                        "created_at": self.organization.created_at,
+                        "name": self.organization.name,
+                    }
+                },
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+
+        return False
+
+    @property
     def strict_caching_enabled(self) -> bool:
         enabled_teams = get_list(get_instance_setting("STRICT_CACHING_TEAMS"))
         return str(self.pk) in enabled_teams or "all" in enabled_teams
