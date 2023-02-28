@@ -91,7 +91,7 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
-    let sessionRecordingEventsConsumer: Consumer | undefined
+    let stopSessionRecordingEventsConsumer: (() => void) | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -130,7 +130,7 @@ export async function startPluginsServer(
             onEventHandlerConsumer?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
-            sessionRecordingEventsConsumer?.disconnect(),
+            stopSessionRecordingEventsConsumer?.(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -428,12 +428,13 @@ export async function startPluginsServer(
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
             const postgres = hub?.postgres ?? createPostgresPool(serverConfig.DATABASE_URL)
             const teamManager = hub?.teamManager ?? new TeamManager(postgres, serverConfig)
-            const { consumer, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
+            const { stop, isHealthy: isSessionRecordingsHealthy } = await startSessionRecordingEventsConsumer({
                 teamManager: teamManager,
                 kafka: kafka,
+                kafkaConfig: serverConfig as KafkaConfig,
                 partitionsConsumedConcurrently: serverConfig.RECORDING_PARTITIONS_CONSUMED_CONCURRENTLY,
             })
-            sessionRecordingEventsConsumer = consumer
+            stopSessionRecordingEventsConsumer = stop
             healthChecks['session-recordings'] = isSessionRecordingsHealthy
         }
 

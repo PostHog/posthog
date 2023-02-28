@@ -3,7 +3,6 @@ import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
-import { KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, KAFKA_PERFORMANCE_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     GroupTypeIndex,
@@ -256,15 +255,14 @@ export class EventsProcessor {
     }
 }
 
-export const createSessionRecordingEvent = async (
+export const createSessionRecordingEvent = (
     uuid: string,
     team_id: number,
     distinct_id: string,
     timestamp: DateTime,
     ip: string | null,
-    properties: Properties,
-    kafkaProducer: KafkaProducerWrapper
-): Promise<PostIngestionEvent> => {
+    properties: Properties
+) => {
     const timestampString = castTimestampOrNow(timestamp, TimestampFormat.ClickHouse)
 
     const data: Partial<RawSessionRecordingEvent> = {
@@ -278,28 +276,9 @@ export const createSessionRecordingEvent = async (
         created_at: timestampString,
     }
 
-    await kafkaProducer.queueSingleJsonMessage(KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, uuid, data)
-
-    return {
-        eventUuid: uuid,
-        event: '$snapshot',
-        ip,
-        distinctId: distinct_id,
-        properties,
-        timestamp: timestamp.toISO() as ISOTimestamp,
-        elementsList: [],
-        teamId: team_id,
-    }
+    return data
 }
-export async function createPerformanceEvent(
-    uuid: string,
-    team_id: number,
-    distinct_id: string,
-    properties: Properties,
-    ip: string | null,
-    timestamp: DateTime,
-    kafkaProducer: KafkaProducerWrapper
-): Promise<PostIngestionEvent> {
+export function createPerformanceEvent(uuid: string, team_id: number, distinct_id: string, properties: Properties) {
     const data: Partial<RawPerformanceEvent> = {
         uuid,
         team_id: team_id,
@@ -316,16 +295,5 @@ export async function createPerformanceEvent(
         }
     })
 
-    await kafkaProducer.queueSingleJsonMessage(KAFKA_PERFORMANCE_EVENTS, uuid, data)
-
-    return {
-        eventUuid: uuid,
-        event: '$performance_event',
-        ip,
-        distinctId: distinct_id,
-        properties,
-        timestamp: timestamp.toISO() as ISOTimestamp,
-        elementsList: [],
-        teamId: team_id,
-    }
+    return data
 }

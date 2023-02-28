@@ -1,41 +1,37 @@
 import { KafkaJSError } from 'kafkajs'
 import { Pool } from 'pg'
 
+import { defaultConfig } from '../../../src/config/config'
 import { eachBatch } from '../../../src/main/ingestion-queues/session-recordings-consumer'
-import { DB } from '../../../src/utils/db/db'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
-import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapper'
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
+import { createOrganization, createTeam } from '../../helpers/sql'
 
 describe('session-recordings-consumer', () => {
-    let producer
-    let producerWrapper: KafkaProducerWrapper
-    let db: DB
+    const producer = {
+        produce: jest.fn(),
+        flush: jest.fn(),
+    } as any
+    let postgres: Pool
     let teamManager: TeamManager
     let eachBachWithDependencies: any
 
     beforeEach(() => {
-        jest.useFakeTimers()
-
-        producer = {
-            sendBatch: jest.fn(),
-        } as any
-        producerWrapper = new KafkaProducerWrapper(producer, undefined, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
-        db = {
-            postgres: new Pool(),
-        } as DB
-        teamManager = new TeamManager(db.postgres, {} as any)
-        eachBachWithDependencies = eachBatch({ producer: producerWrapper, teamManager })
+        postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL })
+        teamManager = new TeamManager(postgres, {} as any)
+        eachBachWithDependencies = eachBatch({ groupId: 'asdf', producer, teamManager })
     })
 
     afterEach(() => {
-        jest.useRealTimers()
         jest.clearAllMocks()
     })
 
     test('eachBatch throws on recoverable KafkaJS errors', async () => {
+        const organizationId = await createOrganization(postgres)
+        const teamId = await createTeam(postgres, organizationId)
         const error = new KafkaJSError('test', { retriable: true })
-        producer.sendBatch.mockRejectedValue(error)
+        producer.produce.mockImplementation((topic, partition, message, key, timestamp, cb) => cb(error))
+        producer.flush.mockImplementation((timeout, cb) => cb(error))
         await expect(
             eachBachWithDependencies({
                 batch: {
@@ -43,7 +39,7 @@ describe('session-recordings-consumer', () => {
                     messages: [
                         {
                             key: 'test',
-                            value: JSON.stringify({ data: { event: '$snapshot' } }),
+                            value: JSON.stringify({ team_id: teamId, data: JSON.stringify({ event: '$snapshot' }) }),
                         },
                     ],
                 } as any,
@@ -54,7 +50,7 @@ describe('session-recordings-consumer', () => {
 
     test('eachBatch emits to DLQ and returns on unrecoverable KafkaJS errors', async () => {
         const error = new KafkaJSError('test', { retriable: false })
-        producer.sendBatch.mockRejectedValue(error)
+        producer.produce.mockRejectedValue(error)
         await eachBachWithDependencies({
             batch: {
                 topic: 'test',
