@@ -15,7 +15,7 @@ jobs:
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
-        timeout-minutes: 15
+        timeout-minutes: 30
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}

@@ -166,7 +166,7 @@ async function expectLocatorToMatchStorySnapshot(
     browser: SupportedBrowserName,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await locator.screenshot({ ...options })
+    const image = await locator.screenshot({ timeout: 3000, ...options })
     let customSnapshotIdentifier = context.id
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
