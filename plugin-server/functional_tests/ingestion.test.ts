@@ -104,6 +104,20 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
     })
 })
 
+test.concurrent(`liveness check endpoint works`, async () => {
+    await waitForExpect(async () => {
+        const response = await fetch('http://localhost:6738/_health')
+        expect(response.status).toBe(200)
+
+        const body = await response.json()
+        expect(body).toEqual(
+            expect.objectContaining({
+                checks: expect.objectContaining({ 'analytics-ingestion': 'ok' }),
+            })
+        )
+    })
+})
+
 test.concurrent(`event ingestion: handles $groupidentify with no properties`, async () => {
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()

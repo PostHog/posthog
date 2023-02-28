@@ -72,7 +72,32 @@ export const startAnalyticsEventsIngestionConsumer = async ({
         await queue.emitConsumerGroupMetrics()
     })
 
-    return queue
+    // Subscribe to the heatbeat event to track when the consumer has last
+    // successfully consumed a message. This is used to determine if the
+    // consumer is healthy.
+    const sessionTimeout = 30000
+    const { HEARTBEAT } = queue.consumer.events
+    let lastHeartbeat: number = Date.now()
+    queue.consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+
+    const isHealthy = async () => {
+        // Consumer has heartbeat within the session timeout, so it is healthy.
+        if (Date.now() - lastHeartbeat < sessionTimeout) {
+            return true
+        }
+
+        // Consumer has not heartbeat, but maybe it's because the group is
+        // currently rebalancing.
+        try {
+            const { state } = await queue.consumer.describeGroup()
+
+            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+        } catch (error) {
+            return false
+        }
+    }
+
+    return { queue, isHealthy }
 }
 
 export async function eachBatchIngestionWithOverflow(
