@@ -16,18 +16,13 @@ class AsteriskExpander(TraversingVisitor):
         for column in node.select:
             if isinstance(column.symbol, ast.AsteriskSymbol):
                 asterisk = column.symbol
-                if isinstance(asterisk.table, ast.TableSymbol) or isinstance(asterisk.table, ast.TableAliasSymbol):
-                    table = asterisk.table
-                    while isinstance(table, ast.TableAliasSymbol):
-                        table = table.table_symbol
-                    if isinstance(table, ast.TableSymbol):
-                        database_fields = table.table.get_asterisk()
-                        for key in database_fields.keys():
-                            symbol = ast.FieldSymbol(name=key, table=asterisk.table)
-                            columns.append(ast.Field(chain=[key], symbol=symbol))
-                            node.symbol.columns[key] = symbol
-                    else:
-                        raise ValueError("Can't expand asterisk (*) on table")
+                if isinstance(asterisk.table, ast.BaseTableSymbol):
+                    table = asterisk.table.resolve_database_table()
+                    database_fields = table.get_asterisk()
+                    for key in database_fields.keys():
+                        symbol = ast.FieldSymbol(name=key, table=asterisk.table)
+                        columns.append(ast.Field(chain=[key], symbol=symbol))
+                        node.symbol.columns[key] = symbol
                 elif isinstance(asterisk.table, ast.SelectQuerySymbol) or isinstance(
                     asterisk.table, ast.SelectQueryAliasSymbol
                 ):
