@@ -66,7 +66,7 @@ FunnelHistoricalTrends.parameters = {
     testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph-funnel] > canvas' },
 }
 export const FunnelTimeToConvert = createInsightStory(require('./__mocks__/funnelTimeToConvert.json'))
-FunnelTimeToConvert.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-histogram] > svg' } }
+FunnelTimeToConvert.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-histogram] svg' } }
 
 export const Retention = createInsightStory(require('./__mocks__/retention.json'))
 Retention.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
