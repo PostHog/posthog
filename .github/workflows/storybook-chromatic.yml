@@ -162,9 +162,18 @@ jobs:
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
 
+            - name: Compress new/changed images
+              if: |
+                  github.event.pull_request.head.repo.full_name == github.repository && (
+                    steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-added != '0'
+                    || steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-modified != '0'
+                  )
+              run: |
+                  git add frontend/__snapshots__/ playwright/
+                  pnpm lint-staged
+
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
-              # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
