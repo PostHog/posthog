@@ -465,7 +465,7 @@ class TrendsBreakdown:
 
     def breakdown_sort_function(self, value):
         if self.filter.using_histogram:
-            return str(json.loads(value.get("breakdown_value"))[0])
+            return json.loads(value.get("breakdown_value"))[0]
         if value.get("breakdown_value") == "all":
             return (-1, "")
         if self.filter.breakdown_type == "session":
