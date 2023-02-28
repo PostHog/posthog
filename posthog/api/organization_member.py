@@ -7,6 +7,7 @@ from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.serializers import raise_errors_on_nested_writes
+from social_django.admin import UserSocialAuth
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -52,7 +53,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return len(instance.user.totpdevice_set.all()) > 0
 
     def get_has_social_auth(self, instance: OrganizationMembership) -> bool:
-        return instance.user.social_auth.exists()
+        return len(instance.user.social_auth.all()) > 0
 
     def update(self, updated_membership, validated_data, **kwargs):
         updated_membership = cast(OrganizationMembership, updated_membership)
@@ -85,7 +86,10 @@ class OrganizationMemberViewSet(
             user__is_active=True,
         )
         .select_related("user")
-        .prefetch_related(Prefetch("user__totpdevice_set", queryset=TOTPDevice.objects.filter(name="default")))
+        .prefetch_related(
+            Prefetch("user__totpdevice_set", queryset=TOTPDevice.objects.filter(name="default")),
+            Prefetch("user__social_auth", queryset=UserSocialAuth.objects.all()),
+        )
     )
     lookup_field = "user__uuid"
 
