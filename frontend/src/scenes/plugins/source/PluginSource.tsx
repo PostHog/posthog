@@ -13,6 +13,7 @@ import { PluginSourceTabs } from 'scenes/plugins/source/PluginSourceTabs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { createDefaultPluginSource } from 'scenes/plugins/source/createDefaultPluginSource'
 import { Form } from 'kea-forms'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 interface PluginSourceProps {
     pluginId: number
@@ -123,6 +124,7 @@ export function PluginSource({
                                                 options={{
                                                     minimap: { enabled: false },
                                                 }}
+                                                loading={<Spinner />}
                                             />
                                             {!value && createDefaultPluginSource(name)[currentFile] ? (
                                                 <div style={{ marginTop: '0.5rem' }}>
