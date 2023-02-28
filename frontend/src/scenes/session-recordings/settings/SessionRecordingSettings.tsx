@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 export type SessionRecordingSettingsProps = {
@@ -16,7 +16,6 @@ export type SessionRecordingSettingsProps = {
 export function SessionRecordingSettings({ inModal = false }: SessionRecordingSettingsProps): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div className="space-y-4">
@@ -56,7 +55,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     .
                 </p>
             </div>
-
             <div className="space-y-2">
                 <LemonSwitch
                     data-attr="opt-in-capture-console-log-switch"
@@ -77,31 +75,53 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     logs will be shown in the recording player to help you debug any issues.
                 </p>
             </div>
-
-            {featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] && (
+            <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="opt-in-capture-performance-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({ capture_performance_opt_in: checked })
+                    }}
+                    label="Capture network performance"
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
+                    bordered={!inModal}
+                    fullWidth={inModal}
+                    checked={
+                        !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
+                    }
+                    disabled={!currentTeam?.session_recording_opt_in}
+                />
+                <p>
+                    This setting controls if performance and network information will be captured alongside recordings.
+                    The network requests and timings will be shown in the recording player to help you debug any issues.
+                </p>
+            </div>
+            <FlaggedFeature flag={FEATURE_FLAGS.RECORDINGS_V2_RECORDER} match={true}>
                 <div className="space-y-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-performance-switch"
                         onChange={(checked) => {
-                            updateCurrentTeam({ capture_performance_opt_in: checked })
+                            updateCurrentTeam({ session_recording_version: checked ? 'v2' : 'v1' })
                         }}
-                        label="Capture network performance"
+                        label={
+                            <span className="flex items-center gap-2">
+                                Use Recorder V2
+                                <LemonTag type="warning">Beta</LemonTag>
+                            </span>
+                        }
                         labelClassName={inModal ? 'text-base font-semibold' : ''}
                         bordered={!inModal}
                         fullWidth={inModal}
-                        checked={
-                            !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
-                        }
-                        disabled={!currentTeam?.session_recording_opt_in}
+                        checked={currentTeam?.session_recording_version === 'v2'}
                     />
                     <p>
-                        This setting controls if performance and network information will be captured alongside
-                        recordings. The network requests and timings will be shown in the recording player to help you
-                        debug any issues.
+                        Turn this setting on to opt into{' '}
+                        <Link to="https://github.com/rrweb-io/rrweb/releases/tag/rrweb%402.0.0-alpha.5" target="_blank">
+                            rrweb 2
+                        </Link>{' '}
+                        which comes with various fixes and improvements.
                     </p>
                 </div>
-            )}
-
+            </FlaggedFeature>
             <div className="space-y-2">
                 <LemonLabel className="text-base">Authorized domains for recordings</LemonLabel>
 

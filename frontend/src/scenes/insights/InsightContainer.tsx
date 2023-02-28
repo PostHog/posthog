@@ -30,6 +30,7 @@ import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -57,19 +58,20 @@ export function InsightContainer({
         insightProps,
         canEditInsight,
         insightLoading,
-        activeView,
-        loadedView,
         filters,
         timedOutQueryId,
         erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
+
+    const { activeView } = useValues(insightNavLogic(insightProps))
+
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
+        if (insightLoading && timedOutQueryId === null) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -77,7 +79,7 @@ export function InsightContainer({
             )
         }
         // Insight specific empty states - note order is important here
-        if (loadedView === InsightType.FUNNELS) {
+        if (activeView === InsightType.FUNNELS) {
             if (!areFiltersValid) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }

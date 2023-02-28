@@ -203,7 +203,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         created_insights: List[Insight] = list(Insight.objects.all())
         assert len(created_insights) == 2
 
-        listed_insights = self.dashboard_api.list_insights()
+        listed_insights = self.dashboard_api.list_insights(query_params={"include_query_insights": False})
         assert listed_insights["count"] == 1
         assert listed_insights["results"][0]["name"] == "Insight with filters"
 

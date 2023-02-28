@@ -1,3 +1,4 @@
+import { dayjs, now } from 'lib/dayjs'
 import {
     kea,
     path,
@@ -10,6 +11,7 @@ import {
     actions,
     beforeUnmount,
     listeners,
+    connect,
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
@@ -21,6 +23,12 @@ import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
 import { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { userLogic } from 'scenes/userLogic'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { UserType } from '~/types'
+import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -31,6 +39,9 @@ const AUTOLOAD_INTERVAL = 5000
 
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
+    connect({
+        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user']],
+    }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
@@ -166,11 +177,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             // Clear the response if a failure to avoid showing inconsistencies in the UI
             loadDataFailure: () => null,
         },
+        responseErrorObject: [
+            null as Record<string, any> | null,
+            {
+                loadData: () => null,
+                loadDataFailure: (_, { errorObject }) => errorObject,
+                loadDataSuccess: () => null,
+            },
+        ],
         responseError: [
             null as string | null,
             {
                 loadData: () => null,
-                loadDataFailure: () => 'Error loading data',
+                loadDataFailure: (_, { error, errorObject }) => {
+                    if (errorObject && 'error' in errorObject) {
+                        return errorObject.error
+                    }
+                    return error ?? 'Error loading data'
+                },
                 loadDataSuccess: () => null,
             },
         ],
@@ -181,6 +205,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => null,
                 loadNewData: () => null,
                 loadNextData: () => null,
+            },
+        ],
+        acknowledgedRefreshButtonChanged: [
+            false,
+            { persist: true, storageKey: 'acknowledgedRefreshButtonChanged' },
+            {
+                acknowledgeRefreshButtonChanged: () => true,
             },
         ],
     })),
@@ -263,6 +294,59 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return isInsightQueryNode(query) && response && 'last_refresh' in response
                     ? response.last_refresh
                     : null
+            },
+        ],
+        nextAllowedRefresh: [
+            (s, p) => [p.query, s.response],
+            (query, response): string | null => {
+                return isInsightQueryNode(query) && response && 'next_allowed_refresh' in response
+                    ? response.next_allowed_refresh
+                    : null
+            },
+        ],
+        insightRefreshButtonDisabledReason: [
+            (s) => [s.nextAllowedRefresh, s.lastRefresh],
+            (nextAllowedRefresh: string | null, lastRefresh: string | null): string => {
+                let disabledReason = ''
+
+                if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
+                    // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
+                    disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
+                } else if (
+                    !!lastRefresh &&
+                    now()
+                        .subtract(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
+                        .isBefore(lastRefresh)
+                ) {
+                    // Unsaved insights don't get cached and get refreshed on every page load, but we avoid allowing users to click
+                    // 'refresh' more than once every UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES. This can be bypassed by simply
+                    // refreshing the page though, as there's no cache layer on the backend
+                    disabledReason = `You can refresh this insight again ${dayjs(lastRefresh)
+                        .add(UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES, 'minutes')
+                        .fromNow()}`
+                }
+
+                return disabledReason
+            },
+        ],
+        isTestGroupForNewRefreshUX: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => {
+                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
+            },
+        ],
+        displayRefreshButtonChangedNotice: [
+            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
+            (
+                isTestGroupForNewRefreshUX: boolean,
+                acknowledgedRefreshButtonChanged: boolean,
+                user: UserType
+            ): boolean => {
+                return (
+                    dayjs(user.date_joined).isBefore('2023-02-13') &&
+                    isTestGroupForNewRefreshUX &&
+                    !acknowledgedRefreshButtonChanged
+                )
             },
         ],
     }),

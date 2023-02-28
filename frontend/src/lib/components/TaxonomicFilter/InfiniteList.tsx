@@ -21,7 +21,7 @@ import clsx from 'clsx'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { ControlledDefinitionPopoverContents } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { pluralize } from 'lib/utils'
-import { flip, offset, shift, size, useFloating } from '@floating-ui/react-dom-interactions'
+import { flip, offset, shift, size, useFloating } from '@floating-ui/react'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
 enum ListTooltip {
@@ -308,7 +308,7 @@ export function InfiniteList(): JSX.Element {
             {isActiveTab &&
             selectedItemInView &&
             selectedItemHasPopover(selectedItem, listGroupType, group) &&
-            tooltipDesiredState(referenceRef.current) !== ListTooltip.None &&
+            tooltipDesiredState(referenceRef.current as HTMLElement | null) !== ListTooltip.None &&
             showPopover
                 ? ReactDOM.createPortal(
                       selectedItem && group ? (

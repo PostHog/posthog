@@ -19,7 +19,7 @@ flake8-import-order==0.18.1
 flake8-logging-format==0.7.5
 flake8-print==5.0.0
 pip-tools==6.6.2
-mypy==0.931
+mypy==0.981
 mypy-extensions==0.4.3
 datamodel-code-generator==0.16.1
 djangorestframework-stubs==1.4.0
@@ -36,7 +36,7 @@ types-pytz==2021.3.2
 types-redis==4.3.20
 types-requests==2.26.1
 isort==5.2.2
-pytest==6.2.2
+pytest==6.2.5
 pytest-django==4.1.0
 pytest-env==0.6.2
 pytest-icdiff==0.5

@@ -5,9 +5,12 @@ from unittest.mock import ANY, patch
 from django.contrib.auth.tokens import default_token_generator
 from django.core import mail
 from django.utils import timezone
+from django_otp.oath import totp
+from django_otp.util import random_hex
 from freezegun import freeze_time
 from rest_framework import status
 from social_django.models import UserSocialAuth
+from two_factor.utils import totp_digits
 
 from posthog.models import User
 from posthog.models.instance_setting import set_instance_setting
@@ -15,6 +18,10 @@ from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import APIBaseTest
+
+
+def totp_str(key):
+    return str(totp(key)).zfill(totp_digits())
 
 
 class TestLoginPrecheckAPI(APIBaseTest):
@@ -58,6 +65,8 @@ class TestLoginAPI(APIBaseTest):
     @patch("posthog.tasks.user_identify.identify_task")
     @patch("posthoganalytics.capture")
     def test_user_logs_in_with_email_and_password(self, mock_capture, mock_identify):
+        self.user.is_email_verified = True
+        self.user.save()
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"success": True})
@@ -74,6 +83,47 @@ class TestLoginAPI(APIBaseTest):
             properties={"social_provider": ""},
             groups={"instance": ANY, "organization": str(self.team.organization_id), "project": str(self.team.uuid)},
         )
+
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_email_unverified_user_cant_log_in_if_email_verification_true(
+        self, mock_feature_enabled, mock_send_email_verification
+    ):
+        self.user.is_email_verified = False
+        self.user.save()
+        with self.is_cloud(True):
+            self.assertEqual(self.user.is_email_verified, False)
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+            # Test that we're not logged in
+            response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+            mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.distinct_id))
+
+            # Assert the email was sent.
+            mock_send_email_verification.assert_called_once_with(self.user)
+
+    @patch("posthog.api.authentication.EmailVerifier.create_token_and_send_email_verification")
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_email_unverified_null_user_can_log_in_if_email_verification_true(
+        self, mock_feature_enabled, mock_send_email_verification
+    ):
+        """When email verification was added, existing users were set to is_email_verified=null.
+        If someone is null they should still be allowed to log in until we explicitly decide to lock them out."""
+        self.assertEqual(self.user.is_email_verified, None)
+        with self.is_cloud(True):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            # Test that we are logged in
+            response = self.client.get("/api/users/@me/")
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            # Assert we called the feature flag
+            mock_feature_enabled.assert_called_once_with("require-email-verification", str(self.user.distinct_id))
+            # Assert the email was sent.
+            mock_send_email_verification.assert_called_once_with(self.user)
 
     @patch("posthoganalytics.capture")
     def test_user_cant_login_with_incorrect_password(self, mock_capture):
@@ -156,6 +206,68 @@ class TestLoginAPI(APIBaseTest):
                     "attr": None,
                 },
             )
+
+    def test_login_2fa_enabled(self):
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None},
+        )
+
+        # Assert user is not logged in
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertNotIn("email", response.json())
+
+        response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["email"], self.user.email)
+
+        # Test remembering cookie
+        self.client.post("/logout", follow=True)
+        response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_2fa_expired(self):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+
+        with freeze_time("2023-01-01T10:00:00"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+            self.assertEqual(
+                response.json(),
+                {"type": "server_error", "code": "2fa_required", "detail": "2FA is required.", "attr": None},
+            )
+
+        with freeze_time("2023-01-01T10:30:00"):
+            response = self.client.post("/api/login/token", {"token": "abcdefg"})
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertEqual(
+                response.json(),
+                {
+                    "type": "validation_error",
+                    "code": "2fa_expired",
+                    "detail": "Login attempt has expired. Re-enter username/password.",
+                    "attr": None,
+                },
+            )
+
+        response = self.client.get("/api/users/@me/")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_2fa_throttling(self):
+        self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+        self.assertEqual(self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_invalid")
+        self.assertEqual(
+            self.client.post("/api/login/token", {"token": "abcdefg"}).json()["code"], "2fa_too_many_attempts"
+        )
 
 
 class TestPasswordResetAPI(APIBaseTest):
