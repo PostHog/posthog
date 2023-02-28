@@ -70,7 +70,7 @@ PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
 TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "capture_token_shape_invalid_total",
     "Events (soon to be) dropped due to an invalid token shape, per reason.",
-    labelnames=["reason"],
+    labelnames=["stage", "reason"],
 )
 
 
@@ -193,7 +193,7 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
-def _check_token_shape(token: str) -> Optional[str]:
+def _check_token_shape(token: Optional[str]) -> Optional[str]:
     if not token:
         return "empty"
     if len(token) > 64:
@@ -299,6 +299,16 @@ def get_event(request):
     with start_span(op="request.authenticate"):
         token = get_token(data, request)
 
+        try:
+            invalid_token_reason = _check_token_shape(token)
+        except Exception as e:
+            invalid_token_reason = "exception"
+            logger.warning("capture_token_shape_exception", token=token, reason="exception", exception=e)
+
+        if invalid_token_reason:
+            # TODO: start rejecting requests here if  the after_resolution contexts are empty (no false-positives)
+            TOKEN_SHAPE_INVALID_COUNTER.labels(stage="before_resolution", reason=invalid_token_reason).inc()
+
         if not token:
             return cors_response(
                 request,
@@ -326,16 +336,10 @@ def get_event(request):
             if db_error:
                 send_events_to_dead_letter_queue = True
 
-    try:
-        invalid_token_reason = _check_token_shape(token)
-        if invalid_token_reason:
-            # TODO: check the capture_token_shape_invalid_total metric for false positives,
-            #  then move higher and refuse requests
-            TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
-            logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
-    except Exception as e:
-        TOKEN_SHAPE_INVALID_COUNTER.labels(reason="exception").inc()
-        logger.warning("capture_token_shape_invalid", token=token, reason="exception", exception=e)
+    if invalid_token_reason:
+        # TODO: remove after we have proven we don't have false-positives
+        TOKEN_SHAPE_INVALID_COUNTER.labels(stage="after_resolution", reason=invalid_token_reason).inc()
+        logger.warning("capture_token_shape_false_positive", token=token, reason=invalid_token_reason)
 
     team_id = ingestion_context.team_id if ingestion_context else None
     structlog.contextvars.bind_contextvars(team_id=team_id)
