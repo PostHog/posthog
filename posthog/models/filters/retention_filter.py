@@ -13,6 +13,7 @@ from posthog.models.filters.mixins.common import (
     InsightMixin,
     LimitMixin,
     OffsetMixin,
+    SampleMixin,
 )
 from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin
 from posthog.models.filters.mixins.groups import GroupsAggregationMixin
@@ -41,6 +42,7 @@ class RetentionFilter(
     ClientQueryIdMixin,
     SimplifyFilterMixin,
     BaseFilter,
+    SampleMixin,
 ):
     def __init__(self, data: Dict[str, Any] = {}, request: Optional[Request] = None, **kwargs) -> None:
         data["insight"] = INSIGHT_RETENTION
