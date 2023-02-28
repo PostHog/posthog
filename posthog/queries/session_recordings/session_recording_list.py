@@ -302,8 +302,8 @@ class SessionRecordingList(EventQuery):
         params = {**params, "event_names": list(event_names_to_filter)}
 
         return EventFiltersSQL(
-            aggregate_event_select_clause,
             non_aggregate_select_condition_clause,
+            aggregate_event_select_clause,
             aggregate_select_clause,
             aggregate_having_clause,
             where_conditions,
@@ -462,8 +462,7 @@ class SessionRecordingListV2(SessionRecordingList):
     _core_events_query_grouped = """
         SELECT
             session_id,
-            distinct_id,
-            sum(does_match) as matches,
+            distinct_id
             {aggregate_event_select_clause}
         FROM (
             {ungrouped_core_events_query}
@@ -489,9 +488,10 @@ class SessionRecordingListV2(SessionRecordingList):
         JOIN (
             {core_recordings_query}
         ) AS session_recordings
-        ON session_recordings.distinct_id = events.distinct_id
+        ON session_recordings.session_id = events.session_id
         {recording_person_query}
         WHERE
+            session_recordings.distinct_id == events.distinct_id
             {prop_filter_clause}
             {person_id_clause}
         ORDER BY start_time DESC
@@ -543,7 +543,7 @@ class SessionRecordingListV2(SessionRecordingList):
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
             aggregate_event_select_clause += f"""
-            , groupUniqArrayIf(100)((events.timestamp, events.uuid, events.session_id, events.window_id), {condition_sql}) AS matching_events_{index}
+            , groupUniqArrayIf(100)((timestamp, uuid, session_id, window_id), {condition_sql}) AS matching_events_{index}
             , sum(event_match_{index}) AS matches_{index}
             """
 
@@ -561,8 +561,8 @@ class SessionRecordingListV2(SessionRecordingList):
         params = {**params, "event_names": list(event_names_to_filter)}
 
         return EventFiltersSQL(
-            aggregate_event_select_clause,
             non_aggregate_select_condition_clause,
+            aggregate_event_select_clause,
             aggregate_select_clause,
             aggregate_having_clause,
             where_conditions,
