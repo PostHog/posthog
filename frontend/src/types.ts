@@ -2304,6 +2304,7 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+    Updates = 'updates',
 }
 
 export interface VersionType {
