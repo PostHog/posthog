@@ -684,8 +684,8 @@
                     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                  WHERE team_id = 2
                    AND event IN ['$autocapture', 'user signed up', '$autocapture']
-                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-02-15 00:00:00', 'UTC')
-                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-02-22 23:59:59', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') >= toDateTime('2023-02-21 00:00:00', 'UTC')
+                   AND toTimeZone(timestamp, 'UTC') <= toDateTime('2023-02-28 23:59:59', 'UTC')
                    AND (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
