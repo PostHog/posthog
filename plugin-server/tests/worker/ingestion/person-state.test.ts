@@ -2124,7 +2124,7 @@ describe('person id overrides', () => {
         await closeHub()
     })
 
-    async function updatePersonStateFromEvent(event: Partial<PluginEvent>, ts = '') {
+    async function updatePersonStateFromEvent(event: Partial<PluginEvent>, ts = '', mergeAttempts = 3) {
         const fullEvent = {
             team_id: teamId,
             properties: {},
@@ -2141,7 +2141,9 @@ describe('person id overrides', () => {
             hub.statsd,
             hub.personManager,
             personContainer,
-            true
+            true,
+            undefined,
+            mergeAttempts
         )
         await state.update()
     }
@@ -2417,20 +2419,28 @@ describe('person id overrides', () => {
         // merge into is determined by the creation timestamps (merging into oldest)
         await expect(
             Promise.all([
-                updatePersonStateFromEvent({
-                    event: '$identify',
-                    distinct_id: 'second',
-                    properties: {
-                        $anon_distinct_id: 'third',
+                updatePersonStateFromEvent(
+                    {
+                        event: '$identify',
+                        distinct_id: 'second',
+                        properties: {
+                            $anon_distinct_id: 'third',
+                        },
                     },
-                }),
-                updatePersonStateFromEvent({
-                    event: '$identify',
-                    distinct_id: 'second',
-                    properties: {
-                        $anon_distinct_id: 'first',
+                    '',
+                    0
+                ),
+                updatePersonStateFromEvent(
+                    {
+                        event: '$identify',
+                        distinct_id: 'second',
+                        properties: {
+                            $anon_distinct_id: 'first',
+                        },
                     },
-                }),
+                    '',
+                    0
+                ),
             ])
         ).rejects.toThrow()
 
