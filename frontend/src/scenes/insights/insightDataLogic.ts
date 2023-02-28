@@ -35,9 +35,10 @@ import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { queryExportContext } from '~/queries/query'
 
-const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
+const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
-    return filters ? queryFromFilters(filters) : queryFromKind(NodeKind.TrendsQuery)
+    const query = insightProps.cachedInsight?.query
+    return query ? query : filters ? queryFromFilters(filters) : queryFromKind(NodeKind.TrendsQuery)
 }
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
@@ -89,7 +90,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     reducers(({ props }) => ({
         query: [
-            defaultQuery(props) as Node,
+            defaultQuery(props),
             {
                 setQuery: (_, { query }) => query,
             },
