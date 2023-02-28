@@ -115,7 +115,7 @@ async function expectStoryToMatchSnapshot(
                     return canvas
                         .getContext('2d')!
                         .getImageData(0, 0, canvas.width, canvas.height)
-                        .data.some((channel) => channel !== 0)
+                        .data.some((channel) => channel !== 0 && channel !== 255)
                 }, waitForLoadersToDisappear)
             }
         }
