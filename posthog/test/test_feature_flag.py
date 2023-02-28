@@ -22,7 +22,7 @@ from posthog.models.group import Group
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries, snapshot_postgres_queries_context
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
@@ -616,6 +616,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
         )
 
+    @snapshot_postgres_queries
     def test_db_matches_independent_of_string_or_number_type(self):
         Person.objects.create(
             team=self.team,
