@@ -71,6 +71,8 @@ import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -511,7 +513,12 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
 function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
     const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
-
+    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { featureFlagLoading } = useValues(featureFlagLogic)
+    const { receivedErrorsFromAPI } = useValues(
+        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+    )
+    const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -524,8 +531,22 @@ function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType })
     // TODO: reintegrate HogQL Editor
     return (
         <div>
-            {dashboardId && <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />}
-            <div className="mb-4">
+            {connectedDashboardExists ? (
+                <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+            ) : (
+                <div>
+                    <b>Dashboard</b>
+                    <div className="text-muted mb-2">{`There is currently no connected dashboard to this feature flag. If there was previously a connected dashboard, it may have been deleted.`}</div>
+                    {featureFlagLoading ? (
+                        <EmptyDashboardComponent loading={true} canEdit={false} />
+                    ) : (
+                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                            Generate Usage Dashboard
+                        </LemonButton>
+                    )}
+                </div>
+            )}
+            <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
