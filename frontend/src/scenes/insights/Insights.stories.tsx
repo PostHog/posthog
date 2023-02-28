@@ -9,7 +9,7 @@ export default {
         layout: 'fullscreen',
         options: { showPanel: false },
         testOptions: {
-            waitForLoadersToDisappear: 400,
+            waitForLoadersToDisappear: true,
             excludeNavigationFromSnapshot: true,
             snapshotBrowsers: ['chromium', 'webkit', 'firefox'],
         },
@@ -62,7 +62,11 @@ export const FunnelLeftToRightBreakdown = createInsightStory(require('./__mocks_
 export const FunnelTopToBottom = createInsightStory(require('./__mocks__/funnelTopToBottom.json'))
 export const FunnelTopToBottomBreakdown = createInsightStory(require('./__mocks__/funnelTopToBottomBreakdown.json'))
 export const FunnelHistoricalTrends = createInsightStory(require('./__mocks__/funnelHistoricalTrends.json'))
+FunnelHistoricalTrends.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph-funnel] > canvas' },
+}
 export const FunnelTimeToConvert = createInsightStory(require('./__mocks__/funnelTimeToConvert.json'))
+FunnelTimeToConvert.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=funnel-histogram] > svg' } }
 
 export const Retention = createInsightStory(require('./__mocks__/retention.json'))
 Retention.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
@@ -73,4 +77,5 @@ Lifecycle.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=t
 export const Stickiness = createInsightStory(require('./__mocks__/stickiness.json'))
 Stickiness.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
 export const UserPaths = createInsightStory(require('./__mocks__/userPaths.json'))
+UserPaths.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=paths-viz] > svg' } }
 /* eslint-enable @typescript-eslint/no-var-requires */
