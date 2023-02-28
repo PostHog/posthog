@@ -34,9 +34,11 @@ interface InitKeaProps {
 
 // Used in some tests to make life easier
 let errorsSilenced = false
+
 export function silenceKeaLoadersErrors(): void {
     errorsSilenced = true
 }
+
 export function resumeKeaLoadersErrors(): void {
     errorsSilenced = false
 }
@@ -48,7 +50,7 @@ export const loggerPlugin: () => KeaPlugin = () => ({
             options.middleware.push((store) => (next) => (action) => {
                 const response = next(action)
                 console.groupCollapsed('KEA LOGGER', action)
-                console.log(store.getState());
+                console.log(store.getState())
                 console.groupEnd()
                 return response
             })
