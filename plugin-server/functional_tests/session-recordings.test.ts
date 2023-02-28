@@ -462,6 +462,20 @@ test.concurrent(
     20000
 )
 
+test.concurrent(`liveness check endpoint works`, async () => {
+    await waitForExpect(async () => {
+        const response = await fetch('http://localhost:6738/_health')
+        expect(response.status).toBe(200)
+
+        const body = await response.json()
+        expect(body).toEqual(
+            expect.objectContaining({
+                checks: expect.objectContaining({ 'session-recordings': 'ok' }),
+            })
+        )
+    })
+})
+
 test.concurrent(
     `consumer handles empty messages`,
     async () => {

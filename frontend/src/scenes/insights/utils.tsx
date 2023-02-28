@@ -39,10 +39,11 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
+import { ActionsNode, BreakdownFilter, EventsNode, InsightQueryNode, Node, StickinessQuery } from '~/queries/schema'
 import {
     isEventsNode,
     isFunnelsQuery,
+    isInsightVizNode,
     isLifecycleQuery,
     isPathsQuery,
     isRetentionQuery,
@@ -450,6 +451,25 @@ export function summarizeInsightQuery(
     } else {
         return ''
     }
+}
+
+export function summariseInsight(
+    isUsingDataExploration: boolean,
+    query: Node | undefined,
+    aggregationLabel: groupsModelType['values']['aggregationLabel'],
+    cohortsById: cohortsModelType['values']['cohortsById'],
+    mathDefinitions: mathsLogicType['values']['mathDefinitions'],
+    filters: Partial<FilterType>
+): string {
+    const hasFilters = Object.keys(filters || {}).length > 0
+
+    return isUsingDataExploration && isInsightVizNode(query)
+        ? summarizeInsightQuery(query.source, aggregationLabel, cohortsById, mathDefinitions)
+        : isUsingDataExploration && !!query
+        ? `QueryKind: ${query?.kind}`
+        : hasFilters
+        ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+        : ''
 }
 
 export function formatAggregationValue(

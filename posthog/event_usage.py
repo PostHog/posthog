@@ -38,6 +38,7 @@ def report_user_signed_up(
         "realm": get_instance_realm(),
         "role_at_organization": role_at_organization,
         "referral_source": referral_source,
+        "is_email_verified": user.is_email_verified,
     }
     if user_analytics_metadata is not None:
         props.update(user_analytics_metadata)
@@ -52,6 +53,19 @@ def report_user_signed_up(
         "user signed up",
         properties=props,
         groups=groups(user.organization, user.team),
+    )
+
+
+def report_user_verified_email(current_user: User) -> None:
+    """
+    Triggered after a user verifies their email address.
+    """
+    posthoganalytics.capture(
+        current_user.distinct_id,
+        "user verified email",
+        properties={
+            "$set": current_user.get_analytics_metadata(),
+        },
     )
 
 

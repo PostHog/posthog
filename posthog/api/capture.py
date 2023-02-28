@@ -67,6 +67,12 @@ PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
     labelnames=["partition_key"],
 )
 
+TOKEN_SHAPE_INVALID_COUNTER = Counter(
+    "capture_token_shape_invalid_total",
+    "Events (soon to be) dropped due to an invalid token shape, per reason.",
+    labelnames=["stage", "reason"],
+)
+
 
 def parse_kafka_event_data(
     distinct_id: str,
@@ -187,6 +193,20 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
+def _check_token_shape(token: Any) -> Optional[str]:
+    if not token:
+        return "empty"
+    if not isinstance(token, str):
+        return "not_string"
+    if len(token) > 64:
+        return "too_long"
+    if not token.isascii():  # Legacy tokens were base64, so let's be permissive
+        return "not_ascii"
+    if token.startswith("phx_"):  # Used by previous versions of the zapier integration, should not happen now
+        return "personal_token"
+    return None
+
+
 def get_distinct_id(data: Dict[str, Any]) -> str:
     raw_value: Any = ""
     try:
@@ -281,6 +301,16 @@ def get_event(request):
     with start_span(op="request.authenticate"):
         token = get_token(data, request)
 
+        try:
+            invalid_token_reason = _check_token_shape(token)
+        except Exception as e:
+            invalid_token_reason = "exception"
+            logger.warning("capture_token_shape_exception", token=token, reason="exception", exception=e)
+
+        if invalid_token_reason:
+            # TODO: start rejecting requests here if  the after_resolution contexts are empty (no false-positives)
+            TOKEN_SHAPE_INVALID_COUNTER.labels(stage="before_resolution", reason=invalid_token_reason).inc()
+
         if not token:
             return cors_response(
                 request,
@@ -296,7 +326,7 @@ def get_event(request):
         ingestion_context = None
         send_events_to_dead_letter_queue = False
 
-        if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+        if settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL or token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
             logger.debug("lightweight_capture_endpoint_hit", token=token)
             statsd.incr("lightweight_capture_endpoint_hit")
         else:
@@ -307,6 +337,11 @@ def get_event(request):
 
             if db_error:
                 send_events_to_dead_letter_queue = True
+
+    if invalid_token_reason:
+        # TODO: remove after we have proven we don't have false-positives
+        TOKEN_SHAPE_INVALID_COUNTER.labels(stage="after_resolution", reason=invalid_token_reason).inc()
+        logger.warning("capture_token_shape_false_positive", token=token, reason=invalid_token_reason)
 
     team_id = ingestion_context.team_id if ingestion_context else None
     structlog.contextvars.bind_contextvars(team_id=team_id)

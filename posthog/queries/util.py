@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 import pytz
 from django.utils import timezone
@@ -103,8 +103,9 @@ def convert_to_datetime_aware(date_obj):
     return date_obj
 
 
-def correct_result_for_sampling(result: Union[int, float], sampling_factor: Optional[float]) -> float:
+def correct_result_for_sampling(value: int, sampling_factor: Optional[float]) -> int:
     if not sampling_factor:
-        return result
+        return value
 
-    return result * (1 / sampling_factor)
+    result: int = round(value * (1 / sampling_factor))
+    return result

@@ -324,7 +324,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const initialSegment = values.sessionPlayerData?.metadata?.segments[0]
             if (initialSegment) {
                 actions.setCurrentSegment(initialSegment)
-                actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+
+                // Ensure seek time initialized from url doesn't get overwritten
+                if (!cache.initializedFromUrl) {
+                    actions.setCurrentPlayerPosition(initialSegment.startPlayerPosition)
+                }
 
                 if (!values.player) {
                     actions.tryInitReplayer()
