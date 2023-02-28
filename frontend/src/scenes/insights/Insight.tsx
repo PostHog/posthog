@@ -38,11 +38,10 @@ export function Insight({ insightId }: InsightSceneProps): JSX.Element {
     } = useValues(logic)
     const { reportInsightViewedForRecentInsights, abortAnyRunningQuery, loadResults } = useActions(logic)
 
-    console.log('saved insight - insight - data logic - insight props', insightProps)
     // insightDataLogic
     const { query } = useValues(insightDataLogic(insightProps))
     const { setQuery } = useActions(insightDataLogic(insightProps))
-    console.log('saved insight query in insight 44', query)
+
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
 

@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -36,13 +36,9 @@ import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { queryExportContext } from '~/queries/query'
 import { objectsEqual } from 'lib/utils'
 
-const defaultQuery = (insightProps: InsightLogicProps): Node | null => {
+const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
     const query = insightProps.cachedInsight?.query
-    if (query === undefined && filters === undefined) {
-        // things aren't ready yet, don't change any data
-        return null
-    }
     return query ? query : filters ? queryFromFilters(filters) : queryFromKind(NodeKind.TrendsQuery)
 }
 
@@ -145,12 +141,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         exportContext: [
             (s) => [s.query, s.insight],
             (query, insight) => {
-                if (query === null) {
-                    return null
-                } else {
-                    const filename = ['export', insight.name || insight.derived_name].join('-')
-                    return { ...queryExportContext(query), filename }
-                }
+                const filename = ['export', insight.name || insight.derived_name].join('-')
+                return { ...queryExportContext(query), filename }
             },
         ],
 
@@ -233,19 +225,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsight(
                 {
                     ...values.insight,
-                    ...(values.isQueryBasedInsight ? { query: values.query ?? undefined, filters: {} } : {}),
+                    ...(values.isQueryBasedInsight ? { query: values.query, filters: {} } : {}),
                 },
                 { overrideFilter: true, fromPersistentApi: false }
             )
             actions.insightLogicSaveInsight(redirectToViewMode)
         },
     })),
-    propsChanged(({ actions, props }, oldProps) => {
-        if (!objectsEqual(props, oldProps)) {
-            const q = defaultQuery(props)
-            if (!!q) {
-                actions.setQuery(q)
-            }
-        }
-    }),
 ])

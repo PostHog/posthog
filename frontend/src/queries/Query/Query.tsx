@@ -15,7 +15,6 @@ import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyIns
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
 import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
-import { InsightSkeleton } from 'scenes/insights/InsightSkeleton'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -39,10 +38,6 @@ export function Query(props: QueryProps): JSX.Element {
 
     const query = readOnly ? propsQuery : localQuery
     const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
-
-    if (query === null) {
-        return <InsightSkeleton />
-    }
 
     if (typeof query === 'string') {
         try {

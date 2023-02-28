@@ -9,7 +9,6 @@ export function InsightScene(): JSX.Element {
     const { insightId, insight, insightCache } = useValues(insightSceneLogic)
 
     if (insightId === 'new' || (insightId && insight?.id && insight?.short_id)) {
-        console.log('saved insight: loading scene for insight', insight)
         return <Insight insightId={insightId} />
     }
 

@@ -216,7 +216,6 @@ export const insightLogic = kea<insightLogicType>([
                                 filters: JSON.stringify(insight.filters),
                                 insight: JSON.stringify(insight),
                                 valuesInsight: JSON.stringify(values.insight),
-                                query: JSON.stringify(insight.query),
                             },
                         })
                         throw error
@@ -1066,11 +1065,9 @@ export const insightLogic = kea<insightLogicType>([
                 throw e
             }
 
-            console.log('saved insight', savedInsight)
             // the backend can't return the result for a query based insight,
             // and so we shouldn't copy the result from `values.insight` as it might be stale
-            const result = savedInsight.result || (query === null ? values.insight.result : null)
-            console.log('saved insight - results', { si: savedInsight.result, v: values.insight.result, r: result })
+            const result = savedInsight.result || (!!query ? values.insight.result : null)
             actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {

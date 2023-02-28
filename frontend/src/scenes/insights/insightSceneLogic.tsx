@@ -11,8 +11,6 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { teamLogic } from 'scenes/teamLogic'
-import { insightDataLogicType } from 'scenes/insights/insightDataLogicType'
-import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
@@ -29,10 +27,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             subscriptionId,
         }),
         setInsightLogic: (logic: BuiltLogic<insightLogicType> | null, unmount: null | (() => void)) => ({
-            logic,
-            unmount,
-        }),
-        setInsightDataLogic: (logic: BuiltLogic<insightDataLogicType> | null, unmount: null | (() => void)) => ({
             logic,
             unmount,
         }),
@@ -70,15 +64,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                 setInsightLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
             },
         ],
-        insightDataCache: [
-            null as null | {
-                logic: BuiltLogic<insightDataLogicType>
-                unmount: () => void
-            },
-            {
-                setInsightDataLogic: (_, { logic, unmount }) => (logic && unmount ? { logic, unmount } : null),
-            },
-        ],
     }),
     selectors(() => ({
         insightSelector: [(s) => [s.insightCache], (insightCache) => insightCache?.logic.selectors.insight],
@@ -104,16 +89,11 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (logicInsightId !== insightId) {
                 const oldCache = values.insightCache // free old logic after mounting new one
                 if (insightId) {
-                    const theInsightLogic = insightLogic.build({ dashboardItemId: insightId })
-                    const unmount = theInsightLogic.mount()
-                    actions.setInsightLogic(theInsightLogic, unmount)
-
-                    const theInsightDataLogic = insightDataLogic.build({ dashboardItemId: insightId })
-                    const unmountTheInsightDataLogic = theInsightDataLogic.mount()
-                    actions.setInsightDataLogic(theInsightDataLogic, unmountTheInsightDataLogic)
+                    const logic = insightLogic.build({ dashboardItemId: insightId })
+                    const unmount = logic.mount()
+                    actions.setInsightLogic(logic, unmount)
                 } else {
                     actions.setInsightLogic(null, null)
-                    actions.setInsightDataLogic(null, null)
                 }
                 if (oldCache) {
                     oldCache.unmount()
