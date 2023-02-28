@@ -236,7 +236,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        hogql_context = HogQLContext()
+        hogql_context = HogQLContext(within_non_hogql_query=True)
         query, params = format_action_filter(team_id=action.team_id, action=action, hogql_context=hogql_context)
         if query == "":
             return Response({"count": 0})

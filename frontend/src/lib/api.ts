@@ -37,6 +37,8 @@ import {
     SessionRecordingType,
     PerformanceEvent,
     RecentPerformancePageView,
+    DashboardTemplateType,
+    DashboardTemplateEditorType,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -50,6 +52,7 @@ import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
 import { dayjs } from 'lib/dayjs'
 import { QuerySchema } from '~/queries/schema'
+import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -303,8 +306,27 @@ class ApiRequest {
         return this.dashboardCollaborators(dashboardId, teamId).addPathComponent(userUuid)
     }
 
-    // # Roles
+    // # Dashboard templates
+    public dashboardTemplates(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboard_templates')
+    }
 
+    public dashboardTemplatesRepository(teamId?: TeamType['id']): ApiRequest {
+        return this.dashboardTemplates(teamId).addPathComponent('repository')
+    }
+
+    public dashboardTemplatesDetail(
+        dashboardTemplateId: DashboardTemplateType['id'],
+        teamId?: TeamType['id']
+    ): ApiRequest {
+        return this.dashboardTemplates(teamId).addPathComponent(dashboardTemplateId)
+    }
+
+    public dashboardTemplateSchema(): ApiRequest {
+        return this.dashboardTemplates().addPathComponent('json_schema')
+    }
+
+    // # Roles
     public roles(): ApiRequest {
         return this.organizations().current().addPathComponent('roles')
     }
@@ -761,6 +783,52 @@ const api = {
             async delete(dashboardId: DashboardType['id'], userUuid: UserType['uuid']): Promise<void> {
                 return await new ApiRequest().dashboardCollaboratorsDetail(dashboardId, userUuid).delete()
             },
+        },
+    },
+
+    dashboardTemplates: {
+        async list(): Promise<PaginatedResponse<DashboardTemplateType>> {
+            return await new ApiRequest().dashboardTemplates().get()
+        },
+
+        async get(dashboardTemplateId: DashboardTemplateType['id']): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).get()
+        },
+
+        async create(dashboardTemplateData: DashboardTemplateEditorType): Promise<DashboardTemplateType> {
+            return await new ApiRequest().dashboardTemplates().create({ data: dashboardTemplateData })
+        },
+
+        async update(
+            dashboardTemplateId: string,
+            dashboardTemplateData: DashboardTemplateEditorType
+        ): Promise<DashboardTemplateType> {
+            return await new ApiRequest()
+                .dashboardTemplatesDetail(dashboardTemplateId)
+                .update({ data: dashboardTemplateData })
+        },
+
+        async delete(dashboardTemplateId: string): Promise<void> {
+            // soft delete
+            return await new ApiRequest().dashboardTemplatesDetail(dashboardTemplateId).update({
+                data: {
+                    deleted: true,
+                },
+            })
+        },
+        async getSchema(): Promise<Record<string, any>> {
+            return await new ApiRequest().dashboardTemplateSchema().get()
+        },
+        determineSchemaUrl(): string {
+            return new ApiRequest().dashboardTemplateSchema().assembleFullUrl()
+        },
+        async repository(): Promise<Record<string, DashboardTemplatesRepositoryEntry>> {
+            const results = await new ApiRequest().dashboardTemplatesRepository().get()
+            const repository: Record<string, DashboardTemplatesRepositoryEntry> = {}
+            for (const template of results as DashboardTemplatesRepositoryEntry[]) {
+                repository[template.name] = template
+            }
+            return repository
         },
     },
 

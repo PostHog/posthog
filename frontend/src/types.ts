@@ -26,7 +26,7 @@ import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/Cohort
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { Layout } from 'react-grid-layout'
-import { InsightQueryNode, QuerySchema } from './queries/schema'
+import { InsightQueryNode, Node } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1217,7 +1217,7 @@ export interface InsightModel extends Cacheable {
     /** Only used in the frontend to toggle showing Baseline in funnels or not */
     disable_baseline?: boolean
     filters: Partial<FilterType>
-    query?: QuerySchema
+    query?: Node
 }
 
 export interface DashboardType {
@@ -1238,6 +1238,37 @@ export interface DashboardType {
     tags?: string[]
     /** Purely local value to determine whether the dashboard should be highlighted, e.g. as a fresh duplicate. */
     _highlight?: boolean
+}
+
+export interface DashboardTemplateType {
+    id: string
+    team_id?: number
+    created_at?: string
+    template_name: string
+    dashboard_description?: string
+    dashboard_filters?: Record<string, JsonType>
+    tiles: DashboardTile[]
+    variables?: DashboardTemplateVariableType[]
+    tags?: string[]
+    image_url?: string
+}
+
+export interface MonacoMarker {
+    message: string
+}
+
+// makes the DashboardTemplateType properties optional and the tiles properties optional
+export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
+    tiles: Partial<DashboardTile>[]
+}
+
+export interface DashboardTemplateVariableType {
+    id: string
+    name: string
+    description: string
+    type: 'event'
+    default: Record<string, JsonType> | null | undefined
+    required: boolean
 }
 
 export type DashboardLayoutSize = 'sm' | 'xs'
@@ -1413,6 +1444,7 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
+    QUERY = 'QUERY',
 }
 
 export enum PathType {
@@ -2303,6 +2335,7 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+    Updates = 'updates',
 }
 
 export interface VersionType {
