@@ -90,7 +90,8 @@ def parse_response(
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
 
-    counts = [correct_result_for_sampling(c, filter.sampling_factor, entity.math) for c in counts]
+    entity_math = entity.math if entity is not None else None
+    counts = [correct_result_for_sampling(c, filter.sampling_factor, entity_math) for c in counts]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),
