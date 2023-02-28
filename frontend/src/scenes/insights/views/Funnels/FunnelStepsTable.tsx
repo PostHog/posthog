@@ -5,7 +5,6 @@ import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-u
 import {
     BreakdownKeyType,
     FlattenedFunnelStepByBreakdown,
-    FunnelsFilterType,
     FunnelStep,
     FunnelStepWithConversionMetrics,
     FunnelStepWithNestedBreakdown,
@@ -30,9 +29,26 @@ import { BreakdownFilter } from '~/queries/schema'
 export function FunnelStepsTableDataExploration(): JSX.Element | null {
     const { insightProps, insightLoading } = useValues(insightLogic)
     const { breakdown } = useValues(insightDataLogic(insightProps))
-    const { steps } = useValues(funnelDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
+    const { hiddenLegendKeys } = useValues(funnelLogic(insightProps))
+    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(
+        funnelLogic(insightProps)
+    )
 
-    return <FunnelStepsTableComponent insightLoading={insightLoading} breakdownFilter={breakdown} steps={steps} />
+    return (
+        <FunnelStepsTableComponent
+            insightLoading={insightLoading}
+            breakdownFilter={breakdown}
+            steps={steps}
+            flattenedBreakdowns={flattenedBreakdowns}
+            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
+            isOnlySeries={flattenedBreakdowns.length <= 1}
+            hiddenLegendKeys={hiddenLegendKeys}
+            setHiddenById={setHiddenById}
+            toggleVisibilityByBreakdown={toggleVisibilityByBreakdown}
+            openPersonsModalForSeries={openPersonsModalForSeries}
+        />
+    )
 }
 
 export function FunnelStepsTable(): JSX.Element | null {
