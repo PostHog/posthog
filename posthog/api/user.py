@@ -107,7 +107,7 @@ class UserSerializer(serializers.ModelSerializer):
         return is_impersonated_session(self.context["request"])
 
     def get_has_social_auth(self, instance: User) -> bool:
-        return instance.social_auth.exists()
+        return instance.social_auth.exists()  # type: ignore
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
