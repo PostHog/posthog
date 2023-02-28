@@ -45,7 +45,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
                     const orderColumn = removeExpressionComment(
-                        orderBy[0].startsWith('-') ? orderBy[0].slice(1) : orderBy[0]
+                        orderBy[0].endsWith(' DESC') ? orderBy[0].replace(/ DESC$/, '') : orderBy[0]
                     )
                     // the old orderBy column was removed, so remove it from the new query
                     if (!columns.some((c) => removeExpressionComment(c) === orderColumn)) {

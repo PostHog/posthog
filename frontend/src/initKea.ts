@@ -34,9 +34,11 @@ interface InitKeaProps {
 
 // Used in some tests to make life easier
 let errorsSilenced = false
+
 export function silenceKeaLoadersErrors(): void {
     errorsSilenced = true
 }
+
 export function resumeKeaLoadersErrors(): void {
     errorsSilenced = false
 }
@@ -47,8 +49,9 @@ export const loggerPlugin: () => KeaPlugin = () => ({
         beforeReduxStore(options) {
             options.middleware.push((store) => (next) => (action) => {
                 const response = next(action)
-                console.log('KEA LOGGER: action', action)
-                console.log('KEA LOGGER: state', store.getState())
+                console.groupCollapsed('KEA LOGGER', action)
+                console.log(store.getState())
+                console.groupEnd()
                 return response
             })
         },
@@ -93,9 +96,11 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
         subscriptionsPlugin,
         waitForPlugin,
     ]
-    if (process.env.NODE_ENV === 'development') {
+
+    if (window.JS_KEA_VERBOSE_LOGGING) {
         plugins.push(loggerPlugin)
     }
+
     resetContext({
         plugins: plugins,
     })

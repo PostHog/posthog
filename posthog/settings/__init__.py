@@ -75,6 +75,9 @@ NPM_TOKEN = os.getenv("NPM_TOKEN", None)
 # Whether to capture time-to-see-data metrics
 CAPTURE_TIME_TO_SEE_DATA = get_from_env("CAPTURE_TIME_TO_SEE_DATA", False, type_cast=str_to_bool)
 
+# Whether kea should be act in verbose mode
+KEA_VERBOSE_LOGGING = get_from_env("KEA_VERBOSE_LOGGING", False, type_cast=str_to_bool)
+
 # Only written in specific scripts - do not use outside of them.
 PERSON_ON_EVENTS_OVERRIDE = get_from_env("PERSON_ON_EVENTS_OVERRIDE", optional=True, type_cast=str_to_bool)
 
