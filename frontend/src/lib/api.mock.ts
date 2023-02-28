@@ -122,6 +122,7 @@ export const MOCK_DEFAULT_USER: UserType = {
     is_impersonated: false,
     is_email_verified: true,
     is_2fa_enabled: false,
+    has_social_auth: false,
     team: MOCK_DEFAULT_TEAM,
     organization: MOCK_DEFAULT_ORGANIZATION,
     organizations: [MOCK_DEFAULT_ORGANIZATION].map(({ id, name, slug, membership_level }) => ({
@@ -142,6 +143,7 @@ export const MOCK_DEFAULT_ORGANIZATION_MEMBER: OrganizationMemberType = {
     joined_at: '2020-09-24T15:05:26.758796Z',
     updated_at: '2020-09-24T15:05:26.758837Z',
     is_2fa_enabled: false,
+    has_social_auth: false,
 }
 
 export const MOCK_SECOND_BASIC_USER: UserBasicType = {
@@ -159,6 +161,7 @@ export const MOCK_SECOND_ORGANIZATION_MEMBER: OrganizationMemberType = {
     joined_at: '2021-03-11T19:11:11Z',
     updated_at: '2021-03-11T19:11:11Z',
     is_2fa_enabled: false,
+    has_social_auth: false,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {

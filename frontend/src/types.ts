@@ -142,6 +142,7 @@ export interface UserType extends UserBaseType {
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface NotificationSettings {
@@ -210,6 +211,7 @@ export interface BaseMemberType {
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
