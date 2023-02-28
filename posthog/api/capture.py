@@ -324,7 +324,7 @@ def get_event(request):
         ingestion_context = None
         send_events_to_dead_letter_queue = False
 
-        if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+        if settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL or token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
             logger.debug("lightweight_capture_endpoint_hit", token=token)
             statsd.incr("lightweight_capture_endpoint_hit")
         else:
