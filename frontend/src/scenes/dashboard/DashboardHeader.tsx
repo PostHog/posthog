@@ -30,6 +30,8 @@ import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModa
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardTemplateEditor } from './DashboardTemplateEditor'
+import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
@@ -50,13 +52,15 @@ export function DashboardHeader(): JSX.Element | null {
     const { asDashboardTemplate } = useValues(dashboardLogic)
     const { updateDashboard, pinDashboard, unpinDashboard } = useActions(dashboardsModel)
 
+    const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
+
     const { hasAvailableFeature } = useValues(userLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
-    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
+    const allowSaveAsTemplate = !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
 
     const { tags } = useValues(tagsModel)
 
@@ -75,12 +79,13 @@ export function DashboardHeader(): JSX.Element | null {
         exportOptions.push({
             export_format: ExporterFormat.JSON,
             export_context: {
-                localData: asDashboardTemplate,
+                localData: JSON.stringify(asDashboardTemplate),
                 filename: `dashboard-${slugify(dashboard?.name || 'nameless dashboard')}.json`,
                 mediaType: ExporterFormat.JSON,
             },
         })
     }
+
     return dashboard || dashboardLoading ? (
         <>
             {dashboardMode === DashboardMode.Fullscreen && (
@@ -234,6 +239,20 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
+                                            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && (
+                                                <LemonButton
+                                                    onClick={() => {
+                                                        if (asDashboardTemplate) {
+                                                            setDashboardTemplate(asDashboardTemplate)
+                                                            openDashboardTemplateEditor()
+                                                        }
+                                                    }}
+                                                    fullWidth
+                                                    status="stealth"
+                                                >
+                                                    Save as template
+                                                </LemonButton>
+                                            )}
                                             <LemonDivider />
                                             <LemonButton
                                                 onClick={() => {
@@ -350,6 +369,7 @@ export function DashboardHeader(): JSX.Element | null {
                 }
                 delimited
             />
+            <DashboardTemplateEditor />
         </>
     ) : null
 }
