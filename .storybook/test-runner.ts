@@ -102,6 +102,17 @@ async function expectStoryToMatchSnapshot(
         )
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear, { timeout: 1000 })
+            // If the selector points at a canvas, wait for that canvas to be populated
+            if (waitForLoadersToDisappear.split(' ').at(-1) == 'canvas') {
+                await page.waitForFunction(() => {
+                    const canvas = document.querySelector('canvas')!
+                    const context = canvas.getContext('2d')!
+                    const pixelBuffer = new Uint32Array(
+                        context.getImageData(0, 0, canvas.width, canvas.height).data.buffer
+                    )
+                    return !pixelBuffer.some((color) => color !== 0)
+                })
+            }
         } else if (typeof waitForLoadersToDisappear === 'number') {
             await page.waitForTimeout(waitForLoadersToDisappear)
         }
