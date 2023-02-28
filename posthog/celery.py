@@ -125,7 +125,7 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
-    sender.add_periodic_task(120, clickhouse_errors_count.s(), name="clickhouse table errors count")
+    sender.add_periodic_task(120, clickhouse_errors_count.s(), name="clickhouse instance errors count")
 
     sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
     sender.add_periodic_task(
