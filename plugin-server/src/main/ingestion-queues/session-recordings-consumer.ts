@@ -1,5 +1,4 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { StatsD } from 'hot-shots'
 import { EachBatchPayload, Kafka } from 'kafkajs'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
@@ -17,12 +16,10 @@ import { latestOffsetTimestampGauge } from './metrics'
 export const startSessionRecordingEventsConsumer = async ({
     teamManager,
     kafka,
-    statsd,
     partitionsConsumedConcurrently = 5,
 }: {
     teamManager: TeamManager
     kafka: Kafka
-    statsd?: StatsD
     partitionsConsumedConcurrently: number
 }) => {
     /*
@@ -40,10 +37,11 @@ export const startSessionRecordingEventsConsumer = async ({
     // the Kafka consumer handler.
     const producer = kafka.producer()
     await producer.connect()
-    const producerWrapper = new KafkaProducerWrapper(producer, statsd, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
+    const producerWrapper = new KafkaProducerWrapper(producer, undefined, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
 
     const groupId = 'session-recordings'
-    const consumer = kafka.consumer({ groupId: groupId })
+    const sessionTimeout = 30000
+    const consumer = kafka.consumer({ groupId: groupId, sessionTimeout: sessionTimeout })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting session recordings consumer')
@@ -61,7 +59,31 @@ export const startSessionRecordingEventsConsumer = async ({
         },
     })
 
-    return consumer
+    // Subscribe to the heatbeat event to track when the consumer has last
+    // successfully consumed a message. This is used to determine if the
+    // consumer is healthy.
+    const { HEARTBEAT } = consumer.events
+    let lastHeartbeat: number = Date.now()
+    consumer.on(HEARTBEAT, ({ timestamp }) => (lastHeartbeat = timestamp))
+
+    const isHealthy = async () => {
+        // Consumer has heartbeat within the session timeout, so it is healthy.
+        if (Date.now() - lastHeartbeat < sessionTimeout) {
+            return true
+        }
+
+        // Consumer has not heartbeat, but maybe it's because the group is
+        // currently rebalancing.
+        try {
+            const { state } = await consumer.describeGroup()
+
+            return ['CompletingRebalance', 'PreparingRebalance'].includes(state)
+        } catch (error) {
+            return false
+        }
+    }
+
+    return { consumer, isHealthy }
 }
 
 export const eachBatch =
@@ -138,24 +160,24 @@ export const eachBatch =
 
             let team: Team | null = null
 
-            try {
-                if (messagePayload.team_id != null) {
-                    team = await teamManager.fetchTeam(messagePayload.team_id)
-                } else if (messagePayload.token) {
-                    team = await teamManager.getTeamByToken(messagePayload.token)
-                }
+            if (messagePayload.team_id != null) {
+                team = await teamManager.fetchTeam(messagePayload.team_id)
+            } else if (messagePayload.token) {
+                team = await teamManager.getTeamByToken(messagePayload.token)
+            }
 
-                if (team == null) {
-                    status.warn('⚠️', 'invalid_message', {
-                        reason: 'team_not_found',
-                        partition: batch.partition,
-                        offset: message.offset,
-                    })
-                    await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
-                    continue
-                }
+            if (team == null) {
+                status.warn('⚠️', 'invalid_message', {
+                    reason: 'team_not_found',
+                    partition: batch.partition,
+                    offset: message.offset,
+                })
+                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                continue
+            }
 
-                if (team.session_recording_opt_in) {
+            if (team.session_recording_opt_in) {
+                try {
                     if (event.event === '$snapshot') {
                         await createSessionRecordingEvent(
                             messagePayload.uuid,
@@ -177,31 +199,31 @@ export const eachBatch =
                             producer
                         )
                     }
-                }
-            } catch (error) {
-                status.error('⚠️', 'processing_error', {
-                    eventId: event.uuid,
-                    error: error,
-                })
+                } catch (error) {
+                    status.error('⚠️', 'processing_error', {
+                        eventId: event.uuid,
+                        error: error,
+                    })
 
-                if (error instanceof DependencyUnavailableError) {
-                    // If it's an error that is transient, we want to
-                    // initiate the KafkaJS retry logic, which kicks in when
-                    // we throw.
-                    throw error
-                }
+                    if (error instanceof DependencyUnavailableError) {
+                        // If it's an error that is transient, we want to
+                        // initiate the KafkaJS retry logic, which kicks in when
+                        // we throw.
+                        throw error
+                    }
 
-                // On non-retriable errors, e.g. perhaps the produced message
-                // was too large, push the original message to the DLQ. This
-                // message should be as the original so we _should_ be able to
-                // produce it successfully.
-                // TODO: it is not guaranteed that only this message is the one
-                // that failed to be produced. We will already be in the
-                // situation with the existing implementation so I will leave as
-                // is for now. An improvement would be to keep track of the
-                // messages that we failed to produce and send them all to the
-                // DLQ.
-                await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                    // On non-retriable errors, e.g. perhaps the produced message
+                    // was too large, push the original message to the DLQ. This
+                    // message should be as the original so we _should_ be able to
+                    // produce it successfully.
+                    // TODO: it is not guaranteed that only this message is the one
+                    // that failed to be produced. We will already be in the
+                    // situation with the existing implementation so I will leave as
+                    // is for now. An improvement would be to keep track of the
+                    // messages that we failed to produce and send them all to the
+                    // DLQ.
+                    await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
+                }
             }
 
             // After processing each message, we need to heartbeat to ensure

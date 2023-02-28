@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.utils.serializer_helpers import ReturnDict
 
+from posthog.api.dashboards.dashboard_template_json_schema_parser import DashboardTemplateCreationJSONSchemaParser
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight import InsightSerializer, InsightViewSet
 from posthog.api.routing import StructuredViewSetMixin
@@ -21,7 +22,9 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.constants import AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
+from posthog.helpers.dashboard_templates import create_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
@@ -323,6 +326,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
+
             tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
             serialized_tiles.append(tile_data)
 
@@ -433,6 +437,19 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
         )
         return Response(serializer.data)
+
+    @action(methods=["POST"], detail=False, parser_classes=[DashboardTemplateCreationJSONSchemaParser])
+    def create_from_template_json(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = Dashboard.objects.create(team_id=self.team_id)
+
+        try:
+            dashboard_template = DashboardTemplate(**request.data["template"])
+            create_from_template(dashboard, dashboard_template)
+        except Exception as e:
+            dashboard.delete()
+            raise e
+
+        return Response(DashboardSerializer(dashboard, context={"view": self, "request": request}).data)
 
 
 class LegacyDashboardsViewSet(DashboardsViewSet):

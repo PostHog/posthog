@@ -19,6 +19,7 @@ import { connectObjectStorage } from '../../main/services/object_storage'
 import {
     EnqueuedPluginJob,
     Hub,
+    KafkaSaslMechanism,
     KafkaSecurityProtocol,
     PluginServerCapabilities,
     PluginsServerConfig,
@@ -104,39 +105,6 @@ export async function createHub(
         status.info('👍', `StatsD ready`)
     }
 
-    let kafkaSsl: ConnectionOptions | boolean | undefined
-    if (
-        serverConfig.KAFKA_CLIENT_CERT_B64 &&
-        serverConfig.KAFKA_CLIENT_CERT_KEY_B64 &&
-        serverConfig.KAFKA_TRUSTED_CERT_B64
-    ) {
-        kafkaSsl = {
-            cert: Buffer.from(serverConfig.KAFKA_CLIENT_CERT_B64, 'base64'),
-            key: Buffer.from(serverConfig.KAFKA_CLIENT_CERT_KEY_B64, 'base64'),
-            ca: Buffer.from(serverConfig.KAFKA_TRUSTED_CERT_B64, 'base64'),
-
-            /* Intentionally disabling hostname checking. The Kafka cluster runs in the cloud and Apache
-            Kafka on Heroku doesn't currently provide stable hostnames. We're pinned to a specific certificate
-            #for this connection even though the certificate doesn't include host information. We rely
-            on the ca trust_cert for this purpose. */
-            rejectUnauthorized: false,
-        }
-    } else if (
-        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.Ssl ||
-        serverConfig.KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.SaslSsl
-    ) {
-        kafkaSsl = true
-    }
-
-    let kafkaSasl: SASLOptions | undefined
-    if (serverConfig.KAFKA_SASL_MECHANISM && serverConfig.KAFKA_SASL_USER && serverConfig.KAFKA_SASL_PASSWORD) {
-        kafkaSasl = {
-            mechanism: serverConfig.KAFKA_SASL_MECHANISM,
-            username: serverConfig.KAFKA_SASL_USER,
-            password: serverConfig.KAFKA_SASL_PASSWORD,
-        }
-    }
-
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
         // We prefer to run queries on the offline cluster.
@@ -159,18 +127,9 @@ export async function createHub(
     status.info('👍', `ClickHouse ready`)
 
     status.info('🤔', `Connecting to Kafka...`)
-    const kafka = new Kafka({
-        /* clientId does not need to be unique, and is used in Kafka logs and quota accounting.
-           os.hostname() returns the pod name in k8s and the container ID in compose stacks.
-           This allows us to quickly find what pod is consuming a given partition */
-        clientId: hostname(),
-        brokers: serverConfig.KAFKA_HOSTS.split(','),
-        logLevel: KAFKAJS_LOG_LEVEL_MAPPING[serverConfig.KAFKAJS_LOG_LEVEL],
-        ssl: kafkaSsl,
-        sasl: kafkaSasl,
-        connectionTimeout: 7000, // default: 1000
-        authenticationTimeout: 7000, // default: 1000
-    })
+
+    const kafka = createKafkaClient(serverConfig as KafkaConfig)
+
     const producer = kafka.producer({
         retry: { retries: 10, initialRetryTime: 1000, maxRetryTime: 30 },
         createPartitioner: Partitioners.LegacyPartitioner,
@@ -219,7 +178,7 @@ export async function createHub(
         promiseManager,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(db, serverConfig, statsd)
+    const teamManager = new TeamManager(postgres, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
@@ -307,4 +266,71 @@ export async function createHub(
     }
 
     return [hub as Hub, closeHub]
+}
+
+export type KafkaConfig = {
+    KAFKA_HOSTS: string
+    KAFKAJS_LOG_LEVEL: keyof typeof KAFKAJS_LOG_LEVEL_MAPPING
+    KAFKA_SECURITY_PROTOCOL: string
+    KAFKA_CLIENT_CERT_B64?: string
+    KAFKA_CLIENT_CERT_KEY_B64?: string
+    KAFKA_TRUSTED_CERT_B64?: string
+    KAFKA_SASL_MECHANISM?: KafkaSaslMechanism
+    KAFKA_SASL_USER?: string
+    KAFKA_SASL_PASSWORD?: string
+}
+
+export function createKafkaClient({
+    KAFKA_HOSTS,
+    KAFKAJS_LOG_LEVEL,
+    KAFKA_SECURITY_PROTOCOL,
+    KAFKA_CLIENT_CERT_B64,
+    KAFKA_CLIENT_CERT_KEY_B64,
+    KAFKA_TRUSTED_CERT_B64,
+    KAFKA_SASL_MECHANISM,
+    KAFKA_SASL_USER,
+    KAFKA_SASL_PASSWORD,
+}: KafkaConfig) {
+    let kafkaSsl: ConnectionOptions | boolean | undefined
+    if (KAFKA_CLIENT_CERT_B64 && KAFKA_CLIENT_CERT_KEY_B64 && KAFKA_TRUSTED_CERT_B64) {
+        kafkaSsl = {
+            cert: Buffer.from(KAFKA_CLIENT_CERT_B64, 'base64'),
+            key: Buffer.from(KAFKA_CLIENT_CERT_KEY_B64, 'base64'),
+            ca: Buffer.from(KAFKA_TRUSTED_CERT_B64, 'base64'),
+
+            /* Intentionally disabling hostname checking. The Kafka cluster runs in the cloud and Apache
+            Kafka on Heroku doesn't currently provide stable hostnames. We're pinned to a specific certificate
+            #for this connection even though the certificate doesn't include host information. We rely
+            on the ca trust_cert for this purpose. */
+            rejectUnauthorized: false,
+        }
+    } else if (
+        KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.Ssl ||
+        KAFKA_SECURITY_PROTOCOL === KafkaSecurityProtocol.SaslSsl
+    ) {
+        kafkaSsl = true
+    }
+
+    let kafkaSasl: SASLOptions | undefined
+    if (KAFKA_SASL_MECHANISM && KAFKA_SASL_USER && KAFKA_SASL_PASSWORD) {
+        kafkaSasl = {
+            mechanism: KAFKA_SASL_MECHANISM,
+            username: KAFKA_SASL_USER,
+            password: KAFKA_SASL_PASSWORD,
+        }
+    }
+
+    const kafka = new Kafka({
+        /* clientId does not need to be unique, and is used in Kafka logs and quota accounting.
+           os.hostname() returns the pod name in k8s and the container ID in compose stacks.
+           This allows us to quickly find what pod is consuming a given partition */
+        clientId: hostname(),
+        brokers: KAFKA_HOSTS.split(','),
+        logLevel: KAFKAJS_LOG_LEVEL_MAPPING[KAFKAJS_LOG_LEVEL],
+        ssl: kafkaSsl,
+        sasl: kafkaSasl,
+        connectionTimeout: 7000,
+        authenticationTimeout: 7000, // default: 1000
+    })
+    return kafka
 }

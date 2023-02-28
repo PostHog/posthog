@@ -426,14 +426,14 @@ export function stepsWithConversionMetrics(
 export function flattenedStepsByBreakdown(
     steps: FunnelStepWithConversionMetrics[],
     layout: FunnelLayout | undefined,
-    disableBaseline: boolean
+    disableBaseline: boolean,
+    skipInitialRows: boolean = false
 ): FlattenedFunnelStepByBreakdown[] {
     // Initialize with two rows for rendering graph and header
-    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
-        { rowKey: 'steps-meta' },
-        { rowKey: 'graph' },
-        { rowKey: 'table-header' },
-    ]
+    const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = !!skipInitialRows
+        ? []
+        : [{ rowKey: 'steps-meta' }, { rowKey: 'graph' }, { rowKey: 'table-header' }]
+
     if (steps.length > 0) {
         const baseStep = steps[0]
         const lastStep = steps[steps.length - 1]
