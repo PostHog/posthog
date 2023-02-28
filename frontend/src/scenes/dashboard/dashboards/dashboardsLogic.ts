@@ -46,7 +46,6 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
     urlToAction: ({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
             const tab = searchParams['tab'] || DashboardsTab.All
-            debugger
             if (!values.templatesTabIsVisible && tab === DashboardsTab.Templates) {
                 actions.setCurrentTab(DashboardsTab.All)
             } else {
