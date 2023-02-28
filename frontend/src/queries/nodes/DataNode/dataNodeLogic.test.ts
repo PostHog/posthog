@@ -86,6 +86,49 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
     })
 
+    it('cancels a running query', async () => {
+        ;(query as any).mockImplementation(() => {
+            // delay for 2 seconds before response without pausing
+            return new Promise((resolve) => {
+                return setTimeout(() => {
+                    resolve({ results: {} })
+                }, 2000)
+            })
+        })
+
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: {
+                kind: NodeKind.TrendsQuery,
+                dateRange: { date_from: '-180d' },
+            },
+        })
+        logic.mount()
+        setTimeout(() => {
+            // this query change will run while the first query is
+            // active and cancel it
+            dataNodeLogic({
+                key: testUniqueKey,
+                query: {
+                    kind: NodeKind.TrendsQuery,
+                    dateRange: { date_from: '-90d' },
+                },
+            })
+        }, 200)
+
+        expect(query).toHaveBeenCalledTimes(1)
+        await expectLogic(logic).toDispatchActions([
+            'loadData',
+            'abortAnyRunningQuery',
+            'loadData',
+            // can't test abortQuery here, since we're mocking fetch
+            // and thus the AbortError never gets thrown
+            // 'abortQuery',
+            'abortAnyRunningQuery',
+            'loadDataSuccess',
+        ])
+    })
+
     it('can load new data if EventsQuery sorted by timestamp', async () => {
         const results = [
             [
