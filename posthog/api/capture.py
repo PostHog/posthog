@@ -321,6 +321,7 @@ def get_event(request):
 
         ingestion_context = None
         send_events_to_dead_letter_queue = False
+        team_id = None
 
         if settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL or token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
             if invalid_token_reason:
@@ -337,6 +338,7 @@ def get_event(request):
                     ),
                 )
 
+            structlog.contextvars.bind_contextvars(token=token)
             logger.debug("lightweight_capture_endpoint_hit", token=token)
             statsd.incr("lightweight_capture_endpoint_hit")
         else:
@@ -348,8 +350,8 @@ def get_event(request):
             if db_error:
                 send_events_to_dead_letter_queue = True
 
-    team_id = ingestion_context.team_id if ingestion_context else None
-    structlog.contextvars.bind_contextvars(team_id=team_id)
+            team_id = ingestion_context.team_id if ingestion_context else None
+            structlog.contextvars.bind_contextvars(team_id=team_id)
 
     with start_span(op="request.process"):
         if isinstance(data, dict):
