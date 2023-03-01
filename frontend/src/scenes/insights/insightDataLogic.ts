@@ -3,6 +3,7 @@ import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
+    DataNode,
     DateRange,
     InsightFilter,
     InsightNodeKind,
@@ -33,6 +34,9 @@ import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
 
 const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
@@ -58,11 +62,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic,
-            ['insight'],
+            ['insight', 'isUsingDataExploration'],
             featureFlagLogic,
             ['featureFlags'],
             trendsLogic,
             ['toggledLifecycles as trendsLifecycles'],
+            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
+            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            ['response'],
         ],
         actions: [
             insightLogic,
@@ -219,6 +226,27 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 { overrideFilter: true, fromPersistentApi: false }
             )
             actions.insightLogicSaveInsight(redirectToViewMode)
+        },
+    })),
+    subscriptions(({ values, actions }) => ({
+        /**
+         * This subscription updates the insight for all visualizations
+         * that haven't been refactored to use the data exploration yet.
+         */
+        response: (response: Record<string, any> | null) => {
+            if (!values.isUsingDataExploration) {
+                return
+            }
+
+            actions.setInsight(
+                {
+                    ...values.insight,
+                    result: response?.result,
+                    next: response?.next,
+                    // filters: queryNodeToFilter(query.source),
+                },
+                {}
+            )
         },
     })),
 ])
