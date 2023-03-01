@@ -5,6 +5,8 @@ import structlog
 from dateutil import parser
 from django.db.models import Count, Prefetch
 from django.http import JsonResponse
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -12,6 +14,12 @@ from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 from sentry_sdk import capture_exception
 
+from posthog.api.documentation import (
+    EventsAndActionsSerializer,
+    PropertiesSerializer,
+    SessionRecordingDuration,
+    extend_schema,
+)
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
@@ -90,6 +98,25 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("person_uuid", OpenApiTypes.INT, description="Filter list by person uuid."),
+            OpenApiParameter(
+                "date_from",
+                OpenApiTypes.DATE,
+                description="Only return session recordings with a timestamp before this date.",
+            ),
+            OpenApiParameter(
+                "date_to",
+                OpenApiTypes.DATE,
+                description="Only return session recordings with a timestamp after this date.",
+            ),
+            OpenApiParameter("limit", OpenApiTypes.INT, description="The maximum number of results to return"),
+            EventsAndActionsSerializer(required=False),
+            PropertiesSerializer(required=False),
+            SessionRecordingDuration(required=True),
+        ]
+    )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
         return Response(list_recordings(filter, request, self.team))

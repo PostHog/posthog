@@ -144,6 +144,29 @@ class FilterActionSerializer(serializers.Serializer):
     )
 
 
+class EventsAndActionsSerializer(serializers.Serializer):
+    events = FilterEventSerializer(required=False, many=True, help_text="Events to filter on.")
+    actions = FilterActionSerializer(required=False, many=True, help_text="Actions to filter on.")
+
+
+class SessionRecordingDuration(serializers.Serializer):
+    session_recording_duration = PropertySerializer(
+        required=False,
+        many=False,
+        help_text="""
+Length of session recordings to filter for.
+```json
+{
+    "key": "duration",
+    "value": 60,
+    "operator": "gt",
+    "type": "recording"
+}
+```
+    """,
+    )
+
+
 def preprocess_exclude_path_format(endpoints, **kwargs):
     """
     preprocessing hook that filters out {format} suffixed paths, in case
