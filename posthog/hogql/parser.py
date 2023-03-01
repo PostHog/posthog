@@ -22,6 +22,19 @@ def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no
     return node
 
 
+def parse_order_expr(
+    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+) -> ast.Expr:
+    parse_tree = get_parser(order_expr).orderExpr()
+    node = HogQLParseTreeConverter().visit(parse_tree)
+    if placeholders:
+        return replace_placeholders(node, placeholders)
+    elif no_placeholders:
+        assert_no_placeholders(node)
+
+    return node
+
+
 def parse_select(
     statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
 ) -> ast.SelectQuery:
@@ -330,7 +343,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnExprExtract")
 
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprNegate")
+        return ast.BinaryOperation(
+            op=ast.BinaryOperationType.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
+        )
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
