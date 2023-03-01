@@ -143,6 +143,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         displayRefreshButtonChangedNotice ? `The 'Refresh' button has moved here.` : ''
                                     }
                                     visible={displayRefreshButtonChangedNotice}
+                                    zIndex={940}
                                 >
                                     <More
                                         onClick={

@@ -1094,6 +1094,55 @@ def retention_test_factory(retention):
                 ],
             )
 
+        @snapshot_clickhouse_queries
+        def test_day_interval_sampled(self):
+            _create_person(team_id=self.team.pk, distinct_ids=["person1", "alias1"])
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"])
+
+            _create_events(
+                self.team,
+                [
+                    ("person1", _date(0)),
+                    ("person1", _date(1)),
+                    ("person1", _date(2)),
+                    ("person1", _date(5)),
+                    ("alias1", _date(5, 9)),
+                    ("person1", _date(6)),
+                    ("person2", _date(1)),
+                    ("person2", _date(2)),
+                    ("person2", _date(3)),
+                    ("person2", _date(6)),
+                ],
+            )
+
+            # even if set to hour 6 it should default to beginning of day and include all pageviews above
+            result = retention().run(
+                RetentionFilter(data={"date_to": _date(10, hour=6), "sampling_factor": 1}), self.team
+            )
+            self.assertEqual(len(result), 11)
+            self.assertEqual(
+                pluck(result, "label"),
+                ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
+            )
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(
+                pluck(result, "values", "count"),
+                [
+                    [1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0],
+                    [2, 2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [2, 1, 0, 1, 2, 0, 0, 0, 0],
+                    [1, 0, 0, 1, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0],
+                    [1, 1, 0, 0, 0, 0],
+                    [2, 0, 0, 0, 0],
+                    [0, 0, 0, 0],
+                    [0, 0, 0],
+                    [0, 0],
+                    [0],
+                ],
+            )
+
     return TestRetention
 
 
