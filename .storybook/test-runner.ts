@@ -103,7 +103,7 @@ async function expectStoryToMatchSnapshot(
     // Wait for story to load
     await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
     if (waitForLoadersToDisappear) {
-        await page.waitForTimeout(200) // Wait for initial UI to load
+        await page.waitForTimeout(300) // Wait for initial UI to load
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
