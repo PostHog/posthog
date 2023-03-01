@@ -1,30 +1,12 @@
 import { createServer } from 'http'
-import Redis from 'ioredis'
-import { Pool } from 'pg'
 
-import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAction, createOrganization, createTeam, createUser, reloadAction } from './api'
 
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let redis: Redis.Redis
 let organizationId: string
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-    redis = new Redis(defaultConfig.REDIS_URL)
-
-    organizationId = await createOrganization(postgres)
-})
-
-afterAll(async () => {
-    await Promise.all([postgres.end(), redis.disconnect()])
+    organizationId = await createOrganization()
 })
 
 test.concurrent(`webhooks: fires slack webhook`, async () => {
@@ -53,10 +35,9 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
 
         const distinctId = new UUIDT().toString()
 
-        const teamId = await createTeam(postgres, organizationId, `http://localhost:${server.address()?.port}`)
-        const user = await createUser(postgres, teamId, new UUIDT().toString())
+        const teamId = await createTeam(organizationId, `http://localhost:${server.address()?.port}`)
+        const user = await createUser(teamId, new UUIDT().toString())
         const action = await createAction(
-            postgres,
             {
                 team_id: teamId,
                 name: 'slack',
@@ -85,7 +66,7 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
             ]
         )
 
-        await reloadAction(redis, teamId, action.id)
+        await reloadAction(teamId, action.id)
 
         await capture({
             teamId,

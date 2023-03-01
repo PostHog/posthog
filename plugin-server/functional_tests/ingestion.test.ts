@@ -1,45 +1,15 @@
-import ClickHouse from '@posthog/clickhouse'
-import Redis from 'ioredis'
-import { Pool } from 'pg'
-
-import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
 import { waitForExpect } from './expectations'
 
-let clickHouseClient: ClickHouse
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let redis: Redis.Redis
 let organizationId: string
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-    clickHouseClient = new ClickHouse({
-        host: defaultConfig.CLICKHOUSE_HOST,
-        port: 8123,
-        dataObjects: true,
-        queryOptions: {
-            database: defaultConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-    })
-    redis = new Redis(defaultConfig.REDIS_URL)
-
-    organizationId = await createOrganization(postgres)
-})
-
-afterAll(async () => {
-    await Promise.all([postgres.end(), redis.disconnect()])
+    organizationId = await createOrganization()
 })
 
 test.concurrent(`event ingestion: can set and update group properties`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
     const groupIdentityUuid = new UUIDT().toString()
@@ -71,7 +41,7 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
     })
 
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, firstEventUuid)
+        const [event] = await fetchEvents(teamId, firstEventUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 $group_0: 'posthog',
@@ -110,7 +80,7 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
         },
     })
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, secondEventUuid)
+        const [event] = await fetchEvents(teamId, secondEventUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 $group_0: 'posthog',
@@ -137,7 +107,7 @@ test.concurrent(`liveness check endpoint works`, async () => {
 })
 
 test.concurrent(`event ingestion: handles $groupidentify with no properties`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
     const groupIdentityUuid = new UUIDT().toString()
@@ -166,7 +136,7 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
     })
 
     const event = await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, firstEventUuid)
+        const [event] = await fetchEvents(teamId, firstEventUuid)
         expect(event).toBeDefined()
         return event
     })
@@ -180,7 +150,7 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
 })
 
 test.concurrent(`event ingestion: can $set and update person properties`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
     await capture({
@@ -197,7 +167,7 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     const firstUuid = new UUIDT().toString()
     await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [event] = await fetchEvents(teamId, firstUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 person_properties: expect.objectContaining({
@@ -221,7 +191,7 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     const secondUuid = new UUIDT().toString()
     await capture({ teamId, distinctId, uuid: secondUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [event] = await fetchEvents(teamId, secondUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 person_properties: expect.objectContaining({
@@ -233,7 +203,7 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
 })
 
 test.concurrent(`event ingestion: person properties are point in event time`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
     await capture({
@@ -264,7 +234,7 @@ test.concurrent(`event ingestion: person properties are point in event time`, as
     })
 
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [event] = await fetchEvents(teamId, firstUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 person_properties: expect.objectContaining({
@@ -276,7 +246,7 @@ test.concurrent(`event ingestion: person properties are point in event time`, as
 })
 
 test.concurrent(`event ingestion: can $set_once person properties but not update`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
     const personEventUuid = new UUIDT().toString()
@@ -294,7 +264,7 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
     const firstUuid = new UUIDT().toString()
     await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [event] = await fetchEvents(teamId, firstUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 person_properties: {
@@ -319,7 +289,7 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
     const secondUuid = new UUIDT().toString()
     await capture({ teamId, distinctId, uuid: secondUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
-        const [event] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [event] = await fetchEvents(teamId, secondUuid)
         expect(event).toEqual(
             expect.objectContaining({
                 person_properties: {
@@ -333,7 +303,7 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
 
 test.concurrent(`event ingestion: events without a team_id get processed correctly`, async () => {
     const token = new UUIDT().toString()
-    const teamId = await createTeam(postgres, organizationId, '', token)
+    const teamId = await createTeam(organizationId, '', token)
     const personIdentifier = 'test@posthog.com'
 
     await capture({
@@ -348,7 +318,7 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     })
 
     await waitForExpect(async () => {
-        const events = await fetchEvents(clickHouseClient, teamId)
+        const events = await fetchEvents(teamId)
         expect(events.length).toBe(1)
         expect(events[0].team_id).toBe(teamId)
     })
@@ -358,7 +328,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
 
     const metricBefore = await getMetric({
@@ -382,7 +352,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
 })
 
 test.concurrent(`event ingestion: initial login flow keeps the same person_id`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const initialDistinctId = 'initialDistinctId'
     const personIdentifier = 'test@posthog.com'
 
@@ -394,7 +364,7 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     const initialEventId = new UUIDT().toString()
     await capture({ teamId, distinctId: initialDistinctId, uuid: initialEventId, event: 'custom event' })
     await waitForExpect(async () => {
-        const persons = await fetchPersons(clickHouseClient, teamId)
+        const persons = await fetchPersons(teamId)
         expect(persons).toContainEqual(
             expect.objectContaining({
                 properties: expect.objectContaining({ $creator_event_uuid: initialEventId }),
@@ -415,7 +385,7 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     })
 
     await waitForExpect(async () => {
-        const events = await fetchEvents(clickHouseClient, teamId)
+        const events = await fetchEvents(teamId)
         expect(events.length).toBe(2)
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
     }, 10000)
@@ -424,7 +394,7 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
 const testIfPoEEmbraceJoinEnabled =
     process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
 testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the same person id`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const initialDistinctId = new UUIDT().toString()
     const secondDistinctId = new UUIDT().toString()
     const personIdentifier = new UUIDT().toString()
@@ -437,7 +407,7 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
     const secondEventId = new UUIDT().toString()
     await capture({ teamId, distinctId: secondDistinctId, uuid: secondEventId, event: 'custom event 2' })
     await waitForExpect(async () => {
-        const persons = await fetchPersons(clickHouseClient, teamId)
+        const persons = await fetchPersons(teamId)
         expect(persons).toEqual(
             expect.arrayContaining([
                 expect.objectContaining({
@@ -475,7 +445,7 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
     })
 
     await waitForExpect(async () => {
-        const events = await fetchEvents(clickHouseClient, teamId)
+        const events = await fetchEvents(teamId)
         expect(events.length).toBe(4)
         events.forEach((event) => {
             expect(event?.person_id).toBeDefined()
@@ -485,7 +455,7 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
 })
 
 testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to the same person id`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const initialDistinctId = new UUIDT().toString()
     const secondDistinctId = new UUIDT().toString()
     const thirdDistinctId = new UUIDT().toString()
@@ -495,7 +465,7 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     await capture({ teamId, distinctId: secondDistinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
     await capture({ teamId, distinctId: thirdDistinctId, uuid: new UUIDT().toString(), event: 'custom event 3' })
     await waitForExpect(async () => {
-        const persons = await fetchPersons(clickHouseClient, teamId)
+        const persons = await fetchPersons(teamId)
         expect(persons.length).toBe(3)
     }, 10000)
 
@@ -523,7 +493,7 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     })
 
     await waitForExpect(async () => {
-        const events = await fetchEvents(clickHouseClient, teamId)
+        const events = await fetchEvents(teamId)
         expect(events.length).toBe(5)
         events.forEach((event) => {
             expect(event?.person_id).toBeDefined()
@@ -538,7 +508,7 @@ testIfPoEEmbraceJoinEnabled(
         // let's assume we have 4 persons 1234, we'll first merge 1-2 & 3-4, then we'll merge 2-3
         // this should still result in all events having the same person_id or override[person_id]
 
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const initialDistinctId = new UUIDT().toString()
         const secondDistinctId = new UUIDT().toString()
         const thirdDistinctId = new UUIDT().toString()
@@ -550,7 +520,7 @@ testIfPoEEmbraceJoinEnabled(
         await capture({ teamId, distinctId: thirdDistinctId, uuid: new UUIDT().toString(), event: 'custom event 3' })
         await capture({ teamId, distinctId: forthDistinctId, uuid: new UUIDT().toString(), event: 'custom event 3' })
         await waitForExpect(async () => {
-            const persons = await fetchPersons(clickHouseClient, teamId)
+            const persons = await fetchPersons(teamId)
             expect(persons.length).toBe(4)
         }, 10000)
 
@@ -577,7 +547,7 @@ testIfPoEEmbraceJoinEnabled(
         })
 
         await waitForExpect(async () => {
-            const events = await fetchEvents(clickHouseClient, teamId)
+            const events = await fetchEvents(teamId)
             expect(events.length).toBe(6)
         }, 10000)
 
@@ -594,7 +564,7 @@ testIfPoEEmbraceJoinEnabled(
             },
         })
         await waitForExpect(async () => {
-            const events = await fetchEvents(clickHouseClient, teamId)
+            const events = await fetchEvents(teamId)
             expect(events.length).toBe(7)
             events.forEach((event) => {
                 expect(event?.person_id).toBeDefined()
@@ -617,7 +587,7 @@ test.skip(`person properties don't see properties from descendents`, async () =>
     // The person properties of P' should not be assiciated with events tied to
     // P.
 
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const firstDistinctId = new UUIDT().toString()
 
     const firstUuid = new UUIDT().toString()
@@ -653,8 +623,8 @@ test.skip(`person properties don't see properties from descendents`, async () =>
     })
 
     await waitForExpect(async () => {
-        const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
-        const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [first] = await fetchEvents(teamId, firstUuid)
+        const [second] = await fetchEvents(teamId, secondUuid)
 
         expect(first).toEqual(
             expect.objectContaining({
@@ -702,7 +672,7 @@ test.skip(`person properties can't see properties from merge descendants`, async
     // TODO: change the guarantee to be that unrelated branches properties are
     // isolated from each other.
 
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const aliceAnonId = new UUIDT().toString()
     const bobAnonId = new UUIDT().toString()
 
@@ -751,9 +721,9 @@ test.skip(`person properties can't see properties from merge descendants`, async
 
     // Now we wait to ensure that these events have been ingested.
     const [first, second, third] = await waitForExpect(async () => {
-        const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
-        const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
-        const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
+        const [first] = await fetchEvents(teamId, firstUuid)
+        const [second] = await fetchEvents(teamId, secondUuid)
+        const [third] = await fetchEvents(teamId, thirdUuid)
 
         expect(first).toBeDefined()
         expect(second).toBeDefined()
