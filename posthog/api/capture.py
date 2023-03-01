@@ -325,6 +325,7 @@ def get_event(request):
         if settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL or token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
             if invalid_token_reason:
                 TOKEN_SHAPE_INVALID_COUNTER.labels(reason=invalid_token_reason).inc()
+                logger.warning("capture_token_shape_invalid", token=token, reason=invalid_token_reason)
                 return cors_response(
                     request,
                     generate_exception_response(
