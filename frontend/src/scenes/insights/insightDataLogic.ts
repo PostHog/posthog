@@ -3,7 +3,6 @@ import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
     BreakdownFilter,
-    DataNode,
     DateRange,
     InsightFilter,
     InsightNodeKind,
@@ -67,8 +66,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             trendsLogic,
             ['toggledLifecycles as trendsLifecycles'],
-            // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
-            dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
+            dataNodeLogic.find(insightVizDataNodeKey(props)),
             ['response'],
         ],
         actions: [
