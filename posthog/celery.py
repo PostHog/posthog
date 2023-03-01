@@ -452,19 +452,18 @@ def clickhouse_errors_count():
         where code in (999, 225, 242)
         order by minutes_ago
     """
-    try:
-        rows = sync_execute(QUERY)
-        with pushed_metrics_registry("celery_clickhouse_errors") as registry:
-            errors_gauge = Gauge(
-                "posthog_celery_clickhouse_errors",
-                "Age of the latest error per ClickHouse errors table.",
-                registry=registry,
-            )
-            if isinstance(rows, list):
-                for replica, shard, name, _, minutes_ago in rows:
-                    errors_gauge.labels(replica=replica, shard=shard, name=name).set(minutes_ago)
-    except:
-        pass
+    rows = sync_execute(QUERY)
+    with pushed_metrics_registry("celery_clickhouse_errors") as registry:
+        errors_gauge = Gauge(
+            "posthog_celery_clickhouse_errors",
+            "Age of the latest error per ClickHouse errors table.",
+            registry=registry,
+            labelnames=["replica", "shard", "name"],
+        )
+        if isinstance(rows, list):
+            for replica, shard, name, _, minutes_ago in rows:
+                print(f"ClickHouse error {name} on {replica}:{shard} is {minutes_ago} minutes old")
+                errors_gauge.labels(replica=replica, shard=shard, name=name).set(minutes_ago)
 
 
 @app.task(ignore_result=True)
