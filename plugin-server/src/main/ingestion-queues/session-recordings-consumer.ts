@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, Kafka } from 'kafkajs'
 import { ClientMetrics, HighLevelProducer as RdKafkaProducer } from 'node-rdkafka'
-// tslint:disable-next-line: no-implicit-dependencies
+import { hostname } from 'os'
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import {
@@ -277,7 +277,7 @@ const consumedMessageSizeBytes = new Histogram({
 
 const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
     const producer = new RdKafkaProducer({
-        // 'client.id': `${hostname()}-${Math.random()}`,
+        'client.id': `${hostname()}-${Math.random()}`,
         'metadata.broker.list': kafkaConfig.KAFKA_HOSTS,
         'security.protocol': kafkaConfig.KAFKA_SECURITY_PROTOCOL
             ? (kafkaConfig.KAFKA_SECURITY_PROTOCOL.toLowerCase() as Lowercase<KafkaSecurityProtocol>)
@@ -294,12 +294,15 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'ssl.certificate.pem': kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64
             ? Buffer.from(kafkaConfig.KAFKA_CLIENT_CERT_KEY_B64, 'base64').toString()
             : undefined,
-        'retry.backoff.ms': 200,
-        'message.send.max.retries': 10,
-        'socket.keepalive.enable': true,
-        'queue.buffering.max.messages': 100000,
-        'queue.buffering.max.ms': 1000,
-        'batch.num.messages': 1000000,
+        // milliseconds to wait before sending a batch. The default is 0, which
+        // means that messages are sent as soon as possible. This does not mean
+        // that there will only be one message per batch, as the producer will
+        // attempt to fill batches up to the batch size while the number of
+        // Kafka inflight requests is saturated, by default 5 inflight requests.
+        'linger.ms': 20,
+        // The default is 16kb. 128kb also seems quite small but at least larger
+        // than the default.
+        'batch.size': 1024 * 128, // bytes. The default
         'compression.codec': 'snappy',
         dr_cb: true,
     })
