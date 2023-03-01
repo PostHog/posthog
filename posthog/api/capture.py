@@ -527,7 +527,10 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     if event["event"] in ("$snapshot", "$performance_event"):
         return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
 
-    candidate_partition_key = f"{team_id}:{distinct_id}"
+    if team_id:
+        candidate_partition_key = f"{team_id}:{distinct_id}"
+    else:
+        candidate_partition_key = f"{token}:{distinct_id}"
 
     if is_randomly_partitioned(candidate_partition_key) is False:
         kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
