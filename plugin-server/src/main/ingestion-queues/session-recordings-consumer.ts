@@ -277,7 +277,7 @@ const consumedMessageSizeBytes = new Histogram({
 
 const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
     const producer = new RdKafkaProducer({
-        'client.id': `${hostname()}-${Math.random()}`,
+        'client.id': hostname(),
         'metadata.broker.list': kafkaConfig.KAFKA_HOSTS,
         'security.protocol': kafkaConfig.KAFKA_SECURITY_PROTOCOL
             ? (kafkaConfig.KAFKA_SECURITY_PROTOCOL.toLowerCase() as Lowercase<KafkaSecurityProtocol>)
