@@ -110,6 +110,7 @@ class PersonsTable(Table):
     is_identified: BooleanDatabaseField = BooleanDatabaseField(name="is_identified")
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
 
     def clickhouse_table(self):
         return "person"
@@ -160,6 +161,7 @@ class PersonDistinctIdTable(Table):
     person_id: StringDatabaseField = StringDatabaseField(name="person_id")
     is_deleted: BooleanDatabaseField = BooleanDatabaseField(name="is_deleted")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
 
     person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
 
@@ -218,6 +220,7 @@ class EventsTable(Table):
     distinct_id: StringDatabaseField = StringDatabaseField(name="distinct_id")
     elements_chain: StringDatabaseField = StringDatabaseField(name="elements_chain")
     created_at: DateTimeDatabaseField = DateTimeDatabaseField(name="created_at")
+    updated_at: DateTimeDatabaseField = DateTimeDatabaseField(name="_timestamp")
 
     # lazy table that adds a join to the persons table
     pdi: LazyTable = LazyTable(
