@@ -1,30 +1,16 @@
 import { createServer, Server } from 'http'
-import Redis from 'ioredis'
-import { Pool } from 'pg'
 
-import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam } from './api'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let redis: Redis.Redis
 let organizationId: string
 let server: Server
 const webHookCalledWith: any = {}
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-    redis = new Redis(defaultConfig.REDIS_URL)
-
-    organizationId = await createOrganization(postgres)
+    organizationId = await createOrganization()
 
     server = createServer((req, res) => {
         let body = ''
@@ -45,14 +31,13 @@ beforeAll(async () => {
     })
 })
 
-afterAll(async () => {
+afterAll(() => {
     server.close()
-    await Promise.all([postgres.end(), redis.disconnect()])
 })
 
 test.concurrent(`exports: exporting events on ingestion`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
-    const plugin = await createPlugin(postgres, {
+    const teamId = await createTeam(organizationId)
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -66,7 +51,7 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
             }
         `,
     })
-    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    await createAndReloadPluginConfig(teamId, plugin.id)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
@@ -110,8 +95,8 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
 })
 
 test.concurrent(`exports: exporting $autocapture events on ingestion`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
-    const plugin = await createPlugin(postgres, {
+    const teamId = await createTeam(organizationId)
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -126,7 +111,7 @@ test.concurrent(`exports: exporting $autocapture events on ingestion`, async () 
         `,
     })
 
-    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    await createAndReloadPluginConfig(teamId, plugin.id)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
@@ -180,11 +165,11 @@ test.concurrent(`exports: exporting $autocapture events on ingestion`, async () 
 })
 
 test.concurrent(`exports: historical exports`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
-    const plugin = await createPlugin(postgres, {
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -198,7 +183,7 @@ test.concurrent(`exports: historical exports`, async () => {
             }
         `,
     })
-    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
 
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one

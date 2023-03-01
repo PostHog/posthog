@@ -1,9 +1,6 @@
 import { uuid4 } from '@sentry/utils'
 import { createServer, Server } from 'http'
-import Redis from 'ioredis'
-import { Pool } from 'pg'
 
-import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam, getMetric } from './api'
 import { waitForExpect } from './expectations'
@@ -13,23 +10,12 @@ import { produce } from './kafka'
 // increase the wait time to give us a bit of leeway.
 jest.setTimeout(120_000)
 
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let redis: Redis.Redis
 let organizationId: string
 let server: Server
 const webHookCalledWith: any = {}
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-    redis = new Redis(defaultConfig.REDIS_URL)
-
-    organizationId = await createOrganization(postgres)
+    organizationId = await createOrganization()
 
     server = createServer((req, res) => {
         let body = ''
@@ -50,8 +36,7 @@ beforeAll(async () => {
     })
 })
 
-afterAll(async () => {
-    await Promise.all([postgres.end(), redis.disconnect()])
+afterAll(() => {
     server.close()
 })
 
@@ -73,12 +58,12 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // guarantee events with the same sorting key will be dedpulicated, but we
     // should do a best effort at ensuring they are the same.
 
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
     const testUuid = new UUIDT().toString()
 
-    const plugin = await createPlugin(postgres, {
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -92,7 +77,7 @@ test.concurrent(`exports: historical exports v2`, async () => {
             }
         `,
     })
-    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
 
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one
@@ -195,7 +180,7 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // re-run exports without creating duplicates. We use a different plugin
     // config as otherwise it seems the second export doesn't start.
     const secondTestUuid = uuid4()
-    const secondPlugin = await createPlugin(postgres, {
+    const secondPlugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -209,7 +194,7 @@ test.concurrent(`exports: historical exports v2`, async () => {
             }
         `,
     })
-    const secondPluginConfig = await createAndReloadPluginConfig(postgres, teamId, secondPlugin.id, redis)
+    const secondPluginConfig = await createAndReloadPluginConfig(teamId, secondPlugin.id)
 
     await createHistoricalExportJob({
         teamId,
@@ -249,7 +234,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     // NOTE: it may be another event other than the one we emit here that causes
     // the gauge to increase, but pushing this event through should at least
     // ensure that the gauge is updated.
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 

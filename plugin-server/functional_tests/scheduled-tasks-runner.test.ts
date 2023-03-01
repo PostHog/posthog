@@ -1,6 +1,4 @@
-import Redis from 'ioredis'
 import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
-import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
@@ -8,24 +6,10 @@ import { getMetric } from './api'
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
-let redis: Redis.Redis
 
 beforeAll(() => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-    redis = new Redis(defaultConfig.REDIS_URL)
-})
-
-afterAll(async () => {
-    await Promise.all([postgres.end(), redis.disconnect()])
 })
 
 describe('dlq handling', () => {

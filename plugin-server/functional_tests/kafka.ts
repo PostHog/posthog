@@ -1,6 +1,10 @@
+import { CompressionCodecs, CompressionTypes } from 'kafkajs'
+import SnappyCodec from 'kafkajs-snappy'
 import { HighLevelProducer } from 'node-rdkafka'
 
 import { defaultConfig } from '../src/config/config'
+
+CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
 let producer: HighLevelProducer
 
