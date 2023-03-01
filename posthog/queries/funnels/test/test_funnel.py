@@ -1581,6 +1581,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual([str(id) for id in self._get_actor_ids_at_step(filter, 2)], ids_to_compare)
 
+        @snapshot_clickhouse_queries
         def test_funnel_conversion_window_seconds(self):
             ids_to_compare = []
             for i in range(10):
