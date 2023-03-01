@@ -263,6 +263,11 @@ const consumedMessageSizeBytes = new Histogram({
     buckets: exponentialBuckets(1, 8, 4).map((bucket) => bucket * 1024),
 })
 
+// Kafka production related functions using node-rdkafka.
+// TODO: when we roll out the rdkafka library to other workloads, we should
+// likely reuse these functions, and in which case we should move them to a
+// separate file.s
+
 const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
     const producer = new RdKafkaProducer({
         // 'client.id': `${hostname()}-${Math.random()}`,
@@ -288,6 +293,7 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         'queue.buffering.max.messages': 100000,
         'queue.buffering.max.ms': 1000,
         'batch.num.messages': 1000000,
+        'compression.codec': 'snappy',
         dr_cb: true,
     })
 
