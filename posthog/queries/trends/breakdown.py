@@ -514,7 +514,7 @@ class TrendsBreakdown:
             parsed_results = []
             for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
-                parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
+                parsed_result = parse_response(stats, filter, additional_values=result_descriptors, entity=entity)
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
