@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
-import { Producer } from 'kafkajs'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
 
@@ -16,9 +15,9 @@ import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
+import { produce } from './kafka'
 
 export const capture = async (
-    producer: Producer,
     teamId: number | null,
     distinctId: string,
     uuid: string,
@@ -33,30 +32,28 @@ export const capture = async (
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
     // accurate.
-    await producer.send({
-        topic: topic,
-        messages: [
-            {
-                key: teamId ? teamId.toString() : '',
-                value: JSON.stringify({
-                    token,
-                    distinct_id: distinctId,
-                    ip: '',
-                    site_url: '',
+    return await produce(
+        topic,
+        Buffer.from(
+            JSON.stringify({
+                token,
+                distinct_id: distinctId,
+                ip: '',
+                site_url: '',
+                team_id: teamId,
+                now: now,
+                sent_at: sentAt,
+                uuid: uuid,
+                data: JSON.stringify({
+                    event,
+                    properties: { ...properties, uuid },
                     team_id: teamId,
-                    now: now,
-                    sent_at: sentAt,
-                    uuid: uuid,
-                    data: JSON.stringify({
-                        event,
-                        properties: { ...properties, uuid },
-                        team_id: teamId,
-                        timestamp: eventTime,
-                    }),
+                    timestamp: eventTime,
                 }),
-            },
-        ],
-    })
+            })
+        ),
+        teamId ? teamId.toString() : ''
+    )
 }
 
 export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {

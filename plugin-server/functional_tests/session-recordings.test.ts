@@ -1,16 +1,8 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
-import {
-    CompressionCodecs,
-    CompressionTypes,
-    Consumer,
-    Kafka,
-    KafkaMessage,
-    logLevel,
-    Partitioners,
-    Producer,
-} from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
+import { HighLevelProducer } from 'node-rdkafka'
 import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
@@ -25,10 +17,11 @@ import {
     getMetric,
 } from './api'
 import { waitForExpect } from './expectations'
+import { produce } from './kafka'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
 
-let producer: Producer
+export let producer: HighLevelProducer
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
@@ -56,8 +49,6 @@ beforeAll(async () => {
         },
     })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-    await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
 
     dlq = []
@@ -74,7 +65,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect(), await dlqConsumer.disconnect()])
+    await Promise.all([postgres.end(), redis.disconnect(), await dlqConsumer.disconnect()])
 })
 
 test.concurrent(
@@ -92,7 +83,7 @@ test.concurrent(
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+        await capture(teamId, distinctId, uuid, '$snapshot', {
             $session_id: '1234abc',
             $window_id: 'abc1234',
             $snapshot_data: 'yes way',
@@ -141,7 +132,6 @@ test.concurrent(
         const uuid = new UUIDT().toString()
 
         await capture(
-            producer,
             null,
             distinctId,
             uuid,
@@ -181,7 +171,6 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     const uuidOptedOut = new UUIDT().toString()
 
     await capture(
-        producer,
         null,
         new UUIDT().toString(),
         uuidOptedOut,
@@ -202,7 +191,6 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     const uuidOptedIn = new UUIDT().toString()
 
     await capture(
-        producer,
         null,
         new UUIDT().toString(),
         uuidOptedIn,
@@ -241,7 +229,7 @@ test.concurrent(
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+        await capture(teamId, distinctId, uuid, '$snapshot', {
             $session_id: '1234abc',
             $snapshot_data: 'yes way',
         })
@@ -253,7 +241,6 @@ test.concurrent(
         })
 
         await capture(
-            producer,
             teamId,
             distinctId,
             uuid,
@@ -337,7 +324,7 @@ test.concurrent(
             $current_url: 'http://localhost:8000/recordings/recent',
         }
 
-        await capture(producer, teamId, distinctId, uuid, '$performance_event', properties, null, now, now, now)
+        await capture(teamId, distinctId, uuid, '$performance_event', properties, null, now, now, now)
 
         const events = await waitForExpect(async () => {
             const events = await fetchPerformanceEvents(clickHouseClient, teamId)
@@ -412,7 +399,7 @@ test.concurrent(
         const uuid = new UUIDT().toString()
         const now = new Date()
 
-        await capture(producer, teamId, distinctId, uuid, '$performance_event', {
+        await capture(teamId, distinctId, uuid, '$performance_event', {
             '0': 'resource',
             '1': now.getTime(),
             '40': now.getTime() + 1000,
@@ -427,7 +414,6 @@ test.concurrent(
         })
 
         await capture(
-            producer,
             teamId,
             distinctId,
             uuid,
@@ -481,15 +467,7 @@ test.concurrent(
     async () => {
         const key = uuidv4()
 
-        await producer.send({
-            topic: 'session_recording_events',
-            messages: [
-                {
-                    key: key,
-                    value: null,
-                },
-            ],
-        })
+        await produce('session_recording_events', null, key)
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -509,12 +487,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         labels: { topic: 'session_recording_events', partition: '0', groupId: 'session-recordings' },
     })
 
-    await producer.send({
-        topic: 'session_recording_events',
-        // NOTE: we don't actually care too much about the contents of the
-        // message, just that it triggeres the consumer to try to process it.
-        messages: [{ key: '', value: '' }],
-    })
+    await produce('session_recording_events', Buffer.from(''), '')
 
     await waitForExpect(async () => {
         const metricAfter = await getMetric({
@@ -531,15 +504,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
 test.concurrent(`handles invalid JSON`, async () => {
     const key = uuidv4()
 
-    await producer.send({
-        topic: 'session_recording_events',
-        messages: [
-            {
-                key: key,
-                value: 'invalid json',
-            },
-        ],
-    })
+    await produce('session_recording_events', Buffer.from('invalid json'), key)
 
     await waitForExpect(() => {
         const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -550,15 +515,7 @@ test.concurrent(`handles invalid JSON`, async () => {
 test.concurrent(`handles message with no token`, async () => {
     const key = uuidv4()
 
-    await producer.send({
-        topic: 'session_recording_events',
-        messages: [
-            {
-                key: key,
-                value: JSON.stringify({}),
-            },
-        ],
-    })
+    await produce('session_recording_events', Buffer.from(JSON.stringify({})), key)
 
     await waitForExpect(() => {
         const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -570,17 +527,15 @@ test.concurrent(`handles message with token and no associated team_id`, async ()
     const key = uuidv4()
     const token = uuidv4()
 
-    await producer.send({
-        topic: 'session_recording_events',
-        messages: [
-            {
-                key: key,
-                value: JSON.stringify({
-                    token: token,
-                }),
-            },
-        ],
-    })
+    await produce(
+        'session_recording_events',
+        Buffer.from(
+            JSON.stringify({
+                token: token,
+            })
+        ),
+        key
+    )
 
     await waitForExpect(() => {
         const messages = dlq.filter((message) => message.key?.toString() === key)

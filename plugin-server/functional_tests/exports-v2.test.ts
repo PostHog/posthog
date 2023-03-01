@@ -1,21 +1,19 @@
 import { uuid4 } from '@sentry/utils'
 import { createServer, Server } from 'http'
 import Redis from 'ioredis'
-import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam, getMetric } from './api'
 import { waitForExpect } from './expectations'
+import { produce } from './kafka'
 
 // Exports are coordinated by a scheduled task that runs every minute, so we
 // increase the wait time to give us a bit of leeway.
 jest.setTimeout(120_000)
 
-let producer: Producer
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let kafka: Kafka
 let redis: Redis.Redis
 let organizationId: string
 let server: Server
@@ -29,9 +27,6 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-    await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
 
     organizationId = await createOrganization(postgres)
@@ -56,7 +51,7 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
+    await Promise.all([postgres.end(), redis.disconnect()])
     server.close()
 })
 
@@ -111,7 +106,7 @@ test.concurrent(`exports: historical exports v2`, async () => {
         uuid: new UUIDT().toString(),
         $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
     }
-    await capture(producer, teamId, distinctId, uuid, '$autocapture', properties, null, sentAt, eventTime, now)
+    await capture(teamId, distinctId, uuid, '$autocapture', properties, null, sentAt, eventTime, now)
 
     // Then check that the exportEvents function was called
     const [exportedEvent] = await waitForExpect(() => {
@@ -149,7 +144,6 @@ test.concurrent(`exports: historical exports v2`, async () => {
     )
 
     await createHistoricalExportJob({
-        producer,
         teamId,
         pluginConfigId: pluginConfig.id,
         dateRange: [
@@ -218,7 +212,6 @@ test.concurrent(`exports: historical exports v2`, async () => {
     const secondPluginConfig = await createAndReloadPluginConfig(postgres, teamId, secondPlugin.id, redis)
 
     await createHistoricalExportJob({
-        producer,
         teamId,
         pluginConfigId: secondPluginConfig.id,
         dateRange: [
@@ -266,7 +259,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
     })
 
-    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+    await capture(teamId, distinctId, uuid, '$autocapture', {
         name: 'hehe',
         uuid: new UUIDT().toString(),
         $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
@@ -284,7 +277,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     }, 10_000)
 })
 
-const createHistoricalExportJob = async ({ producer, teamId, pluginConfigId, dateRange }) => {
+const createHistoricalExportJob = async ({ teamId, pluginConfigId, dateRange }) => {
     // Queues an historical export for the specified pluginConfigId and date
     // range.
     //
@@ -292,22 +285,20 @@ const createHistoricalExportJob = async ({ producer, teamId, pluginConfigId, dat
     // adds directly to PostgreSQL using the graphile-worker stored
     // procedure `add_job`. I'd rather keep these tests graphile
     // unaware.
-    await producer.send({
-        topic: 'jobs',
-        messages: [
-            {
-                key: teamId.toString(),
-                value: JSON.stringify({
-                    type: 'Export historical events V2',
-                    pluginConfigId: pluginConfigId,
-                    pluginConfigTeam: teamId,
-                    payload: {
-                        dateRange: dateRange,
-                        $job_id: uuid4(),
-                        parallelism: 1,
-                    },
-                }),
-            },
-        ],
-    })
+    await produce(
+        'jobs',
+        Buffer.from(
+            JSON.stringify({
+                type: 'Export historical events V2',
+                pluginConfigId: pluginConfigId,
+                pluginConfigTeam: teamId,
+                payload: {
+                    dateRange: dateRange,
+                    $job_id: uuid4(),
+                    parallelism: 1,
+                },
+            })
+        ),
+        teamId.toString()
+    )
 }

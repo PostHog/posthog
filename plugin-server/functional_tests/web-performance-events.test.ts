@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
-import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
@@ -8,10 +7,8 @@ import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { capture, createOrganization, createTeam, fetchEvents, fetchPerformanceEvents } from './api'
 
-let producer: Producer
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let kafka: Kafka
 let redis: Redis.Redis
 let organizationId: string
 
@@ -32,16 +29,13 @@ beforeAll(async () => {
             output_format_json_quote_64bit_integers: false,
         },
     })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-    await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
 
     organizationId = await createOrganization(postgres)
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
+    await Promise.all([postgres.end(), redis.disconnect()])
 })
 
 test.concurrent(
@@ -51,7 +45,7 @@ test.concurrent(
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, '$performance_event', {
+        await capture(teamId, distinctId, uuid, '$performance_event', {
             '0': 'resource',
             $session_id: '$session_id_1',
             $window_id: '$window_id_1',

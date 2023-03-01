@@ -1,6 +1,5 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
-import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 import { v4 as uuid4 } from 'uuid'
 
@@ -19,10 +18,8 @@ import {
 } from './api'
 import { waitForExpect } from './expectations'
 
-let producer: Producer
 let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let kafka: Kafka
 let redis: Redis.Redis
 let organizationId: string
 
@@ -43,16 +40,13 @@ beforeAll(async () => {
             output_format_json_quote_64bit_integers: false,
         },
     })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-    await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
 
     organizationId = await createOrganization(postgres)
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
+    await Promise.all([postgres.end(), redis.disconnect()])
 })
 
 test.concurrent(`plugin method tests: event captured, processed, ingested`, async () => {
@@ -91,7 +85,7 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
         properties: { name: 'haha' },
     }
 
-    await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
+    await capture(teamId, distinctId, uuid, event.event, event.properties)
 
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
@@ -139,7 +133,7 @@ test.concurrent(`plugin method tests: can update distinct_id via processEvent`, 
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
-    await capture(producer, teamId, distinctId, uuid, 'custom event')
+    await capture(teamId, distinctId, uuid, 'custom event')
 
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId, uuid)
@@ -172,13 +166,13 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
 
     // First capture the event we want to drop
     const dropMeUuid = new UUIDT().toString()
-    await capture(producer, teamId, aliceId, dropMeUuid, 'drop me')
+    await capture(teamId, aliceId, dropMeUuid, 'drop me')
 
     // Then capture a custom event that will not be dropped. We capture this
     // second such that if we have ingested this event, we can be reasonably
     // confident that the drop me event was also completely processed.
     const customEventUuid = uuid4()
-    await capture(producer, teamId, bobId, customEventUuid, 'custom event')
+    await capture(teamId, bobId, customEventUuid, 'custom event')
 
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, customEventUuid)
@@ -239,7 +233,7 @@ test.concurrent(
             properties: properties,
         }
 
-        await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
+        await capture(teamId, distinctId, uuid, event.event, event.properties)
 
         await waitForExpect(async () => {
             const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
@@ -288,7 +282,7 @@ test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(producer, teamId, distinctId, uuid, 'custom event', {
+    await capture(teamId, distinctId, uuid, 'custom event', {
         name: 'hehe',
         uuid: new UUIDT().toString(),
     })
@@ -334,7 +328,7 @@ test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(producer, teamId, distinctId, uuid, 'custom event', {
+    await capture(teamId, distinctId, uuid, 'custom event', {
         name: 'hehe',
         uuid: new UUIDT().toString(),
     })
