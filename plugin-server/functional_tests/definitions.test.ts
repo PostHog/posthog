@@ -1,4 +1,3 @@
-import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
@@ -7,9 +6,7 @@ import { capture, createOrganization, createTeam, getPropertyDefinitions } from 
 import { waitForExpect } from './expectations'
 // import { beforeAll, afterAll, test, expect } from 'vitest'
 
-let producer: Producer
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let kafka: Kafka
 let organizationId: string
 
 beforeAll(async () => {
@@ -20,15 +17,12 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-    await producer.connect()
 
     organizationId = await createOrganization(postgres)
 })
 
 afterAll(async () => {
-    await Promise.all([producer.disconnect(), postgres.end()])
+    await Promise.all([postgres.end()])
 })
 
 test.concurrent(`event ingestion: definition for string property %p`, async () => {
@@ -36,8 +30,14 @@ test.concurrent(`event ingestion: definition for string property %p`, async () =
     const distinctId = 'distinctId'
     const uuid = new UUIDT().toString()
 
-    await capture(producer, teamId, distinctId, uuid, 'custom event', {
-        property: 'hehe',
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            property: 'hehe',
+        },
     })
 
     await waitForExpect(async () => {
@@ -59,8 +59,14 @@ test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, 'custom event', {
-            property: numberValue,
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                property: numberValue,
+            },
         })
 
         await waitForExpect(async () => {
@@ -88,8 +94,14 @@ test.concurrent.each([
     const distinctId = 'distinctId'
     const uuid = new UUIDT().toString()
 
-    await capture(producer, teamId, distinctId, uuid, 'custom event', {
-        property: dateString,
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            property: dateString,
+        },
     })
 
     await waitForExpect(async () => {
@@ -111,8 +123,14 @@ test.concurrent.each([[true], ['true']])(
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, 'custom event', {
-            property: booleanValue,
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                property: booleanValue,
+            },
         })
 
         await waitForExpect(async () => {
@@ -135,8 +153,14 @@ test.concurrent.each([['utm_abc'], ['utm_123']])(
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
-        await capture(producer, teamId, distinctId, uuid, 'custom event', {
-            [propertyName]: 1234,
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                [propertyName]: 1234,
+            },
         })
 
         await waitForExpect(async () => {
