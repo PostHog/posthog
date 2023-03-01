@@ -83,10 +83,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.setElapsedTime(performance.now() - now)
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             actions.abortQuery({ queryId })
-                            return values.response
-                        } else {
-                            throw e
                         }
+                        breakpoint()
+                        throw e
                     }
                 },
                 loadNewData: async () => {

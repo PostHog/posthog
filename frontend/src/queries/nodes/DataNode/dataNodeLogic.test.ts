@@ -4,6 +4,8 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
+import { useMocks } from '~/mocks/jest'
+import * as libUtils from 'lib/utils'
 
 jest.mock('~/queries/query')
 
@@ -84,49 +86,6 @@ describe('dataNodeLogic', () => {
             .toMatchValues({ responseLoading: true, response: null })
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results: results3 }) })
-    })
-
-    it('cancels a running query', async () => {
-        ;(query as any).mockImplementation(() => {
-            // delay for 2 seconds before response without pausing
-            return new Promise((resolve) => {
-                return setTimeout(() => {
-                    resolve({ results: {} })
-                }, 2000)
-            })
-        })
-
-        logic = dataNodeLogic({
-            key: testUniqueKey,
-            query: {
-                kind: NodeKind.TrendsQuery,
-                dateRange: { date_from: '-180d' },
-            },
-        })
-        logic.mount()
-        setTimeout(() => {
-            // this query change will run while the first query is
-            // active and cancel it
-            dataNodeLogic({
-                key: testUniqueKey,
-                query: {
-                    kind: NodeKind.TrendsQuery,
-                    dateRange: { date_from: '-90d' },
-                },
-            })
-        }, 200)
-
-        expect(query).toHaveBeenCalledTimes(1)
-        await expectLogic(logic).toDispatchActions([
-            'loadData',
-            'abortAnyRunningQuery',
-            'loadData',
-            // can't test abortQuery here, since we're mocking fetch
-            // and thus the AbortError never gets thrown
-            // 'abortQuery',
-            'abortAnyRunningQuery',
-            'loadDataSuccess',
-        ])
     })
 
     it('can load new data if EventsQuery sorted by timestamp', async () => {
@@ -466,5 +425,62 @@ describe('dataNodeLogic', () => {
                 autoLoadRunning: true,
                 response: partial({ results: [...results3, ...results2, ...results] }),
             })
+    })
+
+    describe('query cancellation', () => {
+        beforeEach(() => {
+            ;(query as any).mockImplementation(jest.requireActual('~/queries/query').query)
+            useMocks({
+                get: {
+                    '/api/projects/:team/insights/trend/': async (req) => {
+                        if (req.url.searchParams.get('date_from') === '-180d') {
+                            // delay for 2 seconds before response without pausing
+                            return new Promise((resolve) =>
+                                setTimeout(() => {
+                                    resolve([200, { result: ['slow result from api'] }])
+                                }, 2000)
+                            )
+                        }
+                        return [200, { result: ['result from api'] }]
+                    },
+                },
+                post: {
+                    '/api/projects/997/insights/cancel/': [201],
+                },
+            })
+        })
+
+        it('cancels a running query', async () => {
+            ;(libUtils as any).uuid = jest.fn().mockReturnValueOnce('uuid-first').mockReturnValueOnce('uuid-second')
+            logic = dataNodeLogic({
+                key: testUniqueKey,
+                query: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    dateRange: { date_from: '-180d' },
+                },
+            })
+            logic.mount()
+
+            setTimeout(() => {
+                dataNodeLogic({
+                    key: testUniqueKey,
+                    query: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [],
+                        dateRange: { date_from: '-90d' },
+                    },
+                })
+            }, 200)
+
+            await expectLogic(logic).toDispatchActions([
+                'loadData',
+                'abortAnyRunningQuery',
+                'loadData',
+                'abortAnyRunningQuery',
+                logic.actionCreators.abortQuery({ queryId: 'uuid-first' }),
+                logic.actionCreators.loadDataSuccess({ result: ['result from api'] }),
+            ])
+        })
     })
 })
