@@ -26,7 +26,6 @@ declare module '@storybook/react' {
              *
              * You can also provide a selector string instead of a boolean - in that case we'll wait
              * for a matching element to be be visible once all loaders are gone.
-             * Bonus: If the selector points at a canvas element, we'll wait until the canvas isn't blank.
              */
             waitForLoadersToDisappear?: boolean | string
             /**
@@ -108,16 +107,6 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
-            // If the selector points at a canvas, wait for that canvas to be populated
-            if (waitForLoadersToDisappear.split(' ').at(-1) == 'canvas') {
-                await page.waitForFunction((canvasSelector) => {
-                    const canvas = document.querySelector(canvasSelector) as HTMLCanvasElement
-                    return canvas
-                        .getContext('2d')!
-                        .getImageData(0, 0, canvas.width, canvas.height)
-                        .data.some((channel) => channel !== 0 && channel !== 255)
-                }, waitForLoadersToDisappear)
-            }
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle

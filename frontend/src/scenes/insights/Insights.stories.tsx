@@ -31,29 +31,43 @@ export default {
 /* eslint-disable @typescript-eslint/no-var-requires */
 // Trends
 export const TrendsLine = createInsightStory(require('./__mocks__/trendsLine.json'))
-TrendsLine.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+TrendsLine.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsLineBreakdown = createInsightStory(require('./__mocks__/trendsLineBreakdown.json'))
-TrendsLineBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+TrendsLineBreakdown.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsBar = createInsightStory(require('./__mocks__/trendsBar.json'))
-TrendsBar.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+TrendsBar.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsBarBreakdown = createInsightStory(require('./__mocks__/trendsBarBreakdown.json'))
-TrendsBarBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+TrendsBarBreakdown.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsValue = createInsightStory(require('./__mocks__/trendsValue.json'))
-TrendsValue.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas' } }
+TrendsValue.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsValueBreakdown = createInsightStory(require('./__mocks__/trendsValueBreakdown.json'))
 TrendsValueBreakdown.parameters = {
-    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas' },
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-bar-value-graph] > canvas[aria-busy=false]' },
 }
 export const TrendsArea = createInsightStory(require('./__mocks__/trendsArea.json'))
-TrendsArea.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+TrendsArea.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsAreaBreakdown = createInsightStory(require('./__mocks__/trendsAreaBreakdown.json'))
-TrendsAreaBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+TrendsAreaBreakdown.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const TrendsNumber = createInsightStory(require('./__mocks__/trendsNumber.json'))
 TrendsNumber.parameters = { testOptions: { waitForLoadersToDisappear: '.BoldNumber__value' } }
@@ -94,7 +108,7 @@ FunnelTopToBottomBreakdown.parameters = {
 
 export const FunnelHistoricalTrends = createInsightStory(require('./__mocks__/funnelHistoricalTrends.json'))
 FunnelHistoricalTrends.parameters = {
-    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph-funnel] > canvas' },
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph-funnel] > canvas[aria-busy=false]' },
 }
 
 export const FunnelTimeToConvert = createInsightStory(require('./__mocks__/funnelTimeToConvert.json'))
@@ -103,20 +117,28 @@ FunnelTimeToConvert.parameters = { testOptions: { waitForLoadersToDisappear: '[d
 // Retention
 
 export const Retention = createInsightStory(require('./__mocks__/retention.json'))
-Retention.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+Retention.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 export const RetentionBreakdown = createInsightStory(require('./__mocks__/retentionBreakdown.json'))
-RetentionBreakdown.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+RetentionBreakdown.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 // Lifecycle
 
 export const Lifecycle = createInsightStory(require('./__mocks__/lifecycle.json'))
-Lifecycle.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+Lifecycle.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 // Stickiness
 
 export const Stickiness = createInsightStory(require('./__mocks__/stickiness.json'))
-Stickiness.parameters = { testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas' } }
+Stickiness.parameters = {
+    testOptions: { waitForLoadersToDisappear: '[data-attr=trend-line-graph] > canvas[aria-busy=false]' },
+}
 
 // User Paths
 
