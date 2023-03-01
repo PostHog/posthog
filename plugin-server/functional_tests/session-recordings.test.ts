@@ -1,9 +1,4 @@
-import ClickHouse from '@posthog/clickhouse'
-import Redis from 'ioredis'
-import { CompressionCodecs, CompressionTypes, Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
-import SnappyCodec from 'kafkajs-snappy'
-import { HighLevelProducer } from 'node-rdkafka'
-import { Pool } from 'pg'
+import { Consumer, Kafka, KafkaMessage, logLevel } from 'kafkajs'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
@@ -19,37 +14,14 @@ import {
 import { waitForExpect } from './expectations'
 import { produce } from './kafka'
 
-CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
-
-export let producer: HighLevelProducer
-let clickHouseClient: ClickHouse
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
-let redis: Redis.Redis
 let organizationId: string
 
 let dlq: KafkaMessage[]
 let dlqConsumer: Consumer
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-    clickHouseClient = new ClickHouse({
-        host: defaultConfig.CLICKHOUSE_HOST,
-        port: 8123,
-        dataObjects: true,
-        queryOptions: {
-            database: defaultConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-    })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
-    redis = new Redis(defaultConfig.REDIS_URL)
 
     dlq = []
     dlqConsumer = kafka.consumer({ groupId: 'session_recording_events_test' })
@@ -61,11 +33,11 @@ beforeAll(async () => {
         },
     })
 
-    organizationId = await createOrganization(postgres)
+    organizationId = await createOrganization()
 })
 
 afterAll(async () => {
-    await Promise.all([postgres.end(), redis.disconnect(), await dlqConsumer.disconnect()])
+    await Promise.all([await dlqConsumer.disconnect()])
 })
 
 test.concurrent(
@@ -79,7 +51,7 @@ test.concurrent(
         // `events_plugin_ingestion` to `session_recording_events`. We should be
         // able to remove this push and this test once we know there are no more
         // recording events in `events_plugin_ingestion`.
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
@@ -96,7 +68,7 @@ test.concurrent(
         })
 
         const events = await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            const events = await fetchSessionRecordingsEvents(teamId)
             expect(events.length).toBe(1)
             return events
         })
@@ -133,7 +105,7 @@ test.concurrent(
         // recording events in the `events_plugin_ingestion` topic for a while
         // so we need to still handle these events with the current consumer.
         const token = uuidv4()
-        const teamId = await createTeam(postgres, organizationId, undefined, token)
+        const teamId = await createTeam(organizationId, undefined, token)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
@@ -154,7 +126,7 @@ test.concurrent(
         })
 
         await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            const events = await fetchSessionRecordingsEvents(teamId)
             expect(events.length).toBe(1)
 
             // processEvent did not modify
@@ -173,7 +145,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     // for the team that is opted in was ingested and the recording for the team
     // that is opted out was not ingested.
     const tokenOptedOut = uuidv4()
-    const teamOptedOutId = await createTeam(postgres, organizationId, undefined, tokenOptedOut, false)
+    const teamOptedOutId = await createTeam(organizationId, undefined, tokenOptedOut, false)
     const uuidOptedOut = new UUIDT().toString()
 
     await capture({
@@ -193,7 +165,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     })
 
     const tokenOptedIn = uuidv4()
-    const teamOptedInId = await createTeam(postgres, organizationId, undefined, tokenOptedIn)
+    const teamOptedInId = await createTeam(organizationId, undefined, tokenOptedIn)
     const uuidOptedIn = new UUIDT().toString()
 
     await capture({
@@ -213,7 +185,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     })
 
     await waitForExpect(async () => {
-        const events = await fetchSessionRecordingsEvents(clickHouseClient, teamOptedInId)
+        const events = await fetchSessionRecordingsEvents(teamOptedInId)
         expect(events.length).toBe(1)
     })
 
@@ -221,7 +193,7 @@ test.concurrent(`recording events not ingested to ClickHouse if team is opted ou
     // and that the consumer produces messages in the order they are consumed.
     // TODO: add some side-effect we can assert on rather than relying on the
     // partitioning / ordering setup e.g. an ingestion warning.
-    const events = await fetchSessionRecordingsEvents(clickHouseClient, teamOptedOutId, uuidOptedOut)
+    const events = await fetchSessionRecordingsEvents(teamOptedOutId, uuidOptedOut)
     expect(events.length).toBe(0)
 })
 
@@ -231,7 +203,7 @@ test.concurrent(
         // We are moving from using `events_plugin_ingestion` as the kafka topic
         // for session recordings, so we want to make sure that they still work
         // when sent through `session_recording_events`.
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
@@ -247,7 +219,7 @@ test.concurrent(
         })
 
         await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            const events = await fetchSessionRecordingsEvents(teamId)
             expect(events.length).toBe(1)
             return events
         })
@@ -269,7 +241,7 @@ test.concurrent(
         })
 
         const eventsThroughNewTopic = await waitForExpect(async () => {
-            const eventsThroughNewTopic = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            const eventsThroughNewTopic = await fetchSessionRecordingsEvents(teamId)
             expect(eventsThroughNewTopic.length).toBe(2)
             return eventsThroughNewTopic
         })
@@ -297,7 +269,7 @@ test.concurrent(
         // `events_plugin_ingestion` to `session_recording_events`. We should be
         // able to remove this push and this test once we know there are no more
         // recording events in `events_plugin_ingestion`.
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
         const sessionId = new UUIDT().toString()
@@ -349,7 +321,7 @@ test.concurrent(
         })
 
         const events = await waitForExpect(async () => {
-            const events = await fetchPerformanceEvents(clickHouseClient, teamId)
+            const events = await fetchPerformanceEvents(teamId)
             expect(events.length).toBe(1)
             return events
         })
@@ -416,7 +388,7 @@ test.concurrent(
         // We have switched from pushing the `events_plugin_ingestion` to
         // pushing to `session_recording_events`. so we want to make sure that
         // they still work when sent through `session_recording_events` topic.
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
         const now = new Date()
@@ -436,7 +408,7 @@ test.concurrent(
         })
 
         await waitForExpect(async () => {
-            const events = await fetchPerformanceEvents(clickHouseClient, teamId)
+            const events = await fetchPerformanceEvents(teamId)
             expect(events.length).toBe(1)
             return events
         })
@@ -461,7 +433,7 @@ test.concurrent(
         })
 
         const eventsThroughNewTopic = await waitForExpect(async () => {
-            const eventsThroughNewTopic = await fetchPerformanceEvents(clickHouseClient, teamId)
+            const eventsThroughNewTopic = await fetchPerformanceEvents(teamId)
             expect(eventsThroughNewTopic.length).toBe(2)
             return eventsThroughNewTopic
         })

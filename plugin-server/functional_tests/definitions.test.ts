@@ -1,32 +1,15 @@
-import { Pool } from 'pg'
-
-import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createOrganization, createTeam, getPropertyDefinitions } from './api'
 import { waitForExpect } from './expectations'
-// import { beforeAll, afterAll, test, expect } from 'vitest'
 
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let organizationId: string
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-
-    organizationId = await createOrganization(postgres)
-})
-
-afterAll(async () => {
-    await Promise.all([postgres.end()])
+    organizationId = await createOrganization()
 })
 
 test.concurrent(`event ingestion: definition for string property %p`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = 'distinctId'
     const uuid = new UUIDT().toString()
 
@@ -41,7 +24,7 @@ test.concurrent(`event ingestion: definition for string property %p`, async () =
     })
 
     await waitForExpect(async () => {
-        const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+        const propertyDefinitions = await getPropertyDefinitions(teamId)
         expect(propertyDefinitions).toContainEqual(
             expect.objectContaining({
                 name: 'property',
@@ -55,7 +38,7 @@ test.concurrent(`event ingestion: definition for string property %p`, async () =
 test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
     `event ingestion: definition for number property as number %p`,
     async (numberValue: any) => {
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
@@ -70,7 +53,7 @@ test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
         })
 
         await waitForExpect(async () => {
-            const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+            const propertyDefinitions = await getPropertyDefinitions(teamId)
             expect(propertyDefinitions).toContainEqual(
                 expect.objectContaining({
                     name: 'property',
@@ -90,7 +73,7 @@ test.concurrent.each([
     ['2020-01-01 00:00:00'],
     ['2020-01-01'],
 ])(`event ingestion: definition for date/datetime property should be datetime %p`, async (dateString: string) => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = 'distinctId'
     const uuid = new UUIDT().toString()
 
@@ -105,7 +88,7 @@ test.concurrent.each([
     })
 
     await waitForExpect(async () => {
-        const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+        const propertyDefinitions = await getPropertyDefinitions(teamId)
         expect(propertyDefinitions).toContainEqual(
             expect.objectContaining({
                 name: 'property',
@@ -119,7 +102,7 @@ test.concurrent.each([
 test.concurrent.each([[true], ['true']])(
     `event ingestion: definition for boolean property %p`,
     async (booleanValue: any) => {
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
@@ -134,7 +117,7 @@ test.concurrent.each([[true], ['true']])(
         })
 
         await waitForExpect(async () => {
-            const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+            const propertyDefinitions = await getPropertyDefinitions(teamId)
             expect(propertyDefinitions).toContainEqual(
                 expect.objectContaining({
                     name: 'property',
@@ -149,7 +132,7 @@ test.concurrent.each([[true], ['true']])(
 test.concurrent.each([['utm_abc'], ['utm_123']])(
     `event ingestion: utm properties should always be strings`,
     async (propertyName: string) => {
-        const teamId = await createTeam(postgres, organizationId)
+        const teamId = await createTeam(organizationId)
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
@@ -164,7 +147,7 @@ test.concurrent.each([['utm_abc'], ['utm_123']])(
         })
 
         await waitForExpect(async () => {
-            const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+            const propertyDefinitions = await getPropertyDefinitions(teamId)
             expect(propertyDefinitions).toContainEqual(
                 expect.objectContaining({
                     name: propertyName,

@@ -3,6 +3,7 @@ import Redis from 'ioredis'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
 
+import { defaultConfig } from '../src/config/config'
 import {
     ActionStep,
     PluginLogEntry,
@@ -16,6 +17,34 @@ import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
 import { produce } from './kafka'
+
+let clickHouseClient: ClickHouse
+let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
+let redis: Redis.Redis
+
+beforeAll(() => {
+    // Setup connections to kafka, clickhouse, and postgres
+    postgres = new Pool({
+        connectionString: defaultConfig.DATABASE_URL!,
+        // We use a pool only for typings sake, but we don't actually need to,
+        // so set max connections to 1.
+        max: 1,
+    })
+    clickHouseClient = new ClickHouse({
+        host: defaultConfig.CLICKHOUSE_HOST,
+        port: 8123,
+        dataObjects: true,
+        queryOptions: {
+            database: defaultConfig.CLICKHOUSE_DATABASE,
+            output_format_json_quote_64bit_integers: false,
+        },
+    })
+    redis = new Redis(defaultConfig.REDIS_URL)
+})
+
+afterAll(async () => {
+    await Promise.all([postgres.end(), redis.disconnect()])
+})
 
 export const capture = async ({
     teamId,
@@ -67,8 +96,8 @@ export const capture = async ({
     })
 }
 
-export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
-    return await insertRow(pgClient, 'posthog_plugin', {
+export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
+    return await insertRow(postgres, 'posthog_plugin', {
         ...plugin,
         config_schema: {},
         from_json: false,
@@ -81,10 +110,9 @@ export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) =
 }
 
 export const createPluginConfig = async (
-    pgClient: Pool,
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
-    return await insertRow(pgClient, 'posthog_pluginconfig', {
+    return await insertRow(postgres, 'posthog_pluginconfig', {
         ...pluginConfig,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -94,13 +122,8 @@ export const createPluginConfig = async (
     })
 }
 
-export const createAndReloadPluginConfig = async (
-    pgClient: Pool,
-    teamId: number,
-    pluginId: number,
-    redis: Redis.Redis
-) => {
-    const pluginConfig = await createPluginConfig(pgClient, { team_id: teamId, plugin_id: pluginId })
+export const createAndReloadPluginConfig = async (teamId: number, pluginId: number) => {
+    const pluginConfig = await createPluginConfig({ team_id: teamId, plugin_id: pluginId })
     // Make sure the plugin server reloads the newly created plugin config.
     // TODO: avoid reaching into the pluginsServer internals and rather use
     // the pubsub mechanism to trigger this.
@@ -108,11 +131,11 @@ export const createAndReloadPluginConfig = async (
     return pluginConfig
 }
 
-export const reloadAction = async (redis: Redis.Redis, teamId: number, actionId: number) => {
+export const reloadAction = async (teamId: number, actionId: number) => {
     await redis.publish('reload-action', JSON.stringify({ teamId, actionId }))
 }
 
-export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
+export const fetchEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(`
         SELECT * FROM events
         WHERE team_id = ${teamId} ${uuid ? `AND uuid = '${uuid}'` : ``} ORDER BY timestamp ASC
@@ -120,19 +143,19 @@ export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, 
     return queryResult.data.map(parseRawClickHouseEvent)
 }
 
-export const fetchPersons = async (clickHouseClient: ClickHouse, teamId: number) => {
+export const fetchPersons = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<any>
     return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
 }
 
-export const fetchPostgresPersons = async (pgClient: Pool, teamId: number) => {
-    const { rows } = await pgClient.query(`SELECT * FROM posthog_person WHERE team_id = $1`, [teamId])
+export const fetchPostgresPersons = async (teamId: number) => {
+    const { rows } = await postgres.query(`SELECT * FROM posthog_person WHERE team_id = $1`, [teamId])
     return rows
 }
 
-export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number, uuid?: string) => {
+export const fetchSessionRecordingsEvents = async (teamId: number, uuid?: string) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ${
             uuid ? ` AND uuid = '${uuid}'` : ''
@@ -146,14 +169,14 @@ export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse,
     })
 }
 
-export const fetchPerformanceEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
+export const fetchPerformanceEvents = async (teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM performance_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
     )) as unknown as ClickHouse.ObjectQueryResult<RawPerformanceEvent>
     return queryResult.data
 }
 
-export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigId: number) => {
+export const fetchPluginLogEntries = async (pluginConfigId: number) => {
     const { data: logEntries } = (await clickHouseClient.querying(`
         SELECT * FROM plugin_log_entries
         WHERE plugin_config_id = ${pluginConfigId} AND source = 'CONSOLE'
@@ -161,9 +184,9 @@ export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, plugin
     return logEntries.map((entry) => ({ ...entry, message: JSON.parse(entry.message) }))
 }
 
-export const createOrganization = async (pgClient: Pool) => {
+export const createOrganization = async () => {
     const organizationId = new UUIDT().toString()
-    await insertRow(pgClient, 'posthog_organization', {
+    await insertRow(postgres, 'posthog_organization', {
         id: organizationId,
         name: 'TEST ORG',
         plugins_access_level: 9,
@@ -181,13 +204,12 @@ export const createOrganization = async (pgClient: Pool) => {
 }
 
 export const createTeam = async (
-    pgClient: Pool,
     organizationId: string,
     slack_incoming_webhook?: string,
     token?: string,
     sessionRecordingOptIn = true
 ) => {
-    const team = await insertRow(pgClient, 'posthog_team', {
+    const team = await insertRow(postgres, 'posthog_team', {
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
@@ -217,14 +239,10 @@ export const createTeam = async (
     return team.id
 }
 
-export const createAction = async (
-    pgClient: Pool,
-    action: Omit<RawAction, 'id'>,
-    steps: Omit<ActionStep, 'id' | 'action_id'>[]
-) => {
-    const actionRow = await insertRow(pgClient, 'posthog_action', action)
+export const createAction = async (action: Omit<RawAction, 'id'>, steps: Omit<ActionStep, 'id' | 'action_id'>[]) => {
+    const actionRow = await insertRow(postgres, 'posthog_action', action)
     for (const step of steps) {
-        await insertRow(pgClient, 'posthog_actionstep', {
+        await insertRow(postgres, 'posthog_actionstep', {
             ...step,
             action_id: actionRow.id,
         })
@@ -232,8 +250,8 @@ export const createAction = async (
     return actionRow
 }
 
-export const createUser = async (pgClient: Pool, teamId: number, email: string) => {
-    return await insertRow(pgClient, 'posthog_user', {
+export const createUser = async (teamId: number, email: string) => {
+    return await insertRow(postgres, 'posthog_user', {
         password: 'abc',
         email,
         first_name: '',
@@ -248,8 +266,8 @@ export const createUser = async (pgClient: Pool, teamId: number, email: string) 
     })
 }
 
-export const getPropertyDefinitions = async (pgClient: Pool, teamId: number) => {
-    const { rows } = await pgClient.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
+export const getPropertyDefinitions = async (teamId: number) => {
+    const { rows } = await postgres.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
     return rows
 }
 
