@@ -14,7 +14,6 @@ export function createHttpServer(
 ): Server {
     const server = createServer(async (req: IncomingMessage, res: ServerResponse) => {
         if (req.url === '/_health' && req.method === 'GET') {
-            status.info('💚', 'Server liveness check succeeded')
             // Check that all health checks pass. Note that a failure of these
             // _may_ result in the process being terminated by e.g. Kubernetes
             // so the stakes are high.
@@ -60,6 +59,13 @@ export function createHttpServer(
             )
 
             res.statusCode = statusCode
+
+            if (statusCode === 200) {
+                status.info('💚', 'Server liveness check succeeded')
+            } else {
+                status.info('💔', 'Server liveness check failed', checkResults)
+            }
+
             res.end(JSON.stringify({ status: statusCode === 200 ? 'ok' : 'error', checks: checkResultsMapping }))
         } else if (req.url === '/_ready' && req.method === 'GET') {
             // Check that, if the server should have a kafka queue,

@@ -1212,7 +1212,7 @@ const api = {
     },
 
     queryURL: (): string => {
-        return new ApiRequest().query().assembleEndpointUrl()
+        return new ApiRequest().query().assembleFullUrl(true)
     },
     async query<T extends Record<string, any> = QuerySchema>(
         query: T,
