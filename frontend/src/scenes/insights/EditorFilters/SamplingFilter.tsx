@@ -1,6 +1,6 @@
 import { EditorFilterProps, InsightType } from '~/types'
 import './LifecycleToggles.scss'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -24,7 +24,7 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
 
     // Sampling is currently behind a feature flag and only available on lifecycle queries
     const insightSupportsSampling =
-        featureFlags[FEATURE_FLAGS.SAMPLING] &&
+        // featureFlags[FEATURE_FLAGS.SAMPLING] &&
         editorFilters.insight &&
         INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(editorFilters.insight)
 
@@ -38,7 +38,15 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
                     </Link>
                 </span>
                 <div className="SamplingFilter">
-                    <Slider
+                <div className="flex items-center gap-2">
+
+                    <LemonButton size="small">0.1%</LemonButton>
+                    <LemonButton size="small">1%</LemonButton>
+                    <LemonButton size="small" active>10%</LemonButton>
+                    <LemonButton size="small">25%</LemonButton>
+                    </div>
+
+                    {/* <Slider
                         defaultValue={100}
                         min={5}
                         max={100}
@@ -60,7 +68,7 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
                             })
                         }}
                         tipFormatter={(value) => `${value}%`}
-                    />
+                    /> */}
                 </div>
             </>
         )
