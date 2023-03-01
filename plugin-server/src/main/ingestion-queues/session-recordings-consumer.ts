@@ -290,12 +290,12 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
     })
 
     producer.on('event.log', function (log) {
-        console.log(log)
+        status.debug('📝', 'librdkafka log', { log: log })
     })
 
     await new Promise((resolve, reject) =>
         producer.connect(undefined, (error, data) => {
-            status.info('🔌', 'Connected to Kafka', { error: error, data: data })
+            status.info('🔌', 'Connected to Kafka', { error: error, brokers: data.brokers })
             error ? reject(error) : resolve(data)
         })
     )
