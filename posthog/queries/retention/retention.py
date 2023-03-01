@@ -8,9 +8,10 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.retention.actors_query import RetentionActorsByPeriod, build_actor_activity_query
-from posthog.queries.retention.event_query import RetentionEventsQuery
+from posthog.queries.retention.retention_events_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_SQL
 from posthog.queries.retention.types import BreakdownValues, CohortKey
+from posthog.queries.util import correct_result_for_sampling
 
 
 class Retention:
@@ -44,7 +45,7 @@ class Retention:
 
         result_dict = {
             CohortKey(tuple(breakdown_values), intervals_from_base): {
-                "count": count,
+                "count": correct_result_for_sampling(count, filter.sampling_factor),
                 "people": [],
                 "people_url": self._construct_people_url_for_trend_breakdown_interval(
                     filter=filter, breakdown_values=breakdown_values, selected_interval=intervals_from_base
