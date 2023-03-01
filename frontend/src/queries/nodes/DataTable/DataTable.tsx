@@ -133,7 +133,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 if (hogQl && isEventsQuery(query.source)) {
                                     const isAggregation = isHogQlAggregation(hogQl)
                                     const isOrderBy = query.source?.orderBy?.[0] === key
-                                    const isDescOrderBy = query.source?.orderBy?.[0] === `-${key}`
+                                    const isDescOrderBy = query.source?.orderBy?.[0] === `${key} DESC`
                                     setQuery?.({
                                         ...query,
                                         source: {
@@ -143,7 +143,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                                 .filter((c) => (isAggregation ? c !== '*' : true)),
                                             orderBy:
                                                 isOrderBy || isDescOrderBy
-                                                    ? [isDescOrderBy ? `-${hogQl}` : hogQl]
+                                                    ? [isDescOrderBy ? `${hogQl} DESC` : hogQl]
                                                     : query.source?.orderBy,
                                         },
                                     })
@@ -173,14 +173,14 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 </LemonButton>
                                 <LemonButton
                                     fullWidth
-                                    status={query.source?.orderBy?.[0] === `-${key}` ? 'primary' : 'stealth'}
+                                    status={query.source?.orderBy?.[0] === `${key} DESC` ? 'primary' : 'stealth'}
                                     data-attr="datatable-sort-desc"
                                     onClick={() => {
                                         setQuery?.({
                                             ...query,
                                             source: {
                                                 ...query.source,
-                                                orderBy: [`-${key}`],
+                                                orderBy: [`${key} DESC`],
                                             } as EventsQuery,
                                         })
                                     }}
