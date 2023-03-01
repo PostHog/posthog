@@ -91,7 +91,9 @@ export const startSessionRecordingEventsConsumer = async ({
     }
 
     const stop = async () => {
-        await Promise.allSettled([consumer.stop(), disconnectProducer(producer)])
+        status.info('🔁', 'Stopping session recordings consumer')
+        await Promise.all([consumer.disconnect(), disconnectProducer(producer)])
+        status.info('🔁', 'Stopped session recordings consumer')
     }
 
     return { consumer, isHealthy, stop }
