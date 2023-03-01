@@ -462,7 +462,6 @@ def clickhouse_errors_count():
         )
         if isinstance(rows, list):
             for replica, shard, name, _, minutes_ago in rows:
-                print(f"ClickHouse error {name} on {replica}:{shard} is {minutes_ago} minutes old")
                 errors_gauge.labels(replica=replica, shard=shard, name=name).set(minutes_ago)
 
 
