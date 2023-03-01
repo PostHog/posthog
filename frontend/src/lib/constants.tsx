@@ -148,6 +148,7 @@ export const FEATURE_FLAGS = {
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    POSTHOG_3000: 'posthog-3000', // owner: @Twixes
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
