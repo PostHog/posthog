@@ -118,7 +118,6 @@ class TrendsTotalVolume:
                     **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
-                # null_sql = ""
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
                 # :TODO: Consider using bitmap-per-date to speed this up
                 tag_queries(trend_volume_type="cumulative_actors")
@@ -187,7 +186,7 @@ class TrendsTotalVolume:
             parsed_results = []
             if result is not None:
                 for stats in result:
-                    parsed_result = parse_response(stats, filter)
+                    parsed_result = parse_response(stats, filter, entity=entity)
                     point_dates: List[Union[datetime, date]] = stats[0]
                     # Ensure we have datetimes for all points
                     point_datetimes: List[datetime] = [

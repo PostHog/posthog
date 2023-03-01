@@ -69,6 +69,7 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     },
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
+    session_recording_version: 'v1',
     capture_performance_opt_in: true,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
@@ -107,7 +108,7 @@ export const MOCK_DEFAULT_BASIC_USER: UserBasicType = {
 }
 
 export const MOCK_DEFAULT_USER: UserType = {
-    date_joined: '2022-03-11T13:03:32.333971Z',
+    date_joined: '2023-02-28T13:03:32.333971Z',
     uuid: MOCK_USER_UUID,
     distinct_id: MOCK_DEFAULT_BASIC_USER.uuid,
     first_name: MOCK_DEFAULT_BASIC_USER.first_name,

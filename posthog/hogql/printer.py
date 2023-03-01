@@ -4,11 +4,11 @@ from typing import List, Literal, Optional, Union, cast
 from ee.clickhouse.materialized_columns.columns import TablesWithMaterializedColumns, get_materialized_columns
 from posthog.hogql import ast
 from posthog.hogql.constants import CLICKHOUSE_FUNCTIONS, HOGQL_AGGREGATIONS, MAX_SELECT_RETURNED_ROWS
-from posthog.hogql.context import HogQLContext, HogQLFieldAccess
-from posthog.hogql.database import Table, database
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database import Table
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
-from posthog.hogql.transforms import expand_asterisks
+from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
@@ -31,7 +31,7 @@ def print_ast(
     node: ast.Expr,
     context: HogQLContext,
     dialect: Literal["hogql", "clickhouse"],
-    stack: Optional[List[ast.Expr]] = None,
+    stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
     """Print an AST into a string. Does not modify the node."""
     symbol = stack[-1].symbol if stack else None
@@ -42,10 +42,8 @@ def print_ast(
     # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_asterisks(node)
-
+        resolve_lazy_tables(node, stack)
         # TODO: add team_id checks (currently done in the printer)
-        # TODO: add joins to person and group tables
-        pass
 
     return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
@@ -158,7 +156,7 @@ class _Printer(Visitor):
             join_strings.append(node.join_type)
 
         if isinstance(node.symbol, ast.TableAliasSymbol):
-            table_symbol = node.symbol.table
+            table_symbol = node.symbol.table_symbol
             if table_symbol is None:
                 raise ValueError(f"Table alias {node.symbol.name} does not resolve!")
             if not isinstance(table_symbol, ast.TableSymbol):
@@ -254,6 +252,10 @@ class _Printer(Visitor):
             return f"in({left}, {right})"
         elif node.op == ast.CompareOperationType.NotIn:
             return f"not(in({left}, {right}))"
+        elif node.op == ast.CompareOperationType.Regex:
+            return f"match({left}, {right})"
+        elif node.op == ast.CompareOperationType.NotRegex:
+            return f"not(match({left}, {right}))"
         else:
             raise ValueError(f"Unknown CompareOperationType: {type(node.op).__name__}")
 
@@ -351,61 +353,45 @@ class _Printer(Visitor):
         except ResolverException:
             symbol_with_name_in_scope = None
 
-        if isinstance(symbol.table, ast.TableSymbol) or isinstance(symbol.table, ast.TableAliasSymbol):
+        if (
+            isinstance(symbol.table, ast.TableSymbol)
+            or isinstance(symbol.table, ast.TableAliasSymbol)
+            or isinstance(symbol.table, ast.VirtualTableSymbol)
+        ):
             resolved_field = symbol.resolve_database_field()
             if resolved_field is None:
                 raise ValueError(f'Can\'t resolve field "{symbol.name}" on table.')
             if isinstance(resolved_field, Table):
-                # :KLUDGE: only works for events.person.* printing now
-                if isinstance(symbol.table, ast.TableSymbol):
+                if isinstance(symbol.table, ast.VirtualTableSymbol):
                     return self.visit(ast.AsteriskSymbol(table=ast.TableSymbol(table=resolved_field)))
                 else:
                     return self.visit(
                         ast.AsteriskSymbol(
                             table=ast.TableAliasSymbol(
-                                table=ast.TableSymbol(table=resolved_field), name=symbol.table.name
+                                table_symbol=ast.TableSymbol(table=resolved_field), name=symbol.table.name
                             )
                         )
                     )
 
             field_sql = self._print_identifier(resolved_field.name)
 
-            # :KLUDGE: Legacy person properties handling. Assume we're in a context where the tables have been joined,
-            # and this "person_props" alias is accessible to us.
-            if resolved_field == database.events.person.properties:
-                if not self.context.using_person_on_events:
-                    field_sql = "person_props"
-
             # If the field is called on a table that has an alias, prepend the table alias.
             # If there's another field with the same name in the scope that's not this, prepend the full table name.
             # Note: we don't prepend a table name for the special "person" fields.
-            elif isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
+            if isinstance(symbol.table, ast.TableAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
-
-            # TODO: refactor this legacy logging
-            if symbol.name != "properties":
-                real_table = symbol.table
-                while isinstance(real_table, ast.TableAliasSymbol):
-                    real_table = real_table.table
-
-                access_table = (
-                    cast(Literal["event"], "event")
-                    if real_table.table == database.events
-                    else cast(Literal["person"], "person")
-                )
-                self.context.field_access_logs.append(
-                    HogQLFieldAccess(
-                        ["person", symbol.name] if access_table == "person" else [symbol.name],
-                        access_table,
-                        symbol.name,
-                        field_sql,
-                    )
-                )
 
         elif isinstance(symbol.table, ast.SelectQuerySymbol) or isinstance(symbol.table, ast.SelectQueryAliasSymbol):
             field_sql = self._print_identifier(symbol.name)
             if isinstance(symbol.table, ast.SelectQueryAliasSymbol) or symbol_with_name_in_scope != symbol:
                 field_sql = f"{self.visit(symbol.table)}.{field_sql}"
+
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if self.context.within_non_hogql_query and field_sql == "events__pdi__person.properties":
+                if self.context.using_person_on_events:
+                    field_sql = "person_properties"
+                else:
+                    field_sql = "person_props"
 
         else:
             raise ValueError(f"Unknown FieldSymbol table type: {type(symbol.table).__name__}")
@@ -414,57 +400,45 @@ class _Printer(Visitor):
 
     def visit_property_symbol(self, symbol: ast.PropertySymbol):
         field_symbol = symbol.parent
+        field = field_symbol.resolve_database_field()
 
         key = f"hogql_val_{len(self.context.values)}"
         self.context.values[key] = symbol.name
 
+        # check for a materialised column
         table = field_symbol.table
         while isinstance(table, ast.TableAliasSymbol):
-            table = table.table
+            table = table.table_symbol
+        if isinstance(table, ast.TableSymbol):
+            table_name = table.table.clickhouse_table()
+            if field is None:
+                raise ValueError(f"Can't resolve field {field_symbol.name} on table {table_name}")
+            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
 
-        if not isinstance(table, ast.TableSymbol):
-            raise ValueError(f"Unknown PropertySymbol table type: {type(table).__name__}")
-
-        table_name = table.table.clickhouse_table()
-
-        field = field_symbol.resolve_database_field()
-        if field is None:
-            raise ValueError(f"Can't resolve field {field_symbol.name} on table {table_name}")
-
-        field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-        if field_name == "person_properties" and not self.context.using_person_on_events:
-            # :KLUDGE: person property materialized columns support when person on events is off
-            materialized_column = self._get_materialized_column("person", symbol.name, "properties")
-        else:
             materialized_column = self._get_materialized_column(table_name, symbol.name, field_name)
-
-        if materialized_column:
-            property_sql = self._print_identifier(materialized_column)
+            if materialized_column:
+                property_sql = self._print_identifier(materialized_column)
+            else:
+                field_sql = self.visit(field_symbol)
+                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
+        elif (
+            self.context.within_non_hogql_query
+            and isinstance(table, ast.SelectQueryAliasSymbol)
+            and table.name == "events__pdi__person"
+        ):
+            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
+            if self.context.using_person_on_events:
+                materialized_column = self._get_materialized_column("events", symbol.name, "person_properties")
+            else:
+                materialized_column = self._get_materialized_column("person", symbol.name, "properties")
+            if materialized_column:
+                property_sql = self._print_identifier(materialized_column)
+            else:
+                field_sql = self.visit(field_symbol)
+                property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
         else:
             field_sql = self.visit(field_symbol)
             property_sql = trim_quotes_expr(f"JSONExtractRaw({field_sql}, %({key})s)")
-
-        if field_name == "properties":
-            # TODO: refactor this legacy logging
-            self.context.field_access_logs.append(
-                HogQLFieldAccess(
-                    ["properties", symbol.name],
-                    "event.properties",
-                    symbol.name,
-                    property_sql,
-                )
-            )
-        elif field_name == "person_properties":
-            # TODO: refactor this legacy logging
-            self.context.field_access_logs.append(
-                HogQLFieldAccess(
-                    ["person", "properties", symbol.name],
-                    "person.properties",
-                    symbol.name,
-                    property_sql,
-                )
-            )
 
         return property_sql
 
@@ -474,8 +448,17 @@ class _Printer(Visitor):
     def visit_field_alias_symbol(self, symbol: ast.SelectQueryAliasSymbol):
         return self._print_identifier(symbol.name)
 
+    def visit_virtual_table_symbol(self, symbol: ast.VirtualTableSymbol):
+        return self.visit(symbol.table)
+
     def visit_asterisk_symbol(self, symbol: ast.AsteriskSymbol):
         raise ValueError("Unexpected ast.AsteriskSymbol. Make sure AsteriskExpander has run on the AST.")
+
+    def visit_lazy_table_symbol(self, symbol: ast.LazyTableSymbol):
+        raise ValueError("Unexpected ast.LazyTableSymbol. Make sure LazyTableResolver has run on the AST.")
+
+    def visit_field_traverser_symbol(self, symbol: ast.FieldTraverserSymbol):
+        raise ValueError("Unexpected ast.FieldTraverserSymbol. This should have been resolved.")
 
     def visit_unknown(self, node: ast.AST):
         raise ValueError(f"Unknown AST node {type(node).__name__}")

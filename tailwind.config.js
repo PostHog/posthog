@@ -157,7 +157,7 @@ module.exports = {
         'minHeight', // The min-height utilities like min-h-screen
         'minWidth', // The min-width utilities like min-w-min
         // 'mixBlendMode', // The mix-blend-mode utilities like mix-blend-hard-light
-        // 'objectFit', // The object-fit utilities like object-fill
+        'objectFit', // The object-fit utilities like object-fill
         // 'objectPosition', // The object-position utilities like object-left-top
         'opacity', // The opacity utilities like opacity-50
         // 'order', // The order utilities like order-8
