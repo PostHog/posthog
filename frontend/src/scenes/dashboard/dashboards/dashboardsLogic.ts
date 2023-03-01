@@ -4,6 +4,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
 import { router } from 'kea-router'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export enum DashboardsTab {
     All = 'all',
@@ -15,7 +17,7 @@ export enum DashboardsTab {
 
 export const dashboardsLogic = kea<dashboardsLogicType>({
     path: ['scenes', 'dashboard', 'dashboardsLogic'],
-    connect: { values: [userLogic, ['user']] },
+    connect: { values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']] },
     actions: {
         setSearchTerm: (searchTerm: string) => ({ searchTerm }),
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
@@ -41,13 +43,26 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
             router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
     }),
-    urlToAction: ({ actions }) => ({
+    urlToAction: ({ actions, values }) => ({
         '/dashboard': (_, searchParams) => {
             const tab = searchParams['tab'] || DashboardsTab.All
-            actions.setCurrentTab(tab)
+            if (!values.templatesTabIsVisible && tab === DashboardsTab.Templates) {
+                actions.setCurrentTab(DashboardsTab.All)
+            } else {
+                actions.setCurrentTab(tab)
+            }
         },
     }),
     selectors: {
+        templatesTabIsVisible: [
+            (selectors) => [selectors.user, selectors.featureFlags],
+            (user, featureFlags) => {
+                return (
+                    (!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && !!user?.is_staff) ||
+                    !!featureFlags[FEATURE_FLAGS.TEMPLUKES]
+                )
+            },
+        ],
         dashboards: [
             (selectors) => [
                 dashboardsModel.selectors.nameSortedDashboards,
