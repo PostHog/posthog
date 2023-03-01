@@ -50,7 +50,6 @@ jobs:
     jest:
         runs-on: ubuntu-20.04
         name: Jest test (${{ matrix.chunk }})
-        needs: [jest-setup]
 
         strategy:
             # If one test fails, still run the others
