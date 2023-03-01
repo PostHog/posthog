@@ -213,6 +213,12 @@ export async function startPluginsServer(
     capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
     let serverInstance: (Partial<ServerInstance> & Pick<ServerInstance, 'hub'>) | undefined
 
+    // A collection of healthchecks that should be used to validate the
+    // health of the plugin-server. These are used by the /_health endpoint
+    // to determine if we should trigger a restart of the pod. These should
+    // be super lightweight and ideally not do any IO.
+    const healthChecks: { [service: string]: () => Promise<boolean> } = {}
+
     try {
         if (!serverConfig.DISABLE_MMDB && capabilities.mmdb) {
             ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
@@ -279,10 +285,15 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? makePiscina(serverConfig)
-            analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
-                hub: hub,
-                piscina: piscina,
-            })
+            const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
+                {
+                    hub: hub,
+                    piscina: piscina,
+                }
+            )
+
+            analyticsEventsIngestionConsumer = queue
+            healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
 
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 hub: hub,
@@ -412,12 +423,6 @@ export async function startPluginsServer(
             hub.lastActivity = new Date().valueOf()
             hub.lastActivityType = 'serverStart'
         }
-
-        // A collection of healthchecks that should be used to validate the
-        // health of the plugin-server. These are used by the /_health endpoint
-        // to determine if we should trigger a restart of the pod. These should
-        // be super lightweight and ideally not do any IO.
-        const healthChecks: { [service: string]: () => Promise<boolean> } = {}
 
         if (capabilities.sessionRecordingIngestion) {
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)
