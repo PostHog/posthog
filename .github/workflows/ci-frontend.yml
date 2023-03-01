@@ -70,6 +70,6 @@ jobs:
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: pnpm test:unit --maxWorkers=1
+              run: pnpm test:unit --runInBand
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
