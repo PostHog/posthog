@@ -55,7 +55,7 @@ jobs:
             # If one test fails, still run the others
             fail-fast: false
             matrix:
-                chunk: [0, 1, 2]
+                chunk: [1, 2, 3]
 
         steps:
             - uses: actions/checkout@v3
