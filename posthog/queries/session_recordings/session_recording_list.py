@@ -543,7 +543,7 @@ class SessionRecordingListV2(SessionRecordingList):
                 entity, prepend=f"event_matcher_{index}", team_id=self._team_id
             )
             aggregate_event_select_clause += f"""
-            , groupUniqArrayIf(100)((timestamp, uuid, session_id, window_id), {condition_sql}) AS matching_events_{index}
+            , groupUniqArrayIf(100)((timestamp, uuid, session_id, window_id), event_match_{index} = 1) AS matching_events_{index}
             , sum(event_match_{index}) AS matches_{index}
             """
 
@@ -568,3 +568,10 @@ class SessionRecordingListV2(SessionRecordingList):
             where_conditions,
             params,
         )
+
+    def run(self, *args, **kwargs) -> SessionRecordingQueryResult:
+        self._filter.hogql_context.using_person_on_events = True
+        query, query_params = self.get_query()
+        query_results = sync_execute(query, {**query_params, **self._filter.hogql_context.values})
+        session_recordings = self._data_to_return(query_results)
+        return self._paginate_results(session_recordings)
