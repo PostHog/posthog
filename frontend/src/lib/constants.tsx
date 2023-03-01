@@ -144,7 +144,6 @@ export const FEATURE_FLAGS = {
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
-    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
 }
