@@ -1,74 +1,43 @@
-import { EditorFilterProps, InsightType } from '~/types'
+import { EditorFilterProps } from '~/types'
 import './LifecycleToggles.scss'
 import { LemonButton, Link } from '@posthog/lemon-ui'
-import { insightLogic } from 'scenes/insights/insightLogic'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
-import { Slider } from 'antd'
-import { IconInfo } from 'lib/lemon-ui/icons'
 
-const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([InsightType.LIFECYCLE, InsightType.FUNNELS, InsightType.TRENDS])
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
-    const initializedInsightLogic = insightLogic(insightProps)
-    const initializedFunnelLogic = funnelLogic(insightProps)
+    const logic = samplingFilterLogic({ insightType: editorFilters.insight, insightProps })
 
-    const { setFilters: setInsightFilters } = useActions(initializedInsightLogic)
-    const { setFilters: setFunnelFilters } = useActions(initializedFunnelLogic)
+    const { setSamplingPercentage } = useActions(logic)
+    const { samplingPercentage, samplingAvailable } = useValues(logic)
 
-    const { filters } = useValues(initializedInsightLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    // Sampling is currently behind a feature flag and only available on lifecycle queries
-    const insightSupportsSampling =
-        // featureFlags[FEATURE_FLAGS.SAMPLING] &&
-        editorFilters.insight &&
-        INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(editorFilters.insight)
-
-    if (insightSupportsSampling) {
+    if (samplingAvailable) {
         return (
             <>
                 <span>
                     <b>Sampling percentage</b>{' '}
-                    <Link to="https://posthog.com/manual/sampling" target="_blank">
-                        <IconInfo className="text-xl text-muted-alt shrink-0" />
-                    </Link>
+                    <Tooltip
+                        title="Sampling computes the result on only a subset of the data, making insights load significantly
+                            faster."
+                    >
+                        <Link to="https://posthog.com/manual/sampling" target="_blank">
+                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        </Link>
+                    </Tooltip>
                 </span>
                 <div className="SamplingFilter">
-                <div className="flex items-center gap-2">
-
-                    <LemonButton size="small">0.1%</LemonButton>
-                    <LemonButton size="small">1%</LemonButton>
-                    <LemonButton size="small" active>10%</LemonButton>
-                    <LemonButton size="small">25%</LemonButton>
+                    <div className="flex items-center gap-2">
+                        {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
+                            <LemonButton
+                                key={key}
+                                size="small"
+                                active={samplingPercentage === percentage}
+                                onClick={() => setSamplingPercentage(percentage)}
+                            >{`${percentage}%`}</LemonButton>
+                        ))}
                     </div>
-
-                    {/* <Slider
-                        defaultValue={100}
-                        min={5}
-                        max={100}
-                        step={5}
-                        trackStyle={{ background: 'var(--primary)' }}
-                        handleStyle={{ background: 'var(--primary)' }}
-                        style={{ maxWidth: 150 }}
-                        onAfterChange={(newValue) => {
-                            if (editorFilters.insight === InsightType.FUNNELS) {
-                                setFunnelFilters({
-                                    ...filters,
-                                    sampling_factor: newValue / 100,
-                                })
-                                return
-                            }
-                            setInsightFilters({
-                                ...filters,
-                                sampling_factor: newValue / 100,
-                            })
-                        }}
-                        tipFormatter={(value) => `${value}%`}
-                    /> */}
                 </div>
             </>
         )

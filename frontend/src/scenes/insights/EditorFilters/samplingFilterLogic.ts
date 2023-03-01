@@ -1,106 +1,98 @@
-import { kea, path, connect, actions, reducers } from 'kea'
-import { urlToAction } from 'kea-router'
-import { forms } from 'kea-forms'
-import api from 'lib/api'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { FEATURE_FLAGS } from './../../../lib/constants'
+import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
+import { InsightType } from './../../../types'
+import { insightLogic } from './../insightLogic'
+import { kea, path, connect, actions, reducers, props, selectors } from 'kea'
 
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
+import { InsightLogicProps } from '~/types'
+import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { retentionLogic } from 'scenes/retention/retentionLogic'
+
+export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
+
+const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
+    InsightType.LIFECYCLE,
+    InsightType.FUNNELS,
+    InsightType.TRENDS,
+    InsightType.RETENTION,
+])
 
 interface SamplingFilterLogicProps {
-    insight
+    insightProps: InsightLogicProps
+    insightType?: InsightType
 }
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
     path(['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic']),
-    props({} as PropertyFilterLogicProps),
-    connect({
-        values: [preflightLogic, ['preflight']],
-    }),
-    actions({
-        setPanel: (panel: number) => ({ panel }),
-    }),
-    reducers({
-        panel: [
-            0,
-            {
-                setPanel: (_, { panel }) => panel,
-            },
+    props({} as SamplingFilterLogicProps),
+    connect((props: SamplingFilterLogicProps) => ({
+        actions: [
+            insightLogic(props.insightProps),
+            ['setFilters as setInsightFilters'],
+            funnelLogic(props.insightProps),
+            ['setFilters as setFunnelFilters'],
+            retentionLogic(props.insightProps),
+            ['setFilters as setRetentionFilters'],
         ],
-    }),
-    forms(({ actions, values }) => ({
-        signupPanel1: {
-            alwaysShowErrors: true,
-            showErrorsOnTouch: true,
-            defaults: {
-                email: '',
-                password: '',
-            } as SignupForm,
-            errors: ({ email, password }) => ({
-                email: !email
-                    ? 'Please enter your email to continue'
-                    : !emailRegex.test(email)
-                    ? 'Please use a valid email address'
-                    : undefined,
-                password: !values.preflight?.demo
-                    ? !password
-                        ? 'Please enter your password to continue'
-                        : password.length < 8
-                        ? 'Password must be at least 8 characters'
-                        : undefined
-                    : undefined,
-            }),
-            submit: async () => {
-                actions.setPanel(1)
-            },
-        },
-        signupPanel2: {
-            alwaysShowErrors: true,
-            showErrorsOnTouch: true,
-            defaults: {
-                first_name: '',
-                organization_name: '',
-                role_at_organization: '',
-            } as SignupForm,
-            errors: ({ first_name, organization_name }) => ({
-                first_name: !first_name ? 'Please enter your name' : undefined,
-                organization_name: !organization_name ? 'Please enter your organization name' : undefined,
-            }),
-            submit: async (payload, breakpoint) => {
-                await breakpoint()
-                try {
-                    const res = await api.create('api/signup/', { ...values.signupPanel1, ...payload })
-                    location.href = res.redirect_url || '/'
-                } catch (e) {
-                    actions.setSignupPanel2ManualErrors({
-                        generic: {
-                            code: (e as Record<string, any>).code,
-                            detail: (e as Record<string, any>).detail,
-                        },
-                    })
-                    throw e
-                }
-            },
+        values: [insightLogic(props.insightProps), ['filters'], featureFlagLogic, ['featureFlags']],
+    })),
+    actions(({ actions, props, values }) => ({
+        setSamplingPercentage: (samplingPercentage: number) => {
+            // clicking on the active button untoggles it and disables sampling
+            const samplingFactor = samplingPercentage === values.samplingPercentage ? null : samplingPercentage / 100
+
+            if (props.insightType === InsightType.FUNNELS) {
+                actions.setFunnelFilters({
+                    ...values.filters,
+                    sampling_factor: samplingFactor,
+                })
+            } else if (props.insightType === InsightType.RETENTION) {
+                actions.setRetentionFilters({
+                    ...values.filters,
+                    sampling_factor: samplingFactor,
+                })
+            } else {
+                actions.setInsightFilters({
+                    ...values.filters,
+                    sampling_factor: samplingFactor,
+                })
+            }
+            return { samplingPercentage: samplingPercentage === values.samplingPercentage ? null : samplingPercentage }
         },
     })),
-    urlToAction(({ actions, values }) => ({
-        '/signup': ({}, { email }) => {
-            if (email) {
-                if (values.preflight?.demo) {
-                    // In demo mode no password is needed, so we can log in right away
-                    // This allows us to give a quick login link in the `generate_demo_data` command
-                    // X and Y are placeholders, irrelevant because the account should already exists
-                    actions.setSignupPanel1Values({
-                        email,
-                    })
-                    actions.setSignupPanel2Values({
-                        first_name: 'X',
-                        organization_name: 'Y',
-                    })
-                    actions.submitSignupPanel2()
-                } else {
-                    actions.setSignupPanel1Value('email', email)
+    reducers(({ values }) => ({
+        samplingPercentage: [
+            (values.filters.sampling_factor ? values.filters.sampling_factor * 100 : null) as number | null,
+            {
+                setSamplingPercentage: (_, { samplingPercentage }) => samplingPercentage,
+            },
+        ],
+    })),
+    selectors(({ props }) => ({
+        suggestedSamplingPercentage: [
+            (s) => [s.samplingPercentage],
+            (samplingPercentage): number | null => {
+                // 10 is our suggested sampling percentage for those not sampling at all
+                if (!samplingPercentage || samplingPercentage > 10) {
+                    return 10
                 }
-            }
-        },
+
+                // we can't suggest a percentage for those already sampling at the lowest possible rate
+                if (samplingPercentage === AVAILABLE_SAMPLING_PERCENTAGES[0]) {
+                    return null
+                }
+
+                // for those sampling at a rate less than 10, let's suggest they go even lower
+                return AVAILABLE_SAMPLING_PERCENTAGES[AVAILABLE_SAMPLING_PERCENTAGES.indexOf(samplingPercentage) - 1]
+            },
+        ],
+        samplingAvailable: [
+            (s) => s.featureFlags,
+            (featureFlags: Record<string, boolean | string | undefined>): boolean =>
+                featureFlags[FEATURE_FLAGS.SAMPLING] &&
+                props.insightType &&
+                INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(props.insightType),
+        ],
     })),
 ])

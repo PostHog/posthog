@@ -6,7 +6,7 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
-import { SavedInsightsTabs } from '~/types'
+import { InsightLogicProps, InsightType, SavedInsightsTabs } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import clsx from 'clsx'
 import './EmptyStates.scss'
@@ -15,6 +15,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 import { LemonButton } from '@posthog/lemon-ui'
+import { samplingFilterLogic } from '../EditorFilters/samplingFilterLogic'
 
 export function InsightEmptyState(): JSX.Element {
     return (
@@ -33,10 +34,19 @@ export function InsightEmptyState(): JSX.Element {
 export function InsightTimeoutState({
     isLoading,
     queryId,
+    insightProps,
+    insightType,
 }: {
     isLoading: boolean
     queryId?: string | null
+    insightProps: InsightLogicProps
+    insightType?: InsightType
 }): JSX.Element {
+    const _samplingFilterLogic = samplingFilterLogic({ insightType, insightProps })
+
+    const { setSamplingPercentage } = useActions(_samplingFilterLogic)
+    const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
+
     const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state warning">
@@ -45,6 +55,18 @@ export function InsightTimeoutState({
                     {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
                 </div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
+                {isLoading && samplingAvailable && suggestedSamplingPercentage ? (
+                    <div>
+                        <LemonButton
+                            className="m-auto"
+                            type="primary"
+                            onClick={() => setSamplingPercentage(suggestedSamplingPercentage)}
+                        >
+                            Speed up calculation with {suggestedSamplingPercentage}% sampling
+                        </LemonButton>
+                        <br />
+                    </div>
+                ) : null}
                 {isLoading ? (
                     <>
                         Your query is taking a long time to complete. <b>We're still working on it.</b> However, here

@@ -120,7 +120,14 @@ export function InsightContainer({
             return <InsightErrorState queryId={erroredQueryId} />
         }
         if (!!timedOutQueryId) {
-            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
+            return (
+                <InsightTimeoutState
+                    isLoading={insightLoading}
+                    queryId={timedOutQueryId}
+                    insightProps={insightProps}
+                    insightType={activeView}
+                />
+            )
         }
 
         return null
