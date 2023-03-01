@@ -1298,7 +1298,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         featureFlag.filters.groups.length == 1
                                             ? group.rollout_percentage == null || group.rollout_percentage == 100
                                                 ? 'highlight'
-                                                : 'danger'
+                                                : 'caution'
                                             : 'none'
                                     }
                                 >
