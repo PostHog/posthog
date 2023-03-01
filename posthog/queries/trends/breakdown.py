@@ -326,7 +326,8 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
-                    sample_clause=sample_clause**breakdown_filter_params,
+                    sample_clause=sample_clause,
+                    **breakdown_filter_params,
                 )
             elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 inner_sql = VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL.format(
@@ -503,7 +504,9 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity),
+                    "aggregated_value": correct_result_for_sampling(
+                        aggregated_value, filter.sampling_factor, entity.math
+                    ),
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
