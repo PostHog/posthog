@@ -19,7 +19,7 @@
     "scripts": {
         "copy-scripts": "mkdir -p frontend/dist/ && ./bin/copy-posthog-js",
         "test": "pnpm test:unit && pnpm test:visual-regression",
-        "test:unit": "jest --testPathPattern=frontend/",
+        "test:unit": "jest",
         "test:visual-regression": "docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual-regression:legacy:docker && pnpm test:visual-regression:stories:docker",
         "test:visual-regression:legacy": "docker compose -f docker-compose.playwright.yml run --rm -it --build playwright pnpm test:visual-regression:legacy:docker",
         "test:visual-regression:legacy:docker": "STORYBOOK_URL=http://host.docker.internal:6006 playwright test -u",
