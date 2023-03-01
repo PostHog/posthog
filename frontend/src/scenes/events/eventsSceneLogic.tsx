@@ -15,7 +15,7 @@ export const getDefaultEventsSceneQuery = (): DataTableNode => ({
     source: {
         kind: NodeKind.EventsQuery,
         select: defaultDataTableColumns(NodeKind.EventsQuery),
-        orderBy: ['-timestamp'],
+        orderBy: ['timestamp DESC'],
         after: '-24h',
         limit: 100,
     },

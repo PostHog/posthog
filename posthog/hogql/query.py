@@ -1,9 +1,10 @@
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, cast
 
 from pydantic import BaseModel, Extra
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql import ast
+from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
@@ -44,7 +45,10 @@ def execute_hogql_query(
         assert_no_placeholders(select_query)
 
     if select_query.limit is None:
-        select_query.limit = ast.Constant(value=1000)
+        select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
+
+    # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
+    select_query_hogql = cast(ast.SelectQuery, clone_expr(select_query))
 
     # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
     select_query_hogql = clone_expr(select_query)

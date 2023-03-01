@@ -59,6 +59,7 @@ CLICKHOUSE_FUNCTIONS = {
     "trimLeft": "trimLeft",
     "trimRight": "trimRight",
     "extractTextFromHTML": "extractTextFromHTML",
+    "match": "match",
     "like": "like",
     "ilike": "ilike",
     "notLike": "notLike",
@@ -67,7 +68,8 @@ CLICKHOUSE_FUNCTIONS = {
     # array functions
     "tuple": "tuple",
     # conditional
-    "ifElse": "if",
+    "if": "if",
+    "not": "not",
     "multiIf": "multiIf",
     # rounding
     "round": "round",
@@ -110,7 +112,11 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "distinct_id",
     "elements_chain",
     "created_at",
+    "person_id",
+    "person.created_at",
+    "person.properties",
 ]
 
 # Never return more rows than this in top level HogQL SELECT statements
+DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 65535

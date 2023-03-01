@@ -193,9 +193,11 @@ def _get_sent_at(data, request) -> Tuple[Optional[datetime], Any]:
         )
 
 
-def _check_token_shape(token: Optional[str]) -> Optional[str]:
+def _check_token_shape(token: Any) -> Optional[str]:
     if not token:
         return "empty"
+    if not isinstance(token, str):
+        return "not_string"
     if len(token) > 64:
         return "too_long"
     if not token.isascii():  # Legacy tokens were base64, so let's be permissive
@@ -324,7 +326,7 @@ def get_event(request):
         ingestion_context = None
         send_events_to_dead_letter_queue = False
 
-        if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+        if settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL or token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
             logger.debug("lightweight_capture_endpoint_hit", token=token)
             statsd.incr("lightweight_capture_endpoint_hit")
         else:

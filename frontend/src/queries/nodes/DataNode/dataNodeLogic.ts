@@ -223,8 +223,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
                 if (isEventsQuery(query) && !query.before) {
-                    const sortKey = query.orderBy?.[0] ?? '-timestamp'
-                    if (sortKey === '-timestamp') {
+                    const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
+                    if (sortKey === 'timestamp DESC') {
                         const sortColumnIndex = query.select
                             .map((hql) => removeExpressionComment(hql))
                             .indexOf('timestamp')
@@ -249,9 +249,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response, responseError, dataLoading): DataNode | null => {
                 if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
-                        const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as EventsQuery['response'])?.results
-                        if (sortKey === '-timestamp') {
+                        if (sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')

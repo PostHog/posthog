@@ -502,7 +502,10 @@ class TrendsBreakdown:
                     **additional_values,
                 }
                 parsed_results.append(parsed_result)
-            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+            try:
+                return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+            except TypeError:
+                return sorted(parsed_results, key=lambda x: str(self.breakdown_sort_function(x)))
 
         return _parse
 
@@ -511,7 +514,7 @@ class TrendsBreakdown:
             parsed_results = []
             for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
-                parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
+                parsed_result = parse_response(stats, filter, additional_values=result_descriptors, entity=entity)
                 parsed_result.update(
                     {
                         "persons_urls": self._get_persons_url(
@@ -521,7 +524,11 @@ class TrendsBreakdown:
                 )
                 parsed_results.append(parsed_result)
                 parsed_result.update({"filter": filter.to_dict()})
-            return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+
+            try:
+                return sorted(parsed_results, key=lambda x: self.breakdown_sort_function(x))
+            except TypeError:
+                return sorted(parsed_results, key=lambda x: str(self.breakdown_sort_function(x)))
 
         return _parse
 
