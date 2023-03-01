@@ -1,6 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, Kafka } from 'kafkajs'
 import { ClientMetrics, HighLevelProducer as RdKafkaProducer } from 'node-rdkafka'
+// tslint:disable-next-line: no-implicit-dependencies
 import { exponentialBuckets, Histogram } from 'prom-client'
 
 import {
@@ -238,7 +239,13 @@ export const eachBatch =
             await Promise.all(pendingMessages)
         } catch (error) {
             status.error('⚠️', 'flush_error', { error: error, topic: batch.topic, partition: batch.partition })
-            throw error
+
+            // If we get a retriable Kafka error, throw and let KafkaJS
+            // handle it, otherwise we continue
+
+            if (error?.isRetriable) {
+                throw error
+            }
         }
 
         const lastBatchMessage = batch.messages[batch.messages.length - 1]
