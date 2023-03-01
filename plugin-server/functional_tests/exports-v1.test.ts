@@ -71,9 +71,15 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(teamId, distinctId, uuid, 'custom event', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        },
     })
 
     // Then check that the exportEvents function was called
@@ -125,10 +131,16 @@ test.concurrent(`exports: exporting $autocapture events on ingestion`, async () 
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(teamId, distinctId, uuid, '$autocapture', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
-        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$autocapture',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        },
     })
 
     // Then check that the exportEvents function was called
@@ -191,10 +203,16 @@ test.concurrent(`exports: historical exports`, async () => {
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one
     // passed to processEvent on initial ingestion.
-    await capture(teamId, distinctId, uuid, '$autocapture', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
-        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$autocapture',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        },
     })
 
     // Then check that the exportEvents function was called
@@ -212,9 +230,9 @@ test.concurrent(`exports: historical exports`, async () => {
     // adds directly to PostgreSQL using the graphile-worker stored
     // procedure `add_job`. I'd rather keep these tests graphile
     // unaware.
-    await produce(
-        'jobs',
-        Buffer.from(
+    await produce({
+        topic: 'jobs',
+        message: Buffer.from(
             JSON.stringify({
                 type: 'Export historical events',
                 pluginConfigId: pluginConfig.id,
@@ -225,8 +243,8 @@ test.concurrent(`exports: historical exports`, async () => {
                 },
             })
         ),
-        teamId.toString()
-    )
+        key: teamId.toString(),
+    })
 
     // Then check that the exportEvents function was called with the
     // same data that was used with the non-historical export, with the

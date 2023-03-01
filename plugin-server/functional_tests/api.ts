@@ -17,24 +17,35 @@ import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
 import { produce } from './kafka'
 
-export const capture = async (
-    teamId: number | null,
-    distinctId: string,
-    uuid: string,
-    event: string,
-    properties: object = {},
-    token: string | null = null,
-    sentAt: Date = new Date(),
-    eventTime: Date = new Date(),
-    now: Date = new Date(),
-    topic = 'events_plugin_ingestion'
-) => {
+export const capture = async ({
+    teamId,
+    distinctId,
+    uuid,
+    event,
+    properties = {},
+    token = null,
+    sentAt = new Date(),
+    eventTime = new Date(),
+    now = new Date(),
+    topic = 'events_plugin_ingestion',
+}: {
+    teamId: number | null
+    distinctId: string
+    uuid: string
+    event: string
+    properties?: object
+    token?: string | null
+    sentAt?: Date
+    eventTime?: Date
+    now?: Date
+    topic?: string
+}) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
     // accurate.
-    return await produce(
+    return await produce({
         topic,
-        Buffer.from(
+        message: Buffer.from(
             JSON.stringify({
                 token,
                 distinct_id: distinctId,
@@ -52,8 +63,8 @@ export const capture = async (
                 }),
             })
         ),
-        teamId ? teamId.toString() : ''
-    )
+        key: teamId ? teamId.toString() : '',
+    })
 }
 
 export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {

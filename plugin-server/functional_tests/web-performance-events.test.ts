@@ -45,12 +45,18 @@ test.concurrent(
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
 
-        await capture(teamId, distinctId, uuid, '$performance_event', {
-            '0': 'resource',
-            $session_id: '$session_id_1',
-            $window_id: '$window_id_1',
-            $pageview_id: '$pageview_id_1',
-            $current_url: '$current_url_1',
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: '$performance_event',
+            properties: {
+                '0': 'resource',
+                $session_id: '$session_id_1',
+                $window_id: '$window_id_1',
+                $pageview_id: '$pageview_id_1',
+                $current_url: '$current_url_1',
+            },
         })
 
         await delayUntilEventIngested(() => fetchPerformanceEvents(clickHouseClient, teamId), 1, 500, 40)

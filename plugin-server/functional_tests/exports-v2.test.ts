@@ -106,7 +106,7 @@ test.concurrent(`exports: historical exports v2`, async () => {
         uuid: new UUIDT().toString(),
         $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
     }
-    await capture(teamId, distinctId, uuid, '$autocapture', properties, null, sentAt, eventTime, now)
+    await capture({ teamId, distinctId, uuid, event: '$autocapture', properties, token: null, sentAt, eventTime, now })
 
     // Then check that the exportEvents function was called
     const [exportedEvent] = await waitForExpect(() => {
@@ -259,10 +259,16 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
     })
 
-    await capture(teamId, distinctId, uuid, '$autocapture', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
-        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$autocapture',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        },
     })
 
     await waitForExpect(async () => {
@@ -285,9 +291,9 @@ const createHistoricalExportJob = async ({ teamId, pluginConfigId, dateRange }) 
     // adds directly to PostgreSQL using the graphile-worker stored
     // procedure `add_job`. I'd rather keep these tests graphile
     // unaware.
-    await produce(
-        'jobs',
-        Buffer.from(
+    await produce({
+        topic: 'jobs',
+        message: Buffer.from(
             JSON.stringify({
                 type: 'Export historical events V2',
                 pluginConfigId: pluginConfigId,
@@ -299,6 +305,6 @@ const createHistoricalExportJob = async ({ teamId, pluginConfigId, dateRange }) 
                 },
             })
         ),
-        teamId.toString()
-    )
+        key: teamId.toString(),
+    })
 }

@@ -87,11 +87,17 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
 
         await reloadAction(redis, teamId, action.id)
 
-        await capture(teamId, distinctId, new UUIDT().toString(), '$autocapture', {
-            name: 'hehe',
+        await capture({
+            teamId,
+            distinctId,
             uuid: new UUIDT().toString(),
-            $current_url: 'http://localhost:8000',
-            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+            event: '$autocapture',
+            properties: {
+                name: 'hehe',
+                uuid: new UUIDT().toString(),
+                $current_url: 'http://localhost:8000',
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: 'text' }],
+            },
         })
 
         for (const _ in Array.from(Array(20).keys())) {

@@ -43,19 +43,31 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
     const distinctId = new UUIDT().toString()
 
     const groupIdentityUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, groupIdentityUuid, '$groupidentify', {
-        distinct_id: distinctId,
-        $group_type: 'organization',
-        $group_key: 'posthog',
-        $group_set: {
-            prop: 'value',
+    await capture({
+        teamId,
+        distinctId,
+        uuid: groupIdentityUuid,
+        event: '$groupidentify',
+        properties: {
+            distinct_id: distinctId,
+            $group_type: 'organization',
+            $group_key: 'posthog',
+            $group_set: {
+                prop: 'value',
+            },
         },
     })
 
     const firstEventUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, firstEventUuid, 'custom event', {
-        name: 'haha',
-        $group_0: 'posthog',
+    await capture({
+        teamId,
+        distinctId,
+        uuid: firstEventUuid,
+        event: 'custom event',
+        properties: {
+            name: 'haha',
+            $group_0: 'posthog',
+        },
     })
 
     await waitForExpect(async () => {
@@ -71,19 +83,31 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
     })
 
     const secondGroupIdentityUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, secondGroupIdentityUuid, '$groupidentify', {
-        distinct_id: distinctId,
-        $group_type: 'organization',
-        $group_key: 'posthog',
-        $group_set: {
-            prop: 'updated value',
+    await capture({
+        teamId,
+        distinctId,
+        uuid: secondGroupIdentityUuid,
+        event: '$groupidentify',
+        properties: {
+            distinct_id: distinctId,
+            $group_type: 'organization',
+            $group_key: 'posthog',
+            $group_set: {
+                prop: 'updated value',
+            },
         },
     })
 
     const secondEventUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, secondEventUuid, 'custom event', {
-        name: 'haha',
-        $group_0: 'posthog',
+    await capture({
+        teamId,
+        distinctId,
+        uuid: secondEventUuid,
+        event: 'custom event',
+        properties: {
+            name: 'haha',
+            $group_0: 'posthog',
+        },
     })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, secondEventUuid)
@@ -103,16 +127,28 @@ test.concurrent(`event ingestion: handles $groupidentify with no properties`, as
     const distinctId = new UUIDT().toString()
 
     const groupIdentityUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, groupIdentityUuid, '$groupidentify', {
-        distinct_id: distinctId,
-        $group_type: 'organization',
-        $group_key: 'posthog',
+    await capture({
+        teamId,
+        distinctId,
+        uuid: groupIdentityUuid,
+        event: '$groupidentify',
+        properties: {
+            distinct_id: distinctId,
+            $group_type: 'organization',
+            $group_key: 'posthog',
+        },
     })
 
     const firstEventUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, firstEventUuid, 'custom event', {
-        name: 'haha',
-        $group_0: 'posthog',
+    await capture({
+        teamId,
+        distinctId,
+        uuid: firstEventUuid,
+        event: 'custom event',
+        properties: {
+            name: 'haha',
+            $group_0: 'posthog',
+        },
     })
 
     const event = await waitForExpect(async () => {
@@ -133,13 +169,19 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()
 
-    await capture(teamId, distinctId, new UUIDT().toString(), '$identify', {
-        distinct_id: distinctId,
-        $set: { prop: 'value' },
+    await capture({
+        teamId,
+        distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: distinctId,
+            $set: { prop: 'value' },
+        },
     })
 
     const firstUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, firstUuid, 'custom event', {})
+    await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
         expect(event).toEqual(
@@ -151,13 +193,19 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
         )
     })
 
-    await capture(teamId, distinctId, new UUIDT().toString(), '$identify', {
-        distinct_id: distinctId,
-        $set: { prop: 'updated value' },
+    await capture({
+        teamId,
+        distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: distinctId,
+            $set: { prop: 'updated value' },
+        },
     })
 
     const secondUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, secondUuid, 'custom event', {})
+    await capture({ teamId, distinctId, uuid: secondUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, secondUuid)
         expect(event).toEqual(
@@ -174,18 +222,30 @@ test.concurrent(`event ingestion: person properties are point in event time`, as
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()
 
-    await capture(teamId, distinctId, new UUIDT().toString(), '$identify', {
-        distinct_id: distinctId,
-        $set: { prop: 'value' },
+    await capture({
+        teamId,
+        distinctId,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: distinctId,
+            $set: { prop: 'value' },
+        },
     })
 
     const firstUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, firstUuid, 'custom event', {})
-    await capture(teamId, distinctId, new UUIDT().toString(), 'custom event', {
-        distinct_id: distinctId,
-        $set: {
-            prop: 'updated value', // This value should not be reflected in the first event
-            new_prop: 'new value', // This new value should be reflected in the first event
+    await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
+    await capture({
+        teamId,
+        distinctId,
+        uuid: new UUIDT().toString(),
+        event: 'custom event',
+        properties: {
+            distinct_id: distinctId,
+            $set: {
+                prop: 'updated value',
+                new_prop: 'new value',
+            },
         },
     })
 
@@ -206,13 +266,19 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
     const distinctId = new UUIDT().toString()
 
     const personEventUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, personEventUuid, '$identify', {
-        distinct_id: distinctId,
-        $set_once: { prop: 'value' },
+    await capture({
+        teamId,
+        distinctId,
+        uuid: personEventUuid,
+        event: '$identify',
+        properties: {
+            distinct_id: distinctId,
+            $set_once: { prop: 'value' },
+        },
     })
 
     const firstUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, firstUuid, 'custom event', {})
+    await capture({ teamId, distinctId, uuid: firstUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
         expect(event).toEqual(
@@ -225,13 +291,19 @@ test.concurrent(`event ingestion: can $set_once person properties but not update
         )
     })
 
-    await capture(teamId, distinctId, personEventUuid, '$identify', {
-        distinct_id: distinctId,
-        $set_once: { prop: 'updated value' },
+    await capture({
+        teamId,
+        distinctId,
+        uuid: personEventUuid,
+        event: '$identify',
+        properties: {
+            distinct_id: distinctId,
+            $set_once: { prop: 'updated value' },
+        },
     })
 
     const secondUuid = new UUIDT().toString()
-    await capture(teamId, distinctId, secondUuid, 'custom event', {})
+    await capture({ teamId, distinctId, uuid: secondUuid, event: 'custom event', properties: {} })
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, secondUuid)
         expect(event).toEqual(
@@ -250,16 +322,16 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     const teamId = await createTeam(postgres, organizationId, '', token)
     const personIdentifier = 'test@posthog.com'
 
-    await capture(
-        null, // team_id should be added by the plugin server from the token
-        personIdentifier,
-        new UUIDT().toString(),
-        'test event',
-        {
+    await capture({
+        teamId: null,
+        distinctId: personIdentifier,
+        uuid: new UUIDT().toString(),
+        event: 'test event',
+        properties: {
             distinct_id: personIdentifier,
         },
-        token
-    )
+        token,
+    })
 
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
@@ -281,7 +353,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
     })
 
-    await capture(teamId, distinctId, new UUIDT().toString(), 'custom event', {})
+    await capture({ teamId, distinctId, uuid: new UUIDT().toString(), event: 'custom event', properties: {} })
 
     await waitForExpect(async () => {
         const metricAfter = await getMetric({
@@ -306,7 +378,7 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     // First we emit an anoymous event and wait for the person to be
     // created.
     const initialEventId = new UUIDT().toString()
-    await capture(teamId, initialDistinctId, initialEventId, 'custom event')
+    await capture({ teamId, distinctId: initialDistinctId, uuid: initialEventId, event: 'custom event' })
     await waitForExpect(async () => {
         const persons = await fetchPersons(clickHouseClient, teamId)
         expect(persons).toContainEqual(
@@ -317,9 +389,15 @@ test.concurrent(`event ingestion: initial login flow keeps the same person_id`, 
     }, 10000)
 
     // We then identify the person
-    await capture(teamId, personIdentifier, new UUIDT().toString(), '$identify', {
-        distinct_id: personIdentifier,
-        $anon_distinct_id: initialDistinctId,
+    await capture({
+        teamId,
+        distinctId: personIdentifier,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: initialDistinctId,
+        },
     })
 
     await waitForExpect(async () => {
@@ -341,9 +419,9 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
 
     // First we emit anoymous events and wait for the persons to be created.
     const initialEventId = new UUIDT().toString()
-    await capture(teamId, initialDistinctId, initialEventId, 'custom event')
+    await capture({ teamId, distinctId: initialDistinctId, uuid: initialEventId, event: 'custom event' })
     const secondEventId = new UUIDT().toString()
-    await capture(teamId, secondDistinctId, secondEventId, 'custom event 2')
+    await capture({ teamId, distinctId: secondDistinctId, uuid: secondEventId, event: 'custom event 2' })
     await waitForExpect(async () => {
         const persons = await fetchPersons(clickHouseClient, teamId)
         expect(persons).toEqual(
@@ -360,14 +438,26 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
 
     // Then we identify both ids
     const uuidOfFirstIdentifyEvent = new UUIDT().toString()
-    await capture(teamId, personIdentifier, uuidOfFirstIdentifyEvent, '$identify', {
-        distinct_id: personIdentifier,
-        $anon_distinct_id: initialDistinctId,
+    await capture({
+        teamId,
+        distinctId: personIdentifier,
+        uuid: uuidOfFirstIdentifyEvent,
+        event: '$identify',
+        properties: {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: initialDistinctId,
+        },
     })
     const uuidOfSecondIdentifyEvent = new UUIDT().toString()
-    await capture(teamId, personIdentifier, uuidOfSecondIdentifyEvent, '$identify', {
-        distinct_id: personIdentifier,
-        $anon_distinct_id: secondEventId,
+    await capture({
+        teamId,
+        distinctId: personIdentifier,
+        uuid: uuidOfSecondIdentifyEvent,
+        event: '$identify',
+        properties: {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: secondEventId,
+        },
     })
 
     await waitForExpect(async () => {
@@ -387,23 +477,35 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     const thirdDistinctId = new UUIDT().toString()
 
     // First we emit anoymous events and wait for the persons to be created.
-    await capture(teamId, initialDistinctId, new UUIDT().toString(), 'custom event')
-    await capture(teamId, secondDistinctId, new UUIDT().toString(), 'custom event 2')
-    await capture(teamId, thirdDistinctId, new UUIDT().toString(), 'custom event 3')
+    await capture({ teamId, distinctId: initialDistinctId, uuid: new UUIDT().toString(), event: 'custom event' })
+    await capture({ teamId, distinctId: secondDistinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
+    await capture({ teamId, distinctId: thirdDistinctId, uuid: new UUIDT().toString(), event: 'custom event 3' })
     await waitForExpect(async () => {
         const persons = await fetchPersons(clickHouseClient, teamId)
         expect(persons.length).toBe(3)
     }, 10000)
 
     // Then we identify first two together
-    await capture(teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
-        distinct_id: initialDistinctId,
-        $anon_distinct_id: secondDistinctId,
+    await capture({
+        teamId,
+        distinctId: initialDistinctId,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: initialDistinctId,
+            $anon_distinct_id: secondDistinctId,
+        },
     })
     // Then we merge the third person
-    await capture(teamId, secondDistinctId, new UUIDT().toString(), '$identify', {
-        distinct_id: secondDistinctId,
-        $anon_distinct_id: thirdDistinctId,
+    await capture({
+        teamId,
+        distinctId: secondDistinctId,
+        uuid: new UUIDT().toString(),
+        event: '$identify',
+        properties: {
+            distinct_id: secondDistinctId,
+            $anon_distinct_id: thirdDistinctId,
+        },
     })
 
     await waitForExpect(async () => {
@@ -429,23 +531,35 @@ testIfPoEEmbraceJoinEnabled(
         const forthDistinctId = new UUIDT().toString()
 
         // First we emit anoymous events and wait for the persons to be created.
-        await capture(teamId, initialDistinctId, new UUIDT().toString(), 'custom event')
-        await capture(teamId, secondDistinctId, new UUIDT().toString(), 'custom event 2')
-        await capture(teamId, thirdDistinctId, new UUIDT().toString(), 'custom event 3')
-        await capture(teamId, forthDistinctId, new UUIDT().toString(), 'custom event 3')
+        await capture({ teamId, distinctId: initialDistinctId, uuid: new UUIDT().toString(), event: 'custom event' })
+        await capture({ teamId, distinctId: secondDistinctId, uuid: new UUIDT().toString(), event: 'custom event 2' })
+        await capture({ teamId, distinctId: thirdDistinctId, uuid: new UUIDT().toString(), event: 'custom event 3' })
+        await capture({ teamId, distinctId: forthDistinctId, uuid: new UUIDT().toString(), event: 'custom event 3' })
         await waitForExpect(async () => {
             const persons = await fetchPersons(clickHouseClient, teamId)
             expect(persons.length).toBe(4)
         }, 10000)
 
         // Then we identify 1-2 and 3-4
-        await capture(teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
-            distinct_id: initialDistinctId,
-            $anon_distinct_id: secondDistinctId,
+        await capture({
+            teamId,
+            distinctId: initialDistinctId,
+            uuid: new UUIDT().toString(),
+            event: '$identify',
+            properties: {
+                distinct_id: initialDistinctId,
+                $anon_distinct_id: secondDistinctId,
+            },
         })
-        await capture(teamId, thirdDistinctId, new UUIDT().toString(), '$identify', {
-            distinct_id: thirdDistinctId,
-            $anon_distinct_id: forthDistinctId,
+        await capture({
+            teamId,
+            distinctId: thirdDistinctId,
+            uuid: new UUIDT().toString(),
+            event: '$identify',
+            properties: {
+                distinct_id: thirdDistinctId,
+                $anon_distinct_id: forthDistinctId,
+            },
         })
 
         await waitForExpect(async () => {
@@ -455,9 +569,15 @@ testIfPoEEmbraceJoinEnabled(
 
         // Then we merge 2-3
         // TODO: make this a valid merge event instead of $identify
-        await capture(teamId, initialDistinctId, new UUIDT().toString(), '$identify', {
-            distinct_id: secondDistinctId,
-            $anon_distinct_id: thirdDistinctId,
+        await capture({
+            teamId,
+            distinctId: initialDistinctId,
+            uuid: new UUIDT().toString(),
+            event: '$identify',
+            properties: {
+                distinct_id: secondDistinctId,
+                $anon_distinct_id: thirdDistinctId,
+            },
         })
         await waitForExpect(async () => {
             const events = await fetchEvents(clickHouseClient, teamId)
@@ -487,22 +607,34 @@ test.skip(`person properties don't see properties from descendents`, async () =>
     const firstDistinctId = new UUIDT().toString()
 
     const firstUuid = new UUIDT().toString()
-    await capture(teamId, firstDistinctId, firstUuid, 'custom event', {
-        $set: {
-            k: 'v',
-        },
-        $set_once: {
-            set_once_property: 'value',
+    await capture({
+        teamId,
+        distinctId: firstDistinctId,
+        uuid: firstUuid,
+        event: 'custom event',
+        properties: {
+            $set: {
+                k: 'v',
+            },
+            $set_once: {
+                set_once_property: 'value',
+            },
         },
     })
 
     const secondUuid = new UUIDT().toString()
-    await capture(teamId, firstDistinctId, secondUuid, 'custom event', {
-        $set: {
-            j: 'w',
-        },
-        $set_once: {
-            set_once_property: 'second value',
+    await capture({
+        teamId,
+        distinctId: firstDistinctId,
+        uuid: secondUuid,
+        event: 'custom event',
+        properties: {
+            $set: {
+                j: 'w',
+            },
+            $set_once: {
+                set_once_property: 'second value',
+            },
         },
     })
 
@@ -561,16 +693,28 @@ test.skip(`person properties can't see properties from merge descendants`, async
     const bobAnonId = new UUIDT().toString()
 
     const firstUuid = new UUIDT().toString()
-    await capture(teamId, aliceAnonId, firstUuid, 'custom event', {
-        $set: {
-            k: 'v',
+    await capture({
+        teamId,
+        distinctId: aliceAnonId,
+        uuid: firstUuid,
+        event: 'custom event',
+        properties: {
+            $set: {
+                k: 'v',
+            },
         },
     })
 
     const secondUuid = new UUIDT().toString()
-    await capture(teamId, bobAnonId, secondUuid, 'custom event', {
-        $set: {
-            j: 'w',
+    await capture({
+        teamId,
+        distinctId: bobAnonId,
+        uuid: secondUuid,
+        event: 'custom event',
+        properties: {
+            $set: {
+                j: 'w',
+            },
         },
     })
 
@@ -578,10 +722,16 @@ test.skip(`person properties can't see properties from merge descendants`, async
     // NOTE: $create_alias is not symmetric, so we will currently get different
     // results according to the order of `bobAnonId` and `aliceAnonId`.
     // TODO: make $create_alias symmetric.
-    await capture(teamId, bobAnonId, thirdUuid, '$create_alias', {
-        alias: aliceAnonId,
-        $set: {
-            l: 'x',
+    await capture({
+        teamId,
+        distinctId: bobAnonId,
+        uuid: thirdUuid,
+        event: '$create_alias',
+        properties: {
+            alias: aliceAnonId,
+            $set: {
+                l: 'x',
+            },
         },
     })
 

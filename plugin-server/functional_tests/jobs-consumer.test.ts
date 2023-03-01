@@ -54,7 +54,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles empty messages`, async () => {
         const key = uuidv4()
 
-        await produce('jobs', null, key)
+        await produce({ topic: 'jobs', message: null, key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -65,7 +65,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid JSON`, async () => {
         const key = uuidv4()
 
-        await produce('jobs', Buffer.from('invalid json'), key)
+        await produce({ topic: 'jobs', message: Buffer.from('invalid json'), key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -83,7 +83,7 @@ describe('dlq handling', () => {
             labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
         })
 
-        await produce('jobs', Buffer.from(''), '')
+        await produce({ topic: 'jobs', message: Buffer.from(''), key: '' })
 
         await waitForExpect(async () => {
             const metricAfter = await getMetric({

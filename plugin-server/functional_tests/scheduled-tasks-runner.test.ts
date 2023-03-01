@@ -54,7 +54,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles empty messages`, async () => {
         const key = uuidv4()
 
-        await produce('scheduled_tasks', null, key)
+        await produce({ topic: 'scheduled_tasks', message: null, key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -65,7 +65,7 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid JSON`, async () => {
         const key = uuidv4()
 
-        await produce('scheduled_tasks', Buffer.from('invalid json'), key)
+        await produce({ topic: 'scheduled_tasks', message: Buffer.from('invalid json'), key })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -76,11 +76,11 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid taskType`, async () => {
         const key = uuidv4()
 
-        await produce(
-            'scheduled_tasks',
-            Buffer.from(JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 1 })),
-            key
-        )
+        await produce({
+            topic: 'scheduled_tasks',
+            message: Buffer.from(JSON.stringify({ taskType: 'invalidTaskType', pluginConfigId: 1 })),
+            key,
+        })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -91,11 +91,11 @@ describe('dlq handling', () => {
     test.concurrent(`handles invalid pluginConfigId`, async () => {
         const key = uuidv4()
 
-        await produce(
-            'scheduled_tasks',
-            Buffer.from(JSON.stringify({ taskType: 'runEveryMinute', pluginConfigId: 'asdf' })),
-            key
-        )
+        await produce({
+            topic: 'scheduled_tasks',
+            message: Buffer.from(JSON.stringify({ taskType: 'runEveryMinute', pluginConfigId: 'asdf' })),
+            key,
+        })
 
         await waitForExpect(() => {
             const messages = dlq.filter((message) => message.key?.toString() === key)
@@ -115,7 +115,7 @@ describe('dlq handling', () => {
 
         // NOTE: we don't actually care too much about the contents of the
         // message, just that it triggeres the consumer to try to process it.
-        await produce('scheduled_tasks', Buffer.from(''), '')
+        await produce({ topic: 'scheduled_tasks', message: Buffer.from(''), key: '' })
 
         await waitForExpect(async () => {
             const metricAfter = await getMetric({

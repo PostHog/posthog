@@ -85,7 +85,7 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
         properties: { name: 'haha' },
     }
 
-    await capture(teamId, distinctId, uuid, event.event, event.properties)
+    await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
 
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
@@ -133,7 +133,7 @@ test.concurrent(`plugin method tests: can update distinct_id via processEvent`, 
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
-    await capture(teamId, distinctId, uuid, 'custom event')
+    await capture({ teamId, distinctId, uuid, event: 'custom event' })
 
     await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId, uuid)
@@ -166,13 +166,13 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
 
     // First capture the event we want to drop
     const dropMeUuid = new UUIDT().toString()
-    await capture(teamId, aliceId, dropMeUuid, 'drop me')
+    await capture({ teamId, distinctId: aliceId, uuid: dropMeUuid, event: 'drop me' })
 
     // Then capture a custom event that will not be dropped. We capture this
     // second such that if we have ingested this event, we can be reasonably
     // confident that the drop me event was also completely processed.
     const customEventUuid = uuid4()
-    await capture(teamId, bobId, customEventUuid, 'custom event')
+    await capture({ teamId, distinctId: bobId, uuid: customEventUuid, event: 'custom event' })
 
     await waitForExpect(async () => {
         const [event] = await fetchEvents(clickHouseClient, teamId, customEventUuid)
@@ -233,7 +233,7 @@ test.concurrent(
             properties: properties,
         }
 
-        await capture(teamId, distinctId, uuid, event.event, event.properties)
+        await capture({ teamId, distinctId, uuid, event: event.event, properties: event.properties })
 
         await waitForExpect(async () => {
             const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
@@ -282,9 +282,15 @@ test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(teamId, distinctId, uuid, 'custom event', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        },
     })
 
     await waitForExpect(async () => {
@@ -328,9 +334,15 @@ test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(teamId, distinctId, uuid, 'custom event', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        },
     })
 
     await waitForExpect(async () => {

@@ -30,8 +30,14 @@ test.concurrent(`event ingestion: definition for string property %p`, async () =
     const distinctId = 'distinctId'
     const uuid = new UUIDT().toString()
 
-    await capture(teamId, distinctId, uuid, 'custom event', {
-        property: 'hehe',
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            property: 'hehe',
+        },
     })
 
     await waitForExpect(async () => {
@@ -53,8 +59,14 @@ test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
-        await capture(teamId, distinctId, uuid, 'custom event', {
-            property: numberValue,
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                property: numberValue,
+            },
         })
 
         await waitForExpect(async () => {
@@ -82,8 +94,14 @@ test.concurrent.each([
     const distinctId = 'distinctId'
     const uuid = new UUIDT().toString()
 
-    await capture(teamId, distinctId, uuid, 'custom event', {
-        property: dateString,
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            property: dateString,
+        },
     })
 
     await waitForExpect(async () => {
@@ -105,8 +123,14 @@ test.concurrent.each([[true], ['true']])(
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
-        await capture(teamId, distinctId, uuid, 'custom event', {
-            property: booleanValue,
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                property: booleanValue,
+            },
         })
 
         await waitForExpect(async () => {
@@ -129,8 +153,14 @@ test.concurrent.each([['utm_abc'], ['utm_123']])(
         const distinctId = 'distinctId'
         const uuid = new UUIDT().toString()
 
-        await capture(teamId, distinctId, uuid, 'custom event', {
-            [propertyName]: 1234,
+        await capture({
+            teamId,
+            distinctId,
+            uuid,
+            event: 'custom event',
+            properties: {
+                [propertyName]: 1234,
+            },
         })
 
         await waitForExpect(async () => {

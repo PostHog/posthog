@@ -30,7 +30,7 @@ export async function createKafkaProducer() {
     return producer
 }
 
-export async function produce(topic: string, message: Buffer | null, key: string) {
+export async function produce({ topic, message, key }: { topic: string; message: Buffer | null; key: string }) {
     producer = producer ?? (await createKafkaProducer())
     await new Promise((resolve, reject) =>
         producer.produce(topic, undefined, message, Buffer.from(key), Date.now(), (err, offset) => {
