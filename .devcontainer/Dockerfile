@@ -34,6 +34,8 @@ RUN apt-get update \
 ARG NODE_VERSION="18"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
+RUN curl -fsSL https://get.pnpm.io/install.sh | sh -
+
 WORKDIR /workspace
 
 # Compile and install Python dependencies.
