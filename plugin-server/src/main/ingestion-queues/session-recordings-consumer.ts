@@ -300,9 +300,9 @@ const createKafkaProducer = async (kafkaConfig: KafkaConfig) => {
         // attempt to fill batches up to the batch size while the number of
         // Kafka inflight requests is saturated, by default 5 inflight requests.
         'linger.ms': 20,
-        // The default is 16kb. 128kb also seems quite small but at least larger
-        // than the default.
-        'batch.size': 1024 * 128, // bytes. The default
+        // The default is 16kb. 1024kb also seems quite small for our use case
+        // but at least larger than the default.
+        'batch.size': 1024 * 1024, // bytes. The default
         'compression.codec': 'snappy',
         dr_cb: true,
     })
