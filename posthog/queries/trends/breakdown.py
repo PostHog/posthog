@@ -264,6 +264,7 @@ class TrendsBreakdown:
                     sessions_join_condition=sessions_join_condition,
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
+                    sample_clause=sample_clause,
                 )
             time_range = enumerate_time_range(self.filter, seconds_in_interval)
 
