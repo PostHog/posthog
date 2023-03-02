@@ -12,7 +12,6 @@ from typing import Any, Dict, List, Union
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
-from django.test import override_settings
 
 import lzstring
 import pytest
@@ -20,6 +19,7 @@ import structlog
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
+from django.test import override_settings
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
