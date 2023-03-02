@@ -1037,50 +1037,46 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 200
 
-        self.maxDiff = None
-        self.assertEqual(
-            response.json()["tiles"],
-            [
-                {
-                    "color": None,
+        assert response.json()["tiles"] == [
+            {
+                "color": None,
+                "id": ANY,
+                "insight": {
+                    "created_at": ANY,
+                    "created_by": None,
+                    "dashboard_tiles": [{"dashboard_id": response.json()["id"], "deleted": None, "id": ANY}],
+                    "dashboards": [response.json()["id"]],
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": None,
+                    "effective_privilege_level": 37,
+                    "effective_restriction_level": 21,
+                    "favorited": False,
+                    "filters": {"filter_test_accounts": True},
+                    "filters_hash": ANY,
                     "id": ANY,
-                    "insight": {
-                        "created_at": ANY,
-                        "created_by": None,
-                        "dashboard_tiles": [{"dashboard_id": response.json()["id"], "deleted": None, "id": ANY}],
-                        "dashboards": [response.json()["id"]],
-                        "deleted": False,
-                        "derived_name": None,
-                        "description": None,
-                        "effective_privilege_level": 37,
-                        "effective_restriction_level": 21,
-                        "favorited": False,
-                        "filters": {"filter_test_accounts": True},
-                        "filters_hash": ANY,
-                        "id": ANY,
-                        "is_cached": False,
-                        "is_sample": True,
-                        "last_modified_at": ANY,
-                        "last_modified_by": None,
-                        "last_refresh": None,
-                        "name": None,
-                        "next_allowed_client_refresh": None,
-                        "order": None,
-                        "query": "a datatable",
-                        "result": None,
-                        "saved": False,
-                        "short_id": ANY,
-                        "tags": [],
-                        "timezone": None,
-                        "updated_at": ANY,
-                    },
                     "is_cached": False,
+                    "is_sample": True,
+                    "last_modified_at": ANY,
+                    "last_modified_by": None,
                     "last_refresh": None,
-                    "layouts": {},
-                    "text": None,
+                    "name": None,
+                    "next_allowed_client_refresh": None,
+                    "order": None,
+                    "query": "a datatable",
+                    "result": None,
+                    "saved": False,
+                    "short_id": ANY,
+                    "tags": [],
+                    "timezone": None,
+                    "updated_at": ANY,
                 },
-            ],
-        )
+                "is_cached": False,
+                "last_refresh": None,
+                "layouts": {},
+                "text": None,
+            },
+        ]
 
     def test_invalid_template_receives_400_response(self) -> None:
         invalid_template = {"not a": "template"}
@@ -1093,7 +1089,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         error_message = {
             "type": "validation_error",
             "code": "invalid_input",
-            "detail": "'template_name' is a required property\n\nFailed validating 'required' in schema:\n    {'properties': {'created_at': {'description': 'When the dashboard '\n                                                  'template was created',\n                                   'type': 'string'},\n                    'dashboard_description': {'description': 'The '\n                                                             'description '\n                                                             'of the '\n                                                             'dashboard '\n                                                             'template',\n                                              'type': 'string'},\n                    'dashboard_filters': {'description': 'The filters of '\n                                                         'the dashboard '\n                                                         'template',\n                                          'type': 'object'},\n                    'id': {'description': 'The id of the dashboard '\n                                          'template',\n                           'type': 'string'},\n                    'image_url': {'description': 'The image of the '\n                                                 'dashboard template',\n                                  'type': ['string', 'null']},\n                    'tags': {'description': 'The tags of the dashboard '\n                                            'template',\n                             'items': {'type': 'string'},\n                             'type': 'array'},\n                    'team_id': {'description': 'The team this dashboard '\n                                               'template belongs to',\n                                'type': 'number'},\n                    'template_name': {'description': 'The name of the '\n                                                     'dashboard template',\n                                      'type': 'string'},\n                    'tiles': {'description': 'The tiles of the dashboard '\n                                             'template',\n                              'items': {'type': 'object'},\n                              'minItems': 1,\n                              'type': 'array'},\n                    'variables': {'description': 'The variables of the '\n                                                 'dashboard template',\n                                  'items': {'properties': {'default': {'description': 'The '\n                                                                                      'default '\n                                                                                      'value '\n                                                                                      'of '\n                                                                                      'the '\n                                                                                      'variable',\n                                                                       'type': 'object'},\n                                                           'description': {'description': 'The '\n                                                                                          'description '\n                                                                                          'of '\n                                                                                          'the '\n                                                                                          'variable',\n                                                                           'type': 'string'},\n                                                           'id': {'description': 'The '\n                                                                                 'id '\n                                                                                 'of '\n                                                                                 'the '\n                                                                                 'variable',\n                                                                  'type': 'string'},\n                                                           'name': {'description': 'The '\n                                                                                   'name '\n                                                                                   'of '\n                                                                                   'the '\n                                                                                   'variable',\n                                                                    'type': 'string'},\n                                                           'required': {'description': 'Whether '\n                                                                                       'the '\n                                                                                       'variable '\n                                                                                       'is '\n                                                                                       'required',\n                                                                        'type': 'boolean'},\n                                                           'type': {'description': 'The '\n                                                                                   'type '\n                                                                                   'of '\n                                                                                   'the '\n                                                                                   'variable',\n                                                                    'enum': ['event']}},\n                                            'required': ['id',\n                                                         'name',\n                                                         'type',\n                                                         'default',\n                                                         'description',\n                                                         'required'],\n                                            'type': 'object'},\n                                  'type': 'array'}},\n     'required': ['template_name',\n                  'dashboard_description',\n                  'dashboard_filters',\n                  'tiles',\n                  'variables'],\n     'type': 'object'}\n\nOn instance:\n    {'not a': 'template'}",
+            "detail": "'template_name' is a required property\n\nFailed validating 'required' in schema:\n    {'properties': {'created_at': {'description': 'When the dashboard '\n                                                  'template was created',\n                                   'type': 'string'},\n                    'dashboard_description': {'description': 'The '\n                                                             'description '\n                                                             'of the '\n                                                             'dashboard '\n                                                             'template',\n                                              'type': 'string'},\n                    'dashboard_filters': {'description': 'The filters of '\n                                                         'the dashboard '\n                                                         'template',\n                                          'type': 'object'},\n                    'id': {'description': 'The id of the dashboard '\n                                          'template',\n                           'type': 'string'},\n                    'image_url': {'description': 'The image of the '\n                                                 'dashboard template',\n                                  'type': ['string', 'null']},\n                    'tags': {'description': 'The tags of the dashboard '\n                                            'template',\n                             'items': {'type': 'string'},\n                             'type': 'array'},\n                    'team_id': {'description': 'The team this dashboard '\n                                               'template belongs to',\n                                'type': 'number'},\n                    'template_name': {'description': 'The name of the '\n                                                     'dashboard template',\n                                      'type': 'string'},\n                    'tiles': {'description': 'The tiles of the dashboard '\n                                             'template',\n                              'items': {'type': 'object'},\n                              'minItems': 1,\n                              'type': 'array'},\n                    'variables': {'anyOf': [{'items': {'properties': {'default': {'description': 'The '\n                                                                                                 'default '\n                                                                                                 'value '\n                                                                                                 'of '\n                                                                                                 'the '\n                                                                                                 'variable',\n                                                                                  'type': 'object'},\n                                                                      'description': {'description': 'The '\n                                                                                                     'description '\n                                                                                                     'of '\n                                                                                                     'the '\n                                                                                                     'variable',\n                                                                                      'type': 'string'},\n                                                                      'id': {'description': 'The '\n                                                                                            'id '\n                                                                                            'of '\n                                                                                            'the '\n                                                                                            'variable',\n                                                                             'type': 'string'},\n                                                                      'name': {'description': 'The '\n                                                                                              'name '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'type': 'string'},\n                                                                      'required': {'description': 'Whether '\n                                                                                                  'the '\n                                                                                                  'variable '\n                                                                                                  'is '\n                                                                                                  'required',\n                                                                                   'type': 'boolean'},\n                                                                      'type': {'description': 'The '\n                                                                                              'type '\n                                                                                              'of '\n                                                                                              'the '\n                                                                                              'variable',\n                                                                               'enum': ['event']}},\n                                                       'required': ['id',\n                                                                    'name',\n                                                                    'type',\n                                                                    'default',\n                                                                    'description',\n                                                                    'required'],\n                                                       'type': 'object'},\n                                             'type': 'array'},\n                                            {'type': 'null'}],\n                                  'description': 'The variables of the '\n                                                 'dashboard template'}},\n     'required': ['template_name',\n                  'dashboard_description',\n                  'dashboard_filters',\n                  'tiles'],\n     'type': 'object'}\n\nOn instance:\n    {'not a': 'template'}",
             "attr": None,
         }
 
