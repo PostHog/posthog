@@ -382,6 +382,14 @@ def test_person_override_allows_duplicate_override_person_id(team, oldest_event)
             uuid=old_person_id,
         )
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
         person_override = PersonOverride.objects.create(
             team=team,
             old_person_id=old_mapping,
