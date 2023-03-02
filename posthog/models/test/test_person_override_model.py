@@ -19,6 +19,12 @@ def organization():
 
     organization.delete()
 
+        This is enforced by a UNIQUE constraint on (team_id, old_person_id)
+        """
+        oldest_event = dt.datetime.now(dt.timezone.utc)
+        old_person_id = uuid4()
+        override_person_id = uuid4()
+        new_override_person_id = uuid4()
 
 @pytest.fixture
 def team(organization):
