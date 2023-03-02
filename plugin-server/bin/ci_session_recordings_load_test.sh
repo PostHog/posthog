@@ -26,6 +26,8 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 SESSONS_COUNT=${SESSONS_COUNT:-10}
 TOKEN=e2e_token_1239  # Created by the setup_dev management command.
 
+LOG_FILE=$(mktemp)
+
 SESSION_RECORDING_EVENTS_TOPIC=session_recording_events
 SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 
@@ -63,23 +65,27 @@ $DIR/../../manage.py setup_dev || true  # Assume a failure means it has already
 # use the `trap` command to kill all backgrounded processes when the last one
 # terminates.
 trap 'kill $(jobs -p)' EXIT
-PLUGIN_SERVER_MODE=recordings-ingestion pnpm start:dev &> /tmp/plugin-server.log &
+PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js > $LOG_FILE 2>&1 &
+SERVER_PID=$!
 
-# Wait for the plugin server health check to be ready, and timeout after 30
+# Wait for the plugin server health check to be ready, and timeout after 60
 # seconds with exit code 1.
 SECONDS=0
 
-while [[ $SECONDS -lt 30 ]]; do
-    if curl -sSf http://localhost:6738/_health > /dev/null; then
-        break
+until curl http://localhost:6738/_ready; do
+    if (( SECONDS > 60 )); then
+        echo 'Timed out waiting for plugin-server to be ready'
+        echo '::endgroup::'
+        echo '::group::Plugin Server logs'
+        cat $LOG_FILE
+        echo '::endgroup::'
+        exit 1
     fi
+
+    echo ''
+    echo 'Waiting for plugin-server to be ready...'
     sleep 1
 done
-
-if [[ $SECONDS -ge 30 ]]; then
-    echo "Timed out waiting for plugin server health check to be ready"
-    exit 1
-fi
 
 # Generate the session recording events and send them to Kafka.
 echo "Generating $SESSONS_COUNT session recording events"
@@ -124,19 +130,21 @@ fi
 
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
 
-# Kill the plugin server process and poll for up to 30 seconds for it to exit.
-kill $(jobs -p)
-
+# Kill the plugin server process and poll for up to 60 seconds for it to exit.
+kill $SERVER_PID
 SECONDS=0
 
-while [[ $SECONDS -lt 30 ]]; do
-    if ! pgrep -f "pnpm start:dev" > /dev/null; then
+while kill -0 $SERVER_PID; do
+    if (( SECONDS > 60 )); then
+        echo 'Timed out waiting for plugin-server to exit'
         break
     fi
+
+    echo "Waiting for plugin-server to exit, pid $SERVER_PID..."
     sleep 1
 done
 
 # Print the plugin server logs.
 echo "::group::Plugin server logs"
-cat /tmp/plugin-server.log
+cat $LOG_FILE
 echo "::endgroup::"
