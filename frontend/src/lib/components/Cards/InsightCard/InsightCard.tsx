@@ -63,6 +63,8 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
 import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/utils'
 import { InsightVizNode } from '~/queries/schema'
+import { PieChartFilled } from '@ant-design/icons'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -266,6 +268,15 @@ function InsightMeta({
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}
+            samplingNotice={
+                insight.filters.sampling_factor && insight.filters.sampling_factor < 1 ? (
+                    <Tooltip
+                        title={`Insight contains data sampled at a ${100 * insight.filters.sampling_factor}% rate`}
+                    >
+                        <PieChartFilled className="mr-2" style={{ color: 'var(--primary-light)' }} />
+                    </Tooltip>
+                ) : null
+            }
             moreButtons={
                 <>
                     {allInteractionsAllowed && (
@@ -502,7 +513,7 @@ export function InsightViz({
             ) : empty ? (
                 <InsightEmptyState />
             ) : timedOut ? (
-                <InsightTimeoutState isLoading={!!loading} />
+                <InsightTimeoutState isLoading={!!loading} insightProps={{}} insightType={insight.filters.insight} />
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
