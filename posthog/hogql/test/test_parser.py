@@ -1,5 +1,5 @@
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.test.base import BaseTest
 
 
@@ -619,6 +619,20 @@ class TestParser(BaseTest):
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                 group_by=[ast.Constant(value=1), ast.Field(chain=["event"])],
             ),
+        )
+
+    def test_order_by(self):
+        self.assertEqual(
+            parse_order_expr("1 ASC"),
+            ast.OrderExpr(expr=ast.Constant(value=1), order="ASC"),
+        )
+        self.assertEqual(
+            parse_order_expr("event"),
+            ast.OrderExpr(expr=ast.Field(chain=["event"]), order="ASC"),
+        )
+        self.assertEqual(
+            parse_order_expr("timestamp DESC"),
+            ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="DESC"),
         )
 
     def test_select_order_by(self):

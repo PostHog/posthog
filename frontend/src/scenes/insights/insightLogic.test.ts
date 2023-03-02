@@ -33,6 +33,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import api from 'lib/api'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -968,20 +969,43 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('setFilters with new entity', () => {
-        it('does not call the api on empty filters', async () => {
+    describe('emptyFilters', () => {
+        let theEmptyFiltersLogic: ReturnType<typeof insightLogic.build>
+        beforeEach(() => {
             const insight = {
                 result: ['result from api'],
             }
-            logic = insightLogic({
+            theEmptyFiltersLogic = insightLogic({
                 dashboardItemId: undefined,
                 cachedInsight: insight,
             })
-            logic.mount()
+            theEmptyFiltersLogic.mount()
+        })
 
-            await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
+        it('does not call the api on setting empty filters', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
+        })
+
+        it('does not call the api on update when empty filters and no query', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: undefined,
+                })
+            }).toNotHaveDispatchedActions(['updateInsightSuccess'])
+        })
+
+        it('does call the api on update when empty filters but query is present', async () => {
+            await expectLogic(theEmptyFiltersLogic, () => {
+                theEmptyFiltersLogic.actions.updateInsight({
+                    name: 'name',
+                    filters: {},
+                    query: { kind: NodeKind.DataTableNode } as DataTableNode,
+                })
+            }).toDispatchActions(['updateInsightSuccess'])
         })
     })
 
@@ -1277,7 +1301,7 @@ describe('insightLogic', () => {
         })
     })
 
-    describe('active view', () => {
+    describe('saving query based insights', () => {
         beforeEach(async () => {
             logic = insightLogic({
                 dashboardItemId: 'new',
@@ -1285,151 +1309,31 @@ describe('insightLogic', () => {
             logic.mount()
         })
 
-        it('has a default of trends', async () => {
-            await expectLogic(logic).toMatchValues({
-                activeView: InsightType.TRENDS,
-            })
-        })
+        it('sends query when saving', async () => {
+            jest.spyOn(api, 'create')
 
-        it('can set the active view to TRENDS which sets the filters', async () => {
             await expectLogic(logic, () => {
-                logic.actions.setActiveView(InsightType.TRENDS)
-            }).toMatchValues({
-                filters: {
-                    actions: [],
-                    display: 'ActionsLineGraph',
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 0,
-                            type: 'events',
+                logic.actions.setInsight(
+                    { filters: {}, query: { kind: NodeKind.DataTableNode } as DataTableNode },
+                    { overrideFilter: true }
+                )
+                logic.actions.saveInsight()
+            })
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            expect(mockCreateCalls).toEqual([
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights/`,
+                    {
+                        derived_name: '',
+                        filters: {},
+                        query: {
+                            kind: 'DataTableNode',
                         },
-                    ],
-                    filter_test_accounts: false,
-                    insight: 'TRENDS',
-                    interval: 'day',
-                    properties: [],
-                },
-            })
-        })
-
-        it('can set the active view to FUNNEL which sets the filters differently', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setActiveView(InsightType.FUNNELS)
-            }).toMatchValues({
-                filters: {
-                    actions: [],
-                    events: [
-                        {
-                            id: '$pageview',
-                            name: '$pageview',
-                            order: 0,
-                            type: 'events',
-                        },
-                    ],
-                    exclusions: [],
-                    funnel_viz_type: 'steps',
-                    insight: 'FUNNELS',
-                },
-            })
-        })
-
-        it('clears maybeShowTimeoutMessage when setting active view', async () => {
-            logic.actions.markInsightTimedOut('a query id')
-            await expectLogic(logic).toMatchValues({ maybeShowTimeoutMessage: true })
-            logic.actions.setActiveView(InsightType.FUNNELS)
-            await expectLogic(logic).toMatchValues({ maybeShowTimeoutMessage: false })
-        })
-
-        it('clears maybeShowErrorMessage when setting active view', async () => {
-            logic.actions.loadInsightFailure('error', { status: 0 })
-            await expectLogic(logic).toMatchValues({ maybeShowErrorMessage: true })
-            logic.actions.setActiveView(InsightType.FUNNELS)
-            await expectLogic(logic).toMatchValues({ maybeShowErrorMessage: false })
-        })
-
-        it('clears lastRefresh when setting active view', async () => {
-            logic.actions.setLastRefresh('123')
-            await expectLogic(logic).toMatchValues({ lastRefresh: '123' })
-            logic.actions.setActiveView(InsightType.FUNNELS)
-            await expectLogic(logic).toFinishAllListeners().toMatchValues({ lastRefresh: null })
-        })
-
-        it('clears erroredQueryId when setting active view', async () => {
-            logic.actions.markInsightErrored('123')
-            await expectLogic(logic).toMatchValues({ erroredQueryId: '123' })
-            logic.actions.setActiveView(InsightType.FUNNELS)
-            await expectLogic(logic).toMatchValues({ erroredQueryId: null })
-        })
-
-        describe('filters changing changes active view', () => {
-            it('takes view from cached insight filters', async () => {
-                const logicWithCachedInsight = insightLogic({
-                    dashboardItemId: 'insight' as InsightShortId,
-                    cachedInsight: { filters: { insight: InsightType.FUNNELS } },
-                })
-                logicWithCachedInsight.mount()
-                expect(logicWithCachedInsight.values.activeView).toEqual(InsightType.FUNNELS)
-            })
-
-            it('sets view from setFilters', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setFilters({ insight: InsightType.FUNNELS })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('does not set view from setInsight if filters not overriding', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, {})
-                }).toMatchValues({
-                    activeView: InsightType.TRENDS,
-                })
-            })
-
-            it('does set view from setInsight if filters are overriding', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setInsight({ filters: { insight: InsightType.FUNNELS } }, { overrideFilter: true })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('sets view from loadInsightSuccess', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.loadInsightSuccess({ filters: { insight: InsightType.FUNNELS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('does not set view from loadInsightSuccess if there is already a filter in state', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setFilters({ insight: InsightType.FUNNELS })
-                    logic.actions.loadInsightSuccess({ filters: { insight: InsightType.PATHS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('sets view from loadResultsSuccess', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.loadResultsSuccess({ filters: { insight: InsightType.FUNNELS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
-
-            it('does not set view from loadResultsSuccess if there is already a filter in state', async () => {
-                await expectLogic(logic, () => {
-                    logic.actions.setFilters({ insight: InsightType.FUNNELS })
-                    logic.actions.loadResultsSuccess({ filters: { insight: InsightType.PATHS } })
-                }).toMatchValues({
-                    activeView: InsightType.FUNNELS,
-                })
-            })
+                        saved: true,
+                    },
+                ],
+            ])
         })
     })
 })

@@ -1,6 +1,6 @@
 import json
 from datetime import datetime, timedelta
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 import pytz
 from django.utils import timezone
@@ -103,8 +103,14 @@ def convert_to_datetime_aware(date_obj):
     return date_obj
 
 
-def correct_result_for_sampling(result: Union[int, float], sampling_factor: Optional[float]) -> float:
-    if not sampling_factor:
-        return result
+def correct_result_for_sampling(value: int, sampling_factor: Optional[float], entity_math: Optional[str] = None) -> int:
+    from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
-    return result * (1 / sampling_factor)
+    # We don't adjust results for sampling if:
+    # - There's no sampling_factor specified i.e. the query isn't sampled
+    # - The query performs a math operation because math operations on sampled data yield results in the correct format
+    if (not sampling_factor) or (entity_math is not None and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS):
+        return value
+
+    result: int = round(value * (1 / sampling_factor))
+    return result

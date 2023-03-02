@@ -1,8 +1,7 @@
 import { EditableField } from 'lib/components/EditableField/EditableField'
-import { summarizeInsightFilters, summarizeInsightQuery } from 'scenes/insights/utils'
-import { InsightVizNode } from '~/queries/schema'
+import { summariseInsight } from 'scenes/insights/utils'
 import { IconLock } from 'lib/lemon-ui/icons'
-import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, ItemMode } from '~/types'
+import { AvailableFeature, ExporterFormat, InsightLogicProps, InsightModel, InsightShortId, ItemMode } from '~/types'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -29,18 +28,17 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { tagsModel } from '~/models/tagsModel'
 import { teamLogic } from 'scenes/teamLogic'
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { InsightSceneProps } from 'scenes/insights/Insight'
 import { router } from 'kea-router'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { Tooltip } from 'antd'
 
-export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element {
+export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: InsightLogicProps }): JSX.Element {
     // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
 
     // insightLogic
-    const logic = insightLogic({ dashboardItemId: insightId || 'new' })
+    const logic = insightLogic(insightLogicProps)
     const {
         insightProps,
         filters,
@@ -52,8 +50,6 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
         isUsingDataExploration,
         isFilterBasedInsight,
         isQueryBasedInsight,
-        isInsightVizQuery,
-        isTestGroupForNewRefreshUX,
         displayRefreshButtonChangedNotice,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
@@ -64,11 +60,13 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
 
     // insightDataLogic
     const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insighVizSetQuery } = useActions(insightDataLogic(insightProps))
+    const { setQuery: insightVizSetQuery, saveInsight: saveQueryBasedInsight } = useActions(
+        insightDataLogic(insightProps)
+    )
 
     // TODO - separate presentation of insight with viz query from insight with query
     let query = insightVizQuery
-    let setQuery = insighVizSetQuery
+    let setQuery = insightVizSetQuery
     if (!!insight.query && isQueryBasedInsight) {
         query = insight.query
         setQuery = () => {
@@ -86,21 +84,23 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
 
+    const saveInsightHandler = isUsingDataExploration ? saveQueryBasedInsight : saveInsight
+
     return (
         <>
-            {insightId !== 'new' && (
+            {insight.short_id !== 'new' && (
                 <>
                     <SubscriptionsModal
                         isOpen={insightMode === ItemMode.Subscriptions}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insightId}
+                        insightShortId={insight.short_id}
                         subscriptionId={subscriptionId}
                     />
 
                     <SharingModal
                         isOpen={insightMode === ItemMode.Sharing}
                         closeModal={() => push(urls.insightView(insight.short_id as InsightShortId))}
-                        insightShortId={insightId}
+                        insightShortId={insight.short_id}
                         insight={insight}
                     />
                 </>
@@ -110,19 +110,14 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={
-                            isUsingDataExploration && isInsightVizQuery
-                                ? summarizeInsightQuery(
-                                      (query as InsightVizNode).source,
-                                      aggregationLabel,
-                                      cohortsById,
-                                      mathDefinitions
-                                  )
-                                : isFilterBasedInsight
-                                ? summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
-                                : // TODO placeholder for non insight viz queries
-                                  ''
-                        }
+                        placeholder={summariseInsight(
+                            isUsingDataExploration,
+                            query,
+                            aggregationLabel,
+                            cohortsById,
+                            mathDefinitions,
+                            filters
+                        )}
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
@@ -141,13 +136,14 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit && isTestGroupForNewRefreshUX ? (
+                        {insightMode === ItemMode.Edit ? (
                             <>
                                 <Tooltip
                                     title={
                                         displayRefreshButtonChangedNotice ? `The 'Refresh' button has moved here.` : ''
                                     }
                                     visible={displayRefreshButtonChangedNotice}
+                                    zIndex={940}
                                 >
                                     <More
                                         onClick={
@@ -161,7 +157,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                                                     status="stealth"
                                                     onClick={() => loadResults(true)}
                                                     fullWidth
-                                                    data-attr="duplicate-insight-from-insight-view"
+                                                    data-attr="refresh-insight-from-insight-view"
                                                     disabledReason={insightRefreshButtonDisabledReason}
                                                 >
                                                     Refresh
@@ -189,17 +185,15 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                                         }
                                         overlay={
                                             <>
-                                                {isTestGroupForNewRefreshUX ? (
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadResults(true)}
-                                                        fullWidth
-                                                        data-attr="duplicate-insight-from-insight-view"
-                                                        disabledReason={insightRefreshButtonDisabledReason}
-                                                    >
-                                                        Refresh
-                                                    </LemonButton>
-                                                ) : null}
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => loadResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-insight-from-insight-view"
+                                                    disabledReason={insightRefreshButtonDisabledReason}
+                                                >
+                                                    Refresh
+                                                </LemonButton>
                                                 <LemonButton
                                                     status="stealth"
                                                     onClick={() => duplicateInsight(insight as InsightModel, true)}
@@ -299,7 +293,7 @@ export function InsightPageHeader({ insightId }: InsightSceneProps): JSX.Element
                         ) : (
                             <InsightSaveButton
                                 saveAs={saveAs}
-                                saveInsight={saveInsight}
+                                saveInsight={saveInsightHandler}
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}

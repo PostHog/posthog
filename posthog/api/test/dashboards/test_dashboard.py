@@ -1,5 +1,6 @@
 import json
-from unittest.mock import MagicMock
+from typing import Dict
+from unittest.mock import ANY, MagicMock
 
 from dateutil import parser
 from django.test import override_settings
@@ -17,6 +18,34 @@ from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.signals import mute_selected_signals
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.utils import generate_cache_key
+
+valid_template: Dict = {
+    "template_name": "Sign up conversion template with variables",
+    "dashboard_description": "Use this template to see how many users sign up after visiting your pricing page.",
+    "dashboard_filters": {},
+    "tiles": [
+        {
+            "name": "Website Unique Users (Total)",
+            "type": "INSIGHT",
+            "color": "blue",
+            "filters": {
+                "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                "compare": True,
+                "display": "BoldNumber",
+                "insight": "TRENDS",
+                "interval": "day",
+                "date_from": "-30d",
+            },
+            "layouts": {
+                "sm": {"h": 5, "i": "21", "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                "xs": {"h": 5, "i": "21", "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 1},
+            },
+            "description": "Shows the number of unique users that use your app every day.",
+        },
+    ],
+    "variables": []
+    # purposely missing tags as they are not required
+}
 
 
 class TestDashboard(APIBaseTest, QueryMatchingTest):
@@ -940,3 +969,128 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
+
+    def test_create_from_template_json(self) -> None:
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": valid_template},
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+
+        dashboard_id = response.json()["id"]
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+
+        self.assertEqual(dashboard["name"], valid_template["template_name"], dashboard)
+        self.assertEqual(dashboard["description"], valid_template["dashboard_description"])
+
+        self.assertEqual(len(dashboard["tiles"]), 1)
+
+    def test_create_from_template_json_must_provide_at_least_one_tile(self) -> None:
+        template: Dict = {**valid_template, "tiles": []}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 400, response.json()
+
+    def test_create_from_template_json_cam_provide_text_tile(self) -> None:
+        template: Dict = {**valid_template, "tiles": [{"type": "TEXT", "body": "hello world", "layouts": {}}]}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200
+
+        assert response.json()["tiles"] == [
+            {
+                "color": None,
+                "id": ANY,
+                "insight": None,
+                "is_cached": False,
+                "last_refresh": None,
+                "layouts": {},
+                "text": {
+                    "body": "hello world",
+                    "created_by": None,
+                    "id": ANY,
+                    "last_modified_at": ANY,
+                    "last_modified_by": None,
+                    "team": self.team.pk,
+                },
+            },
+        ]
+
+    def test_create_from_template_json_cam_provide_query_tile(self) -> None:
+        template: Dict = {
+            **valid_template,
+            # client provides an incorrect "empty" filter alongside a query
+            "tiles": [{"type": "INSIGHT", "query": "a datatable", "filters": {"date_from": None}, "layouts": {}}],
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": template},
+        )
+        assert response.status_code == 200
+
+        assert response.json()["tiles"] == [
+            {
+                "color": None,
+                "id": ANY,
+                "insight": {
+                    "created_at": ANY,
+                    "created_by": None,
+                    "dashboard_tiles": [{"dashboard_id": response.json()["id"], "deleted": None, "id": ANY}],
+                    "dashboards": [response.json()["id"]],
+                    "deleted": False,
+                    "derived_name": None,
+                    "description": None,
+                    "effective_privilege_level": 37,
+                    "effective_restriction_level": 21,
+                    "favorited": False,
+                    "filters": {},
+                    "filters_hash": ANY,
+                    "id": ANY,
+                    "is_cached": False,
+                    "is_sample": False,
+                    "last_modified_at": ANY,
+                    "last_modified_by": None,
+                    "last_refresh": None,
+                    "name": None,
+                    "next_allowed_client_refresh": None,
+                    "order": None,
+                    "query": "a datatable",
+                    "result": None,
+                    "saved": False,
+                    "short_id": ANY,
+                    "tags": [],
+                    "timezone": None,
+                    "updated_at": ANY,
+                },
+                "is_cached": False,
+                "last_refresh": None,
+                "layouts": {},
+                "text": None,
+            },
+        ]
+
+    def test_invalid_template_receives_400_response(self) -> None:
+        invalid_template = {"not a": "template"}
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/create_from_template_json",
+            {"template": invalid_template},
+        )
+        assert response.status_code == 400, response.json()
+        error_message = {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": "'template_name' is a required property\n\nFailed validating 'required' in schema:\n    {'properties': {'created_at': {'description': 'When the dashboard '\n                                                  'template was created',\n                                   'type': 'string'},\n                    'dashboard_description': {'description': 'The '\n                                                             'description '\n                                                             'of the '\n                                                             'dashboard '\n                                                             'template',\n                                              'type': 'string'},\n                    'dashboard_filters': {'description': 'The filters of '\n                                                         'the dashboard '\n                                                         'template',\n                                          'type': 'object'},\n                    'id': {'description': 'The id of the dashboard '\n                                          'template',\n                           'type': 'string'},\n                    'image_url': {'description': 'The image of the '\n                                                 'dashboard template',\n                                  'type': ['string', 'null']},\n                    'tags': {'description': 'The tags of the dashboard '\n                                            'template',\n                             'items': {'type': 'string'},\n                             'type': 'array'},\n                    'team_id': {'description': 'The team this dashboard '\n                                               'template belongs to',\n                                'type': 'number'},\n                    'template_name': {'description': 'The name of the '\n                                                     'dashboard template',\n                                      'type': 'string'},\n                    'tiles': {'description': 'The tiles of the dashboard '\n                                             'template',\n                              'items': {'type': 'object'},\n                              'minItems': 1,\n                              'type': 'array'},\n                    'variables': {'description': 'The variables of the '\n                                                 'dashboard template',\n                                  'items': {'properties': {'default': {'description': 'The '\n                                                                                      'default '\n                                                                                      'value '\n                                                                                      'of '\n                                                                                      'the '\n                                                                                      'variable',\n                                                                       'type': 'object'},\n                                                           'description': {'description': 'The '\n                                                                                          'description '\n                                                                                          'of '\n                                                                                          'the '\n                                                                                          'variable',\n                                                                           'type': 'string'},\n                                                           'id': {'description': 'The '\n                                                                                 'id '\n                                                                                 'of '\n                                                                                 'the '\n                                                                                 'variable',\n                                                                  'type': 'string'},\n                                                           'name': {'description': 'The '\n                                                                                   'name '\n                                                                                   'of '\n                                                                                   'the '\n                                                                                   'variable',\n                                                                    'type': 'string'},\n                                                           'required': {'description': 'Whether '\n                                                                                       'the '\n                                                                                       'variable '\n                                                                                       'is '\n                                                                                       'required',\n                                                                        'type': 'boolean'},\n                                                           'type': {'description': 'The '\n                                                                                   'type '\n                                                                                   'of '\n                                                                                   'the '\n                                                                                   'variable',\n                                                                    'enum': ['event']}},\n                                            'required': ['id',\n                                                         'name',\n                                                         'type',\n                                                         'default',\n                                                         'description',\n                                                         'required'],\n                                            'type': 'object'},\n                                  'type': 'array'}},\n     'required': ['template_name',\n                  'dashboard_description',\n                  'dashboard_filters',\n                  'tiles',\n                  'variables'],\n     'type': 'object'}\n\nOn instance:\n    {'not a': 'template'}",
+            "attr": None,
+        }
+
+        assert response.json() == error_message
