@@ -1,6 +1,6 @@
 GET_ELEMENTS = """
 SELECT
-    elements_chain, count(_sample_factor) as count, event as event_type
+    elements_chain, count() as count, event as event_type
 FROM events
 SAMPLE %(sample_rows_count)s
 WHERE
