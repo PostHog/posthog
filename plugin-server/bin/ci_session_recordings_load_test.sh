@@ -155,7 +155,7 @@ fi
 # Print the time it took for the ingestion lag to drop to zero, and sessions per
 # second that were ingested.
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
-echo "Sessions per second: $(echo "$SESSONS_COUNT / $SECONDS" | awk '{printf "%.2f", $0}')"
+echo "Sessions per second: $(echo "$SESSONS_COUNT $SECONDS" | awk '{printf "%.2f", $1 / $2}')"
 
 # Kill the plugin server process and poll for up to 60 seconds for it to exit.
 kill $SERVER_PID
