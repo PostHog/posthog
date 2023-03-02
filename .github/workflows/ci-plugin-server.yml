@@ -262,6 +262,9 @@ jobs:
 
         runs-on: ubuntu-latest
 
+        env:
+            DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+
         steps:
             - name: Code check out
               uses: actions/checkout@v3
@@ -321,7 +324,7 @@ jobs:
               run: |
                   ./manage.py migrate
 
-            - name: Run functional tests
+            - name: Run load test
               run: |
                   cd plugin-server
                   ./bin/ci_session_recordings_load_test.sh

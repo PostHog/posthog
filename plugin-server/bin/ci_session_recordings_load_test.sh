@@ -111,7 +111,7 @@ while [[ $SECONDS -lt 120 ]]; do
         --describe \
         --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
         | grep $SESSION_RECORDING_EVENTS_TOPIC \
-        | awk '{print $5}')
+        | awk '{print $6}')
 
     echo "Ingestion lag: $LAG"
 
