@@ -43,6 +43,19 @@ docker compose \
     --topic $SESSION_RECORDING_EVENTS_TOPIC \
     || true
 
+
+# Make sure the topic exists, and if not, create it.
+echo "Creating topic $SESSION_RECORDING_EVENTS_TOPIC"
+docker compose \
+    -f $DIR/../../docker-compose.dev.yml exec \
+    -T kafka kafka-topics.sh \
+    --bootstrap-server localhost:9092 \
+    --create \
+    --topic $SESSION_RECORDING_EVENTS_TOPIC \
+    --partitions 1 \
+    --replication-factor 1 \
+    || true
+
 $DIR/../../manage.py setup_dev || true  # Assume a failure means it has already been run.
 
 # Start the plugin server with only the session recordings consumer running. We
