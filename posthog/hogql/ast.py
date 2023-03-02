@@ -292,6 +292,12 @@ class Call(Expr):
     args: List[Expr]
 
 
+class WithExpr(Expr):
+    name: str
+    type: Literal["column", "subquery"]
+    expr: Expr
+
+
 class JoinExpr(Expr):
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", Field]] = None
@@ -304,6 +310,7 @@ class JoinExpr(Expr):
 class SelectQuery(Expr):
     symbol: Optional[SelectQuerySymbol] = None
 
+    select_with: Optional[Dict[str, WithExpr]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None

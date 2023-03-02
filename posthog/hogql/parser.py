@@ -76,7 +76,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())
 
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
+
         select_query = ast.SelectQuery(
+            select_with=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
@@ -99,8 +101,6 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
             if limit_clause.WITH() and limit_clause.TIES():
                 select_query.limit_with_ties = True
 
-        if ctx.withClause():
-            raise NotImplementedError(f"Unsupported: SelectStmt.withClause()")
         if ctx.topClause():
             raise NotImplementedError(f"Unsupported: SelectStmt.topClause()")
         if ctx.arrayJoinClause():
@@ -113,7 +113,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return select_query
 
     def visitWithClause(self, ctx: HogQLParser.WithClauseContext):
-        raise NotImplementedError(f"Unsupported node: WithClause")
+        return self.visit(ctx.withExprList())
 
     def visitTopClause(self, ctx: HogQLParser.TopClauseContext):
         raise NotImplementedError(f"Unsupported node: TopClause")
@@ -550,6 +550,22 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitColumnLambdaExpr(self, ctx: HogQLParser.ColumnLambdaExprContext):
         raise NotImplementedError(f"Unsupported node: ColumnLambdaExpr")
+
+    # Visit a parse tree produced by HogQLParser#withExprList.
+    def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
+        with_exprs: Dict[str, ast.WithExpr] = {}
+        for expr in ctx.withExpr():
+            with_expr = self.visit(expr)
+            with_exprs[with_expr.name] = with_expr
+        return with_exprs
+
+    # Visit a parse tree produced by HogQLParser#WithExprSubquery.
+    def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
+        return ast.WithExpr(type="subquery", name=self.visit(ctx.identifier()), expr=self.visit(ctx.selectUnionStmt()))
+
+    # Visit a parse tree produced by HogQLParser#WithExprColumn.
+    def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
+        return ast.WithExpr(type="column", name=self.visit(ctx.identifier()), expr=self.visit(ctx.columnExpr()))
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():
