@@ -9,6 +9,7 @@ from statshog.defaults.django import statsd
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.client import sync_execute
+from posthog.logging.timing import timed
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
@@ -48,6 +49,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     include_in_docs = False
 
+    @timed("heatmap_elements")
     @action(methods=["GET"], detail=False)
     def stats(self, request: request.Request, **kwargs) -> response.Response:
         """
