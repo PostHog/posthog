@@ -31,6 +31,25 @@ LOG_FILE=$(mktemp)
 SESSION_RECORDING_EVENTS_TOPIC=session_recording_events
 SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 
+# Wait for Kafka to be ready, give it 30 seconds
+SECONDS=0
+
+until docker compose \
+    -f $DIR/../../docker-compose.dev.yml exec \
+    -T kafka kafka-topics.sh \
+    --bootstrap-server localhost:9092 \
+    --list \
+    > /dev/null; do
+    if (( SECONDS > 30 )); then
+        echo 'Timed out waiting for Kafka to be ready'
+        exit 1
+    fi
+
+    echo ''
+    echo 'Waiting for Kafka to be ready...'
+    sleep 1
+done
+
 # Before we do anything, reset the consumer group offsets to the latest offsets.
 # This is to ensure that we are only testing the ingestion of new messages, and
 # not the replay of old messages. We don't fail if the topic does not exist.
@@ -68,12 +87,12 @@ PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js > $LOG_FILE 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID' EXIT
 
-# Wait for the plugin server health check to be ready, and timeout after 60
+# Wait for the plugin server health check to be ready, and timeout after 10
 # seconds with exit code 1.
 SECONDS=0
 
 until curl http://localhost:6738/_health; do
-    if (( SECONDS > 60 )); then
+    if (( SECONDS > 10 )); then
         echo 'Timed out waiting for plugin-server to be ready'
         echo '::endgroup::'
         echo '::group::Plugin Server logs'
