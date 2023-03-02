@@ -188,7 +188,7 @@ export function ProjectSettings(): JSX.Element {
                     (if you're logged in).
                 </p>
                 <p>
-                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    <b>Domains and wildcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
                     However, wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />

@@ -27,6 +27,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
     topHeading?: JSX.Element | null
+    samplingNotice?: JSX.Element | null
 }
 
 export function CardMeta({
@@ -41,6 +42,7 @@ export function CardMeta({
     areDetailsShown,
     setAreDetailsShown,
     className,
+    samplingNotice,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -103,6 +105,7 @@ export function CardMeta({
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
+                                    {samplingNotice ? samplingNotice : null}
                                     {showEditingControls && <More overlay={moreButtons} />}
                                 </div>
                             </div>
