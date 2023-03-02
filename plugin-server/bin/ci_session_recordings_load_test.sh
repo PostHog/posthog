@@ -31,7 +31,7 @@ SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 
 # Before we do anything, reset the consumer group offsets to the latest offsets.
 # This is to ensure that we are only testing the ingestion of new messages, and
-# not the replay of old messages.
+# not the replay of old messages. We don't fail if the topic does not exist.
 echo "Resetting consumer group offsets to latest"
 docker compose \
     -f $DIR/../../docker-compose.dev.yml exec \
@@ -41,7 +41,7 @@ docker compose \
     --to-latest \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
     --topic $SESSION_RECORDING_EVENTS_TOPIC \
-    --execute
+    || true
 
 $DIR/../../manage.py setup_dev || true  # Assume a failure means it has already been run.
 
@@ -105,6 +105,7 @@ done
 
 if [[ $SECONDS -ge 120 ]]; then
     echo "Timed out waiting for ingestion lag to drop to zero"
+    cat /tmp/plugin-server.log
     exit 1
 fi
 
