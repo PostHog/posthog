@@ -586,16 +586,30 @@ export class PersonState {
 
         const { rows: transitiveUpdates } = await this.db.postgresQuery(
             SQL`
-                UPDATE
-                    posthog_personoverride
-                SET
-                    override_person_id = ${overridePersonId}, version = version + 1
-                WHERE
-                    team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
-                RETURNING
-                    old_person_id,
-                    version,
-                    oldest_event;
+                WITH updated_ids AS (
+                    UPDATE
+                        posthog_personoverride
+                    SET
+                        override_person_id = ${overridePersonId}, version = version + 1
+                    WHERE
+                        team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
+                    RETURNING
+                        old_person_id,
+                        version,
+                    oldest_event
+                )
+                -- The follow-up JOIN is required as ClickHouse requires UUIDs, so we need to fetch the UUIDs
+                -- of the IDs we updated from the helper table.
+                SELECT
+                    helper.uuid as old_person_id,
+                    updated_ids.version,
+                    updated_ids.oldest_event
+                FROM
+                    updated_ids
+                JOIN
+                    posthog_personoverridehelper helper
+                ON
+                    helper.id = updated_ids.old_person_id;
             `,
             undefined,
             'transitivePersonOverrides',
@@ -666,7 +680,7 @@ export class PersonState {
                 WHERE uuid = ${person.uuid}
             `,
             undefined,
-            'personOverride',
+            'personOverrideHelper',
             client
         )
 
