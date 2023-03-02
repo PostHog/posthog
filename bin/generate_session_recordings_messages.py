@@ -34,16 +34,26 @@
 # output to the Kafka command line tools, such as kafkacat or
 # kafka-console-producer to produce the messages to Kafka, or to a file for use
 # with e.g. vegeta to hit the capture endpoint.
+#
+# For example, you could run:
+#
+#   ```
+#   ./bin/generate_session_recordings_messages.py --count 1 | docker compose -f docker-compose.dev.yml exec -T kafka kafka-console-producer.sh --topic session_recording_events --broker-list localhost:9092
+#   ```
+#
+# which will produce messages to the session_recording_events topic in Kafka.
+#
+# IMORTANT: I am assuming a log-normal distribution for counts and size. That is
+# an assumption that is not backed up by any data.
 
 
 import argparse
 import base64
 import json
-import math
-import random
 from typing import List
 import uuid
 import numpy
+
 
 from faker import Faker
 
@@ -59,7 +69,7 @@ def get_parser():
         help="The number of session recordings to generate",
     )
     parser.add_argument(
-        "--full-snapshot-size-average",
+        "--full-snapshot-size-mean",
         type=int,
         default=185000,
         help="The average size of a full snapshot in bytes",
@@ -71,7 +81,7 @@ def get_parser():
         help="The standard deviation of the size of a full snapshot in bytes squared",
     )
     parser.add_argument(
-        "--full-snapshot-count-average",
+        "--full-snapshot-count-mean",
         type=int,
         default=2,
         help="The average number of full snapshots per session",
@@ -83,7 +93,7 @@ def get_parser():
         help="The standard deviation of the number of full snapshots per session",
     )
     parser.add_argument(
-        "--incremental-snapshot-size-average",
+        "--incremental-snapshot-size-mean",
         type=int,
         default=14000,
         help="The average size of an incremental snapshot in bytes",
@@ -95,7 +105,7 @@ def get_parser():
         help="The standard deviation of the size of an incremental snapshot in bytes squared",
     )
     parser.add_argument(
-        "--incremental-snapshot-count-average",
+        "--incremental-snapshot-count-mean",
         type=int,
         default=40,
         help="The average number of incremental snapshots per session",
@@ -117,6 +127,16 @@ def get_parser():
         action="store_true",
         help="Print verbose output",
     )
+    parser.add_argument(
+        "--team-id",
+        type=int,
+        help="The team id to use for the messages.",
+    )
+    parser.add_argument(
+        "--token",
+        type=str,
+        help="The token to use for the messages.",
+    )
     return parser
 
 
@@ -127,17 +147,32 @@ def chunked(
     return [data[i : i + chunk_size] for i in range(0, len(data), chunk_size)]
 
 
+def sample_log_normal_distribution(
+    mu: int,
+    sigma: int,
+):
+    """
+    Samples from a log-normal distribution with the given mean and standard
+    deviation of that log distribution.
+    """
+    normal_std = numpy.sqrt(numpy.log(1 + (sigma / mu) ** 2))
+    normal_mean = numpy.log(mu) - normal_std**2 / 2
+    return int(numpy.random.lognormal(normal_mean, normal_std))
+
+
 def generate_snapshot_messages(
     faker: Faker,
     count: int,
-    full_snapshot_size_average: int,
+    full_snapshot_size_mean: int,
     full_snapshot_size_standard_deviation: int,
-    full_snapshot_count_average: int,
+    full_snapshot_count_mean: int,
     full_snapshot_count_standard_deviation: int,
-    incremental_snapshot_size_average: int,
+    incremental_snapshot_size_mean: int,
     incremental_snapshot_size_standard_deviation: int,
-    incremental_snapshot_count_average: int,
+    incremental_snapshot_count_mean: int,
     incremental_snapshot_count_standard_deviation: int,
+    team_id: int,
+    token: str,
     verbose: bool,
 ):
     # Generate session recording messages for a number, `count`, of sessions.
@@ -145,17 +180,17 @@ def generate_snapshot_messages(
     # snapshot always being a full snapshot, and the remaining snapshots being a
     # mix of both full and incremental snapshots. The size of the snapshot data
     # is generated randomly, with the size of the full snapshot being generated
-    # from a log-normal distribution with the given `full_snapshot_size_average`
+    # from a log-normal distribution with the given `full_snapshot_size_mean`
     # and `full_snapshot_size_standard_deviation`, and the size of the
     # incremental snapshots being generated from a log-normal distribution with
-    # the given `incremental_snapshot_size_average` and
+    # the given `incremental_snapshot_size_mean` and
     # `incremental_snapshot_size_standard_deviation`.
     #
     # Per session, the number of full snapshots is generated from a normal
-    # distribution with the given `full_snapshot_count_average` and
+    # distribution with the given `full_snapshot_count_mean` and
     # `full_snapshot_count_standard_deviation`. The number of incremental
     # snapshots is generated from a log-normal distribution with the given
-    # `incremental_snapshot_count_average` and
+    # `incremental_snapshot_count_mean` and
     # `incremental_snapshot_count_standard_deviation`.
     #
     # Snapshots that are larger than 900KB are split into chunks of 900KB each.
@@ -206,29 +241,28 @@ def generate_snapshot_messages(
         distinct_id = str(uuid.uuid4())
         ip = faker.ipv4()
         site_url = faker.url()
-        team_id = faker.random_int()
         now = faker.date_time()
         sent_at = faker.date_time()
-        token = str(uuid.uuid4())
 
         # Use numpy to generate the number of full snapshots and incremental
         # from a log-normal distribution.
         if verbose:
             print(
                 f"Generating session recording messages for session "
-                f"{session_id} with an average of {full_snapshot_count_average} "
+                f"{session_id} with an average of {full_snapshot_count_mean} "
                 f"full snapshots with a standard deviation of "
                 f"{full_snapshot_count_standard_deviation} and "
-                f"an average of {incremental_snapshot_count_average} "
+                f"an average of {incremental_snapshot_count_mean} "
                 f"incremental snapshots with a standard deviation of "
                 f"{incremental_snapshot_count_standard_deviation}"
             )
 
-        full_snapshot_count = int(
-            numpy.random.lognormal(full_snapshot_count_average, full_snapshot_count_standard_deviation)
+        full_snapshot_count = sample_log_normal_distribution(
+            full_snapshot_count_mean, full_snapshot_count_standard_deviation
         )
-        incremental_snapshot_count = int(
-            numpy.random.lognormal(incremental_snapshot_count_average, incremental_snapshot_count_standard_deviation)
+        incremental_snapshot_count = sample_log_normal_distribution(
+            incremental_snapshot_count_mean,
+            incremental_snapshot_count_standard_deviation,
         )
 
         if verbose:
@@ -237,8 +271,8 @@ def generate_snapshot_messages(
             )
 
         for full_snapshot_index in range(full_snapshot_count):
-            full_snapshot_size = int(
-                numpy.random.lognormal(full_snapshot_size_average, full_snapshot_size_standard_deviation)
+            full_snapshot_size = sample_log_normal_distribution(
+                full_snapshot_size_mean, full_snapshot_size_standard_deviation
             )
             full_snapshot_data = faker.binary(length=full_snapshot_size)
             full_snapshot_data = base64.b64encode(full_snapshot_data).decode("latin-1")
@@ -281,16 +315,16 @@ def generate_snapshot_messages(
                     "site_url": site_url,
                     "data": json.dumps(data),
                     "team_id": team_id,
-                    "now": now,
-                    "sent_at": sent_at,
+                    "now": now.isoformat(),
+                    "sent_at": sent_at.isoformat(),
                     "token": token,
                 }
 
                 snapshot_messages.append(message)
 
         for _ in range(incremental_snapshot_count):
-            incremental_snapshot_size = int(
-                numpy.random.lognormal(incremental_snapshot_size_average, incremental_snapshot_size_standard_deviation)
+            incremental_snapshot_size = sample_log_normal_distribution(
+                incremental_snapshot_size_mean, incremental_snapshot_size_standard_deviation
             )
             incremental_snapshot_data = faker.binary(length=incremental_snapshot_size)
             incremental_snapshot_data = base64.b64encode(incremental_snapshot_data).decode("latin-1")
@@ -329,8 +363,8 @@ def generate_snapshot_messages(
                     "site_url": site_url,
                     "data": json.dumps(data),
                     "team_id": team_id,
-                    "now": now,
-                    "sent_at": sent_at,
+                    "now": now.isoformat(),
+                    "sent_at": sent_at.isoformat(),
                     "token": token,
                 }
 
@@ -356,17 +390,19 @@ def main():
     numpy.random.seed(args.seed_value)
 
     snapshot_messages = generate_snapshot_messages(
-        faker,
-        args.count,
-        args.full_snapshot_size_average,
-        args.full_snapshot_size_standard_deviation,
-        args.full_snapshot_count_average,
-        args.full_snapshot_count_standard_deviation,
-        args.incremental_snapshot_size_average,
-        args.incremental_snapshot_size_standard_deviation,
-        args.incremental_snapshot_count_average,
-        args.incremental_snapshot_count_standard_deviation,
-        args.verbose,
+        faker=faker,
+        count=args.count,
+        full_snapshot_size_mean=args.full_snapshot_size_mean,
+        full_snapshot_size_standard_deviation=args.full_snapshot_size_standard_deviation,
+        full_snapshot_count_mean=args.full_snapshot_count_mean,
+        full_snapshot_count_standard_deviation=args.full_snapshot_count_standard_deviation,
+        incremental_snapshot_size_mean=args.incremental_snapshot_size_mean,
+        incremental_snapshot_size_standard_deviation=args.incremental_snapshot_size_standard_deviation,
+        incremental_snapshot_count_mean=args.incremental_snapshot_count_mean,
+        incremental_snapshot_count_standard_deviation=args.incremental_snapshot_count_standard_deviation,
+        team_id=args.team_id,
+        token=args.token,
+        verbose=args.verbose,
     )
 
     for message in snapshot_messages:
