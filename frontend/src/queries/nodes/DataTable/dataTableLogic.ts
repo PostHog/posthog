@@ -53,18 +53,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
-            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
+            (query): string[] | null =>
+                isEventsQuery(query.source) ? query.source.orderBy || ['timestamp DESC'] : null,
             { resultEqualityCheck: objectsEqual },
         ],
         columnsInResponse: [
             (s) => [s.response],
             (response: AnyDataNode['response']): string[] | null =>
-                response &&
-                'columns' in response &&
-                Array.isArray(response.columns) &&
-                !response.columns.find((c) => typeof c !== 'string')
-                    ? (response?.columns as string[])
-                    : null,
+                response && 'columns' in response && Array.isArray(response.columns) ? response?.columns : null,
         ],
         dataTableRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.columnsInResponse],
@@ -84,7 +80,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
 
                         const { results } = eventsQueryResponse
-                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
+                        const orderKey = orderBy?.[0]?.endsWith(' DESC')
+                            ? orderBy[0].replace(/ DESC$/, '')
+                            : orderBy?.[0]
                         const orderKeyIndex =
                             columnsInResponse?.findIndex(
                                 (column) =>
@@ -143,10 +141,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showDateRange: query.showDateRange ?? showIfFull,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
-                        showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
+                        showElapsedTime:
+                            query.showElapsedTime ??
+                            (flagQueryRunningTimeEnabled || source.kind === NodeKind.HogQLQuery ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showSavedQueries: query.showSavedQueries ?? false,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
+                        showHogQLEditor: query.showHogQLEditor ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                     }),
                 }

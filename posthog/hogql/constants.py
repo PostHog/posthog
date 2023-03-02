@@ -1,18 +1,3 @@
-# fields you can select from in the events query
-EVENT_FIELDS = [
-    "id",
-    "uuid",
-    "event",
-    "timestamp",
-    "properties",
-    "elements_chain",
-    "created_at",
-    "distinct_id",
-    "team_id",
-]
-# "person.*" fields you can select from in the events query
-EVENT_PERSON_FIELDS = ["id", "created_at", "properties"]
-
 # HogQL -> ClickHouse allowed transformations
 CLICKHOUSE_FUNCTIONS = {
     # arithmetic
@@ -74,6 +59,7 @@ CLICKHOUSE_FUNCTIONS = {
     "trimLeft": "trimLeft",
     "trimRight": "trimRight",
     "extractTextFromHTML": "extractTextFromHTML",
+    "match": "match",
     "like": "like",
     "ilike": "ilike",
     "notLike": "notLike",
@@ -82,7 +68,8 @@ CLICKHOUSE_FUNCTIONS = {
     # array functions
     "tuple": "tuple",
     # conditional
-    "ifElse": "if",
+    "if": "if",
+    "not": "not",
     "multiIf": "multiIf",
     # rounding
     "round": "round",
@@ -106,9 +93,14 @@ HOGQL_AGGREGATIONS = {
     "avgIf": 2,
     "any": 1,
     "anyIf": 2,
+    "argMax": 2,
+    "argMin": 2,
 }
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
+
+# Keywords you can't alias to
+RESERVED_KEYWORDS = KEYWORDS + ["team_id"]
 
 # Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
@@ -120,10 +112,11 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "distinct_id",
     "elements_chain",
     "created_at",
-    "person.id",
+    "person_id",
     "person.created_at",
     "person.properties",
 ]
 
 # Never return more rows than this in top level HogQL SELECT statements
+DEFAULT_RETURNED_ROWS = 100
 MAX_SELECT_RETURNED_ROWS = 65535

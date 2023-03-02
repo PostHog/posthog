@@ -14,6 +14,11 @@ export const NON_BREAKDOWN_DISPLAY_TYPES = [ChartDisplayType.BoldNumber]
 /** Display types which only work with a single series. */
 export const SINGLE_SERIES_DISPLAY_TYPES = [ChartDisplayType.WorldMap, ChartDisplayType.BoldNumber]
 
+export const NON_VALUES_ON_SERIES_DISPLAY_TYPES = [
+    ChartDisplayType.ActionsTable,
+    ChartDisplayType.WorldMap,
+    ChartDisplayType.BoldNumber,
+]
 export enum OrganizationMembershipLevel {
     Member = 1,
     Admin = 8,
@@ -124,22 +129,23 @@ export const FEATURE_FLAGS = {
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
     EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
-    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
-    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
-    RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
     RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
     FF_JSON_PAYLOADS: 'ff-json-payloads', // owner @EDsCODE
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
+    REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
     SAMPLING: 'sampling', // owner: @yakkomajuri
+    DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
+    TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
+    RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

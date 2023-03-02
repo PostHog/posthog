@@ -59,8 +59,7 @@ def add_query_params(url: str, params: Dict[str, str]) -> str:
     for key, value in params.items():
         update_params.append((key, value))
 
-    # mypy bug ? https://github.com/python/typeshed/issues/4234
-    encodedQueryParams = urlencode(update_params, quote_via=quote)  # type: ignore
+    encodedQueryParams = urlencode(update_params, quote_via=quote)
     parsed = parsed._replace(query=encodedQueryParams)
     return urlunparse(parsed)
 
@@ -68,6 +67,19 @@ def add_query_params(url: str, params: Dict[str, str]) -> str:
 def _convert_response_to_csv_data(data: Any) -> List[Any]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
+
+        # query like
+        if isinstance(results[0], list) and "types" in data:
+            # e.g. {'columns': ['count()'], 'hasMore': False, 'results': [[1775]], 'types': ['UInt64']}
+            # or {'columns': ['count()', 'event'], 'hasMore': False, 'results': [[551, '$feature_flag_called'], [265, '$autocapture']], 'types': ['UInt64', 'String']}
+            csv_rows: List[Dict[str, Any]] = []
+            for row in results:
+                row_dict = {}
+                for idx, x in enumerate(row):
+                    row_dict[data["columns"][idx]] = x
+                csv_rows.append(row_dict)
+            return csv_rows
+
         # persons modal like
         if len(results) == 1 and set(results[0].keys()) == {"people", "count"}:
             return results[0].get("people")

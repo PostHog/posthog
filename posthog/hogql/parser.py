@@ -4,6 +4,7 @@ from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
 
 from posthog.hogql import ast
+from posthog.hogql.constants import RESERVED_KEYWORDS
 from posthog.hogql.grammar.HogQLLexer import HogQLLexer
 from posthog.hogql.grammar.HogQLParser import HogQLParser
 from posthog.hogql.parse_string import parse_string, parse_string_literal
@@ -21,7 +22,22 @@ def parse_expr(expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no
     return node
 
 
-def parse_select(statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False) -> ast.Expr:
+def parse_order_expr(
+    order_expr: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+) -> ast.Expr:
+    parse_tree = get_parser(order_expr).orderExpr()
+    node = HogQLParseTreeConverter().visit(parse_tree)
+    if placeholders:
+        return replace_placeholders(node, placeholders)
+    elif no_placeholders:
+        assert_no_placeholders(node)
+
+    return node
+
+
+def parse_select(
+    statement: str, placeholders: Optional[Dict[str, ast.Expr]] = None, no_placeholders=False
+) -> ast.SelectQuery:
     parse_tree = get_parser(statement).select()
     node = HogQLParseTreeConverter().visit(parse_tree)
     if placeholders:
@@ -145,18 +161,16 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         join2: ast.JoinExpr = self.visit(ctx.joinExpr(1))
 
         if ctx.joinOp():
-            join_type = f"{self.visit(ctx.joinOp())} JOIN"
+            join2.join_type = f"{self.visit(ctx.joinOp())} JOIN"
         else:
-            join_type = "JOIN"
-        join_constraint = self.visit(ctx.joinConstraintClause())
+            join2.join_type = "JOIN"
+        join2.constraint = self.visit(ctx.joinConstraintClause())
 
-        join_without_next_expr = join1
-        while join_without_next_expr.join_expr:
-            join_without_next_expr = join_without_next_expr.join_expr
+        last_join = join1
+        while last_join.next_join is not None:
+            last_join = last_join.next_join
+        last_join.next_join = join2
 
-        join_without_next_expr.join_expr = join2
-        join_without_next_expr.join_constraint = join_constraint
-        join_without_next_expr.join_type = join_type
         return join1
 
     def visitJoinExprTable(self, ctx: HogQLParser.JoinExprTableContext):
@@ -178,16 +192,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
 
     def visitJoinOpInner(self, ctx: HogQLParser.JoinOpInnerContext):
         tokens = []
-        if ctx.LEFT():
-            tokens.append("INNER")
         if ctx.ALL():
             tokens.append("ALL")
-        if ctx.ANTI():
-            tokens.append("ANTI")
         if ctx.ANY():
             tokens.append("ANY")
         if ctx.ASOF():
             tokens.append("ASOF")
+        tokens.append("INNER")
         return " ".join(tokens)
 
     def visitJoinOpLeftRight(self, ctx: HogQLParser.JoinOpLeftRightContext):
@@ -298,10 +309,13 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return [self.visit(c) for c in ctx.columnsExpr()]
 
     def visitColumnsExprAsterisk(self, ctx: HogQLParser.ColumnsExprAsteriskContext):
+        if ctx.tableIdentifier():
+            table = self.visit(ctx.tableIdentifier())
+            return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
     def visitColumnsExprSubquery(self, ctx: HogQLParser.ColumnsExprSubqueryContext):
-        raise NotImplementedError(f"Unsupported node: ColumnsExprSubquery")
+        return self.visit(ctx.selectUnionStmt())
 
     def visitColumnsExprColumn(self, ctx: HogQLParser.ColumnsExprColumnContext):
         return self.visit(ctx.columnExpr())
@@ -319,13 +333,19 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         else:
             raise NotImplementedError(f"Must specify an alias.")
         expr = self.visit(ctx.columnExpr())
+
+        if alias in RESERVED_KEYWORDS:
+            raise ValueError(f"Alias '{alias}' is a reserved keyword.")
+
         return ast.Alias(expr=expr, alias=alias)
 
     def visitColumnExprExtract(self, ctx: HogQLParser.ColumnExprExtractContext):
         raise NotImplementedError(f"Unsupported node: ColumnExprExtract")
 
     def visitColumnExprNegate(self, ctx: HogQLParser.ColumnExprNegateContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprNegate")
+        return ast.BinaryOperation(
+            op=ast.BinaryOperationType.Sub, left=ast.Constant(value=0), right=self.visit(ctx.columnExpr())
+        )
 
     def visitColumnExprSubquery(self, ctx: HogQLParser.ColumnExprSubqueryContext):
         return self.visit(ctx.selectUnionStmt())
@@ -403,7 +423,26 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.CompareOperation(left=self.visit(ctx.left), right=self.visit(ctx.right), op=op)
 
     def visitColumnExprInterval(self, ctx: HogQLParser.ColumnExprIntervalContext):
-        raise NotImplementedError(f"Unsupported node: ColumnExprInterval")
+        if ctx.interval().SECOND():
+            name = "toIntervalSecond"
+        elif ctx.interval().MINUTE():
+            name = "toIntervalMinute"
+        elif ctx.interval().HOUR():
+            name = "toIntervalHour"
+        elif ctx.interval().DAY():
+            name = "toIntervalDay"
+        elif ctx.interval().WEEK():
+            name = "toIntervalWeek"
+        elif ctx.interval().MONTH():
+            name = "toIntervalMonth"
+        elif ctx.interval().QUARTER():
+            name = "toIntervalQuarter"
+        elif ctx.interval().YEAR():
+            name = "toIntervalYear"
+        else:
+            raise NotImplementedError(f"Unsupported interval type: {ctx.interval().getText()}")
+
+        return ast.Call(name=name, args=[self.visit(ctx.columnExpr())])
 
     def visitColumnExprIsNull(self, ctx: HogQLParser.ColumnExprIsNullContext):
         return ast.CompareOperation(
@@ -498,6 +537,9 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return ast.Call(name=name, args=args)
 
     def visitColumnExprAsterisk(self, ctx: HogQLParser.ColumnExprAsteriskContext):
+        if ctx.tableIdentifier():
+            table = self.visit(ctx.tableIdentifier())
+            return ast.Field(chain=table + ["*"])
         return ast.Field(chain=["*"])
 
     def visitColumnArgList(self, ctx: HogQLParser.ColumnArgListContext):
@@ -539,7 +581,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt())
 
     def visitTableExprAlias(self, ctx: HogQLParser.TableExprAliasContext):
-        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=self.visit(ctx.alias() or ctx.identifier()))
+        alias = self.visit(ctx.alias() or ctx.identifier())
+        if alias in RESERVED_KEYWORDS:
+            raise ValueError(f"Alias '{alias}' is a reserved keyword.")
+        return ast.JoinExpr(table=self.visit(ctx.tableExpr()), alias=alias)
 
     def visitTableExprFunction(self, ctx: HogQLParser.TableExprFunctionContext):
         raise NotImplementedError(f"Unsupported node: TableExprFunction")

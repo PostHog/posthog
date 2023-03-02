@@ -150,6 +150,11 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'updateUser',
             })
         },
+        updateUserFailure: () => {
+            lemonToast.error(`Error saving preferences`, {
+                toastId: 'updateUser',
+            })
+        },
         updateCurrentTeam: async ({ teamId, destination }, breakpoint) => {
             if (values.user?.team?.id === teamId) {
                 return

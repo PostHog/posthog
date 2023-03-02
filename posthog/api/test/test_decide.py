@@ -10,6 +10,7 @@ from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.personal_api_key import hash_key_value
+from posthog.models.plugin import sync_team_inject_web_apps
 from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
@@ -94,28 +95,48 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
+        self._update_team({"session_recording_opt_in": True})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
+        )
+        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+
+    def test_user_session_recording_version(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"], False)
+
         # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True})
 
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
+
+        self._update_team({"session_recording_version": "v2"})
+
+        response = self._post_decide().json()
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v2", "consoleLogRecordingEnabled": False},
+        )
 
     def test_user_console_log_opt_in(self):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
 
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
         )
 
     def test_user_performance_opt_in(self):
@@ -123,7 +144,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"capture_performance_opt_in": True})
 
         response = self._post_decide().json()
@@ -134,13 +154,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://*.example.com"]})
 
         response = self._post_decide(origin="https://random.example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
@@ -150,7 +169,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
     def test_user_session_recording_evil_site(self):
 
-        # don't access models directly as that doesn't update the cache.
         self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://example.com"]})
 
         response = self._post_decide(origin="evil.site.com").json()
@@ -159,17 +177,17 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide(origin="https://example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
-        # don't access models directly as that doesn't update the cache.
+
         self._update_team({"session_recording_opt_in": True, "recording_domains": []})
 
         response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": False},
         )
 
     @snapshot_postgres_queries
@@ -178,13 +196,25 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"inject_web_apps": True})
+        plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
+        PluginSourceFile.objects.create(
+            plugin=plugin,
+            filename="site.ts",
+            source="export function inject (){}",
+            transpiled="function inject(){}",
+            status=PluginSourceFile.Status.TRANSPILED,
+        )
+        PluginConfig.objects.create(
+            plugin=plugin, enabled=True, order=1, team=self.team, config={}, web_token="tokentoken"
+        )
+        sync_team_inject_web_apps(self.team)
 
         # caching flag definitions in the above mean fewer queries
         with self.assertNumQueries(1):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
+            injected = response.json()["siteApps"]
+            self.assertEqual(len(injected), 1)
 
     def test_site_app_injection(self):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
@@ -200,7 +230,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
         self.team.refresh_from_db()
         self.assertTrue(self.team.inject_web_apps)
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(2):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             injected = response.json()["siteApps"]
@@ -240,7 +270,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("default-flag", response.json()["featureFlags"])
@@ -248,7 +278,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
         # caching flag definitions in the above query mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
@@ -275,7 +305,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -484,13 +514,13 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             # One to compute properties for all flags
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertTrue("beta-feature" not in response.json()["featureFlags"])
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue("beta-feature" not in response.json()["featureFlags"])
             self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
@@ -536,7 +566,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -549,7 +579,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
         person.add_distinct_id("other_id")
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(16):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -601,7 +631,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -612,7 +642,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
         # in which case, we're pretty much trashed
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -664,7 +694,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -680,7 +710,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(16):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -708,7 +738,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         person.add_distinct_id("other_id")
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -757,7 +787,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -768,7 +798,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # new person with "other_id" is yet to be created
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(20):
             # one extra query to find person_id for $anon_distinct_id
             response = self._post_decide(
                 api_version=2,
@@ -784,7 +814,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # In this case, we are over our grace period for ingestion, and there's
         # no quick decent way to find how 'other_id' is to be treated.
         # So, things appear like a completely new person with distinct-id = other_id.
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             # caching flag definitions in the above mean fewer queries
 
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
@@ -796,7 +826,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # Finally, 'other_id' is merged. The result goes back to its overridden values
 
         # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -842,7 +872,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
                 (response.json()["featureFlags"]).get("multivariate-flag", None)
@@ -851,7 +881,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 (response.json()["featureFlags"]).get("default-flag")
             )  # User still receives the default flag
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertIsNotNone(
                 response.json()["featureFlags"]["multivariate-flag"]
@@ -1015,7 +1045,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         client.logout()
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=3)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1167,7 +1197,16 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # TODO: change this to whatever function is used to populate the cache on startup
         response = self._post_decide(api_version=3)
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(8):
+            # effectively 2 queries, wrapped around by an atomic transaction
+            # E   1. SAVEPOINT "s8609641984_x94"
+            # E   2. SET LOCAL statement_timeout = 3000
+            # E   3. SELECT "posthog_persondistinctid"."person_id" FROM "posthog_persondistinctid" WHERE ("posthog_persondistinctid"."distinct_id" = 'example_id' AND "posthog_persondistinctid"."team_id" = 4) ORDER BY "posthog_persondistinctid"."id" ASC LIMIT 1
+            # E   4. RELEASE SAVEPOINT "s8609641984_x94"
+            # E   5. SAVEPOINT "s8609641984_x95"
+            # E   6. SET LOCAL statement_timeout = 3000
+            # E   7. SELECT "posthog_featureflaghashkeyoverride"."feature_flag_key", "posthog_featureflaghashkeyoverride"."hash_key" FROM "posthog_featureflaghashkeyoverride" WHERE ("posthog_featureflaghashkeyoverride"."person_id" = 86 AND "posthog_featureflaghashkeyoverride"."team_id" = 4)
+            # E   8. RELEASE SAVEPOINT "s8609641984_x95"
             response = self._post_decide(api_version=3)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -1207,11 +1246,11 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
         # caching flag definitions mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertEqual(response.json()["featureFlags"], {})
 
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, distinct_id="example_id", groups={"organization": "foo"})
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 
@@ -1236,6 +1275,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         ).json()
         self.assertEqual(response["featureFlags"], ["test", "default-flag"])
 
+    @snapshot_postgres_queries
     def test_flag_with_regular_cohorts(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -1257,17 +1297,18 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": True})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
-        with self.assertNumQueries(3):
+        with self.assertNumQueries(6):
             # get cohort, get team, get person filter
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {"cohort-flag": False})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], False)
 
+    @snapshot_postgres_queries
     def test_flag_with_behavioural_cohorts(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
@@ -1292,12 +1333,12 @@ class TestDecide(BaseTest, QueryMatchingTest):
             created_by=self.user,
         )
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="example_id_1")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(6):
             response = self._post_decide(api_version=3, distinct_id="another_id")
             self.assertEqual(response.json()["featureFlags"], {})
             self.assertEqual(response.json()["errorsWhileComputingFlags"], True)
@@ -1369,7 +1410,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
+        )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
         self.assertEqual(response["siteApps"], [])
         self.assertEqual(response["capturePerformance"], True)
@@ -1379,7 +1423,10 @@ class TestDecide(BaseTest, QueryMatchingTest):
         with connection.execute_wrapper(QueryTimeoutWrapper()):
             response = self._post_decide(api_version=2, origin="https://random.example.com").json()
 
-            self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
+            self.assertEqual(
+                response["sessionRecording"],
+                {"endpoint": "/s/", "recorderVersion": "v1", "consoleLogRecordingEnabled": True},
+            )
             self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
             self.assertEqual(response["siteApps"], [])
             self.assertEqual(response["capturePerformance"], True)

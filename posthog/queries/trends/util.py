@@ -17,7 +17,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp
+from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
 
 logger = structlog.get_logger(__name__)
 
@@ -41,6 +41,8 @@ COUNT_PER_ACTOR_MATH_FUNCTIONS = {
     "p95_count_per_actor": "quantile(0.95)",
     "p99_count_per_actor": "quantile(0.99)",
 }
+
+ALL_SUPPORTED_MATH_FUNCTIONS = [*list(PROPERTY_MATH_FUNCTIONS.keys()), *list(COUNT_PER_ACTOR_MATH_FUNCTIONS.keys())]
 
 
 def process_math(
@@ -81,12 +83,15 @@ def process_math(
     return aggregate_operation, join_condition, params
 
 
-def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
+def parse_response(
+    stats: Dict, filter: Filter, additional_values: Dict = {}, entity: Optional[Entity] = None
+) -> Dict[str, Any]:
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
-    if filter.sample_factor:
-        counts = [c * (1 / filter.sample_factor) for c in counts]
+
+    entity_math = entity.math if entity is not None else None
+    counts = [correct_result_for_sampling(c, filter.sampling_factor, entity_math) for c in counts]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),
@@ -109,17 +114,8 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
             raise ValidationError("Active User queries require a lower date bound")
     date_to = filter.date_to
 
-    # When calculating the buckets an event would fall in on an hourly interval,
-    # we round with toStartOfHour and look at the correct range into the future (i.e. 7 or 30 days)
-    # However, for daily, weekly, and monthly, we round with toStartOfDay and thus count a fewer day
-    # into the future (i.e. 6 or 29 days), since we are already counting the entire first day
-    prev_interval = "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY"
-    if filter.interval == "hour":
-        prev_interval = "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 DAY"
-
     format_params = {
-        "rounding_func": "toStartOfHour" if filter.interval == "hour" else "toStartOfDay",
-        "prev_interval": prev_interval,
+        "prev_interval": "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY",
         "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)",
     }
 
@@ -133,8 +129,6 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
 
     query_params = {
         "date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S"),
-        "bucket_increment_seconds": TIME_IN_SECONDS[filter.interval],
-        "grouping_increment_seconds": TIME_IN_SECONDS["hour"] if filter.interval == "hour" else TIME_IN_SECONDS["day"],
     }
 
     return format_params, query_params

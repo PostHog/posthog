@@ -125,14 +125,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     sender.add_periodic_task(120, clickhouse_row_count.s(), name="clickhouse events table row count")
     sender.add_periodic_task(120, clickhouse_part_count.s(), name="clickhouse table parts count")
     sender.add_periodic_task(120, clickhouse_mutation_count.s(), name="clickhouse table mutations count")
+    sender.add_periodic_task(120, clickhouse_errors_count.s(), name="clickhouse instance errors count")
 
     sender.add_periodic_task(120, pg_table_cache_hit_rate.s(), name="PG table cache hit rate")
     sender.add_periodic_task(
         crontab(minute=0, hour="*"), pg_plugin_server_query_timing.s(), name="PG plugin server query timing"
     )
     sender.add_periodic_task(120, graphile_worker_queue_size.s(), name="Graphile Worker queue size")
-
-    sender.add_periodic_task(crontab(minute=0, hour="*"), calculate_cohort_ids_in_feature_flags_task.s())
 
     sender.add_periodic_task(120, calculate_cohort.s(), name="recalculate cohorts")
 
@@ -432,6 +431,41 @@ def clickhouse_row_count():
 
 
 @app.task(ignore_result=True)
+def clickhouse_errors_count():
+    """
+    This task is used to track the recency of errors in ClickHouse.
+    We can use this to alert on errors that are consistently being generated recently
+    999 - KEEPER_EXCEPTION
+    225 - NO_ZOOKEEPER
+    242 - TABLE_IS_READ_ONLY
+    """
+    from posthog.client import sync_execute
+
+    QUERY = """
+        select
+            getMacro('replica') replica,
+            getMacro('shard') shard,
+            name,
+            value as errors,
+            dateDiff('minute', last_error_time, now()) minutes_ago
+        from clusterAllReplicas('posthog', system, errors)
+        where code in (999, 225, 242)
+        order by minutes_ago
+    """
+    rows = sync_execute(QUERY)
+    with pushed_metrics_registry("celery_clickhouse_errors") as registry:
+        errors_gauge = Gauge(
+            "posthog_celery_clickhouse_errors",
+            "Age of the latest error per ClickHouse errors table.",
+            registry=registry,
+            labelnames=["replica", "shard", "name"],
+        )
+        if isinstance(rows, list):
+            for replica, shard, name, _, minutes_ago in rows:
+                errors_gauge.labels(replica=replica, shard=shard, name=name).set(minutes_ago)
+
+
+@app.task(ignore_result=True)
 def clickhouse_part_count():
     from statshog.defaults.django import statsd
 
@@ -560,13 +594,6 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
     sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
-@app.task(ignore_result=True)
-def calculate_cohort_ids_in_feature_flags_task():
-    from posthog.tasks.cohorts_in_feature_flag import calculate_cohort_ids_in_feature_flags
-
-    calculate_cohort_ids_in_feature_flags()
-
-
 @app.task(ignore_result=True, bind=True)
 def debug_task(self):
     print(f"Request: {self.request!r}")
@@ -687,7 +714,7 @@ def clickhouse_mark_all_materialized():
 def send_org_usage_reports():
     from posthog.tasks.usage_report import send_all_org_usage_reports
 
-    send_all_org_usage_reports()
+    send_all_org_usage_reports.delay()
 
 
 @app.task(ignore_result=True)

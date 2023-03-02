@@ -207,7 +207,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
-    (SELECT if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') AS value,
+    (SELECT if(less(toInt64OrNull(mat_int_value), 10), 'le%ss', 'more') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -249,13 +249,13 @@
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') as breakdown_value
+                            if(less(toInt64OrNull(mat_int_value), 10), 'le%ss', 'more') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') in (['more', 'le%ss'])
+             AND if(less(toInt64OrNull(mat_int_value), 10), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -395,8 +395,8 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND ((and(greater(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd')))
-               AND (like("pmat_fish", '%fish%')))
+          AND ((and(greater(toInt64OrNull(mat_int_value), 10), notEquals('bla', 'a%sd')))
+               AND (like(pmat_fish, '%fish%')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -479,8 +479,8 @@
           AND event = '$pageview'
           AND toTimeZone(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toTimeZone(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (and(less(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd'))
-               AND like("pmat_fish", '%fish%'))
+          AND (and(less(toInt64OrNull(mat_int_value), 10), notEquals('bla', 'a%sd'))
+               AND like(pmat_fish, '%fish%'))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start)
@@ -500,12 +500,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -529,6 +531,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -566,6 +569,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -683,6 +687,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -720,6 +725,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -790,7 +796,7 @@
          "posthog_insightcachingstate"."created_at",
          "posthog_insightcachingstate"."updated_at"
   FROM "posthog_insightcachingstate"
-  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_2ef34d59030b5380a5819b53e427cb31'
+  WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_8ae8e365cb79b085e2c476fd6742119e'
          AND "posthog_insightcachingstate"."insight_id" = 2
          AND "posthog_insightcachingstate"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -822,6 +828,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -889,12 +896,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
@@ -918,6 +927,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -954,6 +964,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -975,6 +986,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -992,7 +1004,8 @@
   FROM "posthog_dashboarditem"
   WHERE (NOT ("posthog_dashboarditem"."deleted")
          AND "posthog_dashboarditem"."team_id" = 2
-         AND NOT ("posthog_dashboarditem"."filters" = '{}')) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+         AND NOT ("posthog_dashboarditem"."filters" = '{}'
+                  AND "posthog_dashboarditem"."query" IS NOT NULL)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.28
@@ -1040,6 +1053,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1074,12 +1088,14 @@
          "posthog_user"."current_organization_id",
          "posthog_user"."current_team_id",
          "posthog_user"."email",
+         "posthog_user"."pending_email",
          "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."email_opt_in",
          "posthog_user"."partial_notification_settings",
          "posthog_user"."anonymize_data",
          "posthog_user"."toolbar_mode",
+         "posthog_user"."is_email_verified",
          "posthog_user"."events_column_config",
          T4."id",
          T4."password",
@@ -1093,12 +1109,14 @@
          T4."current_organization_id",
          T4."current_team_id",
          T4."email",
+         T4."pending_email",
          T4."temporary_token",
          T4."distinct_id",
          T4."email_opt_in",
          T4."partial_notification_settings",
          T4."anonymize_data",
          T4."toolbar_mode",
+         T4."is_email_verified",
          T4."events_column_config"
   FROM "posthog_dashboarditem"
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
@@ -1106,7 +1124,8 @@
   LEFT OUTER JOIN "posthog_user" T4 ON ("posthog_dashboarditem"."last_modified_by_id" = T4."id")
   WHERE (NOT ("posthog_dashboarditem"."deleted")
          AND "posthog_dashboarditem"."team_id" = 2
-         AND NOT ("posthog_dashboarditem"."filters" = '{}'))
+         AND NOT ("posthog_dashboarditem"."filters" = '{}'
+                  AND "posthog_dashboarditem"."query" IS NOT NULL))
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -1191,6 +1210,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1221,6 +1241,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -1283,6 +1304,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1313,6 +1335,7 @@
          "posthog_organization"."plugins_access_level",
          "posthog_organization"."for_internal_metrics",
          "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."enforce_2fa",
          "posthog_organization"."customer_id",
          "posthog_organization"."available_features",
          "posthog_organization"."usage",
@@ -1368,6 +1391,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1405,6 +1429,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1478,6 +1503,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1549,6 +1575,7 @@
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
          "posthog_team"."capture_performance_opt_in",
+         "posthog_team"."session_recording_version",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
