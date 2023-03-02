@@ -38,7 +38,7 @@ import {
     findInsightFromMountedLogic,
     getInsightId,
     getResponseBytes,
-    summarizeInsightFilters,
+    summariseInsight,
 } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -614,12 +614,16 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
-            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
-                summarizeInsightFilters(insight.filters || {}, aggregationLabel, cohortsById, mathDefinitions).slice(
-                    0,
-                    400
-                ),
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDataExploration],
+            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDataExploration) =>
+                summariseInsight(
+                    isUsingDataExploration,
+                    insight.query,
+                    aggregationLabel,
+                    cohortsById,
+                    mathDefinitions,
+                    insight.filters || {}
+                ).slice(0, 400),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
