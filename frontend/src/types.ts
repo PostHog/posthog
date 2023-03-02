@@ -1970,6 +1970,7 @@ export interface FeatureFlagType {
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    usage_dashboard?: number
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2051,6 +2052,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
