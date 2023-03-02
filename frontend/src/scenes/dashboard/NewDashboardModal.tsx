@@ -44,12 +44,7 @@ function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt:
                     }}
                 />
             ) : (
-                <img
-                    className="w-full h-full object-cover object-center"
-                    src={src}
-                    alt={alt}
-                    onError={handleImageError}
-                />
+                <img className="object-cover w-full h-30" src={src} alt={alt} onError={handleImageError} />
             )}
         </>
     )

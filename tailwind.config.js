@@ -213,7 +213,7 @@ module.exports = {
         // 'transformOrigin', // The transform-origin utilities like origin-bottom-right
         // 'transitionDelay', // The transition-delay utilities like delay-200
         // 'transitionDuration', // The transition-duration utilities like duration-200
-        'transitionProperty', // The transition-property utilities like transition-colors
+        // 'transitionProperty', // The transition-property utilities like transition-colors
         // 'transitionTimingFunction', // The transition-timing-function utilities like ease-in
         // 'translate', // The translate utilities like translate-x-full
         'userSelect', // The user-select utilities like select-text
