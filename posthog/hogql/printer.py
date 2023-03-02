@@ -9,6 +9,7 @@ from posthog.hogql.database import Table
 from posthog.hogql.print_string import print_clickhouse_identifier, print_hogql_identifier
 from posthog.hogql.resolver import ResolverException, lookup_field_by_name, resolve_symbols
 from posthog.hogql.transforms import expand_asterisks, resolve_lazy_tables
+from posthog.hogql.transforms.macros import expand_macros
 from posthog.hogql.visitor import Visitor
 from posthog.models.property import PropertyName, TableColumn
 
@@ -33,13 +34,11 @@ def print_ast(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
-    """Print an AST into a string. Does not modify the node."""
     symbol = stack[-1].symbol if stack else None
 
-    # resolve symbols
+    node = expand_macros(node, symbol)
     resolve_symbols(node, symbol)
 
-    # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_asterisks(node)
         resolve_lazy_tables(node, stack)

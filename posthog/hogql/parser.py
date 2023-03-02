@@ -78,7 +78,7 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
     def visitSelectStmt(self, ctx: HogQLParser.SelectStmtContext):
 
         select_query = ast.SelectQuery(
-            select_with=self.visit(ctx.withClause()) if ctx.withClause() else None,
+            macros=self.visit(ctx.withClause()) if ctx.withClause() else None,
             select=self.visit(ctx.columnExprList()) if ctx.columnExprList() else [],
             distinct=True if ctx.DISTINCT() else None,
             select_from=self.visit(ctx.fromClause()) if ctx.fromClause() else None,
@@ -552,21 +552,21 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         raise NotImplementedError(f"Unsupported node: ColumnLambdaExpr")
 
     def visitWithExprList(self, ctx: HogQLParser.WithExprListContext):
-        with_exprs: Dict[str, ast.WithExpr] = {}
+        macros: Dict[str, ast.Macro] = {}
         for expr in ctx.withExpr():
-            with_expr = self.visit(expr)
-            with_exprs[with_expr.name] = with_expr
-        return with_exprs
+            macro = self.visit(expr)
+            macros[macro.name] = macro
+        return macros
 
     def visitWithExprSubquery(self, ctx: HogQLParser.WithExprSubqueryContext):
         subquery = self.visit(ctx.selectUnionStmt())
         name = self.visit(ctx.identifier())
-        return ast.WithExpr(type="subquery", name=name, expr=subquery)
+        return ast.Macro(name=name, expr=subquery)
 
     def visitWithExprColumn(self, ctx: HogQLParser.WithExprColumnContext):
         expr = self.visit(ctx.columnExpr())
         name = self.visit(ctx.identifier())
-        return ast.WithExpr(type="column", name=name, expr=expr)
+        return ast.Macro(name=name, expr=expr)
 
     def visitColumnIdentifier(self, ctx: HogQLParser.ColumnIdentifierContext):
         if ctx.PLACEHOLDER():

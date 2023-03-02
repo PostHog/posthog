@@ -19,6 +19,9 @@ class TraversingVisitor(Visitor):
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
 
+    def visit_macro(self, node: ast.Macro):
+        pass
+
     def visit_alias(self, node: ast.Alias):
         self.visit(node.expr)
 
@@ -132,6 +135,12 @@ class CloningVisitor(Visitor):
     def visit_expr(self, node: ast.Expr):
         raise ValueError("Can not visit generic Expr node")
 
+    def visit_macro(self, node: ast.Macro):
+        return ast.Macro(
+            name=node.name,
+            expr=clone_expr(node.expr),
+        )
+
     def visit_alias(self, node: ast.Alias):
         return ast.Alias(
             alias=node.alias,
@@ -194,7 +203,8 @@ class CloningVisitor(Visitor):
 
     def visit_select_query(self, node: ast.SelectQuery):
         return ast.SelectQuery(
-            select=[self.visit(expr) for expr in node.select] if node.select else None,
+            macros={key: expr for key, expr in node.macros.items()} if node.macros else None,  # to not traverse
+            select=[self.visit(expr) for expr in node.select],
             select_from=self.visit(node.select_from),
             where=self.visit(node.where),
             prewhere=self.visit(node.prewhere),

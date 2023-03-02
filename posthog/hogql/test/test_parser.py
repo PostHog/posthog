@@ -716,7 +716,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with event as boo select boo from events"),
             ast.SelectQuery(
-                select_with={"boo": ast.WithExpr(name="boo", type="column", expr=ast.Field(chain=["event"]))},
+                macros={"boo": ast.Macro(name="boo", expr=ast.Field(chain=["event"]))},
                 select=[ast.Field(chain=["boo"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -724,7 +724,7 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with count() as kokku select kokku from events"),
             ast.SelectQuery(
-                select_with={"kokku": ast.WithExpr(name="kokku", type="column", expr=ast.Call(name="count", args=[]))},
+                macros={"kokku": ast.Macro(name="kokku", expr=ast.Call(name="count", args=[]))},
                 select=[ast.Field(chain=["kokku"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
             ),
@@ -734,10 +734,9 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with customers as (select 'yes' from events) select * from customers"),
             ast.SelectQuery(
-                select_with={
-                    "customers": ast.WithExpr(
+                macros={
+                    "customers": ast.Macro(
                         name="customers",
-                        type="subquery",
                         expr=ast.SelectQuery(
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
@@ -753,16 +752,15 @@ class TestParser(BaseTest):
         self.assertEqual(
             parse_select("with happy as (select 'yes' from events), ':(' as sad select sad from happy"),
             ast.SelectQuery(
-                select_with={
-                    "happy": ast.WithExpr(
+                macros={
+                    "happy": ast.Macro(
                         name="happy",
-                        type="subquery",
                         expr=ast.SelectQuery(
                             select=[ast.Constant(value="yes")],
                             select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
                         ),
                     ),
-                    "sad": ast.WithExpr(name="sad", type="column", expr=ast.Constant(value=":(")),
+                    "sad": ast.Macro(name="sad", expr=ast.Constant(value=":(")),
                 },
                 select=[ast.Field(chain=["sad"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["happy"])),

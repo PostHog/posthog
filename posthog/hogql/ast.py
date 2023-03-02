@@ -42,6 +42,15 @@ class Symbol(AST):
         return self.get_child(name) is not None
 
 
+class Expr(AST):
+    symbol: Optional[Symbol]
+
+
+class Macro(Expr):
+    name: str
+    expr: Expr
+
+
 class FieldAliasSymbol(Symbol):
     name: str
     symbol: Symbol
@@ -120,6 +129,7 @@ class SelectQuerySymbol(Symbol):
     tables: Dict[str, Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]] = PydanticField(
         default_factory=dict
     )
+    macros: Dict[str, Macro] = PydanticField(default_factory=dict)
     # all from and join subqueries without aliases
     anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
 
@@ -206,10 +216,6 @@ class PropertySymbol(Symbol):
     parent: FieldSymbol
 
 
-class Expr(AST):
-    symbol: Optional[Symbol]
-
-
 class Alias(Expr):
     alias: str
     expr: Expr
@@ -292,12 +298,6 @@ class Call(Expr):
     args: List[Expr]
 
 
-class WithExpr(Expr):
-    name: str
-    type: Literal["column", "subquery"]
-    expr: Expr
-
-
 class JoinExpr(Expr):
     join_type: Optional[str] = None
     table: Optional[Union["SelectQuery", Field]] = None
@@ -309,8 +309,7 @@ class JoinExpr(Expr):
 
 class SelectQuery(Expr):
     symbol: Optional[SelectQuerySymbol] = None
-
-    select_with: Optional[Dict[str, WithExpr]] = None
+    macros: Optional[Dict[str, Macro]] = None
     select: List[Expr]
     distinct: Optional[bool] = None
     select_from: Optional[JoinExpr] = None
