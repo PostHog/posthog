@@ -110,7 +110,7 @@ export const insightLogic = kea<insightLogicType>([
             mathsLogic,
             ['mathDefinitions'],
             userLogic,
-            ['user'],
+            ['user', 'globalSessionFilters'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
@@ -314,7 +314,9 @@ export const insightLogic = kea<insightLogicType>([
                         signal: cache.abortController.signal,
                     }
 
-                    const { filters } = values
+                    const { filters: insightFilters } = values
+
+                    const filters = { ...values.globalSessionFilters, ...insightFilters }
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
 
