@@ -61,20 +61,12 @@ function TemplateItem({
 }): JSX.Element {
     const [isHovering, setIsHovering] = useState(false)
 
-    const handleMouseEnter = (): void => {
-        setIsHovering(true)
-    }
-
-    const handleMouseLeave = (): void => {
-        setIsHovering(false)
-    }
-
     return (
         <div
             className="cursor-pointer border rounded TemplateItem flex flex-col transition-all"
             onClick={onClick}
-            onMouseEnter={handleMouseEnter}
-            onMouseLeave={handleMouseLeave}
+            onMouseEnter={() => setIsHovering(true)}
+            onMouseLeave={() => setIsHovering(false)}
         >
             <div
                 className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
