@@ -68,6 +68,7 @@
         "lru-cache": "^6.0.0",
         "luxon": "^1.27.0",
         "node-fetch": "^2.6.1",
+        "node-rdkafka": "^2.15.0",
         "node-schedule": "^2.1.0",
         "pg": "^8.6.0",
         "pino": "^8.6.0",
