@@ -22,6 +22,10 @@ LABEL_RESOURCE_TYPE = "resource_type"
 LABEL_TEAM_ID = "team_id"
 
 
+def _push(settings, job, registry):
+    push_to_gateway(settings, job, registry)
+
+
 @contextmanager
 def pushed_metrics_registry(job_name: str):
     """
@@ -39,7 +43,7 @@ def pushed_metrics_registry(job_name: str):
     yield registry
     try:
         if settings.PROM_PUSHGATEWAY_ADDRESS:
-            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
+            _push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
         logger.error("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
         capture_exception(err)

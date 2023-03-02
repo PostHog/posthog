@@ -75,7 +75,7 @@ describe('dataTableLogic', () => {
         logic.mount()
         await expectLogic(logic).toMatchValues({
             sourceKind: NodeKind.EventsQuery,
-            orderBy: ['-timestamp'],
+            orderBy: ['timestamp DESC'],
         })
 
         // change props

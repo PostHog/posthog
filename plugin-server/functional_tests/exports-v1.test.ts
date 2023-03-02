@@ -1,35 +1,16 @@
 import { createServer, Server } from 'http'
-import Redis from 'ioredis'
-import { Kafka, Partitioners, Producer } from 'kafkajs'
-import { Pool } from 'pg'
 
-import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam } from './api'
 import { waitForExpect } from './expectations'
+import { produce } from './kafka'
 
-let producer: Producer
-let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
-let kafka: Kafka
-let redis: Redis.Redis
 let organizationId: string
 let server: Server
 const webHookCalledWith: any = {}
 
 beforeAll(async () => {
-    // Setup connections to kafka, clickhouse, and postgres
-    postgres = new Pool({
-        connectionString: defaultConfig.DATABASE_URL!,
-        // We use a pool only for typings sake, but we don't actually need to,
-        // so set max connections to 1.
-        max: 1,
-    })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
-    producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
-    await producer.connect()
-    redis = new Redis(defaultConfig.REDIS_URL)
-
-    organizationId = await createOrganization(postgres)
+    organizationId = await createOrganization()
 
     server = createServer((req, res) => {
         let body = ''
@@ -50,14 +31,13 @@ beforeAll(async () => {
     })
 })
 
-afterAll(async () => {
+afterAll(() => {
     server.close()
-    await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
 })
 
 test.concurrent(`exports: exporting events on ingestion`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
-    const plugin = await createPlugin(postgres, {
+    const teamId = await createTeam(organizationId)
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -71,14 +51,20 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
             }
         `,
     })
-    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    await createAndReloadPluginConfig(teamId, plugin.id)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(producer, teamId, distinctId, uuid, 'custom event', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: 'custom event',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+        },
     })
 
     // Then check that the exportEvents function was called
@@ -109,8 +95,8 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
 })
 
 test.concurrent(`exports: exporting $autocapture events on ingestion`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
-    const plugin = await createPlugin(postgres, {
+    const teamId = await createTeam(organizationId)
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -125,15 +111,21 @@ test.concurrent(`exports: exporting $autocapture events on ingestion`, async () 
         `,
     })
 
-    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    await createAndReloadPluginConfig(teamId, plugin.id)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
     // First let's ingest an event
-    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
-        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$autocapture',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        },
     })
 
     // Then check that the exportEvents function was called
@@ -173,11 +165,11 @@ test.concurrent(`exports: exporting $autocapture events on ingestion`, async () 
 })
 
 test.concurrent(`exports: historical exports`, async () => {
-    const teamId = await createTeam(postgres, organizationId)
+    const teamId = await createTeam(organizationId)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
 
-    const plugin = await createPlugin(postgres, {
+    const plugin = await createPlugin({
         organization_id: organizationId,
         name: 'export plugin',
         plugin_type: 'source',
@@ -191,15 +183,21 @@ test.concurrent(`exports: historical exports`, async () => {
             }
         `,
     })
-    const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const pluginConfig = await createAndReloadPluginConfig(teamId, plugin.id)
 
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one
     // passed to processEvent on initial ingestion.
-    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
-        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    await capture({
+        teamId,
+        distinctId,
+        uuid,
+        event: '$autocapture',
+        properties: {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        },
     })
 
     // Then check that the exportEvents function was called
@@ -217,22 +215,20 @@ test.concurrent(`exports: historical exports`, async () => {
     // adds directly to PostgreSQL using the graphile-worker stored
     // procedure `add_job`. I'd rather keep these tests graphile
     // unaware.
-    await producer.send({
+    await produce({
         topic: 'jobs',
-        messages: [
-            {
-                key: teamId.toString(),
-                value: JSON.stringify({
-                    type: 'Export historical events',
-                    pluginConfigId: pluginConfig.id,
-                    pluginConfigTeam: teamId,
-                    payload: {
-                        dateFrom: new Date(Date.now() - 60000).toISOString(),
-                        dateTo: new Date(Date.now()).toISOString(),
-                    },
-                }),
-            },
-        ],
+        message: Buffer.from(
+            JSON.stringify({
+                type: 'Export historical events',
+                pluginConfigId: pluginConfig.id,
+                pluginConfigTeam: teamId,
+                payload: {
+                    dateFrom: new Date(Date.now() - 60000).toISOString(),
+                    dateTo: new Date(Date.now()).toISOString(),
+                },
+            })
+        ),
+        key: teamId.toString(),
     })
 
     // Then check that the exportEvents function was called with the

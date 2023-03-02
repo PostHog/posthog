@@ -16,7 +16,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.cloud_utils import is_cloud
 from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
-from posthog.models.event.query_event_list import run_events_query
+from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery

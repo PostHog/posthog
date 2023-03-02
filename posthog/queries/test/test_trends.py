@@ -3949,6 +3949,46 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEntityResponseEqual(action_response, event_response)
 
+    @snapshot_clickhouse_queries
+    def test_dau_with_breakdown_filtering_with_sampling(self):
+        sign_up_action, _ = self._create_events()
+        with freeze_time("2020-01-02T13:01:01Z"):
+            _create_event(
+                team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": "other_value"}
+            )
+        with freeze_time("2020-01-04T13:01:01Z"):
+            action_response = Trends().run(
+                Filter(
+                    data={
+                        "sampling_factor": 1,
+                        "breakdown": "$some_property",
+                        "actions": [{"id": sign_up_action.id, "math": "dau"}],
+                    }
+                ),
+                self.team,
+            )
+            event_response = Trends().run(
+                Filter(
+                    data={
+                        "sampling_factor": 1,
+                        "breakdown": "$some_property",
+                        "events": [{"id": "sign up", "math": "dau"}],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(event_response[1]["label"], "sign up - other_value")
+        self.assertEqual(event_response[2]["label"], "sign up - value")
+
+        self.assertEqual(sum(event_response[1]["data"]), 1)
+        self.assertEqual(event_response[1]["data"][5], 1)
+
+        self.assertEqual(sum(event_response[2]["data"]), 1)
+        self.assertEqual(event_response[2]["data"][4], 1)  # property not defined
+
+        self.assertEntityResponseEqual(action_response, event_response)
+
     @also_test_with_materialized_columns(["$os", "$some_property"])
     def test_dau_with_breakdown_filtering_with_prop_filter(self):
         sign_up_action, _ = self._create_events()
@@ -4339,6 +4379,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self._create_active_users_events()
 
         data = {
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        self.assertEqual(result[0]["aggregated_value"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_aggregated_range_wider_than_week_with_sampling(self):
+        self._create_active_users_events()
+
+        data = {
+            "sampling_factor": 1,
             "date_from": "2020-01-01",
             "date_to": "2020-01-08",
             "display": TRENDS_TABLE,
@@ -5612,6 +5669,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         daily_response = Trends().run(
             Filter(
                 data={
+                    "display": TRENDS_TABLE,
+                    "breakdown": "color",
+                    "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                }
+            ),
+            self.team,
+        )
+
+        assert len(daily_response) == 3
+        assert daily_response[0]["breakdown_value"] == "red"
+        assert daily_response[1]["breakdown_value"] == "blue"
+        assert daily_response[2]["breakdown_value"] == ""
+        assert daily_response[0]["aggregated_value"] == 2.0  # red
+        assert daily_response[1]["aggregated_value"] == 1.0  # blue
+        assert daily_response[2]["aggregated_value"] == 1.0  # none
+
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_user_average_aggregated_with_event_property_breakdown_with_sampling(self):
+        self._create_event_count_per_actor_events()
+
+        daily_response = Trends().run(
+            Filter(
+                data={
+                    "sampling_factor": 1,
                     "display": TRENDS_TABLE,
                     "breakdown": "color",
                     "events": [{"id": "viewed video", "math": "avg_count_per_actor"}],
