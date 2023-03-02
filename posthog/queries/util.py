@@ -108,8 +108,11 @@ def correct_result_for_sampling(value: int, sampling_factor: Optional[float], en
 
     # We don't adjust results for sampling if:
     # - There's no sampling_factor specified i.e. the query isn't sampled
-    # - The query performs a math operation because math operations on sampled data yield results in the correct format
-    if (not sampling_factor) or (entity_math is not None and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS):
+    # - The query performs a math operation other than 'sum' because statistical math operations
+    # on sampled data yield results in the correct format
+    if (not sampling_factor) or (
+        entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS
+    ):
         return value
 
     result: int = round(value * (1 / sampling_factor))
