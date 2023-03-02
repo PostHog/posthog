@@ -837,8 +837,7 @@ class TestCapture(BaseTest):
         )
 
     @override_settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True)
-    @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_batch_incorrect_token_with_lightweight_capture(self, mock_produce):
+    def test_batch_incorrect_token_with_lightweight_capture(self):
         # With lightweight capture, we are performing additional checks on the
         # token. We want to make sure this path works as expected. It could be
         # more extensively tested, but this is a good start.
