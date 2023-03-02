@@ -34,17 +34,33 @@ def print_ast(
     dialect: Literal["hogql", "clickhouse"],
     stack: Optional[List[ast.SelectQuery]] = None,
 ) -> str:
+    prepared_node = prepare_ast_for_printing(node, dialect, stack)
+    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(prepared_node)
+
+
+def print_prepared_ast(
+    node: ast.Expr,
+    context: HogQLContext,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+) -> str:
+    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+
+
+def prepare_ast_for_printing(
+    node: ast.Expr,
+    dialect: Literal["hogql", "clickhouse"],
+    stack: Optional[List[ast.SelectQuery]] = None,
+) -> ast.Expr:
     symbol = stack[-1].symbol if stack else None
 
-    node = expand_macros(node, symbol)
+    node = expand_macros(node, stack)
     resolve_symbols(node, symbol)
+    resolve_lazy_tables(node, stack)
+    expand_asterisks(node)
+    # TODO: add team_id checks (currently done in _Printer())
 
-    if dialect == "clickhouse":
-        expand_asterisks(node)
-        resolve_lazy_tables(node, stack)
-        # TODO: add team_id checks (currently done in the printer)
-
-    return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
+    return node
 
 
 @dataclass

@@ -8,8 +8,7 @@ from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import assert_no_placeholders, replace_placeholders
-from posthog.hogql.printer import print_ast
-from posthog.hogql.visitor import clone_expr
+from posthog.hogql.printer import prepare_ast_for_printing, print_ast, print_prepared_ast
 from posthog.models import Team
 from posthog.queries.insight import insight_sync_execute
 
@@ -48,15 +47,12 @@ def execute_hogql_query(
         select_query.limit = ast.Constant(value=DEFAULT_RETURNED_ROWS)
 
     # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
-    select_query_hogql = cast(ast.SelectQuery, clone_expr(select_query))
-
-    # Make a copy for hogql printing later. we don't want it to contain joined SQL tables for example
-    select_query_hogql = clone_expr(select_query)
 
     hogql_context = HogQLContext(select_team_id=team.pk, using_person_on_events=team.person_on_events_querying_enabled)
     clickhouse = print_ast(select_query, hogql_context, "clickhouse")
 
-    hogql = print_ast(select_query_hogql, hogql_context, "hogql")
+    select_query_hogql = cast(ast.SelectQuery, prepare_ast_for_printing(select_query, "hogql"))
+    hogql = print_prepared_ast(select_query_hogql, hogql_context, "hogql")
 
     results, types = insight_sync_execute(
         clickhouse,
@@ -66,7 +62,7 @@ def execute_hogql_query(
         workload=workload,
     )
     print_columns = []
-    for node in select_query.select:
+    for node in select_query_hogql.select:
         if isinstance(node, ast.Alias):
             print_columns.append(node.alias)
         else:

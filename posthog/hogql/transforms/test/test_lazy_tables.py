@@ -57,7 +57,7 @@ class TestLazyTables(BaseTest):
     def test_resolve_lazy_tables_two_levels_traversed(self):
         printed = self._print_select("select event, person.id from events")
         expected = (
-            "SELECT event, events__pdi__person.id "
+            "SELECT events.event, events__pdi__person.id "
             "FROM events "
             "INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
             "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id "
@@ -66,7 +66,7 @@ class TestLazyTables(BaseTest):
             "INNER JOIN (SELECT id FROM person WHERE equals(team_id, 42) GROUP BY id "
             "HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person "
             "ON equals(events__pdi.person_id, events__pdi__person.id) "
-            "WHERE equals(team_id, 42) "
+            "WHERE equals(events.team_id, 42) "
             "LIMIT 65535"
         )
         self.assertEqual(printed, expected)

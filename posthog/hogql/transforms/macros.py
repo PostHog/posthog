@@ -28,9 +28,19 @@ class MacroExpander(CloningVisitor):
         return response
 
     def visit_field(self, node: ast.Field):
-        if len(self.scopes) == 0:
-            raise Exception("Can't expand Macro when not in a select scope.")
-        scope = self.scopes[-1]
-        if scope.macros and len(node.chain) == 1 and node.chain[0] in scope.macros:
-            return expand_macros(clone_expr(scope.macros[node.chain[0]].expr))
+        if len(self.scopes) > 0 and len(node.chain) == 1:
+            for scope in reversed(self.scopes):
+                if scope.macros and node.chain[0] in scope.macros:
+                    macro = scope.macros[node.chain[0]]
+                    if macro.type == "subquery":
+                        return ast.Field(chain=[node.chain[0]])
+                    return self.visit(clone_expr(macro.expr))
+        return node
+
+    def visit_join_expr(self, node: ast.JoinExpr):
+        if len(self.scopes) > 0 and isinstance(node.table, ast.Field):
+            for scope in reversed(self.scopes):
+                if scope.macros and len(node.table.chain) == 1 and node.table.chain[0] in scope.macros:
+                    node.alias = node.table.chain[0]
+                    node.table = self.visit(clone_expr(scope.macros[node.table.chain[0]].expr))
         return node

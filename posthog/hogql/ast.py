@@ -49,6 +49,7 @@ class Expr(AST):
 class Macro(Expr):
     name: str
     expr: Expr
+    type: Literal["column", "subquery"]
 
 
 class FieldAliasSymbol(Symbol):
