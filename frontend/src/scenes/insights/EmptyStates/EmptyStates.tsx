@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { PlusCircleOutlined, WarningOutlined } from '@ant-design/icons'
 import { IconErrorOutline, IconOpenInNew, IconPlus, IconTrendUp } from 'lib/lemon-ui/icons'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { entityFilterLogic } from 'scenes/insights/filters/ActionFilter/entityFilterLogic'
 import { Button, Empty } from 'antd'
@@ -47,71 +46,57 @@ export function InsightTimeoutState({
     const { setSamplingPercentage } = useActions(_samplingFilterLogic)
     const { suggestedSamplingPercentage, samplingAvailable } = useValues(_samplingFilterLogic)
 
-    const { preflight } = useValues(preflightLogic)
+    const speedUpBySamplingAvailable = samplingAvailable && suggestedSamplingPercentage
     return (
         <div className="insight-empty-state warning">
             <div className="empty-state-inner">
                 <div className="illustration-main" style={{ height: 'auto' }}>
                     {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
                 </div>
-                <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
-                {isLoading && samplingAvailable && suggestedSamplingPercentage ? (
+                {isLoading ? (
+                    <div className="m-auto text-center">
+                        Your query is taking a long time to complete. <b>We're still working on it.</b>
+                        <br />
+                        {speedUpBySamplingAvailable ? 'See below some options to speed things up.' : ''}
+                        <br />
+                    </div>
+                ) : (
+                    <h2>Your query took too long to complete</h2>
+                )}
+                {isLoading && speedUpBySamplingAvailable ? (
                     <div>
                         <LemonButton
-                            className="m-auto"
+                            className="mx-auto mt-4"
                             type="primary"
                             onClick={() => setSamplingPercentage(suggestedSamplingPercentage)}
                         >
-                            Speed up calculation with {suggestedSamplingPercentage}% sampling
+                            Click here to speed up calculation with {suggestedSamplingPercentage}% sampling
                         </LemonButton>
                         <br />
                     </div>
                 ) : null}
-                {isLoading ? (
-                    <>
-                        Your query is taking a long time to complete. <b>We're still working on it.</b> However, here
-                        are some things you can try to speed it up:
-                    </>
-                ) : (
-                    <>
-                        Here are some things you can try to speed up your query and&nbsp;<b>try&nbsp;again</b>:
-                    </>
-                )}
-                <ol>
-                    <li>Reduce the date range of your query.</li>
-                    <li>Remove some filters.</li>
-                    {!preflight?.cloud && <li>Increase the size of your database server.</li>}
-                    <li>
-                        <a
-                            data-attr="insight-timeout-raise-issue"
-                            href="https://github.com/PostHog/posthog/issues/new?labels=performance&template=performance_issue_report.md"
-                            target="_blank"
-                            rel="noreferrer noopener"
-                        >
-                            Raise an issue
-                        </a>{' '}
-                        in our GitHub repository.
-                    </li>
-                    <li>
-                        Get in touch with us{' '}
-                        <a
-                            data-attr="insight-timeout-slack"
-                            href="https://posthog.com/slack"
-                            rel="noopener noreferrer"
-                            target="_blank"
-                        >
-                            on Slack
-                        </a>
-                        .
-                    </li>
-                    <li>
-                        Email us at{' '}
-                        <a data-attr="insight-timeout-email" href="mailto:hey@posthog.com">
-                            hey@posthog.com
-                        </a>
-                        .
-                    </li>
-                </ol>
+                <p className="m-auto text-center">
+                    In order to improve the performance of the query, you can {speedUpBySamplingAvailable ? 'also' : ''}{' '}
+                    try to reduce the date range of your query, remove breakdowns, or get in touch with us by{' '}
+                    <a
+                        data-attr="insight-timeout-raise-issue"
+                        href="https://github.com/PostHog/posthog/issues/new?labels=performance&template=performance_issue_report.md"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                    >
+                        raising an issue
+                    </a>{' '}
+                    in our GitHub repository or messaging us{' '}
+                    <a
+                        data-attr="insight-timeout-slack"
+                        href="https://posthog.com/slack"
+                        rel="noopener noreferrer"
+                        target="_blank"
+                    >
+                        on Slack
+                    </a>
+                    .
+                </p>
                 {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
             </div>
         </div>
