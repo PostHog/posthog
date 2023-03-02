@@ -2,7 +2,7 @@ GET_ELEMENTS = """
 SELECT
     elements_chain, count(_sample_factor) as count, event as event_type
 FROM events
-SAMPLE 500000
+SAMPLE %(sample_rows_count)s
 WHERE
     team_id = %(team_id)s AND
     event in %(filter_event_types)s AND

@@ -73,6 +73,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             {
                 "team_id": self.team.pk,
                 "timezone": self.team.timezone,
+                "sample_rows_count": 2_000_000,
                 **prop_filter_params,
                 **date_params,
                 "filter_event_types": events_filter,
