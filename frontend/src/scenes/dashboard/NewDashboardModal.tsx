@@ -21,7 +21,7 @@ import { Form } from 'kea-forms'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
-
+import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import './NewDashboardModal.scss'
 
 function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
@@ -116,8 +116,7 @@ export function DashboardTemplateChooser(): JSX.Element {
                     template={{
                         template_name: 'Blank dashboard',
                         dashboard_description: 'Create a blank dashboard',
-                        image_url:
-                            'https://posthog.com/static/e49bbe6af9a669f1c07617e5cd2e3229/a764f/marketing-hog.jpg',
+                        image_url: BlankDashboardHog,
                     }}
                     onClick={() =>
                         addDashboard({
