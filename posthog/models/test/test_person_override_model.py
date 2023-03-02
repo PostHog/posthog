@@ -2,9 +2,10 @@ import datetime as dt
 from uuid import uuid4
 
 import pytest
+from django.db import connection
 from django.db.utils import IntegrityError
 
-from posthog.models import PersonOverride, Team
+from posthog.models import PersonOverride, PersonOverrideHelper, Team
 from posthog.test.base import BaseTest
 
 
@@ -13,6 +14,12 @@ class TestPersonOverride(BaseTest):
         super().setUp(*args, **kwargs)
 
         PersonOverride.objects.all().delete()
+        PersonOverrideHelper.objects.all().delete()
+
+        with connection.cursor() as cursor:
+            # Constraints are all deferred during normal execution, but for testing we want them to fail
+            # during the test cases to properly assert exceptions raised by constraint failures.
+            cursor.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     def test_person_override_disallows_same_old_person_id(self):
         """Test a new old_person_id cannot match an existing old_person_id.
@@ -24,23 +31,36 @@ class TestPersonOverride(BaseTest):
         override_person_id = uuid4()
         new_override_person_id = uuid4()
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
         person_override = PersonOverride.objects.create(
             team=self.team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=old_helper,
+            override_person_id=override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         person_override.save()
 
-        assert person_override.old_person_id == old_person_id
-        assert person_override.override_person_id == override_person_id
+        assert person_override.old_person_id == old_helper
+        assert person_override.override_person_id == override_helper
+
+        new_override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=new_override_person_id,
+        )
 
         with pytest.raises(IntegrityError):
             PersonOverride.objects.create(
                 team=self.team,
-                old_person_id=old_person_id,
-                override_person_id=new_override_person_id,
+                old_person_id=old_helper,
+                override_person_id=new_override_helper,
                 oldest_event=oldest_event,
                 version=1,
             ).save()
@@ -55,29 +75,49 @@ class TestPersonOverride(BaseTest):
             api_token="a different token",
         )
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
+
         p1 = PersonOverride.objects.create(
             team=self.team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=old_helper,
+            override_person_id=override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         p1.save()
 
-        assert p1.old_person_id == old_person_id
-        assert p1.override_person_id == override_person_id
+        assert p1.old_person_id == old_helper
+        assert p1.override_person_id == override_helper
+
+        new_team_old_helper = PersonOverrideHelper.objects.create(
+            team=new_team,
+            uuid=old_person_id,
+        )
+        new_team_override_helper = PersonOverrideHelper.objects.create(
+            team=new_team,
+            uuid=override_person_id,
+        )
 
         p2 = PersonOverride.objects.create(
             team=new_team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=new_team_old_helper,
+            override_person_id=new_team_override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         p2.save()
 
-        assert p1.old_person_id == p2.old_person_id
-        assert p1.override_person_id == p2.override_person_id
+        assert p1.old_person_id.uuid == p2.old_person_id.uuid
+        assert p1.override_person_id.uuid == p2.override_person_id.uuid
+        assert p1.old_person_id.id != p2.old_person_id.id
+        assert p1.override_person_id.id != p2.override_person_id.id
         assert p1.team != p2.team
 
     def test_person_override_disallows_override_person_id_as_old_person_id(self):
@@ -91,23 +131,37 @@ class TestPersonOverride(BaseTest):
         override_person_id = uuid4()
         new_override_person_id = uuid4()
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
+
         person_override = PersonOverride.objects.create(
             team=self.team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=old_helper,
+            override_person_id=override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         person_override.save()
 
-        assert person_override.old_person_id == old_person_id
-        assert person_override.override_person_id == override_person_id
+        assert person_override.old_person_id == old_helper
+        assert person_override.override_person_id == override_helper
+
+        new_override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=new_override_person_id,
+        )
 
         with pytest.raises(IntegrityError):
             PersonOverride.objects.create(
                 team=self.team,
-                old_person_id=override_person_id,
-                override_person_id=new_override_person_id,
+                old_person_id=override_helper,
+                override_person_id=new_override_helper,
                 oldest_event=oldest_event,
                 version=1,
             ).save()
@@ -123,29 +177,46 @@ class TestPersonOverride(BaseTest):
             api_token="a much different token",
         )
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
+
         p1 = PersonOverride.objects.create(
             team=self.team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=old_helper,
+            override_person_id=override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         p1.save()
 
-        assert p1.old_person_id == old_person_id
-        assert p1.override_person_id == override_person_id
+        assert p1.old_person_id == old_helper
+        assert p1.override_person_id == override_helper
 
+        new_team_old_helper = PersonOverrideHelper.objects.create(
+            team=new_team,
+            uuid=override_person_id,
+        )
+        new_team_override_helper = PersonOverrideHelper.objects.create(
+            team=new_team,
+            uuid=new_override_person_id,
+        )
         p2 = PersonOverride.objects.create(
             team=new_team,
-            old_person_id=override_person_id,
-            override_person_id=new_override_person_id,
+            old_person_id=new_team_old_helper,
+            override_person_id=new_team_override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         p2.save()
 
-        assert p1.override_person_id == p2.old_person_id
-        assert p2.override_person_id == new_override_person_id
+        assert p1.override_person_id.uuid == p2.old_person_id.uuid
+        assert p2.override_person_id == new_team_override_helper
         assert p1.team != p2.team
 
     def test_person_override_disallows_old_person_id_as_override_person_id(self):
@@ -159,26 +230,45 @@ class TestPersonOverride(BaseTest):
         override_person_id = uuid4()
         new_old_person_id = uuid4()
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        old_helper.save()
+
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
+        override_helper.save()
+
         person_override = PersonOverride.objects.create(
             team=self.team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=old_helper,
+            override_person_id=override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         person_override.save()
 
-        assert person_override.old_person_id == old_person_id
-        assert person_override.override_person_id == override_person_id
+        assert person_override.old_person_id == old_helper
+        assert person_override.override_person_id == override_helper
+
+        new_old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=new_old_person_id,
+        )
+        new_old_helper.save()
 
         with pytest.raises(IntegrityError):
-            PersonOverride.objects.create(
+            p = PersonOverride.objects.create(
                 team=self.team,
-                old_person_id=new_old_person_id,
-                override_person_id=old_person_id,
+                old_person_id=new_old_helper,
+                override_person_id=old_helper,
                 oldest_event=oldest_event,
                 version=1,
-            ).save()
+            )
+            p.save()
 
     def test_person_override_old_person_id_as_override_person_id_in_different_teams(self):
         """Test a new override_person_id can match an old in a different team."""
@@ -191,29 +281,48 @@ class TestPersonOverride(BaseTest):
             api_token="a significantly different token",
         )
 
+        old_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=old_person_id,
+        )
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
+
         p1 = PersonOverride.objects.create(
             team=self.team,
-            old_person_id=old_person_id,
-            override_person_id=override_person_id,
+            old_person_id=old_helper,
+            override_person_id=override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         p1.save()
 
-        assert p1.old_person_id == old_person_id
-        assert p1.override_person_id == override_person_id
+        assert p1.old_person_id == old_helper
+        assert p1.override_person_id == override_helper
+
+        new_old_helper = PersonOverrideHelper.objects.create(
+            team=new_team,
+            uuid=new_old_person_id,
+        )
+        new_override_helper = PersonOverrideHelper.objects.create(
+            team=new_team,
+            uuid=old_helper.uuid,
+        )
 
         p2 = PersonOverride.objects.create(
             team=new_team,
-            old_person_id=new_old_person_id,
-            override_person_id=old_person_id,
+            old_person_id=new_old_helper,
+            override_person_id=new_override_helper,
             oldest_event=oldest_event,
             version=1,
         )
         p2.save()
 
-        assert p1.old_person_id == p2.override_person_id
-        assert p2.old_person_id == new_old_person_id
+        assert p1.old_person_id.uuid == p2.override_person_id.uuid
+        assert p1.old_person_id.team == p1.override_person_id.team
+        assert p2.old_person_id == new_old_helper
         assert p1.team != p2.team
 
     def test_person_override_allows_duplicate_override_person_id(self):
@@ -223,13 +332,22 @@ class TestPersonOverride(BaseTest):
         n_person_overrides = 2
         created = []
 
+        override_helper = PersonOverrideHelper.objects.create(
+            team=self.team,
+            uuid=override_person_id,
+        )
+
         for _ in range(n_person_overrides):
             old_person_id = uuid4()
+            old_helper = PersonOverrideHelper.objects.create(
+                team=self.team,
+                uuid=old_person_id,
+            )
 
             person_override = PersonOverride.objects.create(
                 team=self.team,
-                old_person_id=old_person_id,
-                override_person_id=override_person_id,
+                old_person_id=old_helper,
+                override_person_id=override_helper,
                 oldest_event=oldest_event,
                 version=1,
             )
@@ -237,5 +355,5 @@ class TestPersonOverride(BaseTest):
 
             created.append(person_override)
 
-        assert all(p.override_person_id == override_person_id for p in created)
-        assert len(set(p.old_person_id for p in created)) == n_person_overrides
+        assert all(p.override_person_id == override_helper for p in created)
+        assert len(set(p.old_person_id.uuid for p in created)) == n_person_overrides

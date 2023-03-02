@@ -129,6 +129,7 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
             models.CheckConstraint(
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
