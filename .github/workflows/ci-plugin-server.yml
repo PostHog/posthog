@@ -255,11 +255,10 @@ jobs:
     recording-ingestion-load-test:
         name: Recording ingestion load test
 
-        description: |
-            This test runs a load test on the ingestion pipeline, using
-            synthetic recordings data. It is not meant to produce directly
-            comparable results, but rather to give a rough idea of how 
-            ingestion performance changes over time.
+        # This test runs a load test on the ingestion pipeline, using
+        # synthetic recordings data. It is not meant to produce directly
+        # comparable results, but rather to give a rough idea of how
+        # ingestion performance changes over time.
 
         runs-on: ubuntu-latest
 
