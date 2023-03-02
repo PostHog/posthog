@@ -1,5 +1,5 @@
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric, reloadDictionary } from './api'
 import { waitForExpect } from './expectations'
 
 let organizationId: string
@@ -494,6 +494,8 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
     })
 
     await waitForExpect(async () => {
+        // If we don't reload the dictionary, we would have to wait 5-10 seconds more.
+        await reloadDictionary('person_overrides_dict')
         const events = await fetchEvents(teamId)
         expect(events.length).toBe(5)
         expect(events[0].person_id).toBeDefined()
