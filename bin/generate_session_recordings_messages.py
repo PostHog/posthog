@@ -33,7 +33,9 @@
 # one JSON encoded message per line, to stdout. This is so that we can pipe the
 # output to the Kafka command line tools, such as kafkacat or
 # kafka-console-producer to produce the messages to Kafka, or to a file for use
-# with e.g. vegeta to hit the capture endpoint.
+# with e.g. vegeta to hit the capture endpoint (TODO: add support for this, at
+# the moment we are handling the chunking of the message ourselves which means
+# it won't be compatible with the capture endpoint.)
 #
 # For example, you could run:
 #
@@ -50,11 +52,10 @@
 import argparse
 import base64
 import json
-from typing import List
 import uuid
+from typing import List
+
 import numpy
-
-
 from faker import Faker
 
 help = "Generate Kafka messages that simulate session recording data"
@@ -351,6 +352,7 @@ def generate_snapshot_messages(
                     "properties": {
                         "distinct_id": distinct_id,
                         "session_id": session_id,
+                        # TODO: handle multiple windows
                         "window_id": session_id,
                         "snapshot_data": snapshot_data,
                     },
