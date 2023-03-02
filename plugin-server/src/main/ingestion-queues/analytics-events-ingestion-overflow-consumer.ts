@@ -66,6 +66,8 @@ export async function eachBatchIngestionFromOverflow(
 export async function eachMessageIngestionFromOverflow(message: KafkaMessage, queue: IngestionConsumer): Promise<void> {
     const pluginEvent = formPipelineEvent(message)
     // Warnings are limited to 1/key/hour to avoid spamming.
+    // TODO: now that we use lightweight capture, we need to ensure that we
+    // resolve the team_id, as at the moment it will always be null.
     if (pluginEvent.team_id && WarningLimiter.consume(`${pluginEvent.team_id}:${pluginEvent.distinct_id}`, 1)) {
         captureIngestionWarning(queue.pluginsServer.db, pluginEvent.team_id, 'ingestion_capacity_overflow', {
             overflowDistinctId: pluginEvent.distinct_id,
