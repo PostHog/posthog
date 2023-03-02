@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Union
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
+from django.test import override_settings
 
 import lzstring
 import pytest
@@ -835,6 +836,31 @@ class TestCapture(BaseTest):
             ),
         )
 
+    @override_settings(LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True)
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_incorrect_token_with_lightweight_capture(self, mock_produce):
+        # With lightweight capture, we are performing additional checks on the
+        # token. We want to make sure this path works as expected. It could be
+        # more extensively tested, but this is a good start.
+        # TODO: switch all tests to use `LIGHTWEIGHT_CAPTURE_ENDPOINT_ALL=True`
+        response = self.client.post(
+            "/batch/",
+            data={
+                "api_key": {"some": "object"},
+                "batch": [{"type": "capture", "event": "user signed up", "distinct_id": "whatever"}],
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertEqual(
+            response.json(),
+            self.unauthenticated_response(
+                "Provided API key is not valid: not_string",
+                code="not_string",
+            ),
+        )
+
     def test_batch_token_not_set(self):
         response = self.client.post(
             "/batch/",
@@ -1360,7 +1386,6 @@ class TestCapture(BaseTest):
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_database_unavailable(self, kafka_produce):
-
         with simulate_postgres_error():
             # currently we send events to the dead letter queue if Postgres is unavailable
             data = {"type": "capture", "event": "user signed up", "distinct_id": "2"}
