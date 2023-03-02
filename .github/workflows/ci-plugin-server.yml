@@ -331,4 +331,4 @@ jobs:
             - name: Run load test
               run: |
                   cd plugin-server
-                  SESSONS_COUNT=1500 ./bin/ci_session_recordings_load_test.sh
+                  SESSONS_COUNT=3000 ./bin/ci_session_recordings_load_test.sh
