@@ -9,15 +9,8 @@ import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { FilterType, PropertyFilterType, PropertyOperator } from '~/types'
-import { PaginatedResponse } from 'lib/api'
 import { loaders } from 'kea-loaders'
 import { dateFilterToText } from 'lib/utils'
-
-const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
-    next: undefined,
-    previous: undefined,
-    results: [],
-}
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
@@ -33,18 +26,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
-        loadMoreElementStats: true,
         setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
     }),
     reducers({
         matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
-        canLoadMoreElementStats: [
-            true,
-            {
-                getElementStatsSuccess: (_, { elementStats }) => elementStats.next !== null,
-                getElementStatsFailure: () => true, // so at least someone can recover from transient errors
-            },
-        ],
         heatmapEnabled: [
             false,
             {
@@ -84,9 +69,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     loaders(({ values }) => ({
         elementStats: [
-            null as PaginatedResponse<ElementsEventType> | null,
+            null as ElementsEventType[] | null,
             {
-                resetElementStats: () => emptyElementsStatsPages,
+                resetElementStats: () => [],
                 getElementStats: async ({ url }, breakpoint) => {
                     const { href, wildcardHref } = currentPageLogic.values
                     let defaultUrl: string = ''
@@ -111,7 +96,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         }
                         const includeEventsParams = '&include=$autocapture&include=$rageclick'
                         defaultUrl = `${values.apiURL}/api/element/stats/${encodeParams(
-                            { ...params, paginate_response: true },
+                            { ...params },
                             '?'
                         )}${includeEventsParams}`
                     }
@@ -126,21 +111,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
-                        return emptyElementsStatsPages
+                        return []
                     }
 
-                    const paginatedResults = await response.json()
+                    const results = await response.json()
                     breakpoint()
 
-                    if (!Array.isArray(paginatedResults.results)) {
-                        throw new Error('Error loading HeatMap data!')
-                    }
-
-                    return {
-                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
-                        next: paginatedResults.next,
-                        previous: paginatedResults.previous,
-                    } as PaginatedResponse<ElementsEventType>
+                    return results as ElementsEventType[]
                 },
             },
         ],
@@ -167,7 +144,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 cache.lastHref = href
 
                 const elements: CountedHTMLElement[] = []
-                elementStats?.results.forEach((event) => {
+                elementStats?.forEach((event) => {
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
@@ -318,11 +295,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadMoreElementStats: () => {
-            if (values.elementStats?.next) {
-                actions.getElementStats(values.elementStats.next)
-            }
-        },
         [currentPageLogic.actionTypes.setHref]: () => {
             if (values.heatmapEnabled) {
                 actions.resetElementStats()

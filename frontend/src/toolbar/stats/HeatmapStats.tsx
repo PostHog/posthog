@@ -6,22 +6,13 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { IconSync } from 'lib/lemon-ui/icons'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 export function HeatmapStats(): JSX.Element {
-    const {
-        matchLinksByHref,
-        countedElements,
-        clickCount,
-        heatmapEnabled,
-        heatmapLoading,
-        heatmapFilter,
-        canLoadMoreElementStats,
-    } = useValues(heatmapLogic)
-    const { setHeatmapFilter, loadMoreElementStats, setMatchLinksByHref } = useActions(heatmapLogic)
+    const { matchLinksByHref, countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } =
+        useValues(heatmapLogic)
+    const { setHeatmapFilter, setMatchLinksByHref } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
@@ -46,21 +37,6 @@ export function HeatmapStats(): JSX.Element {
                     </div>
                     <div>
                         Found: {countedElements.length} elements / {clickCount} clicks!
-                    </div>
-                    <div>
-                        <LemonButton
-                            icon={<IconSync />}
-                            type={'secondary'}
-                            status={'primary-alt'}
-                            size={'small'}
-                            onClick={loadMoreElementStats}
-                            disabledReason={
-                                canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
-                            }
-                            getTooltipPopupContainer={getShadowRootPopoverContainer}
-                        >
-                            Load more
-                        </LemonButton>
                     </div>
 
                     <Tooltip

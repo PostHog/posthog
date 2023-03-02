@@ -1,7 +1,8 @@
 GET_ELEMENTS = """
 SELECT
-    elements_chain, count(1) as count, event as event_type
+    elements_chain, count(_sample_factor) as count, event as event_type
 FROM events
+SAMPLE 500000
 WHERE
     team_id = %(team_id)s AND
     event in %(filter_event_types)s AND
@@ -10,8 +11,7 @@ WHERE
     {date_to}
     {query}
 GROUP BY elements_chain, event
-ORDER BY count DESC
-LIMIT {limit} OFFSET {offset};
+ORDER BY count DESC;
 """
 
 GET_VALUES = """
