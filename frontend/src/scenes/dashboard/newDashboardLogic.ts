@@ -78,7 +78,6 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
             {
                 setIsLoading: (_, { isLoading }) => isLoading,
                 hideNewDashboardModal: () => false,
-                submitNewDashboard: () => true,
                 submitNewDashboardSuccess: () => false,
                 submitNewDashboardFailure: () => false,
             },
