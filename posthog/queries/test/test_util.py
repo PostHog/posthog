@@ -19,3 +19,6 @@ class TestQueriesUtil(TestCase):
 
         res = correct_result_for_sampling(1, 0.01, "p90_count_per_actor")
         self.assertEqual(res, 1)
+
+        res = correct_result_for_sampling(1, 0.01, "sum")
+        self.assertEqual(res, 100)
