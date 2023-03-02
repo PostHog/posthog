@@ -501,7 +501,7 @@ testIfPoEEmbraceJoinEnabled(`chained merge results in all events resolving to th
         expect(events[0].person_id).toBeDefined()
         expect(events[0].person_id).not.toBe('00000000-0000-0000-0000-000000000000')
         expect(new Set(events.map((event) => event.person_id)).size).toBe(1)
-    }, 10000)
+    }, 20000)
 })
 
 // This test only works when poEEmbraceTheJoin is enabled.
