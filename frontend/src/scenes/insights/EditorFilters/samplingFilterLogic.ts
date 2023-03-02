@@ -11,14 +11,14 @@ import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
-const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
+export const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
     InsightType.LIFECYCLE,
     InsightType.FUNNELS,
     InsightType.TRENDS,
     InsightType.RETENTION,
 ])
 
-interface SamplingFilterLogicProps {
+export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
     insightType?: InsightType
 }
