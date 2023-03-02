@@ -79,10 +79,26 @@ docker compose \
 
 $DIR/../../manage.py setup_dev || true  # Assume a failure means it has already been run.
 
+# Generate the session recording events and send them to Kafka.
+echo "Generating $SESSONS_COUNT session recording events"
+$DIR/generate_session_recordings_messages.py \
+        --count $SESSONS_COUNT \
+        --token $TOKEN | \
+    docker compose \
+        -f $DIR/../../docker-compose.dev.yml exec \
+        -T kafka kafka-console-producer.sh \
+        --topic $SESSION_RECORDING_EVENTS_TOPIC \
+        --broker-list localhost:9092
+
 # Start the plugin server with only the session recordings consumer running. We
 # need to make sure that we terminate the backgrounded process on exit, so we
 # use the `trap` command to kill all backgrounded processes when the last one
 # terminates.
+# NOTE: we start te plugin-server after we have published to Kafka, as we want
+# to remove any of the time it takes to publish the messages to Kafka. There
+# will be some time between the plugin server starting and the consumer group 
+# being ready to consume messages, so we want to add a sufficient number of
+# messages if we want to make this time insignificant.
 PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js > $LOG_FILE 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID' EXIT
@@ -105,17 +121,6 @@ until curl http://localhost:6738/_health; do
     echo 'Waiting for plugin-server to be ready...'
     sleep 1
 done
-
-# Generate the session recording events and send them to Kafka.
-echo "Generating $SESSONS_COUNT session recording events"
-$DIR/generate_session_recordings_messages.py \
-        --count $SESSONS_COUNT \
-        --token $TOKEN | \
-    docker compose \
-        -f $DIR/../../docker-compose.dev.yml exec \
-        -T kafka kafka-console-producer.sh \
-        --topic $SESSION_RECORDING_EVENTS_TOPIC \
-        --broker-list localhost:9092
 
 # Wait for the ingestion lag for the session recordings consumer group for the
 # session recording events topic to drop to zero, timing out after 120 seconds
@@ -147,7 +152,10 @@ if [[ $SECONDS -ge 120 ]]; then
     exit 1
 fi
 
+# Print the time it took for the ingestion lag to drop to zero, and sessions per
+# second that were ingested.
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
+echo "Sessions per second: $(echo "$SESSONS_COUNT / $SECONDS" | awk '{printf "%.2f", $0}')"
 
 # Kill the plugin server process and poll for up to 60 seconds for it to exit.
 kill $SERVER_PID

@@ -52,6 +52,7 @@
 import argparse
 import base64
 import json
+from sys import stderr, stdout
 import uuid
 from typing import List
 
@@ -151,6 +152,7 @@ def chunked(
 def sample_log_normal_distribution(
     mu: int,
     sigma: int,
+    count: int,
 ):
     """
     Samples from a log-normal distribution with the given mean and standard
@@ -158,7 +160,7 @@ def sample_log_normal_distribution(
     """
     normal_std = numpy.sqrt(numpy.log(1 + (sigma / mu) ** 2))
     normal_mean = numpy.log(mu) - normal_std**2 / 2
-    return int(numpy.random.lognormal(normal_mean, normal_std))
+    return [int(sample) for sample in numpy.random.lognormal(normal_mean, normal_std, count)]
 
 
 def generate_snapshot_messages(
@@ -236,19 +238,40 @@ def generate_snapshot_messages(
     # attribute is completely opaque, and is only used to simulate the size
     # distribution of the messages.
 
+    full_snapshot_count_samples = sample_log_normal_distribution(
+        full_snapshot_count_mean, full_snapshot_count_standard_deviation, count
+    )
+
+    incremental_snapshot_count_samples = sample_log_normal_distribution(
+        incremental_snapshot_count_mean, incremental_snapshot_count_standard_deviation, count
+    )
+
+    full_snapshot_size_samples = sample_log_normal_distribution(
+        full_snapshot_size_mean, full_snapshot_size_standard_deviation, sum(full_snapshot_count_samples)
+    )
+
+    incremental_snapshot_size_samples = sample_log_normal_distribution(
+        incremental_snapshot_size_mean,
+        incremental_snapshot_size_standard_deviation,
+        sum(incremental_snapshot_count_samples),
+    )
+
+    now = faker.date_time()
+    sent_at = faker.date_time()
+    ip = faker.ipv4()
+    site_url = faker.url()
+
     snapshot_messages = []
-    for _ in range(count):
+    for full_snapshot_count, incremental_snapshot_count in zip(
+        full_snapshot_count_samples, incremental_snapshot_count_samples
+    ):
         session_id = str(uuid.uuid4())
         distinct_id = str(uuid.uuid4())
-        ip = faker.ipv4()
-        site_url = faker.url()
-        now = faker.date_time()
-        sent_at = faker.date_time()
 
         # Use numpy to generate the number of full snapshots and incremental
         # from a log-normal distribution.
         if verbose:
-            print(
+            stderr.write(
                 f"Generating session recording messages for session "
                 f"{session_id} with an average of {full_snapshot_count_mean} "
                 f"full snapshots with a standard deviation of "
@@ -256,35 +279,26 @@ def generate_snapshot_messages(
                 f"an average of {incremental_snapshot_count_mean} "
                 f"incremental snapshots with a standard deviation of "
                 f"{incremental_snapshot_count_standard_deviation}"
+                "\n"
             )
-
-        full_snapshot_count = sample_log_normal_distribution(
-            full_snapshot_count_mean, full_snapshot_count_standard_deviation
-        )
-        incremental_snapshot_count = sample_log_normal_distribution(
-            incremental_snapshot_count_mean,
-            incremental_snapshot_count_standard_deviation,
-        )
 
         if verbose:
-            print(
-                f"Generating session recording messages for session {session_id} with {full_snapshot_count} full snapshots and {incremental_snapshot_count} incremental snapshots"
+            stderr.write(
+                f"Generating session recording messages for session {session_id} "
+                f"with {full_snapshot_count} full snapshots and {incremental_snapshot_count} "
+                f"incremental snapshots"
+                "/n"
             )
 
-        for full_snapshot_index in range(full_snapshot_count):
-            full_snapshot_size = sample_log_normal_distribution(
-                full_snapshot_size_mean, full_snapshot_size_standard_deviation
-            )
-            full_snapshot_data = faker.binary(length=full_snapshot_size)
-            full_snapshot_data = base64.b64encode(full_snapshot_data).decode("latin-1")
+        # TODO: Intermingle full and incremental snapshots. At the moment we'll
+        # just be procesing full snapshots then incremental snapshots which
+        # isn't representative of real world usage.
+
+        for full_snapshot_index, full_snapshot_size in enumerate(full_snapshot_size_samples):
+            full_snapshot_data = "0" * full_snapshot_size
 
             # Split the full snapshot into chunks if it is larger than 900KB.
             full_snapshot_data_chunks = chunked(full_snapshot_data, 900000)
-
-            if verbose:
-                print(
-                    f"Generating session recording messages for full snapshot {full_snapshot_index} with {len(full_snapshot_data_chunks)} chunks"
-                )
 
             for chunk_index, chunk in enumerate(full_snapshot_data_chunks):
                 chunk_id = str(uuid.uuid4())
@@ -323,12 +337,8 @@ def generate_snapshot_messages(
 
                 snapshot_messages.append(message)
 
-        for _ in range(incremental_snapshot_count):
-            incremental_snapshot_size = sample_log_normal_distribution(
-                incremental_snapshot_size_mean, incremental_snapshot_size_standard_deviation
-            )
-            incremental_snapshot_data = faker.binary(length=incremental_snapshot_size)
-            incremental_snapshot_data = base64.b64encode(incremental_snapshot_data).decode("latin-1")
+        for incremental_snapshot_size in incremental_snapshot_size_samples:
+            incremental_snapshot_data = "0" * incremental_snapshot_size
 
             # Split the incremental snapshot into chunks if it is larger than
             # 900KB.
@@ -408,7 +418,8 @@ def main():
     )
 
     for message in snapshot_messages:
-        print(json.dumps(message))
+        stdout.write(json.dumps(message))
+        stdout.write("\n")
 
 
 if __name__ == "__main__":
