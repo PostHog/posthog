@@ -538,8 +538,9 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
 
     _create_tile_for_insight(
         dashboard,
-        name="Feature Flag Called Unique Users",
-        description="Shows the number of unique user calls made on feature flag with key: " + feature_flag.key,
+        name="Feature Flag calls made by unique users per variant",
+        description="Shows the number of unique user calls made on feature flag per variant with key: "
+        + feature_flag.key,
         filters={
             TREND_FILTER_TYPE_EVENTS: [
                 {
