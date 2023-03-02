@@ -64,15 +64,15 @@ $DIR/../../manage.py setup_dev || true  # Assume a failure means it has already
 # need to make sure that we terminate the backgrounded process on exit, so we
 # use the `trap` command to kill all backgrounded processes when the last one
 # terminates.
-trap 'kill $(jobs -p)' EXIT
 PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js > $LOG_FILE 2>&1 &
 SERVER_PID=$!
+trap 'kill $SERVER_PID' EXIT
 
 # Wait for the plugin server health check to be ready, and timeout after 60
 # seconds with exit code 1.
 SECONDS=0
 
-until curl http://localhost:6738/_ready; do
+until curl http://localhost:6738/_health; do
     if (( SECONDS > 60 )); then
         echo 'Timed out waiting for plugin-server to be ready'
         echo '::endgroup::'
