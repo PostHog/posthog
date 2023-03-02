@@ -115,7 +115,7 @@ def correct_result_for_sampling(
     if (not sampling_factor) or (
         entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS
     ):
-        return value
+        return int(value)
 
     result: int = round(value * (1 / sampling_factor))
     return result

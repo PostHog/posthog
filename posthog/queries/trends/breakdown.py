@@ -504,9 +504,11 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": correct_result_for_sampling(
-                        aggregated_value, filter.sampling_factor, entity.math
-                    ),
+                    "aggregated_value": float(
+                        correct_result_for_sampling(aggregated_value, filter.sampling_factor, entity.math)
+                    )
+                    if aggregated_value is not None
+                    else None,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
