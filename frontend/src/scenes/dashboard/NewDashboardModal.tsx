@@ -64,15 +64,32 @@ function TemplateItem({
     onClick: () => void
     index: number
 }): JSX.Element {
+    const [isHovering, setIsHovering] = useState(false)
+
+    const handleMouseEnter = (): void => {
+        setIsHovering(true)
+    }
+
+    const handleMouseLeave = (): void => {
+        setIsHovering(false)
+    }
+
     return (
-        <div className="cursor-pointer border rounded TemplateItem flex flex-col" onClick={onClick}>
-            <div className={clsx('w-full overflow-hidden', !!template?.image_url ? 'h-30 min-h-30' : 'h4 min-h-4')}>
+        <div
+            className="cursor-pointer border rounded TemplateItem flex flex-col transition-all"
+            onClick={onClick}
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+        >
+            <div className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h4 min-h-4' : 'h-30 min-h-30')}>
                 <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
             </div>
 
             <h5 className="px-2 mb-1">{template?.template_name}</h5>
             <div className="px-2 py-1 overflow-y-auto grow">
-                <p className="text-muted-alt text-xs">{template?.dashboard_description ?? ' '}</p>
+                <p className={clsx('text-muted-alt text-xs', isHovering ? '' : 'line-clamp-2')}>
+                    {template?.dashboard_description ?? ' '}
+                </p>
             </div>
         </div>
     )
