@@ -7,8 +7,8 @@ import { IconInfo } from 'lib/lemon-ui/icons'
 import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
-    const logic = samplingFilterLogic({ insightType: editorFilters.insight, insightProps })
+export function SamplingFilter({ filters, insightProps }: EditorFilterProps): JSX.Element {
+    const logic = samplingFilterLogic({ insightType: filters.insight, insightProps })
 
     const { setSamplingPercentage } = useActions(logic)
     const { samplingPercentage, samplingAvailable } = useValues(logic)
@@ -32,6 +32,7 @@ export function SamplingFilter({ filters: editorFilters, insightProps }: EditorF
                         {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
                             <LemonButton
                                 key={key}
+                                type="secondary"
                                 size="small"
                                 active={samplingPercentage === percentage}
                                 onClick={() => setSamplingPercentage(percentage)}

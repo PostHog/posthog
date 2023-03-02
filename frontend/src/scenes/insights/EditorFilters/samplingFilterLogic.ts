@@ -2,7 +2,7 @@ import { FEATURE_FLAGS } from './../../../lib/constants'
 import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
 import { InsightType } from './../../../types'
 import { insightLogic } from './../insightLogic'
-import { kea, path, connect, actions, reducers, props, selectors } from 'kea'
+import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
 
 import type { samplingFilterLogicType } from './samplingFilterLogicType'
 import { InsightLogicProps } from '~/types'
@@ -27,6 +27,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     path(['scenes', 'insights', 'EditorFilters', 'samplingFilterLogic']),
     props({} as SamplingFilterLogicProps),
     connect((props: SamplingFilterLogicProps) => ({
+        values: [insightLogic(props.insightProps), ['filters'], featureFlagLogic, ['featureFlags']],
         actions: [
             insightLogic(props.insightProps),
             ['setFilters as setInsightFilters'],
@@ -35,37 +36,17 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             retentionLogic(props.insightProps),
             ['setFilters as setRetentionFilters'],
         ],
-        values: [insightLogic(props.insightProps), ['filters'], featureFlagLogic, ['featureFlags']],
     })),
-    actions(({ actions, props, values }) => ({
-        setSamplingPercentage: (samplingPercentage: number) => {
-            // clicking on the active button untoggles it and disables sampling
-            const samplingFactor = samplingPercentage === values.samplingPercentage ? null : samplingPercentage / 100
-
-            if (props.insightType === InsightType.FUNNELS) {
-                actions.setFunnelFilters({
-                    ...values.filters,
-                    sampling_factor: samplingFactor,
-                })
-            } else if (props.insightType === InsightType.RETENTION) {
-                actions.setRetentionFilters({
-                    ...values.filters,
-                    sampling_factor: samplingFactor,
-                })
-            } else {
-                actions.setInsightFilters({
-                    ...values.filters,
-                    sampling_factor: samplingFactor,
-                })
-            }
-            return { samplingPercentage: samplingPercentage === values.samplingPercentage ? null : samplingPercentage }
-        },
+    actions(() => ({
+        setSamplingPercentage: (samplingPercentage: number) => ({ samplingPercentage }),
     })),
     reducers(({ values }) => ({
         samplingPercentage: [
             (values.filters.sampling_factor ? values.filters.sampling_factor * 100 : null) as number | null,
             {
-                setSamplingPercentage: (_, { samplingPercentage }) => samplingPercentage,
+                // clicking on the active button untoggles it and disables sampling
+                setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
+                    samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
             },
         ],
     })),
@@ -88,11 +69,33 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             },
         ],
         samplingAvailable: [
-            (s) => s.featureFlags,
+            (s) => [s.featureFlags],
             (featureFlags: Record<string, boolean | string | undefined>): boolean =>
-                featureFlags[FEATURE_FLAGS.SAMPLING] &&
-                props.insightType &&
+                !!featureFlags[FEATURE_FLAGS.SAMPLING] &&
+                !!props.insightType &&
                 INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(props.insightType),
         ],
+    })),
+    listeners(({ props, actions, values }) => ({
+        setSamplingPercentage: () => {
+            const samplingFactor = values.samplingPercentage ? values.samplingPercentage / 100 : null
+
+            if (props.insightType === InsightType.FUNNELS) {
+                actions.setFunnelFilters({
+                    ...values.filters,
+                    sampling_factor: samplingFactor,
+                })
+            } else if (props.insightType === InsightType.RETENTION) {
+                actions.setRetentionFilters({
+                    ...values.filters,
+                    sampling_factor: samplingFactor,
+                })
+            } else {
+                actions.setInsightFilters({
+                    ...values.filters,
+                    sampling_factor: samplingFactor,
+                })
+            }
+        },
     })),
 ])
