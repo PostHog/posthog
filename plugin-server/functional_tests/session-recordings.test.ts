@@ -512,35 +512,62 @@ test.concurrent(`handles invalid JSON`, async () => {
     })
 })
 
-test.concurrent(`handles message with no token`, async () => {
-    const key = uuidv4()
-
-    await produce({ topic: 'session_recording_events', message: Buffer.from(JSON.stringify({})), key })
-
-    await waitForExpect(() => {
-        const messages = dlq.filter((message) => message.key?.toString() === key)
-        expect(messages.length).toBe(1)
-    })
-})
-
-test.concurrent(`handles message with token and no associated team_id`, async () => {
-    const key = uuidv4()
+test.concurrent(`handles message with no token or with token and no associated team_id`, async () => {
+    // NOTE: Here we are relying on the topic only having a single partition,
+    // which ensures that if the last message we send is in ClickHouse, then
+    // that should mean that the previous messages have already been processed.
+    // We need to do this because we do not have a way to check the logs or
+    // metrics in an easy way.
+    //
+    // We expect that no token and invalid tokens should not go to the DLQ
     const token = uuidv4()
+    const teamId = await createTeam(organizationId, undefined, token)
+    const noTokenKey = uuidv4()
+    const noAssociatedTeamKey = uuidv4()
+    const noTokenUuid = uuidv4()
+    const noAssociatedTeamUuid = uuidv4()
+    const uuid = uuidv4()
 
     await produce({
         topic: 'session_recording_events',
+        message: Buffer.from(JSON.stringify({ uuid: noTokenUuid, data: JSON.stringify({}) })),
+        key: noTokenKey,
+    })
+    await produce({
+        topic: 'session_recording_events',
         message: Buffer.from(
-            JSON.stringify({
-                token: token,
-            })
+            JSON.stringify({ uuid: noAssociatedTeamUuid, token: 'no associated team', data: JSON.stringify({}) })
         ),
-        key,
+        key: noAssociatedTeamKey,
     })
 
-    await waitForExpect(() => {
-        const messages = dlq.filter((message) => message.key?.toString() === key)
-        expect(messages.length).toBe(1)
+    await capture({
+        teamId: teamId,
+        distinctId: new UUIDT().toString(),
+        uuid: uuid,
+        event: '$snapshot',
+        properties: {
+            $session_id: '1234abc',
+            $snapshot_data: 'yes way',
+        },
+        sentAt: new Date(),
+        eventTime: new Date(),
+        now: new Date(),
+        topic: 'session_recording_events',
     })
+
+    await waitForExpect(async () => {
+        const events = await fetchSessionRecordingsEvents(teamId, uuid)
+        expect(events.length).toBe(1)
+    })
+
+    // These shouldn't have been DLQ'd
+    expect(dlq.filter((message) => message.key?.toString() === noTokenKey).length).toBe(0)
+    expect(dlq.filter((message) => message.key?.toString() === noAssociatedTeamKey).length).toBe(0)
+
+    // And they shouldn't have been ingested into ClickHouse
+    expect((await fetchSessionRecordingsEvents(teamId, noTokenUuid)).length).toBe(0)
+    expect((await fetchSessionRecordingsEvents(teamId, noAssociatedTeamUuid)).length).toBe(0)
 })
 
 // TODO: implement schema validation and add a test.
