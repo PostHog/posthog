@@ -539,10 +539,11 @@ export class PersonState {
         const mergedAt = DateTime.now()
         const oldestEvent = overridePerson.created_at
         /**
-            We'll need to do two updates:
+            We'll need to do 4 updates:
 
-         1. to add an override from oldPerson to override person
-         2. update any entries that have oldPerson as the override person to now also point to the new override person
+         1. Add the persons involved to the helper table (2 of them)
+         2. Add an override from oldPerson to override person
+         3. Update any entries that have oldPerson as the override person to now also point to the new override person
 
             TODO: how do we want to be updating oldest_event?
 
@@ -550,23 +551,25 @@ export class PersonState {
          In the transitive one the same don't update or update to older data (if that's not too complex to do)
          it's an optimization anyway and squash job might be updating those values anyway and it's just a hint, so ignoring if complex seems better
          in any case it's important that we use the oldest_event we stored in postgres in CH too.
-        */
+         */
+        const oldPersonId = await this.addPersonOverrideHelper(oldPerson, client)
+        const overridePersonId = await this.addPersonOverrideHelper(overridePerson, client)
 
         const {
             rows: [{ version }],
         } = await this.db.postgresQuery(
             SQL`
                 INSERT INTO posthog_personoverride (
-                    team_id, 
-                    old_person_id, 
-                    override_person_id, 
+                    team_id,
+                    old_person_id,
+                    override_person_id,
                     oldest_event,
                     version
                 ) VALUES (
-                    ${this.teamId}, 
-                    ${oldPerson.uuid}, 
-                    ${overridePerson.uuid}, 
-                    ${oldestEvent}, 
+                    ${this.teamId},
+                    ${oldPersonId},
+                    ${overridePersonId},
+                    ${oldestEvent},
                     1
                 )
                 RETURNING version;
@@ -578,12 +581,12 @@ export class PersonState {
 
         const { rows: transitiveUpdates } = await this.db.postgresQuery(
             SQL`
-                UPDATE 
+                UPDATE
                     posthog_personoverride
-                SET 
-                    override_person_id = ${overridePerson.uuid}, version = version + 1
+                SET
+                    override_person_id = ${overridePersonId}, version = version + 1
                 WHERE
-                    team_id = ${this.teamId} AND override_person_id = ${oldPerson.uuid}
+                    team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
                 RETURNING
                     old_person_id,
                     version,
@@ -622,6 +625,46 @@ export class PersonState {
             ],
         }
         return personOverrideMessages
+    }
+
+    private async addPersonOverrideHelper(person: Person, client?: PoolClient): Promise<number> {
+        /**
+            Update the helper table that serves as a mapping between a serial ID and a Person UUID.
+
+            This mapping is used to enable an exclusion constraint in the personoverrides table, which
+            requires int[], while avoiding any constraints on "hotter" tables, like person.
+         **/
+        const {
+            rows: [{ person_id }],
+        } = await this.db.postgresQuery(
+            SQL`
+                WITH insert_id AS (
+                    INSERT INTO posthog_personoverridehelper(
+                        team_id,
+                        uuid
+                    )
+                    VALUES (
+                        ${this.teamId},
+                        ${person.uuid}
+                    )
+                    ON CONFLICT("team_id", "uuid") DO NOTHING
+                    RETURNING id
+                )
+                SELECT * FROM insert_id
+                UNION ALL
+                -- ON CONFLICT nothing is returned, so we get the id here.
+                -- Fear not, the constraints on personoverride will handle any inconsistencies.
+                -- This helper table is really nothing more than a mapping.
+                SELECT id
+                FROM posthog_personoverridehelper
+                WHERE uuid = ${person.uuid}
+            `,
+            undefined,
+            'personOverride',
+            client
+        )
+
+        return person_id
     }
 
     private async handleTablesDependingOnPersonID(
