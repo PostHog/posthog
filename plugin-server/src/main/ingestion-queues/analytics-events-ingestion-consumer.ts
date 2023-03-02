@@ -112,7 +112,10 @@ export async function eachBatchIngestionWithOverflow(
 
         for (const message of kafkaMessages) {
             const pluginEvent = formPipelineEvent(message)
-            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+            // NOTE: we need to ensure that we either use the team_id or the
+            // token whilst we haven't fully rolled out lightweight capture i.e.
+            // we can't rely on token being set.
+            const seenKey = `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 
             // Events with a null key should have been produced to the the
             // KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW topic, so we shouldn't see them here as this consumer's
