@@ -109,7 +109,7 @@
         "kea-window-values": "^3.0.0",
         "md5": "^2.3.0",
         "monaco-editor": "^0.23.0",
-        "posthog-js": "1.50.0",
+        "posthog-js": "1.50.2",
         "posthog-js-lite": "2.0.0-alpha5",
         "prettier": "^2.3.1",
         "prop-types": "^15.7.2",
