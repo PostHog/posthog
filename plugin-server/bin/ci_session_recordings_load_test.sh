@@ -109,6 +109,18 @@ fi
 
 echo "Ingestion lag dropped to zero after $SECONDS seconds"
 
+# Kill the plugin server process and poll for up to 30 seconds for it to exit.
+kill $(jobs -p)
+
+SECONDS=0
+
+while [[ $SECONDS -lt 30 ]]; do
+    if ! pgrep -f "pnpm start:dev" > /dev/null; then
+        break
+    fi
+    sleep 1
+done
+
 # Print the plugin server logs.
 echo "::group::Plugin server logs"
 cat /tmp/plugin-server.log
