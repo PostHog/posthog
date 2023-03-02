@@ -29,6 +29,8 @@ export function CreateRoleModal(): JSX.Element {
 
     const [roleName, setRoleName] = useState('')
 
+    const isNewRole = !roleInFocus
+
     const handleClose = (): void => {
         setCreateRoleModalShown(false)
         setRoleMembersToAdd([])
@@ -38,8 +40,6 @@ export function CreateRoleModal(): JSX.Element {
         createRole(roleName)
         setRoleName('')
     }
-
-    const isNewRole = !roleInFocus
 
     return (
         <LemonModal
@@ -70,9 +70,11 @@ export function CreateRoleModal(): JSX.Element {
                                 </LemonButton>
                             )}
                         </div>
-                        <LemonButton type="primary" onClick={handleSubmit}>
-                            Save
-                        </LemonButton>
+                        {isNewRole && (
+                            <LemonButton type="primary" onClick={handleSubmit}>
+                                Save
+                            </LemonButton>
+                        )}
                     </div>
                 ) : undefined
             }

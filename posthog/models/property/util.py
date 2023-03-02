@@ -19,7 +19,10 @@ from rest_framework import exceptions
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
-from posthog.hogql.hogql import HogQLContext, translate_hogql
+from posthog.hogql import ast
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -769,16 +772,36 @@ def build_selector_regex(selector: Selector) -> str:
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     counters: List[tuple] = []
+
+    class PropertyChecker(TraversingVisitor):
+        def __init__(self):
+            self.event_properties: List[str] = []
+            self.person_properties: List[str] = []
+
+        def visit_field(self, node: ast.Field):
+            if len(node.chain) > 1 and node.chain[0] == "properties":
+                self.event_properties.append(node.chain[1])
+
+            if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
+                self.person_properties.append(node.chain[2])
+
+            if (
+                len(node.chain) > 3
+                and node.chain[0] == "pdi"
+                and node.chain[1] == "person"
+                and node.chain[2] == "properties"
+            ):
+                self.person_properties.append(node.chain[3])
+
     for prop in props:
         if prop.type == "hogql":
-            context = HogQLContext()
-            # TODO: Refactor this. Currently it prints and discards a query, just to check the properties.
-            translate_hogql(prop.key, context)
-            for field_access in context.field_access_logs:
-                if field_access.type == "event.properties":
-                    counters.append((field_access.field, "event", None))
-                elif field_access.type == "person.properties":
-                    counters.append((field_access.field, "person", None))
+            node = parse_expr(prop.key)
+            property_checker = PropertyChecker()
+            property_checker.visit(node)
+            for field in property_checker.event_properties:
+                counters.append((field, "event", None))
+            for field in property_checker.person_properties:
+                counters.append((field, "person", None))
         else:
             counters.append((prop.key, prop.type, prop.group_type_index))
     return Counter(cast(Iterable, counters))

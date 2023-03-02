@@ -7,7 +7,7 @@
 # experience as rich as possible. Perhaps later down the line it might be worth
 # rolling our own
 #
-FROM mcr.microsoft.com/vscode/devcontainers/python:3.8-bullseye
+FROM mcr.microsoft.com/vscode/devcontainers/python:3.10-bullseye
 
 # Make sure all exit codes on pipes cause failures
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -33,6 +33,8 @@ RUN apt-get update \
 # Install node via NVM (https://github.com/nvm-sh/nvm)
 ARG NODE_VERSION="18"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
+
+RUN curl -fsSL https://get.pnpm.io/install.sh | sh -
 
 WORKDIR /workspace
 
