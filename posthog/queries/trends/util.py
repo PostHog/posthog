@@ -42,6 +42,8 @@ COUNT_PER_ACTOR_MATH_FUNCTIONS = {
     "p99_count_per_actor": "quantile(0.99)",
 }
 
+ALL_SUPPORTED_MATH_FUNCTIONS = [*list(PROPERTY_MATH_FUNCTIONS.keys()), *list(COUNT_PER_ACTOR_MATH_FUNCTIONS.keys())]
+
 
 def process_math(
     entity: Entity, team: Team, event_table_alias: Optional[str] = None, person_id_alias: str = "person_id"
@@ -81,12 +83,15 @@ def process_math(
     return aggregate_operation, join_condition, params
 
 
-def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) -> Dict[str, Any]:
+def parse_response(
+    stats: Dict, filter: Filter, additional_values: Dict = {}, entity: Optional[Entity] = None
+) -> Dict[str, Any]:
     counts = stats[1]
     labels = [item.strftime("%-d-%b-%Y{}".format(" %H:%M" if filter.interval == "hour" else "")) for item in stats[0]]
     days = [item.strftime("%Y-%m-%d{}".format(" %H:%M:%S" if filter.interval == "hour" else "")) for item in stats[0]]
 
-    counts = [correct_result_for_sampling(c, filter.sampling_factor) for c in counts]
+    entity_math = entity.math if entity is not None else None
+    counts = [correct_result_for_sampling(c, filter.sampling_factor, entity_math) for c in counts]
     return {
         "data": [float(c) for c in counts],
         "count": float(sum(counts)),

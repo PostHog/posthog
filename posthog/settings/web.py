@@ -284,3 +284,9 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
 )
 
 KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)
+
+# Prometheus Django metrics settings, see
+# https://github.com/korfuri/django-prometheus for more details
+
+# We keep the number of buckets low to reduce resource usage on the Prometheus
+PROMETHEUS_LATENCY_BUCKETS = [0.1, 0.3, 0.9, 2.7, 8.1] + [float("inf")]

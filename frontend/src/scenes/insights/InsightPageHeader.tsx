@@ -47,7 +47,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        isTestGroupForNewRefreshUX,
         displayRefreshButtonChangedNotice,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
@@ -122,13 +121,14 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit && isTestGroupForNewRefreshUX ? (
+                        {insightMode === ItemMode.Edit ? (
                             <>
                                 <Tooltip
                                     title={
                                         displayRefreshButtonChangedNotice ? `The 'Refresh' button has moved here.` : ''
                                     }
                                     visible={displayRefreshButtonChangedNotice}
+                                    zIndex={940}
                                 >
                                     <More
                                         onClick={
@@ -142,7 +142,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     status="stealth"
                                                     onClick={() => loadResults(true)}
                                                     fullWidth
-                                                    data-attr="duplicate-insight-from-insight-view"
+                                                    data-attr="refresh-insight-from-insight-view"
                                                     disabledReason={insightRefreshButtonDisabledReason}
                                                 >
                                                     Refresh
@@ -170,17 +170,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         }
                                         overlay={
                                             <>
-                                                {isTestGroupForNewRefreshUX ? (
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadResults(true)}
-                                                        fullWidth
-                                                        data-attr="duplicate-insight-from-insight-view"
-                                                        disabledReason={insightRefreshButtonDisabledReason}
-                                                    >
-                                                        Refresh
-                                                    </LemonButton>
-                                                ) : null}
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => loadResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-insight-from-insight-view"
+                                                    disabledReason={insightRefreshButtonDisabledReason}
+                                                >
+                                                    Refresh
+                                                </LemonButton>
                                                 <LemonButton
                                                     status="stealth"
                                                     onClick={() => duplicateInsight(insight as InsightModel, true)}
