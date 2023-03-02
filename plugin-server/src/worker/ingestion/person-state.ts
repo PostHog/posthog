@@ -655,17 +655,16 @@ export class PersonState {
             requires int[], while avoiding any constraints on "hotter" tables, like person.
          **/
         const {
-            rows: [{ person_id }],
+            rows: [{ id }],
         } = await this.db.postgresQuery(
-            SQL`
-                WITH insert_id AS (
+            `WITH insert_id AS (
                     INSERT INTO posthog_personoverridehelper(
                         team_id,
                         uuid
                     )
                     VALUES (
                         ${this.teamId},
-                        ${person.uuid}
+                        '${person.uuid}'
                     )
                     ON CONFLICT("team_id", "uuid") DO NOTHING
                     RETURNING id
@@ -677,14 +676,14 @@ export class PersonState {
                 -- This helper table is really nothing more than a mapping.
                 SELECT id
                 FROM posthog_personoverridehelper
-                WHERE uuid = ${person.uuid}
+                WHERE uuid = '${person.uuid}'
             `,
             undefined,
             'personOverrideHelper',
             client
         )
 
-        return person_id
+        return id
     }
 
     private async handleTablesDependingOnPersonID(

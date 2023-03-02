@@ -442,7 +442,7 @@ testIfPoEEmbraceJoinEnabled(`single merge results in all events resolving to the
         event: '$identify',
         properties: {
             distinct_id: personIdentifier,
-            $anon_distinct_id: secondEventId,
+            $anon_distinct_id: secondDistinctId,
         },
     })
 
