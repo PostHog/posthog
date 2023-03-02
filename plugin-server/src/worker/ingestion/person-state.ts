@@ -7,11 +7,11 @@ import { DateTime } from 'luxon'
 import { PoolClient } from 'pg'
 
 import { KAFKA_PERSON_OVERRIDE } from '../../config/kafka-topics'
-import { Person, PropertyUpdateOperation } from '../../types'
+import { Person, PropertyUpdateOperation, TimestampFormat } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
-import { NoRowsUpdatedError, UUIDT } from '../../utils/utils'
+import { castTimestampOrNow, NoRowsUpdatedError, UUIDT } from '../../utils/utils'
 import { LazyPersonContainer } from './lazy-person-container'
 import { PersonManager } from './person-manager'
 import { captureIngestionWarning } from './utils'
@@ -605,25 +605,26 @@ export class PersonState {
                 {
                     value: JSON.stringify({
                         team_id: oldPerson.team_id,
-                        merged_at: mergedAt,
-                        override_person_id: overridePerson.id,
-                        old_person_id: oldPerson.id,
-                        oldest_event: oldestEvent,
+                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                        override_person_id: overridePerson.uuid,
+                        old_person_id: oldPerson.uuid,
+                        oldest_event: castTimestampOrNow(oldestEvent, TimestampFormat.ClickHouse),
                         version: version,
                     }),
                 },
-                ...transitiveUpdates.map(({ oldPersonId, version, oldestEvent }) => ({
+                ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
                     value: JSON.stringify({
                         team_id: oldPerson.team_id,
-                        merged_at: mergedAt,
-                        override_person_id: overridePerson.id,
-                        old_person_id: oldPersonId,
-                        oldest_event: oldestEvent,
+                        merged_at: castTimestampOrNow(mergedAt, TimestampFormat.ClickHouse),
+                        override_person_id: overridePerson.uuid,
+                        old_person_id: old_person_id,
+                        oldest_event: castTimestampOrNow(oldest_event, TimestampFormat.ClickHouse),
                         version: version,
                     }),
                 })),
             ],
         }
+
         return personOverrideMessages
     }
 
