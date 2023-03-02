@@ -314,6 +314,13 @@ jobs:
                   pnpm install --frozen-lockfile
                   pnpm build
 
+            - name: Set up postgres
+              env:
+                  DEBUG: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+              run: |
+                  ./manage.py migrate
+
             - name: Run functional tests
               run: |
                   cd plugin-server
