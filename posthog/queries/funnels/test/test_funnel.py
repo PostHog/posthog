@@ -1600,7 +1600,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
                     event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
                 )
                 _create_event(
-                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-10 00:00:00"
+                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:20"
                 )
 
             data = {
