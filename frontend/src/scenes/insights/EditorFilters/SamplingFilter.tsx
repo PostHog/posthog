@@ -15,6 +15,7 @@ const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
     InsightType.FUNNELS,
     InsightType.TRENDS,
     InsightType.RETENTION,
+    InsightType.STICKINESS,
 ])
 
 export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
