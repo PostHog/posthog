@@ -54,7 +54,7 @@ export function DashboardHeader(): JSX.Element | null {
 
     const { setDashboardTemplate, openDashboardTemplateEditor } = useActions(dashboardTemplateEditorLogic)
 
-    const { hasAvailableFeature } = useValues(userLogic)
+    const { hasAvailableFeature, user } = useValues(userLogic)
 
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
@@ -239,7 +239,7 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
-                                            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && (
+                                            {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && user?.is_staff && (
                                                 <LemonButton
                                                     onClick={() => {
                                                         if (asDashboardTemplate) {
