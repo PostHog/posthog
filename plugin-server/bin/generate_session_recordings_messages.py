@@ -247,13 +247,13 @@ def generate_snapshot_messages(
     )
 
     full_snapshot_size_samples = sample_log_normal_distribution(
-        full_snapshot_size_mean, full_snapshot_size_standard_deviation, sum(full_snapshot_count_samples)
+        full_snapshot_size_mean, full_snapshot_size_standard_deviation, max(full_snapshot_count_samples)
     )
 
     incremental_snapshot_size_samples = sample_log_normal_distribution(
         incremental_snapshot_size_mean,
         incremental_snapshot_size_standard_deviation,
-        sum(incremental_snapshot_count_samples),
+        max(incremental_snapshot_count_samples),
     )
 
     now = faker.date_time()
@@ -294,7 +294,7 @@ def generate_snapshot_messages(
         # just be procesing full snapshots then incremental snapshots which
         # isn't representative of real world usage.
 
-        for full_snapshot_index, full_snapshot_size in enumerate(full_snapshot_size_samples):
+        for full_snapshot_index, full_snapshot_size in enumerate(full_snapshot_size_samples[:full_snapshot_count]):
             full_snapshot_data = "0" * full_snapshot_size
 
             # Split the full snapshot into chunks if it is larger than 900KB.
@@ -337,7 +337,7 @@ def generate_snapshot_messages(
 
                 snapshot_messages.append(message)
 
-        for incremental_snapshot_size in incremental_snapshot_size_samples:
+        for incremental_snapshot_size in incremental_snapshot_size_samples[:incremental_snapshot_count]:
             incremental_snapshot_data = "0" * incremental_snapshot_size
 
             # Split the incremental snapshot into chunks if it is larger than
