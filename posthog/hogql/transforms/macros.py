@@ -43,4 +43,6 @@ class MacroExpander(CloningVisitor):
                 if scope.macros and len(node.table.chain) == 1 and node.table.chain[0] in scope.macros:
                     node.alias = node.table.chain[0]
                     node.table = self.visit(clone_expr(scope.macros[node.table.chain[0]].expr))
+        if node.next_join:
+            self.visit(node.next_join)
         return node
