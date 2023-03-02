@@ -40,6 +40,7 @@ docker compose \
     --reset-offsets \
     --to-latest \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
+    --topic $SESSION_RECORDING_EVENTS_TOPIC \
     --execute
 
 $DIR/../../manage.py setup_dev || true  # Assume a failure means it has already been run.
