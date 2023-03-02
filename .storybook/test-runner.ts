@@ -19,12 +19,15 @@ declare module '@storybook/react' {
              */
             skip?: boolean
             /**
-             * Whether we should wait for all loading indicators to disappear.
-             * If a number is passed, it will be used as an extra delay, in milliseconds.
-             * Enable for stories that take a bit to load, and which you aren't testing loading states for.
-             * @default false
+             * Whether we should wait for all loading indicators to disappear before taking a snapshot.
+             *
+             * This is on by default for stories that have a layout of 'fullscreen', and off otherwise.
+             * Override that behavior by setting this to `true` or `false` manually.
+             *
+             * You can also provide a selector string instead of a boolean - in that case we'll wait
+             * for a matching element to be be visible once all loaders are gone.
              */
-            waitForLoadersToDisappear?: boolean | number
+            waitForLoadersToDisappear?: boolean | string
             /**
              * Whether navigation (sidebar + topbar) should be excluded from the snapshot.
              * Warning: Fails if enabled for stories in which navigation is not present.
@@ -56,16 +59,18 @@ module.exports = {
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
     },
     async postRender(page, context) {
+        const browserContext = page.context()
         const storyContext = await getStoryContext(page, context)
         const { skip = false, snapshotBrowsers = ['chromium'] } = storyContext.parameters?.testOptions ?? {}
 
+        browserContext.setDefaultTimeout(1000) // Reduce the default timeout from 30 s to 1 s to pre-empt Jest timeouts
         if (!skip) {
             await page.evaluate(() => {
                 // Stop all animations for consistent snapshots
                 document.body.classList.add('storybook-test-runner')
             })
 
-            const currentBrowser = page.context().browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
+            const currentBrowser = browserContext.browser()!.browserType().name() as 'chromium' | 'firefox' | 'webkit'
             if (snapshotBrowsers.includes(currentBrowser)) {
                 await expectStoryToMatchSnapshot(page, context, storyContext, currentBrowser)
             }
@@ -79,8 +84,10 @@ async function expectStoryToMatchSnapshot(
     storyContext: StoryContext,
     browser: SupportedBrowserName
 ): Promise<void> {
-    const { waitForLoadersToDisappear = false, excludeNavigationFromSnapshot = false } =
-        storyContext.parameters?.testOptions ?? {}
+    const {
+        waitForLoadersToDisappear = storyContext.parameters?.layout === 'fullscreen',
+        excludeNavigationFromSnapshot = false,
+    } = storyContext.parameters?.testOptions ?? {}
 
     let check: (page: Page, context: TestContext, browser: SupportedBrowserName) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -92,15 +99,18 @@ async function expectStoryToMatchSnapshot(
     } else {
         check = expectStoryToMatchComponentSnapshot
     }
+
     // Wait for story to load
-    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached', timeout: 1000 })
+    await page.waitForSelector('.sb-show-preparing-story', { state: 'detached' })
     if (waitForLoadersToDisappear) {
-        await page.waitForTimeout(200) // Wait for initial UI to load
-        await Promise.all(
-            LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached', timeout: 1000 }))
-        )
-        if (typeof waitForLoadersToDisappear === 'number') {
-            await page.waitForTimeout(waitForLoadersToDisappear)
+        await page.waitForTimeout(300) // Wait for initial UI to load
+        await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
+        if (typeof waitForLoadersToDisappear === 'string') {
+            await page.waitForSelector(waitForLoadersToDisappear)
+            if (waitForLoadersToDisappear.split(' ').at(-1)?.startsWith('canvas')) {
+                // If waiting for a canvas, wait a bit more for it to be fully rendered and properly sized
+                await page.waitForTimeout(400)
+            }
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
