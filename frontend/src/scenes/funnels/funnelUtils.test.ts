@@ -111,6 +111,11 @@ describe('getBreakdownStepValues()', () => {
 describe('getIncompleteConversionWindowStartDate()', () => {
     const windows = [
         {
+            funnel_window_interval: 10,
+            funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Second,
+            expected: '2018-04-04T15:59:50.000Z',
+        },
+        {
             funnel_window_interval: 60,
             funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Minute,
             expected: '2018-04-04T15:00:00.000Z',
