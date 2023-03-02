@@ -121,6 +121,8 @@ class FunnelWindowMixin(BaseParamMixin):
         if self.funnel_window_interval_unit is None:
             return "DAY"
 
+        if self.funnel_window_interval_unit == "second":
+            return "SECOND"
         if self.funnel_window_interval_unit == "minute":
             return "MINUTE"
         elif self.funnel_window_interval_unit == "hour":
