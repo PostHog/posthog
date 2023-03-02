@@ -15,6 +15,7 @@ import { LemonCalendarRangeInline } from 'lib/lemon-ui/LemonCalendarRange/LemonC
 import { dayjs } from 'lib/dayjs'
 import { formatDate, formatDateRange } from 'lib/utils'
 import { DatePicker } from 'lib/components/DatePicker'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -115,6 +116,7 @@ function FieldInput({
                     height={200}
                     value={value}
                     onChange={onChange}
+                    loading={<Spinner />}
                 />
             )
         case 'boolean':

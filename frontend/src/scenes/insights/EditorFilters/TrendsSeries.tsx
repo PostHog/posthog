@@ -25,6 +25,7 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
         ...(isTrendsFilter(filters) ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
     return (
         <>

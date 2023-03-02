@@ -243,6 +243,7 @@ export function LineGraph_({
 
     const canvasRef = useRef<HTMLCanvasElement | null>(null)
     const [myLineChart, setMyLineChart] = useState<Chart<ChartType, any, string>>()
+    const [isAwaitingFirstRender, setIsAwaitingFirstRender] = useState(true)
 
     // Relying on useResizeObserver instead of Chart's onResize because the latter was not reliable
     const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: canvasRef })
@@ -357,6 +358,11 @@ export function LineGraph_({
         const options: ChartOptions = {
             responsive: true,
             maintainAspectRatio: false,
+            animation: {
+                onComplete() {
+                    setIsAwaitingFirstRender(false)
+                },
+            },
             elements: {
                 line: {
                     tension: 0,
@@ -608,7 +614,7 @@ export function LineGraph_({
             className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
             data-attr={dataAttr}
         >
-            <canvas ref={canvasRef} />
+            <canvas ref={canvasRef} aria-busy={isAwaitingFirstRender} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay
                     chart={myLineChart}
