@@ -17,8 +17,6 @@ const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
     InsightType.RETENTION,
 ])
 
-const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([InsightType.LIFECYCLE, InsightType.FUNNELS, InsightType.TRENDS])
-
 export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
     const initializedInsightLogic = insightLogic(insightProps)
     const initializedFunnelLogic = funnelLogic(insightProps)
