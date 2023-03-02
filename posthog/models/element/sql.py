@@ -11,7 +11,8 @@ WHERE
     {date_to}
     {query}
 GROUP BY elements_chain, event
-ORDER BY count DESC;
+ORDER BY count DESC
+LIMIT {limit} OFFSET {offset};
 """
 
 GET_VALUES = """

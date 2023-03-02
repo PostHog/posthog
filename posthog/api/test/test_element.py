@@ -147,17 +147,17 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_element_stats_postgres_queries_are_as_expected(self) -> None:
         self._setup_events()
 
-        self.client.get("/api/element/stats/").json()
+        self.client.get("/api/element/stats/?paginate_response=true").json()
 
     def test_element_stats_can_filter_by_properties(self) -> None:
         self._setup_events()
 
-        response = self.client.get("/api/element/stats/").json()
-        assert len(response) == 2
+        response = self.client.get("/api/element/stats/?paginate_response=true").json()
+        assert len(response["results"]) == 2
 
         properties_filter = json.dumps([{"key": "$current_url", "value": "http://example.com/another_page"}])
-        response = self.client.get(f"/api/element/stats/?properties={properties_filter}").json()
-        self.assertEqual(len(response), 1)
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
+        self.assertEqual(len(response["results"]), 1)
 
     def test_element_stats_can_filter_by_hogql(self) -> None:
         self._setup_events()
@@ -166,10 +166,11 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 {"type": "hogql", "key": "like(properties.$current_url, '%another_page%')"},
             ]
         )
-        response = self.client.get(f"/api/element/stats/?properties={properties_filter}").json()
-        self.assertEqual(len(response), 1)
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&properties={properties_filter}").json()
+        self.assertEqual(len(response["results"]), 1)
 
-    def test_element_stats(self) -> None:
+    def test_element_stats_without_pagination(self) -> None:
+        """Can be removed once we can default to returning paginated responses"""
         self._setup_events()
 
         response = self.client.get("/api/element/stats").json()
@@ -208,39 +209,77 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         with freeze_time(query_time):
             # the UI doesn't allow you to choose time, so query should always be from start of day
-            response = self.client.get(f"/api/element/stats/?date_from={query_time}")
+            response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertEqual(response_json[0]["count"], 2)
-            self.assertEqual(response_json[0]["elements"][0]["tag_name"], "a")
+            self.assertEqual(response_json["results"][0]["count"], 2)
+            self.assertEqual(response_json["results"][0]["elements"][0]["tag_name"], "a")
 
     def test_element_stats_can_load_all_the_data(self) -> None:
         self._setup_events()
 
-        response = self.client.get(f"/api/element/stats/")
+        response = self.client.get(f"/api/element/stats/?paginate_response=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert response_json == expected_all_data_response_results
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_all_data_response_results
 
     def test_element_stats_can_load_only_rageclick_data(self) -> None:
         self._setup_events()
 
-        response = self.client.get(f"/api/element/stats/?include=$rageclick")
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclick")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert response_json == expected_rage_click_data_response_results
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_rage_click_data_response_results
 
     def test_element_stats_can_load_rageclick_and_autocapture_data(self) -> None:
         self._setup_events()
 
-        response = self.client.get(f"/api/element/stats/?include=$rageclick&include=$autocapture")
+        response = self.client.get(
+            f"/api/element/stats/?paginate_response=true&include=$rageclick&include=$autocapture"
+        )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert response_json == expected_all_data_response_results + expected_rage_click_data_response_results
+        assert response_json["next"] is None  # loaded all the data, so no next link
+        results = response_json["results"]
+
+        assert results == expected_all_data_response_results + expected_rage_click_data_response_results
+
+    def test_element_stats_obeys_limit_parameter(self) -> None:
+        self._setup_events()
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] == "http://testserver/api/element/stats/?paginate_response=true&limit=1&offset=1"
+        limit_to_one_results = response_json["results"]
+        assert limit_to_one_results == [expected_all_data_response_results[0]]
+
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1&offset=1")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        assert response_json["next"] is None
+        limit_to_one_results = response_json["results"]
+        assert limit_to_one_results == [expected_all_data_response_results[1]]
+
+    def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
+        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_element_stats_does_not_allow_non_numeric_offset(self) -> None:
+        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_element_stats_does_not_allow_unexepcted_include(self) -> None:
         response = self.client.get(f"/api/element/stats/?include=$autocapture&include=$rageclick&include=$pageview")
