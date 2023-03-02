@@ -43,9 +43,25 @@ class Command(BaseCommand):
                         )
                         sys.exit(1)
 
-                    if "CONSTRAINT" in operation_sql and "CREATE TABLE" not in operation_sql:
+                    if (
+                        "CONSTRAINT" in operation_sql
+                        and "CREATE TABLE"
+                        not in operation_sql  # you can set any constraint you want when creating a table
+                        and "REFERENCES" not in operation_sql  # Foreign keys are handled in the next if statement
+                    ):
                         print(
                             f"\n\n\033[91mFound a CONSTRAINT command. This locks tables which causes downtime. Please avoid adding constraints to existing tables.\nSource: `{operation_sql}`"
+                        )
+                        sys.exit(1)
+
+                    if (
+                        "CONSTRAINT" in operation_sql
+                        and "CREATE TABLE" not in operation_sql
+                        and "REFERENCES" in operation_sql
+                        and "NOT NULL" in operation_sql
+                    ):
+                        print(
+                            f"\n\n\033[91mIt looks like you're trying to add a foreign key field that is not nullable. This locks tables which causes downtime. Please add `null=True, blank=True` to the field.\nSource: `{operation_sql}`"
                         )
                         sys.exit(1)
 
