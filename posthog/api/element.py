@@ -70,7 +70,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_params.update(date_to_params)
 
         try:
-            limit = int(request.query_params.get("limit", 1000))
+            limit = int(request.query_params.get("limit", 500))
         except ValueError:
             raise ValidationError("Limit must be an integer")
 
