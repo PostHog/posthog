@@ -23,6 +23,7 @@ import { pluralize } from 'lib/utils'
 import { getSeriesColor } from 'lib/colors'
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import './NewDashboardModal.scss'
+import clsx from 'clsx'
 
 function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
     const [hasError, setHasError] = useState(false)
@@ -43,12 +44,7 @@ function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt:
                     }}
                 />
             ) : (
-                <img
-                    className="w-full h-full object-cover object-center"
-                    src={src}
-                    alt={alt}
-                    onError={handleImageError}
-                />
+                <img className="object-cover w-full h-30" src={src} alt={alt} onError={handleImageError} />
             )}
         </>
     )
@@ -63,15 +59,26 @@ function TemplateItem({
     onClick: () => void
     index: number
 }): JSX.Element {
+    const [isHovering, setIsHovering] = useState(false)
+
     return (
-        <div className="cursor-pointer border rounded TemplateItem" onClick={onClick}>
-            <div className="w-full h-30 overflow-hidden">
+        <div
+            className="cursor-pointer border rounded TemplateItem flex flex-col transition-all"
+            onClick={onClick}
+            onMouseEnter={() => setIsHovering(true)}
+            onMouseLeave={() => setIsHovering(false)}
+        >
+            <div
+                className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
+            >
                 <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
             </div>
 
-            <div className="p-2">
-                <p className="truncate mb-1">{template?.template_name}</p>
-                <p className="text-muted-alt text-xs line-clamp-2">{template?.dashboard_description ?? ' '}</p>
+            <h5 className="px-2 mb-1">{template?.template_name}</h5>
+            <div className="px-2 py-1 overflow-y-auto grow">
+                <p className={clsx('text-muted-alt text-xs', isHovering ? '' : 'line-clamp-2')}>
+                    {template?.dashboard_description ?? ' '}
+                </p>
             </div>
         </div>
     )
@@ -105,9 +112,10 @@ export function DashboardTemplatePreview(): JSX.Element {
 
 export function DashboardTemplateChooser(): JSX.Element {
     const { allTemplates } = useValues(dashboardTemplatesLogic)
-    const { addDashboard } = useActions(newDashboardLogic)
 
-    const { setActiveDashboardTemplate, createDashboardFromTemplate } = useActions(newDashboardLogic)
+    const { isLoading } = useValues(newDashboardLogic)
+    const { setActiveDashboardTemplate, createDashboardFromTemplate, addDashboard, setIsLoading } =
+        useActions(newDashboardLogic)
 
     return (
         <div>
@@ -118,12 +126,16 @@ export function DashboardTemplateChooser(): JSX.Element {
                         dashboard_description: 'Create a blank dashboard',
                         image_url: BlankDashboardHog,
                     }}
-                    onClick={() =>
+                    onClick={() => {
+                        if (isLoading) {
+                            return
+                        }
+                        setIsLoading(true)
                         addDashboard({
                             name: 'New Dashboard',
                             show: true,
                         })
-                    }
+                    }}
                     index={0}
                 />
                 {allTemplates.map((template, index) => (
@@ -131,6 +143,10 @@ export function DashboardTemplateChooser(): JSX.Element {
                         key={index}
                         template={template}
                         onClick={() => {
+                            if (isLoading) {
+                                return
+                            }
+                            setIsLoading(true)
                             // while we might receive templates from the external repository
                             // we need to handle templates that don't have variables
                             if ((template.variables || []).length === 0) {
