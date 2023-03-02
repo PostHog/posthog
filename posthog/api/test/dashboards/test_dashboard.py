@@ -1037,46 +1037,50 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 200
 
-        assert response.json()["tiles"] == [
-            {
-                "color": None,
-                "id": ANY,
-                "insight": {
-                    "created_at": ANY,
-                    "created_by": None,
-                    "dashboard_tiles": [{"dashboard_id": response.json()["id"], "deleted": None, "id": ANY}],
-                    "dashboards": [response.json()["id"]],
-                    "deleted": False,
-                    "derived_name": None,
-                    "description": None,
-                    "effective_privilege_level": 37,
-                    "effective_restriction_level": 21,
-                    "favorited": False,
-                    "filters": {},
-                    "filters_hash": ANY,
+        self.maxDiff = None
+        self.assertEqual(
+            response.json()["tiles"],
+            [
+                {
+                    "color": None,
                     "id": ANY,
+                    "insight": {
+                        "created_at": ANY,
+                        "created_by": None,
+                        "dashboard_tiles": [{"dashboard_id": response.json()["id"], "deleted": None, "id": ANY}],
+                        "dashboards": [response.json()["id"]],
+                        "deleted": False,
+                        "derived_name": None,
+                        "description": None,
+                        "effective_privilege_level": 37,
+                        "effective_restriction_level": 21,
+                        "favorited": False,
+                        "filters": {"filter_test_accounts": True},
+                        "filters_hash": ANY,
+                        "id": ANY,
+                        "is_cached": False,
+                        "is_sample": True,
+                        "last_modified_at": ANY,
+                        "last_modified_by": None,
+                        "last_refresh": None,
+                        "name": None,
+                        "next_allowed_client_refresh": None,
+                        "order": None,
+                        "query": "a datatable",
+                        "result": None,
+                        "saved": False,
+                        "short_id": ANY,
+                        "tags": [],
+                        "timezone": None,
+                        "updated_at": ANY,
+                    },
                     "is_cached": False,
-                    "is_sample": False,
-                    "last_modified_at": ANY,
-                    "last_modified_by": None,
                     "last_refresh": None,
-                    "name": None,
-                    "next_allowed_client_refresh": None,
-                    "order": None,
-                    "query": "a datatable",
-                    "result": None,
-                    "saved": False,
-                    "short_id": ANY,
-                    "tags": [],
-                    "timezone": None,
-                    "updated_at": ANY,
+                    "layouts": {},
+                    "text": None,
                 },
-                "is_cached": False,
-                "last_refresh": None,
-                "layouts": {},
-                "text": None,
-            },
-        ]
+            ],
+        )
 
     def test_invalid_template_receives_400_response(self) -> None:
         invalid_template = {"not a": "template"}
