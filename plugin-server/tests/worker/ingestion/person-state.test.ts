@@ -2222,7 +2222,29 @@ describe('person id overrides', () => {
 
     async function fetchPersonIdOverrides() {
         const result = await hub.db.postgres.query(
-            `SELECT old_person_id, override_person_id FROM posthog_personoverride WHERE team_id=${teamId} ORDER BY id`
+            `
+            WITH overrides AS (
+                SELECT id, old_person_id, override_person_id
+                FROM posthog_personoverride
+                WHERE team_id = ${teamId}
+                ORDER BY id
+            )
+            SELECT
+                helper.uuid AS old_person_id,
+                overrides_helper.uuid AS override_person_id
+            FROM
+                overrides AS first
+            JOIN
+                posthog_personoverridehelper AS helper ON first.old_person_id = helper.id
+            JOIN (
+                SELECT
+                    second.id AS id,
+                    uuid
+                FROM
+                    overrides AS second
+                JOIN posthog_personoverridehelper AS helper ON second.override_person_id = helper.id
+            ) AS overrides_helper ON overrides_helper.id = first.id
+            `
         )
         return result.rows
             .map(({ old_person_id, override_person_id }) => [old_person_id, override_person_id])
