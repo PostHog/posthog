@@ -260,7 +260,7 @@ jobs:
             synthetic recordings data. It is not meant to produce directly
             comparable results, but rather to give a rough idea of how 
             ingestion performance changes over time.
-            
+
         runs-on: ubuntu-latest
 
         steps:
@@ -269,8 +269,8 @@ jobs:
 
             - name: Start Kafka
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka -d
-            
+                  docker compose -f docker-compose.dev.yml up kafka db -d
+
             - name: Set up Python
               uses: actions/setup-python@v4
               with:
