@@ -2714,7 +2714,6 @@ export type PromptPayload = {
     primaryButtonText?: string
     secondaryButtonText?: string
     primaryButtonURL?: string
-    locationCSSSelector?: string
 }
 
 export type PromptFlag = {
