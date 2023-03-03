@@ -955,6 +955,12 @@
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "toggledLifecycles": {
+                            "items": {
+                                "$ref": "#/definitions/LifecycleToggle"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -2125,7 +2131,6 @@
                     "$ref": "#/definitions/ShownAsValue"
                 },
                 "toggledLifecycles": {
-                    "description": "Lifecycles that have been removed from display",
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
                     },
