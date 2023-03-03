@@ -49,7 +49,6 @@ export const trendsLogic = kea<trendsLogicType>([
         toggleLifecycle: (lifecycleName: LifecycleToggle) => ({ lifecycleName }),
         setTargetAction: (action: ActionFilter) => ({ action }),
         setIsFormulaOn: (enabled: boolean) => ({ enabled }),
-        setLifecycles: (lifecycles: LifecycleToggle[]) => ({ lifecycles }),
     })),
 
     reducers(({ props }) => ({
