@@ -33,7 +33,7 @@ export function TwoFactorAuthentication(): JSX.Element {
                 <>
                     <div>
                         <IconCheckmark color="green" />
-                        2FA enabled.
+                        <b>2FA enabled.</b>
                     </div>
                     <br />
                     <div className="w-60">
@@ -43,16 +43,15 @@ export function TwoFactorAuthentication(): JSX.Element {
                     </div>
                 </>
             ) : (
-                <>
-                    <div>
+                <div>
+                    <div className="mb-2">
                         <IconWarning color="orange" />
-                        2FA is not enabled.
+                        <b>2FA is not enabled.</b>
                     </div>
-                    <br />
                     <LemonButton type="primary" onClick={() => setModalVisible(true)}>
                         Set up 2FA
                     </LemonButton>
-                </>
+                </div>
             )}
         </div>
     )
