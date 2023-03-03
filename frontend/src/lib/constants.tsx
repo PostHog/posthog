@@ -146,7 +146,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
-    PROMPTS: 'prompts', // owner: @lharries
+    ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

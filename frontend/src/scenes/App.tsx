@@ -171,7 +171,7 @@ function AppScene(): JSX.Element | null {
                     />
                 </LemonModal>
             )}
-            {featureFlags[FEATURE_FLAGS.PROMPTS] && <Prompt />}
+            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
         </>
     )
 }
