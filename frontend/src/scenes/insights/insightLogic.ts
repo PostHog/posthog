@@ -724,9 +724,13 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
                 filters: Partial<FilterType>,
-                currentTeamId: number,
+                currentTeamId: number | null,
                 insight: Partial<InsightModel>
             ): TriggerExportProps['export_context'] | null => {
+                if (!currentTeamId) {
+                    return null
+                }
+
                 const params = { ...filters }
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
@@ -795,6 +799,12 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => {
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+            },
+        ],
+        isUsingDashboardQueryTiles: [
+            (s) => [s.featureFlags, s.isUsingDataExploration],
+            (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
+                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
             },
         ],
         displayRefreshButtonChangedNotice: [
