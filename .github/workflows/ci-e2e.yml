@@ -141,7 +141,7 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Wait for PostHog
-              uses: ifaxity/wait-on-action
+              uses: iFaxity/wait-on-action@v1
               with:
                   resource: http://localhost:8000
 
