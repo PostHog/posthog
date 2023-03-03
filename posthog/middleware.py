@@ -1,6 +1,6 @@
 import time
 from ipaddress import ip_address, ip_network
-from typing import Any, List, Optional, cast
+from typing import Any, Callable, List, Optional, cast
 
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
@@ -13,6 +13,7 @@ from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware
 from statshog.defaults.django import statsd
+import structlog
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
@@ -323,7 +324,6 @@ class CaptureMiddleware:
             self.CAPTURE_MIDDLEWARE.append(StatsdMiddlewareTimer())
 
     def __call__(self, request: HttpRequest):
-
         if request.path in (
             "/e",
             "/e/",
@@ -370,3 +370,53 @@ class CaptureMiddleware:
 
         response = self.get_response(request)
         return response
+
+
+def per_request_logging_context_middleware(
+    get_response: Callable[[HttpRequest], HttpResponse]
+) -> Callable[[HttpRequest], HttpResponse]:
+    """
+    We get some default logging context from the django-structlog middleware,
+    see
+    https://django-structlog.readthedocs.io/en/latest/getting_started.html#extending-request-log-metadata
+    for details. They include e.g. request_id, user_id. In some cases e.g. we
+    add the team_id to the context like the get_events and decide endpoints.
+
+    This middleware adds some additional context at the beggining of the
+    request. Feel free to add anything that's relevant for the request here.
+    """
+
+    def middleware(request: HttpRequest) -> HttpResponse:
+        # Add in the host header, and the x-forwarded-for header if it exists.
+        # We add these such that we can see if there are any requests on cloud
+        # that do not use Host header app.posthog.com. This is important as we
+        # roll out CloudFront in front of app.posthog.com. We can get the host
+        # header from NGINX, but we really want to have a way to get to the
+        # team_id given a host header, and we can't do that with NGINX.
+        structlog.contextvars.bind_contextvars(
+            host=request.META.get("HTTP_HOST", ""),
+            x_forwarded_for=request.META.get("HTTP_X_FORWARDED_FOR", ""),
+        )
+
+        return get_response(request)
+
+    return middleware
+
+
+def user_logging_context_middleware(
+    get_response: Callable[[HttpRequest], HttpResponse]
+) -> Callable[[HttpRequest], HttpResponse]:
+    """
+    This middleware adds the team_id to the logging context if it exists. Note
+    that this should be added after we have performed authentication, as we
+    need the user to be authenticated to get the team_id.
+    """
+
+    def middleware(request: HttpRequest) -> HttpResponse:
+        if request.user.is_authenticated:
+            structlog.contextvars.bind_contextvars(team_id=user.current_team_id, organization_id=user.organization_id)
+
+        return get_response(request)
+
+    return middleware
+)
