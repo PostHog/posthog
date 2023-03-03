@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
-import './flagPrompt.scss'
-import { flagPromptLogic } from './flagPromptLogic'
+import './prompt.scss'
+import { promptLogic } from './promptLogic'
 import clsx from 'clsx'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
@@ -88,9 +88,9 @@ function PopupPrompt(
     )
 }
 
-export function FlagPrompt(): JSX.Element {
-    const { payload, openPromptFlag } = useValues(flagPromptLogic)
-    const { closePrompt } = useActions(flagPromptLogic)
+export function Prompt(): JSX.Element {
+    const { payload, openPromptFlag } = useValues(promptLogic)
+    const { closePrompt } = useActions(promptLogic)
 
     if (!payload || !openPromptFlag) {
         return <></>

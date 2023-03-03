@@ -1,11 +1,11 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 
-import type { flagPromptLogicType } from './flagPromptLogicType'
-
 import posthog from 'posthog-js'
 import { featureFlagLogic } from '../featureFlagLogic'
 import { router } from 'kea-router'
 import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
+
+import { promptLogicType } from '../promptLogicType'
 
 const DEBUG_IGNORE_LOCAL_STORAGE = false
 
@@ -62,8 +62,8 @@ function updateTheOpenFlag(promptFlags: PromptFlag[], actions: any): void {
     }
 }
 
-export const flagPromptLogic = kea<flagPromptLogicType>([
-    path(['lib', 'logic', 'newPrompt']), // for some reason I couldn't add the flagPromptLogic to the path
+export const promptLogic = kea<promptLogicType>([
+    path(['lib', 'logic', 'newPrompt']), // for some reason I couldn't add the promptLogic to the path
     actions({
         closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => ({ promptFlag, buttonType }),
         setPromptFlags: (promptFlags: PromptFlag[]) => ({ promptFlags }),
