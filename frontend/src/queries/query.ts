@@ -108,7 +108,8 @@ export function queryExportContext<N extends DataNode = DataNode>(
 export async function query<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions,
-    refresh?: boolean
+    refresh?: boolean,
+    queryId?: string
 ): Promise<N['response']> {
     if (isEventsQuery(query)) {
         if (!query.before && !query.after) {
@@ -127,9 +128,16 @@ export async function query<N extends DataNode = DataNode>(
         return await api.get(getPersonsEndpoint(query), methodOptions)
     } else if (isInsightQueryNode(query)) {
         const filters = queryNodeToFilter(query)
+        const params = {
+            ...filters,
+            ...(refresh ? { refresh: true } : {}),
+            client_query_id: queryId,
+            session_id: currentSessionId(),
+        }
         const [response] = await legacyInsightQuery({
-            filters,
+            filters: params,
             currentTeamId: getCurrentTeamId(),
+            methodOptions,
             refresh,
         })
         return await response.json()
