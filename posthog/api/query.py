@@ -1,8 +1,11 @@
 import json
+from datetime import datetime, timedelta
 from typing import Dict, cast
 
 import posthoganalytics
+from dateutil.parser import isoparse
 from django.http import HttpResponse, JsonResponse
+from django.utils.timezone import now
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from pydantic import BaseModel
@@ -19,7 +22,20 @@ from posthog.models import Team, User
 from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
-from posthog.schema import EventsQuery, HogQLQuery
+from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
+from posthog.utils import relative_date_parse
+
+
+def parse_as_date_or(date_string: str | None, default: datetime) -> datetime:
+    if not date_string:
+        return default
+
+    try:
+        timestamp = isoparse(date_string)
+    except ValueError:
+        timestamp = relative_date_parse(date_string)
+
+    return timestamp or default
 
 
 class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
@@ -56,6 +72,23 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 hogql_query = HogQLQuery.parse_obj(query_json)
                 response = execute_hogql_query(query=hogql_query.query, team=team)
                 return self._response_to_json_response(response)
+            elif query_kind == "RecentPerformancePageViewNode":
+                try:
+                    # noinspection PyUnresolvedReferences
+                    from ee.api.performance_events import load_performance_events_recent_pageviews
+                except ImportError:
+                    return JsonResponse({"error": "Performance events are not enabled for this instance"}, status=400)
+
+                recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
+                results = load_performance_events_recent_pageviews(
+                    team_id=team.pk,
+                    date_from=parse_as_date_or(
+                        recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)
+                    ),
+                    date_to=parse_as_date_or(recent_performance_query.dateRange.date_to, now()),
+                )
+
+                return JsonResponse(results, safe=False)  # allow non-dict responses with safe=False
             else:
                 raise ValidationError("Unsupported query kind: %s" % query_kind)
         except Exception as e:

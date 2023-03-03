@@ -1745,7 +1745,7 @@
             "type": "string"
         },
         "FunnelConversionWindowTimeUnit": {
-            "enum": ["minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "FunnelLayout": {
@@ -2522,20 +2522,20 @@
         "RecentPerformancePageViewNode": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
                 "kind": {
                     "const": "RecentPerformancePageViewNode",
                     "description": "Performance",
                     "type": "string"
-                },
-                "numberOfDays": {
-                    "type": "number"
                 },
                 "response": {
                     "description": "Cached query response",
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "RecordingDurationFilter": {

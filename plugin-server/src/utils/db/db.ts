@@ -139,6 +139,8 @@ export const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'server closed the connection unexpectedly',
     'getaddrinfo EAI_AGAIN',
     'Connection terminated unexpectedly',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
 ]
 
 /** The recommended way of accessing the database. */

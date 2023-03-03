@@ -5,6 +5,11 @@ import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
 export default {
     title: 'Scenes-App/Dashboards',
     component: DashboardTemplateEditor,
+    parameters: {
+        testOptions: {
+            waitForLoadersToDisappear: true,
+        },
+    },
 } as ComponentMeta<typeof DashboardTemplateEditor>
 
 export const CreateTemplate = (): JSX.Element => {

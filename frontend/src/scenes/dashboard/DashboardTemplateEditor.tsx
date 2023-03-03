@@ -3,6 +3,7 @@ import MonacoEditor, { useMonaco } from '@monaco-editor/react'
 import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { dashboardTemplateEditorLogic } from './dashboardTemplateEditorLogic'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }): JSX.Element {
     const monaco = useMonaco()
@@ -97,6 +98,7 @@ export function DashboardTemplateEditor({ inline = false }: { inline?: boolean }
                     updateValidationErrors(markers)
                 }}
                 height={600}
+                loading={<Spinner />}
             />
         </LemonModal>
     )

@@ -10,7 +10,6 @@ import { SubscribeButton, SubscriptionsModal } from 'lib/components/Subscription
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { deleteWithUndo } from 'lib/utils'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
-import { isInsightVizNode } from '~/queries/utils'
 import { InsightSaveButton } from 'scenes/insights/InsightSaveButton'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -48,9 +47,6 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        isFilterBasedInsight,
-        isQueryBasedInsight,
-        isTestGroupForNewRefreshUX,
         displayRefreshButtonChangedNotice,
         insightRefreshButtonDisabledReason,
     } = useValues(logic)
@@ -60,20 +56,8 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     // insightDataLogic
-    const { query: insightVizQuery } = useValues(insightDataLogic(insightProps))
-    const { setQuery: insightVizSetQuery, saveInsight: saveQueryBasedInsight } = useActions(
-        insightDataLogic(insightProps)
-    )
-
-    // TODO - separate presentation of insight with viz query from insight with query
-    let query = insightVizQuery
-    let setQuery = insightVizSetQuery
-    if (!!insight.query && isQueryBasedInsight) {
-        query = insight.query
-        setQuery = () => {
-            // don't support editing non-insight viz queries _yet_
-        }
-    }
+    const { query, queryChanged } = useValues(insightDataLogic(insightProps))
+    const { setQuery, saveInsight: saveQueryBasedInsight } = useActions(insightDataLogic(insightProps))
 
     // other logics
     useMountedLogic(insightCommandLogic(insightProps))
@@ -137,7 +121,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {insightMode === ItemMode.Edit && isTestGroupForNewRefreshUX ? (
+                        {insightMode === ItemMode.Edit ? (
                             <>
                                 <Tooltip
                                     title={
@@ -158,7 +142,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                                     status="stealth"
                                                     onClick={() => loadResults(true)}
                                                     fullWidth
-                                                    data-attr="duplicate-insight-from-insight-view"
+                                                    data-attr="refresh-insight-from-insight-view"
                                                     disabledReason={insightRefreshButtonDisabledReason}
                                                 >
                                                     Refresh
@@ -186,17 +170,15 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                         }
                                         overlay={
                                             <>
-                                                {isTestGroupForNewRefreshUX ? (
-                                                    <LemonButton
-                                                        status="stealth"
-                                                        onClick={() => loadResults(true)}
-                                                        fullWidth
-                                                        data-attr="duplicate-insight-from-insight-view"
-                                                        disabledReason={insightRefreshButtonDisabledReason}
-                                                    >
-                                                        Refresh
-                                                    </LemonButton>
-                                                ) : null}
+                                                <LemonButton
+                                                    status="stealth"
+                                                    onClick={() => loadResults(true)}
+                                                    fullWidth
+                                                    data-attr="refresh-insight-from-insight-view"
+                                                    disabledReason={insightRefreshButtonDisabledReason}
+                                                >
+                                                    Refresh
+                                                </LemonButton>
                                                 <LemonButton
                                                     status="stealth"
                                                     onClick={() => duplicateInsight(insight as InsightModel, true)}
@@ -283,8 +265,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                             <AddToDashboard insight={insight} canEditInsight={canEditInsight} />
                         )}
                         {insightMode !== ItemMode.Edit ? (
-                            canEditInsight &&
-                            (isFilterBasedInsight || isInsightVizNode(query)) && (
+                            canEditInsight && (
                                 <LemonButton
                                     type="primary"
                                     onClick={() => setInsightMode(ItemMode.Edit, null)}
@@ -300,7 +281,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
                                 isSaved={insight.saved}
                                 addingToDashboard={!!insight.dashboards?.length && !insight.id}
                                 insightSaving={insightSaving}
-                                insightChanged={insightChanged}
+                                insightChanged={insightChanged || queryChanged}
                             />
                         )}
                         {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
