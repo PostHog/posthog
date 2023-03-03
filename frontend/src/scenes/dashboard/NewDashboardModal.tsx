@@ -8,6 +8,7 @@ import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { DashboardTemplateType } from '~/types'
+import { useState } from 'react'
 
 import { Field } from 'lib/forms/Field'
 import { AvailableFeature } from '~/types'
@@ -24,7 +25,6 @@ import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import './NewDashboardModal.scss'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 import clsx from 'clsx'
-import { useState } from 'react'
 
 function TemplateItem({
     template,

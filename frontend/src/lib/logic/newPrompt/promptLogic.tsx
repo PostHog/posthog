@@ -7,6 +7,8 @@ import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 
 import { promptLogicType } from '../promptLogicType'
 
+import type { promptLogicType } from './promptLogicType'
+
 const PROMPT_PREFIX = 'prompt-'
 
 function getFeatureSessionStorageKey(featureFlagName: string): string {
