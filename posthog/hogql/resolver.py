@@ -97,6 +97,9 @@ class Resolver(TraversingVisitor):
             node.table.symbol = self.visit(node.table)
             if node.alias is not None:
                 if node.alias in scope.tables:
+                    if isinstance(scope.tables[node.alias], ast.SelectQueryAliasSymbol):
+                        # already defined
+                        pass
                     raise ResolverException(f'Already have joined a table called "{node.alias}". Can\'t redefine.')
                 node.symbol = ast.SelectQueryAliasSymbol(name=node.alias, symbol=node.table.symbol)
                 scope.tables[node.alias] = node.symbol

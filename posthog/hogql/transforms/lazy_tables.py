@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import LazyTableSymbol
@@ -17,7 +17,7 @@ def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] =
 
 @dataclasses.dataclass
 class JoinToAdd:
-    fields_accessed: Set[str]
+    fields_accessed: Dict[str, ast.Expr]
     lazy_table: LazyTable
     from_table: str
     to_table: str
@@ -26,7 +26,7 @@ class JoinToAdd:
 class LazyTableResolver(TraversingVisitor):
     def __init__(self, stack: Optional[List[ast.SelectQuery]] = None):
         super().__init__()
-        self.stack_of_fields: List[List[ast.FieldSymbol]] = [[]] if stack else []
+        self.stack_of_fields: List[List[Union[ast.FieldSymbol, ast.PropertySymbol]]] = [[]] if stack else []
 
     def _get_long_table_name(self, select: ast.SelectQuerySymbol, symbol: ast.BaseTableSymbol) -> str:
         if isinstance(symbol, ast.TableSymbol):
@@ -41,6 +41,16 @@ class LazyTableResolver(TraversingVisitor):
             return f"{self._get_long_table_name(select, symbol.table)}__{symbol.field}"
         else:
             raise ValueError("Should not be reachable")
+
+    def visit_property_symbol(self, node: ast.PropertySymbol):
+        if isinstance(node.parent, ast.SelectQueryAliasSymbol):
+            # we have already visited this property
+            return
+        if isinstance(node.parent.table, ast.LazyTableSymbol):
+            # Each time we find a field, we place it in a list for processing in "visit_select_query"
+            if len(self.stack_of_fields) == 0:
+                raise ValueError("Can't access a lazy field when not in a SelectQuery context")
+            self.stack_of_fields[-1].append(node)
 
     def visit_field_symbol(self, node: ast.FieldSymbol):
         if isinstance(node.table, ast.LazyTableSymbol):
@@ -63,7 +73,15 @@ class LazyTableResolver(TraversingVisitor):
 
         # Collect all the joins we need to add to the select query
         joins_to_add: Dict[str, JoinToAdd] = {}
-        for field in field_collector:
+        for field_or_property in field_collector:
+            if isinstance(field_or_property, ast.FieldSymbol):
+                property = None
+                field = field_or_property
+            elif isinstance(field_or_property, ast.PropertySymbol):
+                property = field_or_property
+                field = property.parent
+            else:
+                raise Exception("Should not be reachable")
             table_symbol = field.table
 
             # Traverse the lazy tables until we reach a real table, collecting them in a list.
@@ -79,20 +97,26 @@ class LazyTableResolver(TraversingVisitor):
                 to_table = self._get_long_table_name(select_symbol, table_symbol)
                 if to_table not in joins_to_add:
                     joins_to_add[to_table] = JoinToAdd(
-                        fields_accessed=set(),  # collect here all fields accessed on this table
+                        fields_accessed={},  # collect here all fields accessed on this table
                         lazy_table=table_symbol.lazy_table,
                         from_table=from_table,
                         to_table=to_table,
                     )
                 new_join = joins_to_add[to_table]
                 if table_symbol == field.table:
-                    new_join.fields_accessed.add(field.name)
+                    if property is None:
+                        new_join.fields_accessed[field.name] = ast.Field(chain=[field.name])
+                    else:
+                        property.direct_name = f"{field.name}___{property.name}"
+                        new_join.fields_accessed[property.direct_name] = ast.Field(chain=[field.name, property.name])
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without thi "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
         for new_join in joins_to_add.values():
             if new_join.from_table in joins_to_add:
-                joins_to_add[new_join.from_table].fields_accessed.add(new_join.lazy_table.from_field)
+                joins_to_add[new_join.from_table].fields_accessed[new_join.lazy_table.from_field] = ast.Field(
+                    chain=[new_join.lazy_table.from_field]
+                )
 
         # Move the "last_join" pointer to the last join in the SELECT query
         last_join = node.select_from
@@ -101,9 +125,7 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, scope in joins_to_add.items():
-            next_join = scope.lazy_table.join_function(
-                scope.from_table, scope.to_table, sorted(list(scope.fields_accessed))
-            )
+            next_join = scope.lazy_table.join_function(scope.from_table, scope.to_table, scope.fields_accessed)
             resolve_symbols(next_join, select_symbol)
             select_symbol.tables[to_table] = next_join.symbol
 
@@ -117,8 +139,14 @@ class LazyTableResolver(TraversingVisitor):
                 last_join = last_join.next_join
 
         # Assign all symbols on the fields we collected earlier
-        for field in field_collector:
-            to_table = self._get_long_table_name(select_symbol, field.table)
-            field.table = select_symbol.tables[to_table]
+        for field_or_property in field_collector:
+            if isinstance(field_or_property, ast.FieldSymbol):
+                to_table = self._get_long_table_name(select_symbol, field_or_property.table)
+                field_or_property.table = select_symbol.tables[to_table]
+            elif isinstance(field_or_property, ast.PropertySymbol):
+                to_table = self._get_long_table_name(
+                    select_symbol, cast(ast.PropertySymbol, field_or_property).parent.table
+                )
+                field_or_property.direct_query = select_symbol.tables[to_table]
 
         self.stack_of_fields.pop()

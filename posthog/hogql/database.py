@@ -76,7 +76,7 @@ class LazyTable(BaseModel):
     class Config:
         extra = Extra.forbid
 
-    join_function: Callable[[str, str, List[str]], Any]
+    join_function: Callable[[str, str, Dict[str, Any]], Any]
     table: Table
     from_field: str
 
@@ -115,7 +115,7 @@ class PersonsTable(Table):
         return "person"
 
 
-def join_with_persons_table(from_table: str, to_table: str, requested_fields: List[str]):
+def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
@@ -127,9 +127,9 @@ def join_with_persons_table(from_table: str, to_table: str, requested_fields: Li
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
-    for field in requested_fields:
+    for field, expr in requested_fields.items():
         if field != "id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     id = ast.Field(chain=["id"])
 
@@ -170,11 +170,11 @@ class PersonDistinctIdTable(Table):
         return "person_distinct_id2"
 
 
-def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: List[str]):
+def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
     from posthog.hogql import ast
 
     if not requested_fields:
-        requested_fields = ["person_id"]
+        requested_fields = {"person_id": ast.Field(chain=["person_id"])}
 
     # contains the list of fields we will select from this table
     fields_to_select: List[ast.Expr] = []
@@ -182,9 +182,9 @@ def join_with_max_person_distinct_id_table(from_table: str, to_table: str, reque
     argmax_version: Callable[[ast.Expr], ast.Expr] = lambda field: ast.Call(
         name="argMax", args=[field, ast.Field(chain=["version"])]
     )
-    for field in requested_fields:
+    for field, expr in requested_fields.items():
         if field != "distinct_id":
-            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(ast.Field(chain=[field]))))
+            fields_to_select.append(ast.Alias(alias=field, expr=argmax_version(expr)))
 
     distinct_id = ast.Field(chain=["distinct_id"])
 

@@ -204,6 +204,8 @@ class FieldSymbol(Symbol):
 class PropertySymbol(Symbol):
     name: str
     parent: FieldSymbol
+    direct_name: Optional[str]
+    direct_query: Optional[SelectQueryAliasSymbol]
 
 
 class Expr(AST):

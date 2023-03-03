@@ -399,6 +399,9 @@ class _Printer(Visitor):
         return field_sql
 
     def visit_property_symbol(self, symbol: ast.PropertySymbol):
+        if symbol.direct_query is not None and symbol.direct_name is not None:
+            return f"{self._print_identifier(symbol.direct_query.name)}.{self._print_identifier(symbol.direct_name)}"
+
         field_symbol = symbol.parent
         field = field_symbol.resolve_database_field()
 
