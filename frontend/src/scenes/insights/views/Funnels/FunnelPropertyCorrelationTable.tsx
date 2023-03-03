@@ -46,12 +46,12 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
 
     // Load correlations only if this component is mounted, and then reload if filters change
     useEffect(() => {
+        // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
         if (loadedPropertyCorrelationsTableOnce) {
             if (propertyNames.length === 0) {
                 setPropertyNames(allProperties)
             }
 
-            // We only automatically refresh results when filters change after the user has manually asked for the first results to be loaded
             loadPropertyCorrelations({})
         }
     }, [filters])
