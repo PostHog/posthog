@@ -1336,10 +1336,10 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {readOnly ? (
                                 <LemonTag
                                     type={
-                                        group.properties?.length == 0
+                                        featureFlag.filters.groups.length == 1
                                             ? group.rollout_percentage == null || group.rollout_percentage == 100
                                                 ? 'highlight'
-                                                : 'default'
+                                                : 'caution'
                                             : 'none'
                                     }
                                 >
