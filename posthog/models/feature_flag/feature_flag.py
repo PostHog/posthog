@@ -39,6 +39,7 @@ class FeatureFlag(models.Model):
     performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
+    usage_dashboard: models.ForeignKey = models.ForeignKey("Dashboard", on_delete=models.CASCADE, null=True, blank=True)
 
     def get_analytics_metadata(self) -> Dict:
         filter_count = sum(len(condition.get("properties", [])) for condition in self.conditions)

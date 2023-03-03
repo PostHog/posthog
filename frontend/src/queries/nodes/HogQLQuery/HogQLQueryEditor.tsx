@@ -5,6 +5,7 @@ import { hogQLQueryEditorLogic } from './hogQLQueryEditorLogic'
 import MonacoEditor from '@monaco-editor/react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export interface HogQLQueryEditorProps {
     query: HogQLQuery
@@ -36,6 +37,7 @@ export function HogQLQueryEditor(props: HogQLQueryEditorProps): JSX.Element {
                                 },
                                 wordWrap: 'on',
                             }}
+                            loading={<Spinner />}
                         />
                     )}
                 </AutoSizer>

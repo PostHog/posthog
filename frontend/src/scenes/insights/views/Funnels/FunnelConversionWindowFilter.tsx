@@ -41,6 +41,7 @@ export function FunnelConversionWindowFilter({ insightProps }: Pick<EditorFilter
 }
 
 const TIME_INTERVAL_BOUNDS: Record<FunnelConversionWindowTimeUnit, number[]> = {
+    [FunnelConversionWindowTimeUnit.Second]: [1, 3600],
     [FunnelConversionWindowTimeUnit.Minute]: [1, 1440],
     [FunnelConversionWindowTimeUnit.Hour]: [1, 24],
     [FunnelConversionWindowTimeUnit.Day]: [1, 365],

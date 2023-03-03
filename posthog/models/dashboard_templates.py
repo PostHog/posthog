@@ -189,3 +189,53 @@ class DashboardTemplate(UUIDModel):
             ],
             tags=[],
         )
+
+    @staticmethod
+    def feature_flag_template(feature_flag_key: str) -> "DashboardTemplate":
+        return DashboardTemplate(
+            template_name=feature_flag_key + "Usage Information",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=[
+                {
+                    "name": "Daily active users (DAUs)",
+                    "type": "INSIGHT",
+                    "color": "blue",
+                    "filters": {
+                        "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
+                        "display": "ActionsLineGraph",
+                        "insight": "TRENDS",
+                        "interval": "day",
+                        "date_from": "-30d",
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 0, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the number of unique users that use your app every day.",
+                },
+                {
+                    "name": "Weekly active users (WAUs)",
+                    "type": "INSIGHT",
+                    "color": "green",
+                    "filters": {
+                        "events": [
+                            {
+                                "id": "$pageview",
+                                "math": "dau",
+                                "type": "events",
+                            }
+                        ],
+                        "display": "ActionsLineGraph",
+                        "insight": "TRENDS",
+                        "interval": "week",
+                        "date_from": "-90d",
+                    },
+                    "layouts": {
+                        "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
+                        "xs": {"h": 5, "w": 1, "x": 0, "y": 5, "minH": 5, "minW": 3},
+                    },
+                    "description": "Shows the number of unique users that use your app every week.",
+                },
+            ],
+        )
