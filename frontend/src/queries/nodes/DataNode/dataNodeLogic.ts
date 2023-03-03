@@ -19,14 +19,15 @@ import { AnyDataNode, DataNode, EventsQuery, PersonsNode } from '~/queries/schem
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import clsx from 'clsx'
-import { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { UserType } from '~/types'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -38,7 +39,7 @@ const AUTOLOAD_INTERVAL = 5000
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     connect({
-        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user']],
+        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
@@ -51,7 +52,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        abortQuery: true,
+        abortAnyRunningQuery: true,
+        abortQuery: (payload: { queryId: string }) => payload,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -65,25 +67,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 clearResponse: () => null,
                 loadData: async (refresh: boolean = false, breakpoint) => {
-                    // TODO: cancel with queryId, combine with abortQuery action
-                    cache.abortController?.abort()
+                    actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
+                    const queryId = uuid()
                     const now = performance.now()
                     try {
-                        const data = (await query<DataNode>(props.query, methodOptions, refresh)) ?? null
+                        const data = (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
                         breakpoint()
                         actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
                         actions.setElapsedTime(performance.now() - now)
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
-                            return values.response
-                        } else {
-                            throw e
+                            actions.abortQuery({ queryId })
                         }
+                        breakpoint()
+                        throw e
                     }
                 },
                 loadNewData: async () => {
@@ -334,10 +336,20 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             },
         ],
     }),
-    listeners(({ cache }) => ({
-        abortQuery: () => {
-            // TODO: also cancel with queryId
-            cache.abortController?.abort()
+    listeners(({ values, cache }) => ({
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
+        },
+        abortQuery: async ({ queryId }) => {
+            try {
+                const { currentTeamId } = values
+                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+            } catch (e) {
+                console.warn('Failed cancelling query', e)
+            }
         },
     })),
     subscriptions(({ actions, cache, values }) => ({
@@ -364,7 +376,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.stopAutoLoad()
         }
         if (values.dataLoading) {
-            actions.abortQuery()
+            actions.abortAnyRunningQuery()
         }
     }),
 ])
