@@ -8,7 +8,6 @@ export function FunnelCorrelationTableEmptyState({
     showLoadResultsButton: boolean
     loadResults: () => void
 }): JSX.Element {
-    console.log(showLoadResultsButton)
     return (
         <>
             {showLoadResultsButton ? (
