@@ -225,7 +225,6 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 } else if (funnelsFilter.funnel_viz_type === FunnelVizType.TimeToConvert) {
                     return (histogramGraphData?.length ?? 0) > 0
                 } else if (funnelsFilter.funnel_viz_type === FunnelVizType.Trends) {
-                    console.log(steps)
                     return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
                 } else {
                     return false
