@@ -40,7 +40,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown'],
+            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series'],
             groupsModel,
             ['aggregationLabel'],
             insightLogic(props),
@@ -119,6 +119,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 } else {
                     return []
                 }
+            },
+        ],
+        areFiltersValid: [
+            (s) => [s.series],
+            (series) => {
+                return (series?.length || 0) > 1
             },
         ],
         steps: [

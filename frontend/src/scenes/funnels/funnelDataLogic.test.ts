@@ -37,12 +37,11 @@ describe('funnelDataLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+    beforeEach(async () => {
+        await initFunnelDataLogic()
+    })
 
     describe('funnel viz types', () => {
-        beforeEach(async () => {
-            await initFunnelDataLogic()
-        })
-
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
                 querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
@@ -127,10 +126,6 @@ describe('funnelDataLogic', () => {
     })
 
     describe('empty funnel', () => {
-        beforeEach(async () => {
-            await initFunnelDataLogic()
-        })
-
         it('with non-funnel insight', async () => {
             await expectLogic(logic).toMatchValues({
                 querySource: expect.objectContaining({ kind: NodeKind.TrendsQuery }),
@@ -173,10 +168,6 @@ describe('funnelDataLogic', () => {
      * insightDataLogic.
      */
     describe('based on insightLogic', () => {
-        beforeEach(async () => {
-            await initFunnelDataLogic()
-        })
-
         describe('results', () => {
             it('with non-funnel insight', async () => {
                 await expectLogic(logic).toMatchValues({
@@ -748,6 +739,36 @@ describe('funnelDataLogic', () => {
                         }),
                     ],
                 })
+            })
+        })
+    })
+
+    describe('areFiltersValid', () => {
+        it('with more than one series', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                areFiltersValid: true,
+            })
+        })
+
+        it('with one or less series', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [{ kind: NodeKind.EventsNode }],
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
+                areFiltersValid: false,
             })
         })
     })
