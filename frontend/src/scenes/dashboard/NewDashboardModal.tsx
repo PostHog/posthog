@@ -47,7 +47,7 @@ function TemplateItem({
             <div
                 className={clsx('transition-all w-full overflow-hidden', isHovering ? 'h-4 min-h-4' : 'h-30 min-h-30')}
             >
-                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} />
+                <FallbackCoverImage src={template?.image_url} alt="cover photo" index={index} imageClassName="h-30" />
             </div>
 
             <h5 className="px-2 mb-1">{template?.template_name}</h5>

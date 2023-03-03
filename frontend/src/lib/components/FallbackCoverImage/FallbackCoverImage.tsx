@@ -7,11 +7,13 @@ export function FallbackCoverImage({
     alt,
     index,
     className = '',
+    imageClassName = '',
 }: {
     src: string | undefined
     alt: string
     index: number
     className?: string
+    imageClassName?: string
 }): JSX.Element {
     const [hasError, setHasError] = useState(false)
 
@@ -31,7 +33,12 @@ export function FallbackCoverImage({
                     }}
                 />
             ) : (
-                <img className="object-cover w-full h-30" src={src} alt={alt} onError={handleImageError} />
+                <img
+                    className={clsx('object-cover w-full', imageClassName)}
+                    src={src}
+                    alt={alt}
+                    onError={handleImageError}
+                />
             )}
         </>
     )

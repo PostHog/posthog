@@ -7,7 +7,7 @@ import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 
 import type { promptLogicType } from './promptLogicType'
 
-const PROMPT_PREFIX = 'ph-prompt'
+const PROMPT_PREFIX = 'prompt'
 const LAST_SEEN = 'last-seen'
 const MINIMUM_DAYS_BETWEEN_PROMPTS = 1
 
