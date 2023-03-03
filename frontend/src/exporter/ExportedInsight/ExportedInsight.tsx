@@ -11,8 +11,8 @@ import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { Query } from '~/queries/Query/Query'
 import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
+import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 export function ExportedInsight({
     insight,
@@ -97,7 +97,8 @@ export function ExportedInsight({
                     })}
                 >
                     {!!query ? (
-                        <Query query={query} readOnly={true} />
+                        // <Query query={query} readOnly={true} />
+                        <QueriesUnsupportedHere />
                     ) : (
                         <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
                     )}

@@ -66,7 +66,7 @@ import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/ut
 import { InsightVizNode } from '~/queries/schema'
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { XRayHog2 } from 'lib/components/hedgehogs'
+import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -639,12 +639,7 @@ function InsightCardInternal(
                             <Query query={insight.query} readOnly={true} />
                         ) : (
                             <>
-                                <div className="text-center">
-                                    <span className="text-muted">
-                                        Query insights are not <strong>yet</strong> supported in this view.
-                                    </span>
-                                    <XRayHog2 className="w-full h-full object-contain" />
-                                </div>
+                                <QueriesUnsupportedHere />
                             </>
                         )}
                     </div>
