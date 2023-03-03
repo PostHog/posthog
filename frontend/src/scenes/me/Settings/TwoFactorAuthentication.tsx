@@ -16,13 +16,16 @@ export function TwoFactorAuthentication(): JSX.Element {
         <div className="flex flex-col">
             {modalVisible && (
                 <LemonModal title="Set up or manage 2FA" onClose={() => setModalVisible(false)}>
-                    <Setup2FA
-                        onSuccess={() => {
-                            setModalVisible(false)
-                            updateUser({})
-                            loadMembers()
-                        }}
-                    />
+                    <>
+                        <b>Use an authenticator app like Google Auth or 1Password to scan the QR code below.</b>
+                        <Setup2FA
+                            onSuccess={() => {
+                                setModalVisible(false)
+                                updateUser({})
+                                loadMembers()
+                            }}
+                        />
+                    </>
                 </LemonModal>
             )}
 
