@@ -855,9 +855,9 @@ class DataTableNode(BaseModel):
     showReload: Optional[bool] = Field(None, description="Show a reload button")
     showSavedQueries: Optional[bool] = Field(None, description="Shows a list of saved queries")
     showSearch: Optional[bool] = Field(None, description="Include a free text search field (PersonsNode only)")
-    source: Union[EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery] = Field(
-        ..., description="Source of the events"
-    )
+    source: Union[
+        EventsNode, EventsQuery, PersonsNode, RecentPerformancePageViewNode, HogQLQuery, TimeToSeeDataSessionsQuery
+    ] = Field(..., description="Source of the events")
 
 
 class PropertyGroupFilter(BaseModel):

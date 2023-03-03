@@ -113,6 +113,11 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
                     }
                 }
+
+                if (response && sourceKind === NodeKind.TimeToSeeDataSessionsQuery) {
+                    return (response as Record<string, any>[]).map((row) => ({ result: row }))
+                }
+
                 return response && 'results' in response && Array.isArray(response.results)
                     ? response.results.map((result: any) => ({ result })) ?? null
                     : null
