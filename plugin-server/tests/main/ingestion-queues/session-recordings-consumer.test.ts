@@ -24,9 +24,11 @@ describe('session-recordings-consumer', () => {
         // To ensure we are catching and retrying on the correct error, we make
         // sure to mock deep into the KafkaJS internals, otherwise we can get
         // into inplaced confidence that we have covered this critical path.
-        mockRefreshMetadataIfNecessary = jest.spyOn(Cluster.prototype, 'refreshMetadataIfNecessary')
         producer = kafka.producer({ retry: { retries: 0 } })
         await producer.connect()
+        mockRefreshMetadataIfNecessary = jest
+            .spyOn(Cluster.prototype, 'refreshMetadataIfNecessary')
+            .mockImplementation()
         producerWrapper = new KafkaProducerWrapper(producer, undefined, {
             KAFKA_FLUSH_FREQUENCY_MS: 0,
         } as any)
