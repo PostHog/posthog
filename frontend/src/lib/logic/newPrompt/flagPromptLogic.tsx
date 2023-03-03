@@ -4,6 +4,7 @@ import type { flagPromptLogicType } from './flagPromptLogicType'
 
 import posthog from 'posthog-js'
 import { featureFlagLogic } from '../featureFlagLogic'
+import { router } from 'kea-router'
 
 const DEBUG_IGNORE_LOCAL_STORAGE = false
 
@@ -195,7 +196,7 @@ function updateTheOpenFlag(promptFlags: PromptFlag[], actions: any): void {
         // if there's no url to match against then default to showing the popup
         if (!promptFlag.payload.url_match || window.location.href.match(promptFlag.payload.url_match)) {
             if (shouldShowPopup(promptFlag.flag)) {
-                actions.setOpenPromptFlag(promptFlag.flag)
+                actions.setOpenPromptFlag(promptFlag)
                 console.log('setting active flag', promptFlag.flag)
                 return
             }
@@ -208,19 +209,22 @@ export const flagPromptLogic = kea<flagPromptLogicType>([
     actions({
         closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => ({ promptFlag, buttonType }),
         setPromptFlags: (promptFlags: PromptFlag[]) => ({ promptFlags }),
-        setOpenPromptFlag: (toOpenFlag: string) => ({ toOpenFlag }),
+        setOpenPromptFlag: (promptFlag: PromptFlag) => ({ promptFlag }),
+        // hide the prompt without sending an event or setting the localstorage
+        // used for when the user navigates away from the page
+        hidePrompt: (promptFlag: PromptFlag) => ({ promptFlag }),
     }),
     connect({
-        actions: [featureFlagLogic, ['setFeatureFlags']],
+        actions: [featureFlagLogic, ['setFeatureFlags'], router, ['locationChanged']],
     }),
     reducers({
         promptFlags: [
             [] as PromptFlag[],
             {
                 setPromptFlags: (_, { promptFlags }) => promptFlags,
-                setOpenPromptFlag: (promptFlags, { toOpenFlag }) => {
+                setOpenPromptFlag: (promptFlags, { promptFlag }) => {
                     return promptFlags.map((flag) => {
-                        if (flag.flag === toOpenFlag) {
+                        if (flag.flag === promptFlag.flag) {
                             return { ...flag, showingPrompt: true }
                         }
                         return flag
@@ -229,6 +233,14 @@ export const flagPromptLogic = kea<flagPromptLogicType>([
                 closePrompt: (promptFlags) => {
                     return promptFlags.map((flag) => {
                         return { ...flag, showingPrompt: false }
+                    })
+                },
+                hidePrompt: (promptFlags, { promptFlag }) => {
+                    return promptFlags.map((flag) => {
+                        if (flag.flag === promptFlag.flag) {
+                            return { ...flag, showingPrompt: false }
+                        }
+                        return flag
                     })
                 },
             },
@@ -259,13 +271,13 @@ export const flagPromptLogic = kea<flagPromptLogicType>([
             console.log('prompt flags', promptFlags, flags)
             updateTheOpenFlag(promptFlags, actions)
         },
-        setOpenPromptFlag: async ({ toOpenFlag }, breakpoint) => {
+        setOpenPromptFlag: async ({ promptFlag }, breakpoint) => {
             await breakpoint(1000)
-            sendPopupEvent('popup shown', toOpenFlag, values.payload)
+            sendPopupEvent('popup shown', promptFlag.flag, promptFlag.payload)
         },
         closePrompt: async ({ promptFlag, buttonType }) => {
             if (promptFlag) {
-                sendPopupEvent('popup closed', promptFlag, values.payload, buttonType)
+                sendPopupEvent('popup closed', promptFlag, promptFlag.payload, buttonType)
                 localStorage.setItem(getFeatureSessionStorageKey(promptFlag.flag), new Date().toDateString())
                 posthog.people.set({ ['$' + promptFlag.flag]: new Date().toDateString() })
 
@@ -273,6 +285,18 @@ export const flagPromptLogic = kea<flagPromptLogicType>([
                     window.open(promptFlag.payload.primaryButtonURL, '_blank')
                 }
             }
+        },
+        locationChanged: async ({}, breakpoint) => {
+            await breakpoint(100)
+            console.log('location changed')
+            if (values.openPromptFlag && values.openPromptFlag.payload.url_match) {
+                if (!window.location.href.match(values.openPromptFlag.payload.url_match)) {
+                    console.log('closing flag')
+                    actions.hidePrompt(values.openPromptFlag)
+                }
+            }
+
+            updateTheOpenFlag(values.promptFlags, actions)
         },
     })),
     selectors({
