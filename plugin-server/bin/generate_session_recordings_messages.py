@@ -50,10 +50,9 @@
 
 
 import argparse
-import base64
 import json
-from sys import stderr, stdout
 import uuid
+from sys import stderr, stdout
 from typing import List
 
 import numpy
