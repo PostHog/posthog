@@ -1,4 +1,4 @@
-import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { FilterType, InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import {
@@ -20,28 +20,30 @@ import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersTo
 import {
     filterForQuery,
     filterPropertyForQuery,
-    isTrendsQuery,
     isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
     isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { getBreakdown, getDisplay, getCompare, getSeries, getInterval } from '~/queries/nodes/InsightViz/utils'
+import { getBreakdown, getCompare, getDisplay, getInterval, getSeries } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
 import { subscriptions } from 'kea-subscriptions'
 import { queryExportContext } from '~/queries/query'
+import { objectsEqual } from 'lib/utils'
 
-const defaultQuery = (insightProps: InsightLogicProps): InsightVizNode => {
+const defaultQuery = (insightProps: InsightLogicProps): Node => {
     const filters = insightProps.cachedInsight?.filters
-    return filters ? queryFromFilters(filters) : queryFromKind(NodeKind.TrendsQuery)
+    const query = insightProps.cachedInsight?.query
+    return query ? query : filters ? queryFromFilters(filters) : queryFromKind(NodeKind.TrendsQuery)
 }
 
 const queryFromFilters = (filters: Partial<FilterType>): InsightVizNode => ({
@@ -96,7 +98,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     reducers(({ props }) => ({
         query: [
-            defaultQuery(props) as Node,
+            defaultQuery(props),
             {
                 setQuery: (_, { query }) => query,
             },
@@ -139,7 +141,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         isQueryBasedInsight: [
             (s) => [s.query],
             (query) => {
-                return !isInsightVizNode(query) && !!query
+                return !!query && !isInsightVizNode(query)
             },
         ],
 
@@ -148,6 +150,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             (query, insight) => {
                 const filename = ['export', insight.name || insight.derived_name].join('-')
                 return { ...queryExportContext(query), filename }
+            },
+        ],
+
+        queryChanged: [
+            (s) => [s.query, s.insight],
+            (query, insight) => {
+                return !objectsEqual(query, insight.query)
             },
         ],
     }),
@@ -182,22 +191,24 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
 
-            const querySource = (query as InsightVizNode).source
-            if (isLifecycleQuery(querySource)) {
-                const filters = queryNodeToFilter(querySource)
-                actions.setFilters(filters)
+            if (isInsightVizNode(query)) {
+                const querySource = (query as InsightVizNode).source
+                if (isLifecycleQuery(querySource)) {
+                    const filters = queryNodeToFilter(querySource)
+                    actions.setFilters(filters)
 
-                if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
-                    actions.setTrendsLifecycles(
-                        querySource.lifecycleFilter?.toggledLifecycles
-                            ? querySource.lifecycleFilter.toggledLifecycles
-                            : ['new', 'resurrecting', 'returning', 'dormant']
-                    )
+                    if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
+                        actions.setTrendsLifecycles(
+                            querySource.lifecycleFilter?.toggledLifecycles
+                                ? querySource.lifecycleFilter.toggledLifecycles
+                                : ['new', 'resurrecting', 'returning', 'dormant']
+                        )
+                    }
                 }
             }
         },
-        setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
-            if (overrideFilter) {
+        setInsight: ({ insight: { filters, query }, options: { overrideFilter } }) => {
+            if (overrideFilter && query == null) {
                 actions.setQuery(queryFromFilters(cleanFilters(filters || {})))
             }
         },
