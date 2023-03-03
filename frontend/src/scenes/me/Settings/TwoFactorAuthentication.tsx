@@ -17,7 +17,7 @@ export function TwoFactorAuthentication(): JSX.Element {
             {modalVisible && (
                 <LemonModal title="Set up or manage 2FA" onClose={() => setModalVisible(false)}>
                     <>
-                        <b>Use an authenticator app like Google Auth or 1Password to scan the QR code below.</b>
+                        <b>Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.</b>
                         <Setup2FA
                             onSuccess={() => {
                                 setModalVisible(false)
