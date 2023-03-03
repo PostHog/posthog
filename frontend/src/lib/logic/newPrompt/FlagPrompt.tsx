@@ -54,6 +54,9 @@ function PopupPrompt(
 ): JSX.Element {
     return (
         <div className={clsx('PromptPopup max-w-80', payload ? 'flex' : 'none')}>
+            {payload.image && (
+                <FallbackCoverImage src={payload.image} index={0} alt={`Prompt image for ${payload.title}`} />
+            )}
             <div className="pt-2 pb-4 px-2">
                 {payload.title && <h3 className="text-xl">{payload.title}</h3>}
                 {payload.body && (
@@ -66,7 +69,7 @@ function PopupPrompt(
                         'flex flex-wrap items-center w-full',
                         payload?.secondaryButtonText && payload.primaryButtonText
                             ? 'gap-4 justify-between'
-                            : 'justify-center'
+                            : 'justify-end'
                     )}
                 >
                     {payload?.secondaryButtonText && (
