@@ -89,18 +89,6 @@ class Person(models.Model):
 
     # Has an index on properties -> email from migration 0121, (team_id, id DESC) from migration 0164
 
-    class Meta:
-        constraints = [
-            models.UniqueConstraint(
-                # This was added to enable the overrides table to reference this
-                # table using the uuid. Ideally we'd put this on (team_id, uuid)
-                # but I couldn't see if Django could handle SQL `REFERENCES` on
-                # a composite key.
-                fields=["uuid"],
-                name="unique uuid for person",
-            ),
-        ]
-
 
 class PersonDistinctId(models.Model):
     class Meta:
@@ -142,6 +130,7 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id"),
             models.CheckConstraint(
                 check=~Q(old_person_id__exact=F("override_person_id")),
                 name="old_person_id_different_from_override_person_id",
