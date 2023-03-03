@@ -12,6 +12,7 @@ import {
     funnelResultWithBreakdown,
     funnelResultWithMultiBreakdown,
     funnelResultTimeToConvert,
+    funnelResultTimeToConvertWithoutConversions,
 } from './__mocks__/funnelDataLogicMocks'
 
 describe('funnelDataLogic', () => {
@@ -770,42 +771,126 @@ describe('funnelDataLogic', () => {
         })
     })
 
-    describe('timeConversionResults', () => {
-        it('with time-to-convert funnel', async () => {
-            const query: FunnelsQuery = {
-                kind: NodeKind.FunnelsQuery,
-                series: [],
-                funnelsFilter: {
-                    funnel_viz_type: FunnelVizType.TimeToConvert,
-                },
-            }
-            const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
-                result: funnelResultTimeToConvert.result,
-            }
+    describe('time to convert funnel', () => {
+        describe('timeConversionResults', () => {
+            it('with time-to-convert funnel', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvert.result,
+                }
 
-            await expectLogic(logic, () => {
-                logic.actions.updateQuerySource(query)
-                builtInsightLogic.actions.setInsight(insight, {})
-            }).toMatchValues({
-                timeConversionResults: funnelResultTimeToConvert.result,
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    timeConversionResults: funnelResultTimeToConvert.result,
+                })
+            })
+
+            it('with other funnel', async () => {
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    timeConversionResults: null,
+                })
             })
         })
 
-        it('with other funnel', async () => {
-            const insight: Partial<InsightModel> = {
-                filters: {
-                    insight: InsightType.FUNNELS,
-                },
-                result: funnelResult.result,
-            }
+        describe('histogramGraphData', () => {
+            it('without results', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: {
+                        ...funnelResultTimeToConvert.result,
+                        bins: [],
+                    },
+                }
 
-            await expectLogic(logic, () => {
-                builtInsightLogic.actions.setInsight(insight, {})
-            }).toMatchValues({
-                timeConversionResults: null,
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    histogramGraphData: null,
+                })
+            })
+
+            it('without conversions', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvertWithoutConversions.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    histogramGraphData: [],
+                })
+            })
+
+            it('with time-to-convert funnel', async () => {
+                const query: FunnelsQuery = {
+                    kind: NodeKind.FunnelsQuery,
+                    series: [],
+                    funnelsFilter: {
+                        funnel_viz_type: FunnelVizType.TimeToConvert,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    filters: {
+                        insight: InsightType.FUNNELS,
+                    },
+                    result: funnelResultTimeToConvert.result,
+                }
+
+                await expectLogic(logic, () => {
+                    logic.actions.updateQuerySource(query)
+                    builtInsightLogic.actions.setInsight(insight, {})
+                }).toMatchValues({
+                    histogramGraphData: [
+                        { bin0: 4, bin1: 73591, count: 74, id: 4, label: '54.8%' },
+                        { bin0: 73591, bin1: 147178, count: 24, id: 73591, label: '17.8%' },
+                        { bin0: 147178, bin1: 220765, count: 24, id: 147178, label: '17.8%' },
+                        { bin0: 220765, bin1: 294352, count: 10, id: 220765, label: '7.4%' },
+                        { bin0: 294352, bin1: 367939, count: 2, id: 294352, label: '1.5%' },
+                        { bin0: 367939, bin1: 441526, count: 1, id: 367939, label: '0.7%' },
+                        { bin0: 441526, bin1: 515113, count: 0, id: 441526, label: '' },
+                    ],
+                })
             })
         })
     })

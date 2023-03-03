@@ -288,3 +288,19 @@ export const funnelResultTimeToConvert: FunnelResult = {
     last_refresh: '2023-02-22T17:32:24.245364Z',
     is_cached: false,
 }
+
+// 1. Add step "Pageview"
+// 2. Select graph type "Time to convert"
+// 3. Select time frame for which there is no data
+export const funnelResultTimeToConvertWithoutConversions: FunnelResult = {
+    result: {
+        bins: [
+            [0.0, 0],
+            [1.0, 0],
+        ],
+        average_conversion_time: null,
+    },
+    timezone: 'UTC',
+    last_refresh: '2023-03-03T12:02:22.618420Z',
+    is_cached: false,
+}

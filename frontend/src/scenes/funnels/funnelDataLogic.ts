@@ -14,6 +14,7 @@ import {
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
     FunnelsTimeConversionBins,
+    HistogramGraphDatum,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -23,6 +24,7 @@ import { groupsModel, Noun } from '~/models/groupsModel'
 import type { funnelDataLogicType } from './funnelDataLogicType'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { isFunnelsQuery } from '~/queries/utils'
+import { percentage, sum } from 'lib/utils'
 import {
     aggregateBreakdownResult,
     flattenedStepsByBreakdown,
@@ -177,12 +179,42 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 }))
             },
         ],
+
+        /*
+         * Time-to-convert funnels
+         */
         timeConversionResults: [
             (s) => [s.results, s.funnelsFilter],
             (results, funnelsFilter): FunnelsTimeConversionBins | null => {
                 return funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert
                     ? (results as FunnelsTimeConversionBins)
                     : null
+            },
+        ],
+        histogramGraphData: [
+            (s) => [s.timeConversionResults],
+            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
+                if ((timeConversionResults?.bins?.length ?? 0) < 2) {
+                    return null // There are no results
+                }
+
+                const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
+                if (totalCount === 0) {
+                    return [] // Nobody has converted in the time period
+                }
+
+                const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
+                return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
+                    const value = Math.max(0, id)
+                    const percent = count / totalCount
+                    return {
+                        id: value,
+                        bin0: value,
+                        bin1: value + binSize,
+                        count,
+                        label: percent === 0 ? '' : percentage(percent, 1, true),
+                    }
+                })
             },
         ],
 
