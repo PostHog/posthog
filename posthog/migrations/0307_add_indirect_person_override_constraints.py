@@ -87,7 +87,7 @@ class Migration(migrations.Migration):
             DEFERRABLE
             INITIALLY DEFERRED
             """,
-            "ALTER TABLE person_override DROP CONSTRAINT exclude_override_person_id_from_being_old_person_id",
+            "ALTER TABLE posthog_personoverride DROP CONSTRAINT exclude_override_person_id_from_being_old_person_id",
         ),
         migrations.AddConstraint(
             model_name="personoverridehelper",
