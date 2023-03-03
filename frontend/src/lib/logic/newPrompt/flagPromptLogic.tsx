@@ -5,34 +5,18 @@ import type { flagPromptLogicType } from './flagPromptLogicType'
 import posthog from 'posthog-js'
 import { featureFlagLogic } from '../featureFlagLogic'
 import { router } from 'kea-router'
+import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 
 const DEBUG_IGNORE_LOCAL_STORAGE = false
 
 const PROMPT_PREFIX = 'prompt-'
 
-type PromptButtonType = 'primary' | 'secondary'
+export function generateLocationCSS(location: string, cssSelector: string | undefined): Partial<CSSStyleDeclaration> {
+    if (location === 'modal') {
+        return {}
+    }
 
-type PromptPayload = {
-    title: string
-    body: string
-    primaryButtonText: string
-    secondaryButtonText: string
-    location: string
-    primaryButtonURL: string
-    url_match: string
-    locationCSSSelector: string
-}
-
-type PromptFlag = {
-    flag: string
-    payload: PromptPayload
-    showingPrompt: boolean
-    locationCSS: Partial<CSSStyleDeclaration>
-    tooltipCSS?: Partial<CSSStyleDeclaration>
-}
-
-export function generateLocationCSS(location: string, cssSelector: string): Partial<CSSStyleDeclaration> {
-    if (location.startsWith('relative-')) {
+    if (location.startsWith('relative-') && cssSelector) {
         const relativeLocation = location.split('-')[1]
         const relativeElement = findRelativeElement(cssSelector)
         const relativeElementRect = relativeElement.getBoundingClientRect()
@@ -197,7 +181,6 @@ function updateTheOpenFlag(promptFlags: PromptFlag[], actions: any): void {
         if (!promptFlag.payload.url_match || window.location.href.match(promptFlag.payload.url_match)) {
             if (shouldShowPopup(promptFlag.flag)) {
                 actions.setOpenPromptFlag(promptFlag)
-                console.log('setting active flag', promptFlag.flag)
                 return
             }
         }
@@ -268,7 +251,6 @@ export const flagPromptLogic = kea<flagPromptLogicType>([
                 }
             })
             actions.setPromptFlags(promptFlags)
-            console.log('prompt flags', promptFlags, flags)
             updateTheOpenFlag(promptFlags, actions)
         },
         setOpenPromptFlag: async ({ promptFlag }, breakpoint) => {
@@ -288,10 +270,8 @@ export const flagPromptLogic = kea<flagPromptLogicType>([
         },
         locationChanged: async ({}, breakpoint) => {
             await breakpoint(100)
-            console.log('location changed')
             if (values.openPromptFlag && values.openPromptFlag.payload.url_match) {
                 if (!window.location.href.match(values.openPromptFlag.payload.url_match)) {
-                    console.log('closing flag')
                     actions.hidePrompt(values.openPromptFlag)
                 }
             }

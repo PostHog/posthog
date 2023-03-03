@@ -8,7 +8,6 @@ import { DashboardTemplateVariables } from './DashboardTemplateVariables'
 import { LemonButton } from '@posthog/lemon-ui'
 import { dashboardTemplateVariablesLogic } from './dashboardTemplateVariablesLogic'
 import { DashboardTemplateType } from '~/types'
-import { useState } from 'react'
 
 import { Field } from 'lib/forms/Field'
 import { AvailableFeature } from '~/types'
@@ -20,39 +19,10 @@ import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 import { Form } from 'kea-forms'
 import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
-import { getSeriesColor } from 'lib/colors'
+
 import BlankDashboardHog from 'public/blank-dashboard-hog.png'
 import './NewDashboardModal.scss'
-
-function FallbackCoverImage({ src, alt, index }: { src: string | undefined; alt: string; index: number }): JSX.Element {
-    const [hasError, setHasError] = useState(false)
-
-    const handleImageError = (): void => {
-        setHasError(true)
-    }
-
-    return (
-        <>
-            {hasError || !src ? (
-                <div
-                    className="w-full h-full"
-                    // dynamic color based on index
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        background: getSeriesColor(index),
-                    }}
-                />
-            ) : (
-                <img
-                    className="w-full h-full object-cover object-center"
-                    src={src}
-                    alt={alt}
-                    onError={handleImageError}
-                />
-            )}
-        </>
-    )
-}
+import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 
 function TemplateItem({
     template,
