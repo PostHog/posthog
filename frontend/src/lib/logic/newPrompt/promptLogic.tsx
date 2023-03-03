@@ -81,7 +81,7 @@ export const promptLogic = kea<promptLogicType>([
             {
                 setPromptFlags: (_, { promptFlags }) => promptFlags,
                 setOpenPromptFlag: (promptFlags, { promptFlag }) => {
-                    return promptFlags.map((flag) => {
+                    return promptFlags.map((flag: PromptFlag) => {
                         if (flag.flag === promptFlag.flag) {
                             return { ...flag, showingPrompt: true }
                         }

@@ -6,11 +6,17 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
 
-function ModalPrompt(
-    payload: PromptPayload,
-    closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => void,
+export function ModalPrompt({
+    payload,
+    closePrompt,
+    openPromptFlag,
+    inline = false,
+}: {
+    payload: PromptPayload
+    closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => void
     openPromptFlag: PromptFlag
-): JSX.Element {
+    inline?: boolean
+}): JSX.Element {
     return (
         <LemonModal
             onClose={() => closePrompt(openPromptFlag, 'secondary')}
@@ -30,6 +36,7 @@ function ModalPrompt(
                     </div>
                 )
             }
+            inline={inline}
         >
             <div className="w-120">
                 <div className="w-full flex items-center justify-center my-8">
@@ -47,13 +54,24 @@ function ModalPrompt(
     )
 }
 
-function PopupPrompt(
-    payload: PromptPayload,
-    openPromptFlag: PromptFlag,
+export function PopupPrompt({
+    payload,
+    openPromptFlag,
+    closePrompt,
+    inline = false,
+}: {
+    payload: PromptPayload
+    openPromptFlag: PromptFlag
     closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => void
-): JSX.Element {
+    inline?: boolean
+}): JSX.Element {
     return (
-        <div className={clsx('PromptPopup max-w-80', payload ? 'flex' : 'none')}>
+        <div
+            className={clsx('PromptPopup max-w-80', payload ? 'flex' : 'none')}
+            // Used for the storybook
+            // eslint-disable-next-line react/forbid-dom-props
+            style={inline ? { position: 'relative' } : {}}
+        >
             {payload.image && (
                 <FallbackCoverImage src={payload.image} index={0} alt={`Prompt image for ${payload.title}`} />
             )}
@@ -97,8 +115,8 @@ export function Prompt(): JSX.Element {
     }
 
     if (payload.type === 'modal') {
-        return ModalPrompt(payload, closePrompt, openPromptFlag)
+        return <ModalPrompt payload={payload} openPromptFlag={openPromptFlag} closePrompt={closePrompt} />
     }
 
-    return PopupPrompt(payload, openPromptFlag, closePrompt)
+    return <PopupPrompt payload={payload} openPromptFlag={openPromptFlag} closePrompt={closePrompt} />
 }
