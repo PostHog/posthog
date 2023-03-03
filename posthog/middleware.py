@@ -419,4 +419,3 @@ def user_logging_context_middleware(
         return get_response(request)
 
     return middleware
-)
