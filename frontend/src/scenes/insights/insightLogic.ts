@@ -793,24 +793,10 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
-        isTestGroupForNewRefreshUX: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
-            },
-        ],
         displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
-            (
-                isTestGroupForNewRefreshUX: boolean,
-                acknowledgedRefreshButtonChanged: boolean,
-                user: UserType
-            ): boolean => {
-                return (
-                    dayjs(user.date_joined).isBefore('2023-02-13') &&
-                    isTestGroupForNewRefreshUX &&
-                    !acknowledgedRefreshButtonChanged
-                )
+            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
+            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
+                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1065,10 +1051,10 @@ export const insightLogic = kea<insightLogicType>([
                 throw e
             }
 
-            actions.setInsight(
-                { ...savedInsight, result: savedInsight.result || values.insight.result },
-                { fromPersistentApi: true, overrideFilter: true }
-            )
+            // the backend can't return the result for a query based insight,
+            // and so we shouldn't copy the result from `values.insight` as it might be stale
+            const result = savedInsight.result || (!!query ? values.insight.result : null)
+            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {

@@ -186,7 +186,7 @@ class TrendsTotalVolume:
             parsed_results = []
             if result is not None:
                 for stats in result:
-                    parsed_result = parse_response(stats, filter)
+                    parsed_result = parse_response(stats, filter, entity=entity)
                     point_dates: List[Union[datetime, date]] = stats[0]
                     # Ensure we have datetimes for all points
                     point_datetimes: List[datetime] = [

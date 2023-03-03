@@ -16,15 +16,17 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
     return (
         <div className="px-2">
             <LemonTextArea
+                data-attr="inline-hogql-editor"
                 value={String(localValue ?? '')}
                 onChange={(e) => setLocalValue(e)}
                 className="font-mono"
                 minRows={6}
                 maxRows={6}
                 placeholder={
-                    'Enter HogQL Expression, such as:\n- properties.$current_url\n- count()\n- sum(toInt(properties.$screen_width)) * 10\n- concat(event, " ", distinct_id)\n- ifElse(1 < 2, "small", "large")'
+                    'Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.$screen_width) * 10\n- concat(event, " ", distinct_id)\n- if(1 < 2, "small", "large")'
                 }
-                autoFocus
+                // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
+                // autoFocus
             />
             <LemonButton
                 fullWidth
@@ -39,7 +41,7 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
                 {value ? 'Update HogQL expression' : 'Add HogQL expression'}
             </LemonButton>
             <div className="text-right">
-                <a href="https://github.com/PostHog/meta/issues/86" target={'_blank'}>
+                <a href="https://posthog.com/manual/hogql" target={'_blank'}>
                     Learn more about HogQL
                 </a>
             </div>

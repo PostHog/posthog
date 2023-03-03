@@ -1,3 +1,5 @@
+@use 'sass:string';
+
 @import 'vars';
 @import 'mixins';
 
@@ -901,10 +903,10 @@ $decorations: underline, overline, line-through, no-underline;
 
 @each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
     .object-#{$fitOption} {
-        object-fit: $fitOption;
+        object-fit: string.unquote($fitOption);
     }
     hover\:object-#{$fitOption}:hover {
-        object-fit: $fitOption;
+        object-fit: string.unquote($fitOption);
     }
 }
 
@@ -1012,4 +1014,10 @@ $decorations: underline, overline, line-through, no-underline;
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
 }

@@ -142,10 +142,8 @@ export const FEATURE_FLAGS = {
     PERSON_GROUPS_PROPERTY_DEFINITIONS: 'person-groups-property-definitions', // owner: @macobo
     REQUIRE_EMAIL_VERIFICATION: 'require-email-verification', // owner: @raquelmsmith
     DATA_EXPLORATION_QUERIES_ON_DASHBOARDS: 'data-exploration-queries-on-dashboards', // owner: @pauldambra
-    NEW_REFRESH_UX: 'new-refresh-ux', // owner: @yakkomajuri
     SAMPLING: 'sampling', // owner: @yakkomajuri
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
-    WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
     POSTHOG_3000: 'posthog-3000', // owner: @Twixes

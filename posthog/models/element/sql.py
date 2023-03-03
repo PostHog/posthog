@@ -1,7 +1,8 @@
 GET_ELEMENTS = """
 SELECT
-    elements_chain, count(1) as count, event as event_type
+    elements_chain, count() as count, event as event_type
 FROM events
+SAMPLE %(sample_rows_count)s
 WHERE
     team_id = %(team_id)s AND
     event in %(filter_event_types)s AND
