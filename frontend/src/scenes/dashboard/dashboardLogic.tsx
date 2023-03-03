@@ -674,10 +674,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         blockRefresh: [
-            (s) => [s.lastRefreshed],
-            (lastRefreshed: Dayjs) => {
+            (s) => [s.lastRefreshed, s.placement],
+            (lastRefreshed: Dayjs, placement: DashboardPlacement) => {
                 return (
                     !!lastRefreshed &&
+                    !(placement === DashboardPlacement.FeatureFlag) &&
                     now()
                         .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
                         .isBefore(lastRefreshed)

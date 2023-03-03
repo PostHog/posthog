@@ -70,7 +70,7 @@ PARTITION_KEY_CAPACITY_EXCEEDED_COUNTER = Counter(
 TOKEN_SHAPE_INVALID_COUNTER = Counter(
     "capture_token_shape_invalid_total",
     "Events dropped due to an invalid token shape, per reason.",
-    labelnames=["stage", "reason"],
+    labelnames=["reason"],
 )
 
 
