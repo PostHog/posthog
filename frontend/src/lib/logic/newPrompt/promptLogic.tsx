@@ -5,22 +5,43 @@ import { featureFlagLogic } from '../featureFlagLogic'
 import { router } from 'kea-router'
 import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 
-import { promptLogicType } from '../promptLogicType'
-
 import type { promptLogicType } from './promptLogicType'
 
-const PROMPT_PREFIX = 'prompt-'
+const PROMPT_PREFIX = 'ph-prompt'
+const LAST_SEEN = 'last-seen'
+const MINIMUM_DAYS_BETWEEN_PROMPTS = 1
 
 function getFeatureSessionStorageKey(featureFlagName: string): string {
-    return `ph-prompt-${featureFlagName}`
+    return `${PROMPT_PREFIX}-${featureFlagName}`
+}
+
+function getLastSeenSessionStorageKey(): string {
+    return `${PROMPT_PREFIX}-${LAST_SEEN}`
+}
+
+function hasSeenPromptRecently(): boolean {
+    const lastSeenPoup = localStorage.getItem(getLastSeenSessionStorageKey())
+    const lastSeenPoupDate = lastSeenPoup ? new Date(lastSeenPoup) : null
+    const now = new Date()
+    const oneDayAgo = new Date(now)
+    oneDayAgo.setDate(now.getDate() - MINIMUM_DAYS_BETWEEN_PROMPTS)
+
+    let seenRecently = false
+
+    if (lastSeenPoupDate && lastSeenPoupDate > oneDayAgo) {
+        seenRecently = true
+    }
+    return seenRecently
 }
 
 function shouldShowPopup(featureFlagName: string): boolean {
     // The feature flag should be disabled for the user once the prompt has been closed through the user properties
     // This is a second check for shorter-term preventing of the prompt from showing
-    const flagNotShownBefore = !localStorage.getItem(getFeatureSessionStorageKey(featureFlagName))
+    const flagShownBefore = localStorage.getItem(getFeatureSessionStorageKey(featureFlagName))
 
-    return flagNotShownBefore
+    const seenRecently = hasSeenPromptRecently()
+
+    return !flagShownBefore && !seenRecently
 }
 
 function sendPopupEvent(
@@ -28,35 +49,24 @@ function sendPopupEvent(
     promptFlag: PromptFlag,
     buttonType: PromptButtonType | undefined = undefined
 ): void {
+    const properties = {
+        flagName: promptFlag.flag,
+        flagPayload: promptFlag.payload,
+    }
+
     if (buttonType) {
-        posthog.capture(event, {
-            flagName: promptFlag.flag,
-            flagPayload: promptFlag.payload,
-            buttonPressed: buttonType,
-        })
-    } else {
-        posthog.capture(event, {
-            flagPayload: promptFlag.flag,
-            payload: promptFlag.payload,
-        })
+        properties['buttonPressed'] = buttonType
     }
+
+    posthog.capture(event, properties)
 }
 
-export function findRelativeElement(cssSelector: string): Element {
-    const el = document.querySelector(cssSelector)
-    if (!el) {
-        throw new Error(`Could not find element with CSS selector: ${cssSelector}`)
-    }
-    return el
-}
-
-function updateTheOpenFlag(promptFlags: PromptFlag[], actions: any): void {
+function setTheOpenFlag(promptFlags: PromptFlag[], actions: any): void {
     for (const promptFlag of promptFlags) {
-        // if there's no url to match against then default to showing the prompt
         if (!promptFlag.payload.url_match || window.location.href.match(promptFlag.payload.url_match)) {
             if (shouldShowPopup(promptFlag.flag)) {
                 actions.setOpenPromptFlag(promptFlag)
-                return
+                return // only show one prompt at a time
             }
         }
     }
@@ -124,7 +134,7 @@ export const promptLogic = kea<promptLogicType>([
                 }
             })
             actions.setPromptFlags(promptFlags)
-            updateTheOpenFlag(promptFlags, actions)
+            setTheOpenFlag(promptFlags, actions)
         },
         setOpenPromptFlag: async ({ promptFlag }, breakpoint) => {
             await breakpoint(1000)
@@ -134,6 +144,7 @@ export const promptLogic = kea<promptLogicType>([
             if (promptFlag) {
                 sendPopupEvent('Prompt closed', promptFlag, buttonType)
                 localStorage.setItem(getFeatureSessionStorageKey(promptFlag.flag), new Date().toDateString())
+                localStorage.setItem(getLastSeenSessionStorageKey(), new Date().toDateString())
                 posthog.people.set({ ['$' + promptFlag.flag]: new Date().toDateString() })
 
                 if (promptFlag?.payload.primaryButtonURL && buttonType === 'primary') {
@@ -149,14 +160,14 @@ export const promptLogic = kea<promptLogicType>([
                 }
             }
 
-            updateTheOpenFlag(values.promptFlags, actions)
+            setTheOpenFlag(values.promptFlags, actions)
         },
     })),
     selectors({
         openPromptFlag: [
             (s) => [s.promptFlags],
             (promptFlags) => {
-                return promptFlags.find((flag) => flag.showingPrompt)
+                return promptFlags.find((flag: PromptFlag) => flag.showingPrompt)
             },
         ],
         payload: [
