@@ -89,12 +89,12 @@ export const promptLogic = kea<promptLogicType>([
                     })
                 },
                 closePrompt: (promptFlags) => {
-                    return promptFlags.map((flag) => {
+                    return promptFlags.map((flag: PromptFlag) => {
                         return { ...flag, showingPrompt: false }
                     })
                 },
                 hidePrompt: (promptFlags, { promptFlag }) => {
-                    return promptFlags.map((flag) => {
+                    return promptFlags.map((flag: PromptFlag) => {
                         if (flag.flag === promptFlag.flag) {
                             return { ...flag, showingPrompt: false }
                         }
@@ -141,7 +141,7 @@ export const promptLogic = kea<promptLogicType>([
                 }
             }
         },
-        locationChanged: async ({}, breakpoint) => {
+        locationChanged: async (_, breakpoint) => {
             await breakpoint(100)
             if (values.openPromptFlag && values.openPromptFlag.payload.url_match) {
                 if (!window.location.href.match(values.openPromptFlag.payload.url_match)) {
