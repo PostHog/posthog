@@ -82,7 +82,6 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 recent_performance_query = RecentPerformancePageViewNode.parse_obj(query_json)
                 results = load_performance_events_recent_pageviews(
                     team_id=team.pk,
-                    # parse or return one hour ago
                     date_from=parse_as_date_or(
                         recent_performance_query.dateRange.date_from, now() - timedelta(hours=1)
                     ),
