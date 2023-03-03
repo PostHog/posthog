@@ -515,7 +515,7 @@ export function InsightViz({
             ) : timedOut ? (
                 <InsightTimeoutState
                     isLoading={!!loading}
-                    insightProps={{ dashboardItemId: insight.short_id }}
+                    insightProps={{ dashboardItemId: undefined }}
                     insightType={insight.filters.insight}
                 />
             ) : apiErrored && !loading ? (
