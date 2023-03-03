@@ -351,8 +351,8 @@ class RecentPerformancePageViewNode(BaseModel):
     class Config:
         extra = Extra.forbid
 
+    dateRange: DateRange
     kind: str = Field("RecentPerformancePageViewNode", const=True, description="Performance")
-    numberOfDays: Optional[float] = None
     response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
 
 

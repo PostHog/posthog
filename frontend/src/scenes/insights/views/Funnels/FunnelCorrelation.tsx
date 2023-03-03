@@ -65,6 +65,8 @@ export const FunnelCorrelation = (): JSX.Element | null => {
 
                     <FunnelCorrelationTable />
 
+                    <FunnelPropertyCorrelationTable />
+
                     {/* Feedback Form */}
                     {!correlationFeedbackHidden && (
                         <div className="border rounded p-4 space-y-2 mt-4">
@@ -134,8 +136,6 @@ export const FunnelCorrelation = (): JSX.Element | null => {
                             ) : null}
                         </div>
                     )}
-
-                    <FunnelPropertyCorrelationTable />
                 </div>
             </PayGateMini>
         </>

@@ -167,7 +167,7 @@ export async function query<N extends DataNode = DataNode>(
             session_end: query.source.sessionEnd ?? now().toISOString(),
         })
     } else if (isRecentPerformancePageViewNode(query)) {
-        return await api.performanceEvents.recentPageViews()
+        return await api.query(query, methodOptions)
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }

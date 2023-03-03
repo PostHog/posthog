@@ -409,7 +409,7 @@ export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNo
 
 export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
-    numberOfDays?: number // defaults to 7
+    dateRange: DateRange
 }
 
 export type HogQLExpression = string
