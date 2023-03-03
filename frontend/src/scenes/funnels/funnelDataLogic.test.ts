@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { FunnelsQuery, NodeKind } from '~/queries/schema'
+import { ActionsNode, EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
     funnelResultWithBreakdown,
@@ -744,32 +744,29 @@ describe('funnelDataLogic', () => {
     })
 
     describe('areFiltersValid', () => {
-        it('with more than one series', async () => {
-            const query: FunnelsQuery = {
-                kind: NodeKind.FunnelsQuery,
-                series: [{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }],
-            }
-
-            await expectLogic(logic, () => {
-                logic.actions.updateQuerySource(query)
-            }).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
-                areFiltersValid: true,
-            })
+        const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
+            kind: NodeKind.FunnelsQuery,
+            series,
         })
 
-        it('with one or less series', async () => {
-            const query: FunnelsQuery = {
-                kind: NodeKind.FunnelsQuery,
-                series: [{ kind: NodeKind.EventsNode }],
-            }
+        it('with enough/not enough steps', () => {
+            expectLogic(logic, () => {
+                logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery })
+            }).toMatchValues({ areFiltersValid: false })
 
-            await expectLogic(logic, () => {
-                logic.actions.updateQuerySource(query)
-            }).toMatchValues({
-                querySource: expect.objectContaining({ kind: NodeKind.FunnelsQuery }),
-                areFiltersValid: false,
-            })
+            expectLogic(logic, () => {
+                logic.actions.updateQuerySource(queryWithSeries([]))
+            }).toMatchValues({ areFiltersValid: false })
+
+            expectLogic(logic, () => {
+                logic.actions.updateQuerySource(queryWithSeries([{ kind: NodeKind.EventsNode }]))
+            }).toMatchValues({ areFiltersValid: false })
+
+            expectLogic(logic, () => {
+                logic.actions.updateQuerySource(
+                    queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
+                )
+            }).toMatchValues({ areFiltersValid: true })
         })
     })
 })

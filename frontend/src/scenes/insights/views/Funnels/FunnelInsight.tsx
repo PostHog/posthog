@@ -4,16 +4,14 @@ import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelsQuery } from '~/queries/schema'
 
 export function FunnelInsightDataExploration(): JSX.Element {
     const { insightLoading, insightProps } = useValues(insightLogic)
-    const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { areFiltersValid } = useValues(funnelDataLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
     const isValidFunnel = true
 
-    const areFiltersValid = (querySource as FunnelsQuery).series.length > 0
     const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
 
     return (

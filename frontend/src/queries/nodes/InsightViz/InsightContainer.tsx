@@ -69,12 +69,11 @@ export function InsightContainer({
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     // const {
-    //     areFiltersValid,
     //     isValidFunnel,
     //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { querySource, areFiltersValid } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const {
@@ -91,7 +90,6 @@ export function InsightContainer({
 
     // TODO: implement in funnelDataLogic
     const isValidFunnel = true
-    const areFiltersValid = true
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {

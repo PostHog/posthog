@@ -8,20 +8,19 @@ import { FunnelStepRangeEntityFilter, EntityTypes, FilterType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { FunnelsQuery } from '~/queries/schema'
 import { ExclusionRowSuffix, ExclusionRowSuffixDataExploration } from './ExclusionRowSuffix'
 import { ExclusionRow } from './ExclusionRow'
 
 export function FunnelExclusionsFilterDataExploration(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { exclusionFilters, exclusionDefaultStepRange, querySource } = useValues(funnelDataLogic(insightProps))
+    const { exclusionFilters, exclusionDefaultStepRange, areFiltersValid } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     return (
         <FunnelExclusionsFilterComponent
             exclusionFilters={exclusionFilters}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
-            areFiltersValid={((querySource as FunnelsQuery).series || []).length > 1}
+            areFiltersValid={areFiltersValid}
             setFilters={(filters) => {
                 const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((e) => ({
                     ...e,
