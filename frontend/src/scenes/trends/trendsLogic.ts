@@ -38,10 +38,7 @@ export const trendsLogic = kea<trendsLogicType>([
             groupsModel,
             ['aggregationLabel'],
         ],
-        actions: [
-            insightLogic(props),
-            ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById', 'setFilters as insightSetFilters'],
-        ],
+        actions: [insightLogic(props), ['loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
     })),
 
     actions(() => ({
