@@ -67,34 +67,34 @@ export function generateLocationCSS(location: string, cssSelector: string): Part
         } else {
             throw new Error(`Unknown relative location: ${relativeLocation}`)
         }
-    } else if (location === 'absolute-center') {
+    } else if (location === 'center') {
         return {
-            position: 'absolute',
+            position: 'fixed',
             top: '50%',
             left: '50%',
             transform: 'translate(-50%, -50%)',
         }
-    } else if (location === 'absolute-bottom-right') {
+    } else if (location === 'bottom-right') {
         return {
-            position: 'absolute',
+            position: 'fixed',
             bottom: '10px',
             right: '10px',
         }
-    } else if (location === 'absolute-bottom-left') {
+    } else if (location === 'bottom-left') {
         return {
-            position: 'absolute',
+            position: 'fixed',
             bottom: '10px',
             left: '10px',
         }
-    } else if (location === 'absolute-top-right') {
+    } else if (location === 'top-right') {
         return {
-            position: 'absolute',
+            position: 'fixed',
             top: '10px',
             right: '10px',
         }
-    } else if (location === 'absolute-top-left') {
+    } else if (location === 'top-left') {
         return {
-            position: 'absolute',
+            position: 'fixed',
             top: '10px',
             left: '10px',
         }
