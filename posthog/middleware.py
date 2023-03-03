@@ -2,6 +2,7 @@ import time
 from ipaddress import ip_address, ip_network
 from typing import Any, Callable, List, Optional, cast
 
+import structlog
 from corsheaders.middleware import CorsMiddleware
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
@@ -13,7 +14,6 @@ from django.urls import resolve
 from django.utils.cache import add_never_cache_headers
 from django_prometheus.middleware import PrometheusAfterMiddleware
 from statshog.defaults.django import statsd
-import structlog
 
 from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
