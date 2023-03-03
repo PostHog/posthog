@@ -12,6 +12,7 @@ from posthog.client import sync_execute
 from posthog.models import Element, Filter
 from posthog.models.element.element import chain_to_elements
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.query_date_range import QueryDateRange
@@ -56,6 +57,9 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         Now, you can pass a combination of include query parameters to get different types of elements
         Currently only $autocapture and $rageclick are supported
         """
+
+        sample_rows_count = get_instance_setting("HEATMAP_SAMPLE_N") or 2_000_000
+
         filter = Filter(request=request, team=self.team)
 
         date_params = {}
@@ -66,7 +70,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_params.update(date_to_params)
 
         try:
-            limit = int(request.query_params.get("limit", 100))
+            limit = int(request.query_params.get("limit", 250))
         except ValueError:
             raise ValidationError("Limit must be an integer")
 
@@ -92,6 +96,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             {
                 "team_id": self.team.pk,
                 "timezone": self.team.timezone,
+                "sample_rows_count": sample_rows_count,
                 **prop_filter_params,
                 **date_params,
                 "filter_event_types": events_filter,

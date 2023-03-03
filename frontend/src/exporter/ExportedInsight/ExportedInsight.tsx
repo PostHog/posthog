@@ -11,6 +11,8 @@ import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isDataTableNode, isInsightVizNode } from '~/queries/utils'
+import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 export function ExportedInsight({
     insight,
@@ -26,13 +28,20 @@ export function ExportedInsight({
         insight.filters.show_legend = false
     }
 
+    if (isDataTableNode(insight.query)) {
+        // don't show editing controls when exporting/sharing
+        insight.query.full = false
+        insight.query.showHogQLEditor = false
+        insight.query.showActions = false
+    }
+
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         cachedInsight: insight,
         doNotLoad: true,
     }
 
-    const { filters, name, derived_name, description } = insight
+    const { filters, query, name, derived_name, description } = insight
 
     const showLegend =
         legend &&
@@ -56,7 +65,13 @@ export function ExportedInsight({
                                 <span
                                     title={INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.description}
                                 >
-                                    {INSIGHT_TYPES_METADATA[filters.insight || InsightType.TRENDS]?.name}
+                                    {
+                                        INSIGHT_TYPES_METADATA[
+                                            !!query && !isInsightVizNode(query)
+                                                ? InsightType.QUERY
+                                                : filters.insight || InsightType.TRENDS
+                                        ]?.name
+                                    }
                                 </span>{' '}
                                 • {dateFilterToText(filters.date_from, filters.date_to, 'Last 7 days')}
                             </h5>
@@ -81,7 +96,11 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
+                    {!!query ? (
+                        <QueriesUnsupportedHere />
+                    ) : (
+                        <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
+                    )}
                     {showLegend ? (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />

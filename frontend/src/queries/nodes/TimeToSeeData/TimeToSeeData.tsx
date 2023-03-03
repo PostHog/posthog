@@ -39,6 +39,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataNode }): JSX.Element 
                             language={'json'}
                             value={JSON.stringify(response, null, 2)}
                             height={Math.max(height, 300)}
+                            loading={<Spinner />}
                         />
                     )}
                 </AutoSizer>

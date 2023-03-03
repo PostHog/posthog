@@ -409,7 +409,7 @@ export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNo
 
 export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
-    numberOfDays?: number // defaults to 7
+    dateRange: DateRange
 }
 
 export type HogQLExpression = string
@@ -442,7 +442,9 @@ export interface BreakdownFilter {
 /** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
 export interface QueryContext {
     /** Column templates for the DataTable */
-    columns: Record<string, QueryContextColumn>
+    columns?: Record<string, QueryContextColumn>
+
+    readonly?: boolean
 }
 
 interface QueryContextColumn {
