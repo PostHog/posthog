@@ -6,7 +6,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { ActionsNode, EventsNode, FunnelsQuery, NodeKind } from '~/queries/schema'
+import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
     funnelResultWithBreakdown,
@@ -751,7 +751,7 @@ describe('funnelDataLogic', () => {
 
         it('with enough/not enough steps', () => {
             expectLogic(logic, () => {
-                logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery })
+                logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery } as InsightQueryNode)
             }).toMatchValues({ areFiltersValid: false })
 
             expectLogic(logic, () => {

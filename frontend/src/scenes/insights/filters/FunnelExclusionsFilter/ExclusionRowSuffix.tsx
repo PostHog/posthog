@@ -36,7 +36,7 @@ export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixCompo
         <ExclusionRowSuffixComponent
             exclusions={(insightFilter as FunnelsFilterType)?.exclusions}
             areFiltersValid={areFiltersValid}
-            numberOfSeries={series.length}
+            numberOfSeries={series?.length || 0}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
             setOneEventExclusionFilter={setOneEventExclusionFilter}
             {...props}
