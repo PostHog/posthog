@@ -6,7 +6,6 @@ import { Consumer, KafkaJSProtocolError } from 'kafkajs'
 import net, { AddressInfo } from 'net'
 import * as schedule from 'node-schedule'
 import { Counter } from 'prom-client'
-import { serialize } from 'v8'
 
 import { getPluginServerCapabilities } from '../capabilities'
 import { defaultConfig } from '../config/config'
@@ -227,10 +226,9 @@ export async function startPluginsServer(
             serverInstance = { hub }
 
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
-            mmdbUpdateJob = serverInstance ? schedule.scheduleJob(
-                '0 */4 * * *',
-                async () => await performMmdbStalenessCheck(serverInstance!)
-            ) : undefined
+            mmdbUpdateJob = serverInstance
+                ? schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(serverInstance!))
+                : undefined
             mmdbServer = await createMmdbServer(serverInstance)
             serverConfig.INTERNAL_MMDB_SERVER_PORT = (mmdbServer.address() as AddressInfo).port
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
