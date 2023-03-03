@@ -347,6 +347,21 @@ class QueryMatchingTest:
 
         query = re.sub(rf"""user_id:([0-9]+) request:[a-zA-Z0-9-_]+""", r"""user_id:0 request:_snapshot_""", query)
 
+        # ee license check has varying datetime
+        # e.g. WHERE "ee_license"."valid_until" >= '2023-03-02T21:13:59.298031+00:00'::timestamptz
+        query = re.sub(
+            r"ee_license\"\.\"valid_until\" >= '\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d.\d{6}\+\d\d:\d\d'::timestamptz",
+            '"ee_license"."valid_until">=\'LICENSE-TIMESTAMP\'::timestamptz"',
+            query,
+        )
+
+        # insight cache key varies with team id
+        query = re.sub(
+            r"WHERE \(\"posthog_insightcachingstate\".\"cache_key\" = 'cache_\w{32}'",
+            """WHERE ("posthog_insightcachingstate"."cache_key" = 'cache_THE_CACHE_KEY'""",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
