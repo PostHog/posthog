@@ -414,7 +414,9 @@ def user_logging_context_middleware(
 
     def middleware(request: HttpRequest) -> HttpResponse:
         if request.user.is_authenticated:
-            structlog.contextvars.bind_contextvars(team_id=user.current_team_id, organization_id=user.organization_id)
+            structlog.contextvars.bind_contextvars(
+                team_id=request.user.current_team_id, organization_id=request.user.organization_id
+            )
 
         return get_response(request)
 
