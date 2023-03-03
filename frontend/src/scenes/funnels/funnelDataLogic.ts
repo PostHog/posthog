@@ -217,6 +217,21 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 })
             },
         ],
+        isValidFunnel: [
+            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
+            (funnelsFilter, steps, histogramGraphData) => {
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.Steps || !funnelsFilter?.funnel_viz_type) {
+                    return !!(steps && steps[0] && steps[0].count > -1)
+                } else if (funnelsFilter.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return (histogramGraphData?.length ?? 0) > 0
+                } else if (funnelsFilter.funnel_viz_type === FunnelVizType.Trends) {
+                    console.log(steps)
+                    return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
+                } else {
+                    return false
+                }
+            },
+        ],
 
         /*
          * Advanced options: funnel_order_type, funnel_step_reference, exclusions

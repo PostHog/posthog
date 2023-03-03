@@ -13,6 +13,7 @@ import {
     funnelResultWithMultiBreakdown,
     funnelResultTimeToConvert,
     funnelResultTimeToConvertWithoutConversions,
+    funnelResultTrends,
 } from './__mocks__/funnelDataLogicMocks'
 
 describe('funnelDataLogic', () => {
@@ -891,6 +892,80 @@ describe('funnelDataLogic', () => {
                         { bin0: 441526, bin1: 515113, count: 0, id: 441526, label: '' },
                     ],
                 })
+            })
+        })
+    })
+
+    describe('isValidFunnel', () => {
+        it('for steps viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Steps,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtInsightLogic.actions.setInsight(insight, {})
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                isValidFunnel: true,
+            })
+        })
+
+        it('for time to convert viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTimeToConvert.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtInsightLogic.actions.setInsight(insight, {})
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                isValidFunnel: true,
+            })
+        })
+
+        it('for trends viz', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.Trends,
+                },
+            }
+
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTrends.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtInsightLogic.actions.setInsight(insight, {})
+                logic.actions.updateQuerySource(query)
+            }).toMatchValues({
+                isValidFunnel: true,
             })
         })
     })
