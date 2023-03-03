@@ -196,6 +196,28 @@ class ListPerformanceEventQuerySerializer(serializers.Serializer):
         return data
 
 
+def load_performance_events_recent_pageviews(team_id: int, date_from: datetime, date_to: datetime) -> Dict:
+    results = RecentPageViewPerformanceEvents.query(team_id, date_from=date_from, date_to=date_to)
+
+    try:
+        serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
+        serializer.is_valid(raise_exception=True)
+    except ValidationError as ve:
+        logger.error(
+            "performance_events_page_view_response_validation_error",
+            error=ve,
+            exc_info=True,
+            date_from=date_from,
+            date_to=date_to,
+            team_id=team_id,
+            results_length=len(results) if results else "None",
+        )
+        capture_exception(ve)
+        raise ve
+
+    return serializer.data
+
+
 class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     serializer_class = PerformanceEventSerializer
     permission_classes = [
@@ -241,21 +263,7 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             capture_exception(ve)
             raise ve
 
-        results = RecentPageViewPerformanceEvents.query(
-            self.team_id, date_from=params.get("date_from"), date_to=params.get("date_to")
+        results = load_performance_events_recent_pageviews(
+            team_id=self.team_id, date_from=params.get("date_from"), date_to=params.get("date_to")
         )
-
-        try:
-            serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
-            serializer.is_valid(raise_exception=True)
-        except ValidationError as ve:
-            logger.error(
-                "performance_events_page_view_response_validation_error",
-                error=ve,
-                exc_info=True,
-                params=params,
-                results_length=len(results) if results else "None",
-            )
-            capture_exception(ve)
-            raise ve
-        return Response({"results": serializer.data})
+        return Response({"results": results})
