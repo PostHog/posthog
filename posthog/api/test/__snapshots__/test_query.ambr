@@ -7,10 +7,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 66), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_event_property_filter.1
@@ -22,11 +22,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (has(['test_val3'], replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')))
+  WHERE and(equals(team_id, 66), equals(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), 'test_val3'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_event_property_filter.2
@@ -38,11 +37,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (replaceRegexpAll(JSONExtractRaw(properties, 'path'), '^"|"$', '') ILIKE '%/%')
+  WHERE and(equals(team_id, 66), ilike(replaceRegexpAll(JSONExtractRaw(properties, 'path'), '^"|"$', ''), '%/%'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized
@@ -54,10 +52,10 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 67), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.1
@@ -69,11 +67,10 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (has(['test_val3'], "mat_key"))
+  WHERE and(equals(team_id, 67), equals(mat_key, 'test_val3'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_event_property_filter_materialized.2
@@ -85,11 +82,10 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND ("mat_path" ILIKE '%/%')
+  WHERE and(equals(team_id, 67), ilike(mat_path, '%/%'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_full_hogql_query
@@ -101,7 +97,7 @@
   FROM events
   WHERE equals(team_id, 68)
   ORDER BY timestamp ASC
-  LIMIT 1000
+  LIMIT 100
   '
 ---
 # name: TestQuery.test_full_hogql_query_materialized
@@ -113,7 +109,7 @@
   FROM events
   WHERE equals(team_id, 69)
   ORDER BY timestamp ASC
-  LIMIT 1000
+  LIMIT 100
   '
 ---
 # name: TestQuery.test_hogql_property_filter
@@ -125,10 +121,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 70), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter.1
@@ -140,11 +136,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND equals('a%sd', 'foo')
+  WHERE and(equals(team_id, 70), equals('a%sd', 'foo'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter.2
@@ -156,11 +151,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND equals('a%sd', 'a%sd')
+  WHERE and(equals(team_id, 70), equals('a%sd', 'a%sd'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter.3
@@ -172,11 +166,10 @@
          'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND equals(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), 'test_val2')
+  WHERE and(equals(team_id, 70), equals(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), 'test_val2'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized
@@ -188,10 +181,10 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 71), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.1
@@ -203,11 +196,10 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND equals('a%sd', 'foo')
+  WHERE and(equals(team_id, 71), equals('a%sd', 'foo'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.2
@@ -219,11 +211,10 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND equals('a%sd', 'a%sd')
+  WHERE and(equals(team_id, 71), equals('a%sd', 'a%sd'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_hogql_property_filter_materialized.3
@@ -235,46 +226,39 @@
          'a%sd',
          concat(event, ' ', mat_key)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND equals(mat_key, 'test_val2')
+  WHERE and(equals(team_id, 71), equals(mat_key, 'test_val2'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_person_property_filter
   '
   /* user_id:0 request:_snapshot_ */
   SELECT event,
-         distinct_id,
-         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         events.distinct_id,
+         replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''),
          'a%sd',
-         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
+         concat(event, ' ', replaceRegexpAll(JSONExtractRaw(events.properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (distinct_id IN
-           (SELECT distinct_id
-            FROM
-              (SELECT distinct_id,
-                      argMax(person_id, version) as person_id
-               FROM person_distinct_id2
-               WHERE team_id = 2
-               GROUP BY distinct_id
-               HAVING argMax(is_deleted, version) = 0)
-            WHERE person_id IN
-                (SELECT id
-                 FROM
-                   (SELECT id,
-                           argMax(properties, person._timestamp) as properties,
-                           max(is_deleted) as is_deleted
-                    FROM person
-                    WHERE team_id = 2
-                    GROUP BY id
-                    HAVING is_deleted = 0)
-                 WHERE has(['tom@posthog.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', '')) ) ))
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, version) AS person_id,
+            distinct_id
+     FROM person_distinct_id2
+     WHERE equals(team_id, 73)
+     GROUP BY distinct_id
+     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+  INNER JOIN
+    (SELECT argMax(person.properties, version) AS properties,
+            id
+     FROM person
+     WHERE equals(team_id, 73)
+     GROUP BY id
+     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+  WHERE and(equals(team_id, 73), equals(replaceRegexpAll(JSONExtractRaw(events__pdi__person.properties, 'email'), '^"|"$', ''), 'tom@posthog.com'), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   ORDER BY event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_property_filter_aggregations
@@ -283,11 +267,11 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          count(*)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 74), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
-  ORDER BY count() DESC
+  ORDER BY count(*) DESC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_property_filter_aggregations.1
@@ -296,12 +280,12 @@
   SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          count(*)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 74), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '')
-  HAVING greater(count(*), 1)
-  ORDER BY count() DESC
+  HAVING and(greater(count(*), 1))
+  ORDER BY count(*) DESC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized
@@ -310,11 +294,11 @@
   SELECT mat_key,
          count(*)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 75), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY mat_key
-  ORDER BY count() DESC
+  ORDER BY count(*) DESC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_property_filter_aggregations_materialized.1
@@ -323,38 +307,53 @@
   SELECT mat_key,
          count(*)
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 75), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY mat_key
-  HAVING greater(count(*), 1)
-  ORDER BY count() DESC
+  HAVING and(greater(count(*), 1))
+  ORDER BY count(*) DESC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_select_hogql_expressions
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT event,
+  SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         event,
          distinct_id,
-         replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY event ASC
+  WHERE and(equals(team_id, 76), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  ORDER BY replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at),
+  SELECT tuple(uuid, event, events.properties, timestamp, team_id, events.distinct_id, elements_chain, events.created_at, events__pdi.person_id, events__pdi__person.created_at, events__pdi__person.properties),
          event
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at) ASC
+  INNER JOIN
+    (SELECT argMax(person_distinct_id2.person_id, version) AS person_id,
+            distinct_id
+     FROM person_distinct_id2
+     WHERE equals(team_id, 76)
+     GROUP BY distinct_id
+     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id)
+  INNER JOIN
+    (SELECT argMax(person.created_at, version) AS created_at,
+            argMax(person.properties, version) AS properties,
+            id
+     FROM person
+     WHERE equals(team_id, 76)
+     GROUP BY id
+     HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person ON equals(events__pdi.person_id, events__pdi__person.id)
+  WHERE and(equals(team_id, 76), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
+  ORDER BY tuple(uuid, event, events.properties, timestamp, team_id, events.distinct_id, elements_chain, events.created_at, events__pdi.person_id, events__pdi__person.created_at, events__pdi__person.properties) ASC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.2
@@ -363,11 +362,11 @@
   SELECT count(*),
          event
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
+  WHERE and(equals(team_id, 76), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY event
-  ORDER BY count() DESC
+  ORDER BY count(*) DESC
   LIMIT 101
+  OFFSET 0
   '
 ---
 # name: TestQuery.test_select_hogql_expressions.3
@@ -376,11 +375,10 @@
   SELECT count(*),
          event
   FROM events
-  WHERE team_id = 2
-    AND timestamp < '2020-01-10 12:14:05.000000'
-    AND or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2'))
+  WHERE and(equals(team_id, 76), or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2')), less(timestamp, '2020-01-10 12:14:05.000000'), greater(timestamp, '2020-01-09 12:00:00.000000'))
   GROUP BY event
   ORDER BY count(*) DESC, event ASC
   LIMIT 101
+  OFFSET 0
   '
 ---

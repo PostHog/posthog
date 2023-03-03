@@ -333,6 +333,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
         context["js_posthog_host"] = "'https://app.posthog.com'"
 
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
+    context["js_kea_verbose_logging"] = settings.KEA_VERBOSE_LOGGING
     context["js_url"] = get_js_url(request)
 
     posthog_app_context: Dict[str, Any] = {

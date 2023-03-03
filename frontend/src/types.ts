@@ -1240,6 +1240,37 @@ export interface DashboardType {
     _highlight?: boolean
 }
 
+export interface DashboardTemplateType {
+    id: string
+    team_id?: number
+    created_at?: string
+    template_name: string
+    dashboard_description?: string
+    dashboard_filters?: Record<string, JsonType>
+    tiles: DashboardTile[]
+    variables?: DashboardTemplateVariableType[]
+    tags?: string[]
+    image_url?: string
+}
+
+export interface MonacoMarker {
+    message: string
+}
+
+// makes the DashboardTemplateType properties optional and the tiles properties optional
+export type DashboardTemplateEditorType = Partial<Omit<DashboardTemplateType, 'tiles'>> & {
+    tiles: Partial<DashboardTile>[]
+}
+
+export interface DashboardTemplateVariableType {
+    id: string
+    name: string
+    description: string
+    type: 'event'
+    default: Record<string, JsonType> | null | undefined
+    required: boolean
+}
+
 export type DashboardLayoutSize = 'sm' | 'xs'
 
 /** Explicit dashboard collaborator, based on DashboardPrivilege. */
@@ -1790,6 +1821,7 @@ export interface FunnelConversionWindow {
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
+    Second = 'second',
     Minute = 'minute',
     Hour = 'hour',
     Day = 'day',
@@ -1938,6 +1970,7 @@ export interface FeatureFlagType {
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    usage_dashboard?: number
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2019,6 +2052,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
@@ -2304,6 +2338,7 @@ export enum HelpType {
     GitHub = 'github',
     Email = 'email',
     Docs = 'docs',
+    Updates = 'updates',
 }
 
 export interface VersionType {

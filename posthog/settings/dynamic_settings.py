@@ -174,6 +174,11 @@ CONSTANCE_CONFIG = {
         "Used to enable Sentry error tracking in PostHog",
         str,
     ),
+    "HEATMAP_SAMPLE_N": (
+        get_from_env("HEATMAP_SAMPLE_N", 2_000_000, type_cast=int),
+        "The number of rows that the heatmap query tries to sample.",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -208,6 +213,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
+    "HEATMAP_SAMPLE_N",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

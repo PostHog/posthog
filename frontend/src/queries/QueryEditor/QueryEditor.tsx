@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import clsx from 'clsx'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 
 export interface QueryEditorProps {
     query: string
@@ -48,6 +49,7 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
                             value={queryInput}
                             onChange={(v) => setQueryInput(v ?? '')}
                             height={height}
+                            loading={<Spinner />}
                         />
                     )}
                 </AutoSizer>

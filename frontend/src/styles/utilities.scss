@@ -1,3 +1,5 @@
+@use 'sass:string';
+
 @import 'vars';
 @import 'mixins';
 
@@ -90,6 +92,27 @@
         .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             padding-#{$side}: #{$space * 0.25}rem;
         }
+    }
+}
+
+@each $name, $size in $screens {
+    .w-#{$name} {
+        width: $size;
+    }
+    .h-#{$name} {
+        height: $size;
+    }
+    .min-w-#{$name} {
+        min-width: $size;
+    }
+    .max-w-#{$name} {
+        max-width: $size;
+    }
+    .min-h-#{$name} {
+        min-height: $size;
+    }
+    .max-h-#{$name} {
+        max-height: $size;
     }
 }
 
@@ -878,8 +901,13 @@ $decorations: underline, overline, line-through, no-underline;
     box-shadow: var(--shadow-elevation);
 }
 
-.object-contain {
-    object-fit: contain;
+@each $fitOption in ('contain', 'cover', 'fill', 'none', 'scale-down') {
+    .object-#{$fitOption} {
+        object-fit: string.unquote($fitOption);
+    }
+    hover\:object-#{$fitOption}:hover {
+        object-fit: string.unquote($fitOption);
+    }
 }
 
 .tracking-tighter {
@@ -979,4 +1007,17 @@ $decorations: underline, overline, line-through, no-underline;
 
 .sticky {
     position: sticky;
+}
+
+.line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.transition-all {
+    transition-property: all;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 150ms;
 }

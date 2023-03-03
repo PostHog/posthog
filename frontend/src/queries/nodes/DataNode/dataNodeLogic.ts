@@ -25,8 +25,6 @@ import { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { UserType } from '~/types'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
 
@@ -223,8 +221,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
                 if (isEventsQuery(query) && !query.before) {
-                    const sortKey = query.orderBy?.[0] ?? '-timestamp'
-                    if (sortKey === '-timestamp') {
+                    const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
+                    if (sortKey === 'timestamp DESC') {
                         const sortColumnIndex = query.select
                             .map((hql) => removeExpressionComment(hql))
                             .indexOf('timestamp')
@@ -249,9 +247,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response, responseError, dataLoading): DataNode | null => {
                 if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
-                        const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as EventsQuery['response'])?.results
-                        if (sortKey === '-timestamp') {
+                        if (sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
@@ -329,24 +327,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return disabledReason
             },
         ],
-        isTestGroupForNewRefreshUX: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
-            },
-        ],
         displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
-            (
-                isTestGroupForNewRefreshUX: boolean,
-                acknowledgedRefreshButtonChanged: boolean,
-                user: UserType
-            ): boolean => {
-                return (
-                    dayjs(user.date_joined).isBefore('2023-02-13') &&
-                    isTestGroupForNewRefreshUX &&
-                    !acknowledgedRefreshButtonChanged
-                )
+            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
+            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
+                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
             },
         ],
     }),

@@ -27,6 +27,7 @@ describe('Exporting Insights', () => {
     })
 
     it('Export an Insight to png', () => {
+        cy.get('[data-attr="insight-edit-button"]').should('exist') // Export is only available in view mode
         cy.get('.page-buttons [data-attr=more-button]').click()
         cy.get('.Popover [data-attr=export-button]').click()
         cy.get('[data-attr=export-button-png]').click()
