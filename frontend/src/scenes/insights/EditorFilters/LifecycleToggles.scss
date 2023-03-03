@@ -8,31 +8,23 @@
         align-items: center;
     }
 
-    .new {
-        .ant-checkbox-checked .ant-checkbox-inner {
-            border-color: var(--lifecycle-new);
-            background-color: var(--lifecycle-new);
-        }
+    .LemonCheckbox.LemonCheckbox--checked.new svg {
+        border-color: var(--lifecycle-new);
+        background-color: var(--lifecycle-new);
     }
 
-    .returning {
-        .ant-checkbox-checked .ant-checkbox-inner {
-            border-color: var(--lifecycle-returning);
-            background-color: var(--lifecycle-returning);
-        }
+    .LemonCheckbox.LemonCheckbox--checked.returning svg {
+        border-color: var(--lifecycle-returning);
+        background-color: var(--lifecycle-returning);
     }
 
-    .resurrecting {
-        .ant-checkbox-checked .ant-checkbox-inner {
-            border-color: var(--lifecycle-resurrecting);
-            background-color: var(--lifecycle-resurrecting);
-        }
+    .LemonCheckbox.LemonCheckbox--checked.resurrecting svg {
+        border-color: var(--lifecycle-resurrecting);
+        background-color: var(--lifecycle-resurrecting);
     }
 
-    .dormant {
-        .ant-checkbox-checked .ant-checkbox-inner {
-            border-color: var(--lifecycle-dormant);
-            background-color: var(--lifecycle-dormant);
-        }
+    .LemonCheckbox.LemonCheckbox--checked.dormant svg {
+        border-color: var(--lifecycle-dormant);
+        background-color: var(--lifecycle-dormant);
     }
 }

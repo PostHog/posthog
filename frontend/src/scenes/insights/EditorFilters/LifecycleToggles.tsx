@@ -1,10 +1,10 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { EditorFilterProps, LifecycleToggle } from '~/types'
-import { Checkbox } from 'antd'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import './LifecycleToggles.scss'
+import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { IconInfo } from 'lib/lemon-ui/icons'
 
 const lifecycles: { name: LifecycleToggle; tooltip: string }[] = [
     { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
@@ -22,25 +22,32 @@ const lifecycles: { name: LifecycleToggle; tooltip: string }[] = [
 ]
 
 export function LifecycleToggles({ insightProps }: EditorFilterProps): JSX.Element {
+    const { toggledLifecycles } = useValues(trendsLogic(insightProps))
     const { toggleLifecycle } = useActions(trendsLogic(insightProps))
+
+    console.log('toggles: toggledLifecycles', toggledLifecycles)
     return (
         <>
             <div className="LifecycleToggles">
-                {lifecycles.map((lifecycle, idx) => (
-                    <div key={idx}>
-                        {lifecycle.name}{' '}
-                        <div>
-                            <Checkbox
-                                defaultChecked
-                                className={lifecycle.name}
-                                onChange={() => toggleLifecycle(lifecycle.name)}
-                            />
-                            <Tooltip title={lifecycle.tooltip}>
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
+                {lifecycles.map((lifecycle, idx) => {
+                    console.log('toggles: lifecycle.name', lifecycle.name)
+                    console.log('toggles: is checked', toggledLifecycles.includes(lifecycle.name))
+                    return (
+                        <div key={idx}>
+                            {lifecycle.name}{' '}
+                            <div>
+                                <LemonCheckbox
+                                    checked={toggledLifecycles.includes(lifecycle.name)}
+                                    className={lifecycle.name}
+                                    onChange={() => toggleLifecycle(lifecycle.name)}
+                                />
+                                <Tooltip title={lifecycle.tooltip}>
+                                    <IconInfo className="info-indicator" />
+                                </Tooltip>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    )
+                })}
             </div>
         </>
     )
