@@ -53,10 +53,7 @@ function PopupPrompt(
     closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => void
 ): JSX.Element {
     return (
-        <div
-            className={clsx('FlagPrompt max-w-80', payload ? 'flex' : 'none')}
-            style={{ ...openPromptFlag.locationCSS }}
-        >
+        <div className={clsx('PromptPopup max-w-80', payload ? 'flex' : 'none')}>
             <div className="pt-2 pb-4 px-2">
                 {payload.title && <h3 className="text-xl">{payload.title}</h3>}
                 {payload.body && (
@@ -84,15 +81,6 @@ function PopupPrompt(
                     )}
                 </div>
             </div>
-            {payload.location && (
-                <div
-                    style={
-                        {
-                            // ...generateTooltipPointerStyle(payload.location),
-                        }
-                    }
-                />
-            )}
         </div>
     )
 }
@@ -101,11 +89,11 @@ export function FlagPrompt(): JSX.Element {
     const { payload, openPromptFlag } = useValues(flagPromptLogic)
     const { closePrompt } = useActions(flagPromptLogic)
 
-    if (!payload) {
+    if (!payload || !openPromptFlag) {
         return <></>
     }
 
-    if (payload.location === 'modal') {
+    if (payload.type === 'modal') {
         return ModalPrompt(payload, closePrompt, openPromptFlag)
     }
 
