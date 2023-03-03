@@ -96,19 +96,16 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 sessions_query_serializer.is_valid(raise_exception=True)
                 return JsonResponse(get_sessions(sessions_query_serializer).data, safe=False)
             elif query_kind == "TimeToSeeDataQuery":
-                try:
-                    serializer = SessionEventsQuerySerializer(
-                        data={
-                            "team_id": team.pk,
-                            "session_start": query_json["sessionStart"],
-                            "session_end": query_json["sessionEnd"],
-                            "session_id": query_json["sessionId"],
-                        }
-                    )
-                    serializer.is_valid(raise_exception=True)
-                    return JsonResponse(get_session_events(serializer), safe=False)
-                except Exception as e:
-                    return JsonResponse({"error": str(e)}, status=400)
+                serializer = SessionEventsQuerySerializer(
+                    data={
+                        "team_id": team.pk,
+                        "session_start": query_json["sessionStart"],
+                        "session_end": query_json["sessionEnd"],
+                        "session_id": query_json["sessionId"],
+                    }
+                )
+                serializer.is_valid(raise_exception=True)
+                return JsonResponse(get_session_events(serializer), safe=False)
             else:
                 raise ValidationError("Unsupported query kind: %s" % query_kind)
         except Exception as e:
