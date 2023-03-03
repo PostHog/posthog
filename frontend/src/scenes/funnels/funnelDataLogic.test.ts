@@ -769,4 +769,44 @@ describe('funnelDataLogic', () => {
             }).toMatchValues({ areFiltersValid: true })
         })
     })
+
+    describe('timeConversionResults', () => {
+        it('with time-to-convert funnel', async () => {
+            const query: FunnelsQuery = {
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: {
+                    funnel_viz_type: FunnelVizType.TimeToConvert,
+                },
+            }
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResultTimeToConvert.result,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateQuerySource(query)
+                builtInsightLogic.actions.setInsight(insight, {})
+            }).toMatchValues({
+                timeConversionResults: funnelResultTimeToConvert.result,
+            })
+        })
+
+        it('with other funnel', async () => {
+            const insight: Partial<InsightModel> = {
+                filters: {
+                    insight: InsightType.FUNNELS,
+                },
+                result: funnelResult.result,
+            }
+
+            await expectLogic(logic, () => {
+                builtInsightLogic.actions.setInsight(insight, {})
+            }).toMatchValues({
+                timeConversionResults: null,
+            })
+        })
+    })
 })

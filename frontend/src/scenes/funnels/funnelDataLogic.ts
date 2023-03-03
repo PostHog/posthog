@@ -13,6 +13,7 @@ import {
     FunnelsFilterType,
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
+    FunnelsTimeConversionBins,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -174,6 +175,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                         }))
                         ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
                 }))
+            },
+        ],
+        timeConversionResults: [
+            (s) => [s.results, s.funnelsFilter],
+            (results, funnelsFilter): FunnelsTimeConversionBins | null => {
+                return funnelsFilter?.funnel_viz_type === FunnelVizType.TimeToConvert
+                    ? (results as FunnelsTimeConversionBins)
+                    : null
             },
         ],
 
