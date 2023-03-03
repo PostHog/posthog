@@ -7,8 +7,6 @@ import { PromptButtonType, PromptFlag, PromptPayload } from '~/types'
 
 import { promptLogicType } from '../promptLogicType'
 
-const DEBUG_IGNORE_LOCAL_STORAGE = false
-
 const PROMPT_PREFIX = 'prompt-'
 
 function getFeatureSessionStorageKey(featureFlagName: string): string {
@@ -16,11 +14,11 @@ function getFeatureSessionStorageKey(featureFlagName: string): string {
 }
 
 function shouldShowPopup(featureFlagName: string): boolean {
-    // The feature flag should have be disabled for the user once the prompt has been closed
+    // The feature flag should be disabled for the user once the prompt has been closed through the user properties
     // This is a second check for shorter-term preventing of the prompt from showing
     const flagNotShownBefore = !localStorage.getItem(getFeatureSessionStorageKey(featureFlagName))
 
-    return flagNotShownBefore || DEBUG_IGNORE_LOCAL_STORAGE
+    return flagNotShownBefore
 }
 
 function sendPopupEvent(
