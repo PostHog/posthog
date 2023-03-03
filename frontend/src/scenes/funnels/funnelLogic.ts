@@ -210,7 +210,7 @@ export const funnelLogic = kea<funnelLogicType>({
         correlations: [
             { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadCorrelations: async (_, breakpoint) => {
+                loadEventCorrelations: async (_, breakpoint) => {
                     await breakpoint(100)
 
                     try {
@@ -338,8 +338,11 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         correlationFeedbackHidden: [
-            false,
+            true,
             {
+                // don't load the feedback form until after some results were loaded
+                loadEventCorrelations: () => false,
+                loadPropertyCorrelations: () => false,
                 sendCorrelationAnalysisFeedback: () => true,
                 hideCorrelationAnalysisFeedback: () => true,
             },
@@ -369,7 +372,7 @@ export const funnelLogic = kea<funnelLogicType>({
                     ...eventWithPropertyCorrelations,
                 }
             },
-            loadCorrelationsSuccess: () => {
+            loadEventCorrelationsSuccess: () => {
                 return {}
             },
         },
@@ -391,7 +394,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 addNestedTableExpandedKey: (state, { expandKey }) => {
                     return [...state, expandKey]
                 },
-                loadCorrelationsSuccess: () => {
+                loadEventCorrelationsSuccess: () => {
                     return []
                 },
             },
@@ -443,6 +446,18 @@ export const funnelLogic = kea<funnelLogicType>({
             null as [number, number, number] | null, // x, y, width
             {
                 showTooltip: (_, { origin }) => origin,
+            },
+        ],
+        loadedEventCorrelationsTableOnce: [
+            false,
+            {
+                loadEventCorrelations: () => true,
+            },
+        ],
+        loadedPropertyCorrelationsTableOnce: [
+            false,
+            {
+                loadPropertyCorrelations: () => true,
             },
         ],
     }),
