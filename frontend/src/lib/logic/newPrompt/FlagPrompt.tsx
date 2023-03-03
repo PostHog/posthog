@@ -63,7 +63,7 @@ function PopupPrompt(
                     <div className="text-sm leading-5" dangerouslySetInnerHTML={{ __html: payload.body }} />
                 )}
             </div>
-            <div className="bottom-section px-2 py-2">
+            <div className="px-2 py-2">
                 <div
                     className={clsx(
                         'flex flex-wrap items-center w-full',
