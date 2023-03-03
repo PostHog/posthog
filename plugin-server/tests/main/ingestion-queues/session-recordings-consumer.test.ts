@@ -18,8 +18,6 @@ describe('session-recordings-consumer', () => {
     let eachBachWithDependencies: any
 
     beforeEach(async () => {
-        jest.useFakeTimers()
-
         kafka = new Kafka({ brokers: ['localhost:9092'] })
         // To ensure we are catching and retrying on the correct error, we make
         // sure to mock deep into the KafkaJS internals, otherwise we can get
@@ -41,7 +39,6 @@ describe('session-recordings-consumer', () => {
 
     afterEach(async () => {
         await producer.disconnect()
-        jest.useRealTimers()
         jest.clearAllMocks()
     })
 
