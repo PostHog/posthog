@@ -16,6 +16,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import {
     ChartDisplayType,
     ChartParams,
+    DashboardPlacement,
     DashboardTile,
     DashboardType,
     ExporterFormat,
@@ -33,7 +34,7 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
 import { InsightDetails } from './InsightDetails'
-import { InsightTypeMetadata, INSIGHT_TYPES_METADATA, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
@@ -65,6 +66,7 @@ import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/ut
 import { InsightVizNode } from '~/queries/schema'
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -126,7 +128,7 @@ const displayMap: Record<
 }
 
 function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
-    const displayedType: DisplayedType = isRetentionFilter(filters)
+    return isRetentionFilter(filters)
         ? 'RetentionContainer'
         : isPathsFilter(filters)
         ? 'PathsContainer'
@@ -135,7 +137,6 @@ function getDisplayedType(filters: Partial<FilterType>): DisplayedType {
         : isFilterWithDisplay(filters)
         ? filters.display || ChartDisplayType.ActionsLineGraph
         : ChartDisplayType.ActionsLineGraph
-    return displayedType
 }
 
 export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLDivElement> {
@@ -167,6 +168,7 @@ export interface InsightCardProps extends Resizeable, React.HTMLAttributes<HTMLD
     moveToDashboard?: (dashboard: DashboardType) => void
     /** buttons to add to the "more" menu on the card**/
     moreButtons?: JSX.Element | null
+    dashboardPlacement?: DashboardPlacement | null
 }
 
 interface InsightMetaProps
@@ -513,7 +515,11 @@ export function InsightViz({
             ) : empty ? (
                 <InsightEmptyState />
             ) : timedOut ? (
-                <InsightTimeoutState isLoading={!!loading} insightProps={{}} insightType={insight.filters.insight} />
+                <InsightTimeoutState
+                    isLoading={!!loading}
+                    insightProps={{ dashboardItemId: undefined }}
+                    insightType={insight.filters.insight}
+                />
             ) : apiErrored && !loading ? (
                 <InsightErrorState excludeDetail />
             ) : (
@@ -546,6 +552,7 @@ function InsightCardInternal(
         className,
         children,
         moreButtons,
+        dashboardPlacement,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -557,7 +564,9 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { timedOutQueryId, erroredQueryId, insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
+        insightLogic(insightLogicProps)
+    )
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
@@ -624,7 +633,15 @@ function InsightCardInternal(
                                 : undefined
                         }
                     >
-                        <Query query={insight.query} />
+                        {isUsingDashboardQueryTiles &&
+                        dashboardPlacement &&
+                        ![DashboardPlacement.Public, DashboardPlacement.Export].includes(dashboardPlacement) ? (
+                            <Query query={insight.query} readOnly={true} />
+                        ) : (
+                            <>
+                                <QueriesUnsupportedHere />
+                            </>
+                        )}
                     </div>
                 ) : (
                     <InsightViz

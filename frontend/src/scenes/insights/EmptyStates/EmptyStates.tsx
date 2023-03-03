@@ -97,7 +97,7 @@ export function InsightTimeoutState({
                     </a>
                     .
                 </p>
-                {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
+                {!!queryId ? <div className="text-muted text-xs m-auto">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )

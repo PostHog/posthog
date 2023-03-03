@@ -66,6 +66,13 @@
     }
 }
 
+.TopBar__lightning-mode-box {
+    background: var(--bridge) !important;
+    .LemonSwitch__slider {
+        background-color: var(--border) !important;
+    }
+}
+
 .Announcement {
     transition: margin 200ms ease;
     flex-shrink: 0;
