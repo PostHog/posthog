@@ -19,12 +19,12 @@
 
 set -euo pipefail
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd)"
 
 # The number of sessions to generate and ingest, defaulting to 10 if not already
 # set.
 SESSONS_COUNT=${SESSONS_COUNT:-10}
-TOKEN=e2e_token_1239  # Created by the setup_dev management command.
+TOKEN=e2e_token_1239 # Created by the setup_dev management command.
 
 LOG_FILE=$(mktemp)
 
@@ -35,12 +35,12 @@ SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 SECONDS=0
 
 until docker compose \
-    -f $DIR/../../docker-compose.dev.yml exec \
+    -f "$DIR"/../../docker-compose.dev.yml exec \
     -T kafka kafka-topics.sh \
     --bootstrap-server localhost:9092 \
     --list \
-    > /dev/null; do
-    if (( SECONDS > 30 )); then
+    >/dev/null; do
+    if ((SECONDS > 30)); then
         echo 'Timed out waiting for Kafka to be ready'
         exit 1
     fi
@@ -55,37 +55,36 @@ done
 # not the replay of old messages. We don't fail if the topic does not exist.
 echo "Resetting consumer group offsets to latest"
 docker compose \
-    -f $DIR/../../docker-compose.dev.yml exec \
+    -f "$DIR"/../../docker-compose.dev.yml exec \
     -T kafka kafka-consumer-groups.sh \
     --bootstrap-server localhost:9092 \
     --reset-offsets \
     --to-latest \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
-    --topic $SESSION_RECORDING_EVENTS_TOPIC \
-    || true
-
+    --topic $SESSION_RECORDING_EVENTS_TOPIC ||
+    true
 
 # Make sure the topic exists, and if not, create it.
 echo "Creating topic $SESSION_RECORDING_EVENTS_TOPIC"
 docker compose \
-    -f $DIR/../../docker-compose.dev.yml exec \
+    -f "$DIR"/../../docker-compose.dev.yml exec \
     -T kafka kafka-topics.sh \
     --bootstrap-server localhost:9092 \
     --create \
     --topic $SESSION_RECORDING_EVENTS_TOPIC \
     --partitions 1 \
-    --replication-factor 1 \
-    || true
+    --replication-factor 1 ||
+    true
 
-$DIR/../../manage.py setup_dev || true  # Assume a failure means it has already been run.
+"$DIR"/../../manage.py setup_dev || true # Assume a failure means it has already been run.
 
 # Generate the session recording events and send them to Kafka.
 echo "Generating $SESSONS_COUNT session recording events"
-$DIR/generate_session_recordings_messages.py \
-        --count $SESSONS_COUNT \
-        --token $TOKEN | \
+"$DIR"/generate_session_recordings_messages.py \
+    --count "$SESSONS_COUNT" \
+    --token $TOKEN |
     docker compose \
-        -f $DIR/../../docker-compose.dev.yml exec \
+        -f "$DIR"/../../docker-compose.dev.yml exec \
         -T kafka kafka-console-producer.sh \
         --topic $SESSION_RECORDING_EVENTS_TOPIC \
         --broker-list localhost:9092
@@ -96,10 +95,10 @@ $DIR/generate_session_recordings_messages.py \
 # terminates.
 # NOTE: we start te plugin-server after we have published to Kafka, as we want
 # to remove any of the time it takes to publish the messages to Kafka. There
-# will be some time between the plugin server starting and the consumer group 
+# will be some time between the plugin server starting and the consumer group
 # being ready to consume messages, so we want to add a sufficient number of
 # messages if we want to make this time insignificant.
-PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js > $LOG_FILE 2>&1 &
+PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
 trap 'kill $SERVER_PID' EXIT
 
@@ -108,11 +107,11 @@ trap 'kill $SERVER_PID' EXIT
 SECONDS=0
 
 until curl http://localhost:6738/_health; do
-    if (( SECONDS > 10 )); then
+    if ((SECONDS > 10)); then
         echo 'Timed out waiting for plugin-server to be ready'
         echo '::endgroup::'
         echo '::group::Plugin Server logs'
-        cat $LOG_FILE
+        cat "$LOG_FILE"
         echo '::endgroup::'
         exit 1
     fi
@@ -129,17 +128,17 @@ SECONDS=0
 
 while [[ $SECONDS -lt 120 ]]; do
     LAG=$(docker compose \
-        -f $DIR/../../docker-compose.dev.yml exec \
+        -f "$DIR"/../../docker-compose.dev.yml exec \
         -T kafka kafka-consumer-groups.sh \
         --bootstrap-server localhost:9092 \
         --describe \
-        --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
-        | grep $SESSION_RECORDING_EVENTS_TOPIC \
-        | awk '{print $6}')
+        --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP |
+        grep $SESSION_RECORDING_EVENTS_TOPIC |
+        awk '{print $6}')
 
     echo "Ingestion lag: $LAG"
 
-    if [[ $LAG -eq 0 ]]; then
+    if [[ "$LAG" -eq "0" ]]; then
         break
     fi
 
@@ -162,7 +161,7 @@ kill $SERVER_PID
 SECONDS=0
 
 while kill -0 $SERVER_PID; do
-    if (( SECONDS > 60 )); then
+    if ((SECONDS > 60)); then
         echo 'Timed out waiting for plugin-server to exit'
         break
     fi
@@ -173,5 +172,5 @@ done
 
 # Print the plugin server logs.
 echo "::group::Plugin server logs"
-cat $LOG_FILE
+cat "$LOG_FILE"
 echo "::endgroup::"

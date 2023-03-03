@@ -295,7 +295,7 @@ def generate_snapshot_messages(
         # isn't representative of real world usage.
 
         for full_snapshot_index, full_snapshot_size in enumerate(full_snapshot_size_samples[:full_snapshot_count]):
-            full_snapshot_data = "0" * full_snapshot_size
+            full_snapshot_data = faker.string(length=full_snapshot_size)
 
             # Split the full snapshot into chunks if it is larger than 900KB.
             full_snapshot_data_chunks = chunked(full_snapshot_data, 900000)
@@ -338,7 +338,7 @@ def generate_snapshot_messages(
                 snapshot_messages.append(message)
 
         for incremental_snapshot_size in incremental_snapshot_size_samples[:incremental_snapshot_count]:
-            incremental_snapshot_data = "0" * incremental_snapshot_size
+            incremental_snapshot_data = faker.string(length=incremental_snapshot_size)
 
             # Split the incremental snapshot into chunks if it is larger than
             # 900KB.
