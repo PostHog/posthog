@@ -636,7 +636,7 @@ function InsightCardInternal(
                         {isUsingDashboardQueryTiles &&
                         dashboardPlacement &&
                         ![DashboardPlacement.Public, DashboardPlacement.Export].includes(dashboardPlacement) ? (
-                            <Query query={insight.query} readOnly={true} context={{ readonly: true }} />
+                            <Query query={insight.query} readOnly={true} />
                         ) : (
                             <>
                                 <div className="text-center">

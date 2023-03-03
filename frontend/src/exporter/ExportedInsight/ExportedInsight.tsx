@@ -97,7 +97,7 @@ export function ExportedInsight({
                     })}
                 >
                     {!!query ? (
-                        <Query query={query} readOnly={true} context={{ readonly: true }} />
+                        <Query query={query} readOnly={true} />
                     ) : (
                         <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
                     )}
