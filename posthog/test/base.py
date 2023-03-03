@@ -362,6 +362,13 @@ class QueryMatchingTest:
             query,
         )
 
+        # hog ql checks team ids differently
+        query = re.sub(
+            r"equals(team_id, \d+)",
+            "equals(team_id, 2)",
+            query,
+        )
+
         assert sqlparse.format(query, reindent=True) == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
         if params is not None:
             del params["team_id"]  # Changes every run
