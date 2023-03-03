@@ -38,7 +38,7 @@ export function ModalPrompt({
             }
             inline={inline}
         >
-            <div className="w-120">
+            <div className="max-w-120">
                 <div className="w-full flex items-center justify-center my-8">
                     <div className="w-100 max-h-180">
                         <FallbackCoverImage src={payload.image} index={0} alt={`Prompt image for ${payload.title}`} />
