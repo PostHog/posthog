@@ -1,0 +1,128 @@
+.FlagPrompt {
+    z-index: 2000;
+    flex-direction: column;
+    background: white;
+    border: 1px solid #f0f0f0;
+    border-radius: 8px;
+    padding-top: 5px;
+    min-width: 300px;
+    min-height: 100px;
+    box-shadow: -6px 0 16px -8px rgb(0 0 0 / 8%), -9px 0 28px 0 rgb(0 0 0 / 5%), -12px 0 48px 16px rgb(0 0 0 / 3%);
+
+    .button {
+        width: 64px;
+        height: 64px;
+        border-radius: 100%;
+        text-align: center;
+        line-height: 60px;
+        font-size: 32px;
+        border: none;
+        cursor: pointer;
+    }
+    .button:hover {
+        filter: brightness(1.2);
+    }
+    .thanks {
+        background: white;
+    }
+    .contents {
+        color: #2d2d2d;
+        font-size: 14px;
+        font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+        margin-bottom: 10px;
+        background: white;
+        color: black;
+        border: none;
+        outline: none;
+        padding-left: 20px;
+        padding-right: 20px;
+        padding-top: 10px;
+    }
+    .popup-book-button {
+        box-sizing: border-box;
+        margin: 0;
+        font-family: inherit;
+        overflow: visible;
+        text-transform: none;
+        line-height: 1.5715;
+        position: relative;
+        display: inline-block;
+        font-weight: 400;
+        white-space: nowrap;
+        text-align: center;
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+        user-select: none;
+        touch-action: manipulation;
+        height: 32px;
+        padding: 4px 15px;
+        font-size: 14px;
+        border-radius: 4px;
+        outline: 0;
+        color: #fff;
+        border-color: #1d4aff;
+        background: #1d4aff;
+        text-shadow: 0 -1px 0 rgba(0, 0, 0, 0.12);
+        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.045);
+    }
+    .popup-book-button:hover {
+        filter: brightness(1.2);
+    }
+    .popup-close-button {
+        box-sizing: border-box;
+        margin: 0;
+        font-family: inherit;
+        overflow: visible;
+        text-transform: none;
+        line-height: 1.5715;
+        position: relative;
+        display: inline-block;
+        font-weight: 400;
+        white-space: nowrap;
+        text-align: center;
+        border: 1px solid transparent;
+        box-shadow: 0 2px 0 rgba(0, 0, 0, 0.015);
+        cursor: pointer;
+        transition: all 0.3s cubic-bezier(0.645, 0.045, 0.355, 1);
+        user-select: none;
+        touch-action: manipulation;
+        height: 32px;
+        padding: 4px 15px;
+        font-size: 14px;
+        border-radius: 4px;
+        color: #2d2d2d;
+        border-color: rgba(0, 0, 0, 0.15);
+        background: #fff;
+        outline: 0;
+    }
+    .bolded {
+        font-weight: 600;
+    }
+    .bottom-section {
+        border-top: 1px solid #f0f0f0;
+        padding: 10px 10px;
+    }
+    .buttons {
+        display: flex;
+    }
+    .title {
+        font-family: -apple-system, BlinkMacSystemFont, Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', Segoe UI Symbol;
+        color: #2d2d2d;
+        font-size: 1.125rem;
+        font-weight: 700;
+        text-align: left;
+        margin-top: 0;
+    }
+    /* popup-body with padding */
+    .body {
+        font-family: -apple-system, BlinkMacSystemFont, Inter, Segoe UI, Roboto, Helvetica, Arial, sans-serif,
+            'Apple Color Emoji', 'Segoe UI Emoji', Segoe UI Symbol;
+        color: #2d2d2d;
+        font-size: 0.875rem;
+        font-weight: 400;
+        text-align: left;
+    }
+}
