@@ -426,7 +426,7 @@ class TimeToSeeDataSessionsQuery(BaseModel):
 
     dateRange: Optional[DateRange] = Field(None, description="Date range for the query")
     kind: str = Field("TimeToSeeDataSessionsQuery", const=True)
-    response: Optional[Dict[str, Any]] = Field(None, description="Cached query response")
+    response: Optional[List[Dict[str, Any]]] = Field(None, description="Cached query response")
     teamId: Optional[float] = Field(None, description="Project to filter on. Defaults to current project")
 
 
@@ -1525,7 +1525,7 @@ class Model(BaseModel):
         LifecycleQuery,
         RecentPerformancePageViewNode,
         TimeToSeeDataSessionsQuery,
-        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery],
+        Union[EventsNode, EventsQuery, ActionsNode, PersonsNode, HogQLQuery, TimeToSeeDataSessionsQuery],
     ]
 
 

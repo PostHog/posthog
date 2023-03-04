@@ -83,6 +83,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 }
             ]
         },
@@ -2780,7 +2783,10 @@
                 },
                 "response": {
                     "description": "Cached query response",
-                    "type": "object"
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
