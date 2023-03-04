@@ -1,6 +1,13 @@
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { AnyDataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import {
+    AnyDataNode,
+    DataTableNode,
+    EventsQuery,
+    HogQLExpression,
+    NodeKind,
+    TimeToSeeDataSessionsQuery,
+} from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
@@ -115,7 +122,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 }
 
                 if (response && sourceKind === NodeKind.TimeToSeeDataSessionsQuery) {
-                    return (response as Record<string, any>[]).map((row) => ({ result: row }))
+                    return (response as NonNullable<TimeToSeeDataSessionsQuery['response']>).map((row) => ({
+                        result: row,
+                    }))
                 }
 
                 return response && 'results' in response && Array.isArray(response.results)
