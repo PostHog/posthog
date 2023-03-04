@@ -328,9 +328,10 @@ export interface StickinessQuery extends InsightsQueryBase {
 }
 
 export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
-    /** Lifecycles that have been removed from display */
+    /** Lifecycles that have been removed from display are not included in this array */
     toggledLifecycles?: LifecycleToggle[]
 } // using everything except what it inherits from FilterType
+
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
