@@ -1,7 +1,11 @@
 import { urls } from 'scenes/urls'
+import { randomString } from '../support/random'
 
 describe('Invite Signup', () => {
     it('Authenticated user can invite user but cannot use invite for someone else', () => {
+        const user = randomString('user-charlie-')
+        const email = `${user}@posthog.com`
+
         cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
 
@@ -10,9 +14,9 @@ describe('Invite Signup', () => {
 
         // Test invite creation flow
         cy.get('[data-attr=invite-teammate-button]').click()
-        cy.get('[data-attr=invite-email-input]').type('charlie@posthog.com').should('have.value', 'charlie@posthog.com')
+        cy.get('[data-attr=invite-email-input]').type(email).should('have.value', email)
         cy.get('[data-attr=invite-team-member-submit]').click()
-        cy.get('[data-attr=invites-table] tbody td').should('contain', 'charlie@posthog.com')
+        cy.get('[data-attr=invites-table] tbody td').should('contain', email)
 
         // Assert user cannot use invite for someone else
         cy.get('[data-attr=invites-table] tbody tr:last-of-type td:nth-last-child(2)').then((element) => {
@@ -25,8 +29,8 @@ describe('Invite Signup', () => {
         cy.visit('/organization/members')
         cy.get('[data-attr=invites-table] [data-attr=invite-delete]').first().click()
         cy.get('.LemonModal .LemonButton').contains('Yes, cancel invite').click()
-        cy.get('.Toastify__toast-body').should('contain', 'Invite for charlie@posthog.com has been canceled')
-        cy.get('[data-attr=invites-table] tbody td').should('not.contain', 'charlie@posthog.com')
+        cy.get('.Toastify__toast-body').should('contain', `Invite for ${email} has been canceled`)
+        cy.get('[data-attr=invites-table] tbody td').should('not.contain', email)
     })
 
     it('New user can use invite', () => {
@@ -50,7 +54,7 @@ describe('Invite Signup', () => {
         cy.get('input[type="email"]').should('have.value', target_email)
         cy.get('[data-attr="password"]').type('12345678')
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working
-        cy.get('[data-attr="first_name"]').type('Bob')
+        cy.get('[data-attr="first_name"]').type(randomString('Bob'))
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover button:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
@@ -59,6 +63,8 @@ describe('Invite Signup', () => {
     })
 
     it('can navigate to organization settings and invite/change users', () => {
+        const user = randomString('user-bob-')
+
         cy.get('[data-attr=top-menu-toggle]').click()
         cy.get('[data-attr=top-menu-item-org-settings]').click()
         cy.location('pathname').should('include', '/organization/settings')
@@ -78,7 +84,7 @@ describe('Invite Signup', () => {
                 cy.visit(element.text())
             })
         cy.get('[data-attr="password"]').type('12345678')
-        cy.get('[data-attr="first_name"]').type('Bob')
+        cy.get('[data-attr="first_name"]').type(user)
         cy.get('[data-attr=signup-role-at-organization]').click()
         cy.get('.Popover button:first-child').click()
         cy.get('[data-attr=signup-role-at-organization]').contains('Engineering')
@@ -97,15 +103,27 @@ describe('Invite Signup', () => {
         cy.get('.page-title').should('contain', 'Organization')
 
         // Change membership level
-        cy.get('[data-attr=membership-level]').last().should('contain', 'member')
-        cy.get('[data-attr=org-members-table] [data-attr=more-button]').last().click()
+        cy.contains('[data-attr=org-members-table] tr', user).within(() => {
+            cy.get('[data-attr=membership-level]').last().should('contain', 'member')
+            cy.get('[data-attr=more-button]').last().click()
+        })
+
+        // more menu is not within the row
         cy.get('[data-test-level=8]').click()
-        cy.get('[data-attr=membership-level]').last().should('contain', 'admin')
+
+        cy.contains('[data-attr=org-members-table] tr', user).within(() => {
+            cy.get('[data-attr=membership-level]').last().should('contain', 'admin')
+        })
 
         // Delete member
-        cy.get('[data-attr=org-members-table] [data-attr=more-button]').last().click()
+        cy.contains('[data-attr=org-members-table] tr', user).within(() => {
+            cy.get('[data-attr=more-button]').last().click()
+        })
+
+        // more menu is not within the row
         cy.get('[data-attr=delete-org-membership]').last().click()
+
         cy.get('.LemonModal .LemonButton').last().click()
-        cy.get('.Toastify__toast-body').should('contain', 'Removed Bob from organization')
+        cy.get('.Toastify__toast-body').should('contain', `Removed ${user} from organization`)
     })
 })

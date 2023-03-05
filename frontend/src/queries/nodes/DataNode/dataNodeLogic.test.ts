@@ -5,7 +5,14 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
 
-jest.mock('~/queries/query')
+jest.mock('~/queries/query', () => {
+    return {
+        __esModules: true,
+        ...jest.requireActual('~/queries/query'),
+        query: jest.fn(),
+    }
+})
+const mockedQuery = query as jest.MockedFunction<typeof query>
 
 const testUniqueKey = 'testUniqueKey'
 
@@ -28,7 +35,7 @@ describe('dataNodeLogic', () => {
 
     it('calls query to fetch data', async () => {
         const results = {}
-        ;(query as any).mockResolvedValueOnce({ results })
+        mockedQuery.mockResolvedValueOnce({ results })
         logic = dataNodeLogic({
             key: testUniqueKey,
             query: {
@@ -45,7 +52,7 @@ describe('dataNodeLogic', () => {
 
         // changing the query should trigger a new query, but keep the results while it's loading
         const results2 = {}
-        ;(query as any).mockResolvedValueOnce({ results: results2 })
+        mockedQuery.mockResolvedValueOnce({ results: results2 })
         dataNodeLogic({
             key: testUniqueKey,
             query: {
@@ -72,7 +79,7 @@ describe('dataNodeLogic', () => {
 
         // changing the query kind will clear the results and trigger a new query
         const results3 = {}
-        ;(query as any).mockResolvedValueOnce({ results: results3 })
+        mockedQuery.mockResolvedValueOnce({ results: results3 })
         dataNodeLogic({
             key: testUniqueKey,
             query: {
@@ -94,7 +101,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-24T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results,
             hasMore: true,
@@ -139,7 +146,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-25T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results2,
             hasMore: true,
@@ -184,7 +191,7 @@ describe('dataNodeLogic', () => {
             },
         })
         const results: any[][] = []
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results,
             hasMore: true,
@@ -209,7 +216,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-24T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results,
             hasMore: true,
@@ -246,7 +253,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-23T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results2,
             hasMore: true,
@@ -284,7 +291,7 @@ describe('dataNodeLogic', () => {
             query: { kind: NodeKind.PersonsNode },
         })
         const results = [{}, {}, {}]
-        ;(query as any).mockResolvedValueOnce({ results, next: 'next url' })
+        mockedQuery.mockResolvedValueOnce({ results, next: 'next url' })
         logic.mount()
         await expectLogic(logic)
             .toMatchValues({ responseLoading: true, canLoadNextData: false, nextQuery: null, response: null })
@@ -309,7 +316,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-24T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results,
             hasMore: true,
@@ -360,7 +367,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-25T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results2,
             hasMore: true,
@@ -404,7 +411,7 @@ describe('dataNodeLogic', () => {
                 '2022-12-25T17:00:41.165000Z',
             ],
         ]
-        ;(query as any).mockResolvedValueOnce({
+        mockedQuery.mockResolvedValueOnce({
             columns: ['*', 'event', 'timestamp'],
             results: results3,
             hasMore: true,

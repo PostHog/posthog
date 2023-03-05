@@ -32,7 +32,7 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
     connect: (props: AddToDashboardModalLogicProps) => ({
         logic: [dashboardsModel],
         actions: [
-            insightLogic({ dashboardItemId: props.insight.short_id }),
+            insightLogic({ dashboardItemId: props.insight.short_id, cachedInsight: props.insight }),
             ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],

@@ -169,7 +169,8 @@ export function Members({ user }: MembersProps): JSX.Element {
                     <>
                         {member.user.email}
                         {!member.user.is_email_verified &&
-                            featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === true && (
+                            !member.has_social_auth &&
+                            featureFlags[FEATURE_FLAGS.REQUIRE_EMAIL_VERIFICATION] === 'test' && (
                                 <>
                                     {' '}
                                     <LemonTag type={'highlight'} data-attr="pending-email-verification">

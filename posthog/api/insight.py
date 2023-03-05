@@ -564,9 +564,9 @@ class InsightViewSet(
         if self.action == "list":
             queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
-            # exclude insights that have a query but no filters (for now)
-            if not self.request.query_params.get("include_query_insights", False):
-                queryset = queryset.exclude(filters={})
+
+            if self.request.query_params.get("include_query_insights", "false").lower() != "true":
+                queryset = queryset.exclude(Q(filters={}) & Q(query__isnull=False))
 
         order = self.request.GET.get("order", None)
         if order:

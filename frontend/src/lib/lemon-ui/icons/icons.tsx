@@ -1105,16 +1105,18 @@ interface InsightIconProps extends LemonIconProps {
     background?: string
     noBackground?: boolean
     children?: React.ReactNode
+    viewbox?: string
 }
 
 function InsightIcon({
     background = 'var(--muted-alt)',
     noBackground = false,
     children,
+    viewbox = '0 0 32 32',
     ...props
 }: InsightIconProps): JSX.Element {
     return (
-        <LemonIconBase viewBox="0 0 32 32" {...props}>
+        <LemonIconBase viewBox={viewbox} {...props}>
             {!noBackground ? <rect width="100%" height="100%" rx="4" fill={background} /> : null}
             {children}
         </LemonIconBase>
@@ -1198,6 +1200,18 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
         <InsightIcon {...props}>
             <path
                 d="M10 14H13V24H10V14ZM10 9H13V13H10V9ZM20 20H23V24H20V20ZM20 17H23V19H20V17ZM15 17H18V24H15V17ZM15 13H18V16H15V13Z"
+                fill={color}
+            />
+        </InsightIcon>
+    )
+}
+
+// material design alpha-q icon
+export function InsightsQueryIcon({ color = 'white', ...props }: InsightIconInstanceProps): JSX.Element {
+    return (
+        <InsightIcon {...props} viewbox={'0 0 24 24'}>
+            <path
+                d="M11,7A2,2 0 0,0 9,9V15A2,2 0 0,0 11,17V19H13V17A2,2 0 0,0 15,15V9A2,2 0 0,0 13,7H11M11,9H13V15H11V9Z"
                 fill={color}
             />
         </InsightIcon>

@@ -38,7 +38,7 @@ import {
     findInsightFromMountedLogic,
     getInsightId,
     getResponseBytes,
-    summarizeInsightFilters,
+    summariseInsight,
 } from './utils'
 import { teamLogic } from '../teamLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -110,7 +110,7 @@ export const insightLogic = kea<insightLogicType>([
             mathsLogic,
             ['mathDefinitions'],
             userLogic,
-            ['user'],
+            ['user', 'globalSessionFilters'],
         ],
         actions: [tagsModel, ['loadTags']],
         logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
@@ -209,7 +209,7 @@ export const insightLogic = kea<insightLogicType>([
                         return values.insight
                     }
 
-                    if ('filters' in insight && emptyFilters(insight.filters)) {
+                    if ('filters' in insight && !insight.query && emptyFilters(insight.filters)) {
                         const error = new Error('Will not override empty filters in updateInsight.')
                         Sentry.captureException(error, {
                             extra: {
@@ -314,7 +314,9 @@ export const insightLogic = kea<insightLogicType>([
                         signal: cache.abortController.signal,
                     }
 
-                    const { filters } = values
+                    const { filters: insightFilters } = values
+
+                    const filters = { ...values.globalSessionFilters, ...insightFilters }
 
                     const insight = (filters.insight as InsightType | undefined) || InsightType.TRENDS
 
@@ -614,12 +616,16 @@ export const insightLogic = kea<insightLogicType>([
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
         ],
         derivedName: [
-            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
-            (insight, aggregationLabel, cohortsById, mathDefinitions) =>
-                summarizeInsightFilters(insight.filters || {}, aggregationLabel, cohortsById, mathDefinitions).slice(
-                    0,
-                    400
-                ),
+            (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions, s.isUsingDataExploration],
+            (insight, aggregationLabel, cohortsById, mathDefinitions, isUsingDataExploration) =>
+                summariseInsight(
+                    isUsingDataExploration,
+                    insight.query,
+                    aggregationLabel,
+                    cohortsById,
+                    mathDefinitions,
+                    insight.filters || {}
+                ).slice(0, 400),
         ],
         insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
@@ -720,9 +726,13 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
                 filters: Partial<FilterType>,
-                currentTeamId: number,
+                currentTeamId: number | null,
                 insight: Partial<InsightModel>
             ): TriggerExportProps['export_context'] | null => {
+                if (!currentTeamId) {
+                    return null
+                }
+
                 const params = { ...filters }
 
                 const filename = ['export', insight.name || insight.derived_name].join('-')
@@ -793,24 +803,16 @@ export const insightLogic = kea<insightLogicType>([
                 return !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
             },
         ],
-        isTestGroupForNewRefreshUX: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
+        isUsingDashboardQueryTiles: [
+            (s) => [s.featureFlags, s.isUsingDataExploration],
+            (featureFlags: FeatureFlagsSet, isUsingDataExploration: boolean): boolean => {
+                return isUsingDataExploration && !!featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_QUERIES_ON_DASHBOARDS]
             },
         ],
         displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
-            (
-                isTestGroupForNewRefreshUX: boolean,
-                acknowledgedRefreshButtonChanged: boolean,
-                user: UserType
-            ): boolean => {
-                return (
-                    dayjs(user.date_joined).isBefore('2023-02-13') &&
-                    isTestGroupForNewRefreshUX &&
-                    !acknowledgedRefreshButtonChanged
-                )
+            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
+            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
+                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
             },
         ],
         insightRefreshButtonDisabledReason: [
@@ -1035,7 +1037,7 @@ export const insightLogic = kea<insightLogicType>([
         saveInsight: async ({ redirectToViewMode }) => {
             const insightNumericId =
                 values.insight.id || (values.insight.short_id ? await getInsightId(values.insight.short_id) : undefined)
-            const { name, description, favorited, filters, deleted, dashboards, tags } = values.insight
+            const { name, description, favorited, filters, query, deleted, dashboards, tags } = values.insight
             let savedInsight: InsightModel
 
             try {
@@ -1046,6 +1048,7 @@ export const insightLogic = kea<insightLogicType>([
                     description,
                     favorited,
                     filters,
+                    query,
                     deleted,
                     saved: true,
                     dashboards,
@@ -1064,10 +1067,10 @@ export const insightLogic = kea<insightLogicType>([
                 throw e
             }
 
-            actions.setInsight(
-                { ...savedInsight, result: savedInsight.result || values.insight.result },
-                { fromPersistentApi: true, overrideFilter: true }
-            )
+            // the backend can't return the result for a query based insight,
+            // and so we shouldn't copy the result from `values.insight` as it might be stale
+            const result = savedInsight.result || (!!query ? values.insight.result : null)
+            actions.setInsight({ ...savedInsight, result: result }, { fromPersistentApi: true, overrideFilter: true })
             eventUsageLogic.actions.reportInsightSaved(filters || {}, insightNumericId === undefined)
             lemonToast.success(`Insight saved${dashboards?.length === 1 ? ' & added to dashboard' : ''}`, {
                 button: {

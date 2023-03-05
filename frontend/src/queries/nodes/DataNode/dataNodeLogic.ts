@@ -19,16 +19,15 @@ import { AnyDataNode, DataNode, EventsQuery, PersonsNode } from '~/queries/schem
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual, uuid } from 'lib/utils'
 import clsx from 'clsx'
-import { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { userLogic } from 'scenes/userLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { UserType } from '~/types'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface DataNodeLogicProps {
     key: string
@@ -40,7 +39,7 @@ const AUTOLOAD_INTERVAL = 5000
 export const dataNodeLogic = kea<dataNodeLogicType>([
     path(['queries', 'nodes', 'dataNodeLogic']),
     connect({
-        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user']],
+        values: [featureFlagsLogic, ['featureFlags'], userLogic, ['user'], teamLogic, ['currentTeamId']],
     }),
     props({} as DataNodeLogicProps),
     key((props) => props.key),
@@ -53,7 +52,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
-        abortQuery: true,
+        abortAnyRunningQuery: true,
+        abortQuery: (payload: { queryId: string }) => payload,
         clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -67,25 +67,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 clearResponse: () => null,
                 loadData: async (refresh: boolean = false, breakpoint) => {
-                    // TODO: cancel with queryId, combine with abortQuery action
-                    cache.abortController?.abort()
+                    actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
+                    const queryId = uuid()
                     const now = performance.now()
                     try {
-                        const data = (await query<DataNode>(props.query, methodOptions, refresh)) ?? null
+                        const data = (await query<DataNode>(props.query, methodOptions, refresh, queryId)) ?? null
                         breakpoint()
                         actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
                         actions.setElapsedTime(performance.now() - now)
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
-                            return values.response
-                        } else {
-                            throw e
+                            actions.abortQuery({ queryId })
                         }
+                        breakpoint()
+                        throw e
                     }
                 },
                 loadNewData: async () => {
@@ -223,8 +223,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return null
                 }
                 if (isEventsQuery(query) && !query.before) {
-                    const sortKey = query.orderBy?.[0] ?? '-timestamp'
-                    if (sortKey === '-timestamp') {
+                    const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
+                    if (sortKey === 'timestamp DESC') {
                         const sortColumnIndex = query.select
                             .map((hql) => removeExpressionComment(hql))
                             .indexOf('timestamp')
@@ -249,9 +249,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response, responseError, dataLoading): DataNode | null => {
                 if (isEventsQuery(query) && !responseError && !dataLoading) {
                     if ((response as EventsQuery['response'])?.hasMore) {
-                        const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        const sortKey = query.orderBy?.[0] ?? 'timestamp DESC'
                         const typedResults = (response as EventsQuery['response'])?.results
-                        if (sortKey === '-timestamp') {
+                        if (sortKey === 'timestamp DESC') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
@@ -329,31 +329,27 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 return disabledReason
             },
         ],
-        isTestGroupForNewRefreshUX: [
-            (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => {
-                return featureFlags[FEATURE_FLAGS.NEW_REFRESH_UX] === 'test'
-            },
-        ],
         displayRefreshButtonChangedNotice: [
-            (s) => [s.isTestGroupForNewRefreshUX, s.acknowledgedRefreshButtonChanged, s.user],
-            (
-                isTestGroupForNewRefreshUX: boolean,
-                acknowledgedRefreshButtonChanged: boolean,
-                user: UserType
-            ): boolean => {
-                return (
-                    dayjs(user.date_joined).isBefore('2023-02-13') &&
-                    isTestGroupForNewRefreshUX &&
-                    !acknowledgedRefreshButtonChanged
-                )
+            (s) => [s.acknowledgedRefreshButtonChanged, s.user],
+            (acknowledgedRefreshButtonChanged: boolean, user: UserType): boolean => {
+                return dayjs(user.date_joined).isBefore('2023-02-13') && !acknowledgedRefreshButtonChanged
             },
         ],
     }),
-    listeners(({ cache }) => ({
-        abortQuery: () => {
-            // TODO: also cancel with queryId
-            cache.abortController?.abort()
+    listeners(({ values, cache }) => ({
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
+        },
+        abortQuery: async ({ queryId }) => {
+            try {
+                const { currentTeamId } = values
+                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+            } catch (e) {
+                console.warn('Failed cancelling query', e)
+            }
         },
     })),
     subscriptions(({ actions, cache, values }) => ({
@@ -380,7 +376,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             actions.stopAutoLoad()
         }
         if (values.dataLoading) {
-            actions.abortQuery()
+            actions.abortAnyRunningQuery()
         }
     }),
 ])

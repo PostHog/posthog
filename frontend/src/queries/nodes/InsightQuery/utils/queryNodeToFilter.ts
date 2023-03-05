@@ -1,22 +1,30 @@
 import {
-    InsightQueryNode,
-    EventsNode,
     ActionsNode,
-    NodeKind,
     BreakdownFilter,
-    NewEntityNode,
+    EventsNode,
     InsightNodeKind,
+    InsightQueryNode,
+    NewEntityNode,
+    NodeKind,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
 import {
-    isEventsNode,
-    isTrendsQuery,
-    isFunnelsQuery,
-    isRetentionQuery,
-    isPathsQuery,
-    isStickinessQuery,
-    isLifecycleQuery,
+    ActionFilter,
+    EntityTypes,
+    FilterType,
+    InsightType,
+    LifecycleFilterType,
+    StickinessFilterType,
+    TrendsFilterType,
+} from '~/types'
+import {
     isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isLifecycleQuery,
+    isPathsQuery,
+    isRetentionQuery,
+    isStickinessQuery,
+    isTrendsQuery,
 } from '~/queries/utils'
 import { objectClean } from 'lib/utils'
 
@@ -123,6 +131,11 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isStickinessQuery(query)) {
         ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
+    }
+
+    if (isLifecycleQuery(query)) {
+        ;(filters as LifecycleFilterType).toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
+        ;(filters as LifecycleFilterType).shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

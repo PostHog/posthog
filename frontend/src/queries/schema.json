@@ -955,6 +955,12 @@
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "toggledLifecycles": {
+                            "items": {
+                                "$ref": "#/definitions/LifecycleToggle"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -1745,7 +1751,7 @@
             "type": "string"
         },
         "FunnelConversionWindowTimeUnit": {
-            "enum": ["minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "FunnelLayout": {
@@ -2080,7 +2086,7 @@
             ]
         },
         "InsightType": {
-            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS", "QUERY"],
             "type": "string"
         },
         "InsightVizNode": {
@@ -2125,7 +2131,6 @@
                     "$ref": "#/definitions/ShownAsValue"
                 },
                 "toggledLifecycles": {
-                    "description": "Lifecycles that have been removed from display",
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
                     },
@@ -2522,20 +2527,20 @@
         "RecentPerformancePageViewNode": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
                 "kind": {
                     "const": "RecentPerformancePageViewNode",
                     "description": "Performance",
                     "type": "string"
-                },
-                "numberOfDays": {
-                    "type": "number"
                 },
                 "response": {
                     "description": "Cached query response",
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "RecordingDurationFilter": {

@@ -7,7 +7,7 @@ import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import './Card.scss'
+import './CardMeta.scss'
 
 export interface Resizeable {
     showResizeHandles?: boolean
@@ -27,6 +27,7 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     metaDetails?: JSX.Element | null
     moreButtons?: JSX.Element | null
     topHeading?: JSX.Element | null
+    samplingNotice?: JSX.Element | null
 }
 
 export function CardMeta({
@@ -41,6 +42,7 @@ export function CardMeta({
     areDetailsShown,
     setAreDetailsShown,
     className,
+    samplingNotice,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -49,7 +51,9 @@ export function CardMeta({
         setPrimaryHeight?.(primaryHeight)
     }, [primaryHeight])
 
-    const foldedHeight = `calc(${primaryHeight}px + 2rem /* margins */ + 1px /* border */)`
+    const foldedHeight = `calc(${primaryHeight}px ${
+        showDetailsControls ? '+ 2rem /* margins */' : ''
+    } + 1px /* border */)`
     const unfoldedHeight = `calc(${primaryHeight}px + ${
         detailsHeight || 0
     }px + 3.5rem /* margins */ + 3px /* border and spacer */)`
@@ -71,7 +75,15 @@ export function CardMeta({
     return (
         <CSSTransition in={areDetailsShown} timeout={200} classNames="CardMeta--expansion">
             {(transitionState) => (
-                <div className={clsx('CardMeta', className)} style={transitionStyles[transitionState]}>
+                // eslint-disable-next-line react/forbid-dom-props
+                <div
+                    className={clsx(
+                        'CardMeta',
+                        className,
+                        showDetailsControls ? 'CardMeta--WithDetails' : 'CardMeta--WithoutDetails'
+                    )}
+                    style={transitionStyles[transitionState]}
+                >
                     <div className="CardMeta__primary" ref={primaryRef}>
                         {ribbonColor &&
                             ribbonColor !==
@@ -93,6 +105,7 @@ export function CardMeta({
                                             {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
                                         </LemonButton>
                                     )}
+                                    {samplingNotice ? samplingNotice : null}
                                     {showEditingControls && <More overlay={moreButtons} />}
                                 </div>
                             </div>
