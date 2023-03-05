@@ -126,7 +126,24 @@ done
 # with exit code 1. We also print progress of the lag every second.
 SECONDS=0
 
-sleep 10
+while [[ $SECONDS -lt 120 ]]; do
+    LAG=$(docker compose \
+        -f "$DIR"/../../docker-compose.dev.yml exec \
+        -T kafka kafka-consumer-groups.sh \
+        --bootstrap-server localhost:9092 \
+        --describe \
+        --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP |
+        grep $SESSION_RECORDING_EVENTS_TOPIC |
+        awk '{print $6}')
+
+    echo "Ingestion lag: $LAG"
+
+    if [[ "$LAG" -eq "0" ]]; then
+        break
+    fi
+
+    sleep 1
+done
 
 if [[ $SECONDS -ge 120 ]]; then
     echo "Timed out waiting for ingestion lag to drop to zero"
