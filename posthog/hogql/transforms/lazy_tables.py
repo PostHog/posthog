@@ -3,16 +3,17 @@ from typing import Dict, List, Optional, Union, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import LazyTableSymbol
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.database import LazyTable
 from posthog.hogql.resolver import resolve_symbols
 from posthog.hogql.visitor import TraversingVisitor
 
 
-def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None):
+def resolve_lazy_tables(node: ast.Expr, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
     if stack:
         # TODO: remove this kludge for old props
-        LazyTableResolver(stack=stack).visit(stack[-1])
-    LazyTableResolver(stack=stack).visit(node)
+        LazyTableResolver(stack=stack, context=context).visit(stack[-1])
+    LazyTableResolver(stack=stack, context=context).visit(node)
 
 
 @dataclasses.dataclass
@@ -24,9 +25,10 @@ class JoinToAdd:
 
 
 class LazyTableResolver(TraversingVisitor):
-    def __init__(self, stack: Optional[List[ast.SelectQuery]] = None):
+    def __init__(self, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
         super().__init__()
         self.stack_of_fields: List[List[Union[ast.FieldSymbol, ast.PropertySymbol]]] = [[]] if stack else []
+        self.context = context
 
     def _get_long_table_name(self, select: ast.SelectQuerySymbol, symbol: ast.BaseTableSymbol) -> str:
         if isinstance(symbol, ast.TableSymbol):
@@ -47,10 +49,14 @@ class LazyTableResolver(TraversingVisitor):
             # we have already visited this property
             return
         if isinstance(node.parent.table, ast.LazyTableSymbol):
-            # Each time we find a field, we place it in a list for processing in "visit_select_query"
-            if len(self.stack_of_fields) == 0:
-                raise ValueError("Can't access a lazy field when not in a SelectQuery context")
-            self.stack_of_fields[-1].append(node)
+            if self.context and self.context.within_non_hogql_query:
+                # If we're in a non-HogQL query, traverse deeper, just like we normally would have.
+                self.visit(node.parent)
+            else:
+                # Place the property in a list for processing in "visit_select_query"
+                if len(self.stack_of_fields) == 0:
+                    raise ValueError("Can't access a lazy field when not in a SelectQuery context")
+                self.stack_of_fields[-1].append(node)
 
     def visit_field_symbol(self, node: ast.FieldSymbol):
         if isinstance(node.table, ast.LazyTableSymbol):

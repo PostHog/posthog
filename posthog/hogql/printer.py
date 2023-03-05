@@ -42,9 +42,9 @@ def print_ast(
     # modify the cloned tree as needed
     if dialect == "clickhouse":
         expand_asterisks(node)
-        resolve_lazy_tables(node, stack)
-        # TODO: add team_id checks (currently done in the printer)
+        resolve_lazy_tables(node, stack, context)
 
+    # _Printer also adds a team_id guard if printing clickhouse
     return _Printer(context=context, dialect=dialect, stack=stack or []).visit(node)
 
 
