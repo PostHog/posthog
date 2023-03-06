@@ -224,6 +224,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         setAffectedUsers: (index: number, count?: number) => ({ index, count }),
         setTotalUsers: (count: number) => ({ count }),
         triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
+        generateUsageDashboard: true,
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -524,7 +525,13 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
+        generateUsageDashboard: async () => {
+            if (props.id) {
+                await api.create(`api/projects/${values.currentTeamId}/feature_flags/${props.id}/dashboard`)
+                actions.loadFeatureFlag()
+            }
+        },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)

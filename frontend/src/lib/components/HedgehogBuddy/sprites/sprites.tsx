@@ -12,6 +12,7 @@ import hhWave from 'public/hedgehog/sprites/wave.png'
 // import hhWaveXmas from 'public/hedgehog/sprites/wave-xmas.png'
 
 export const SPRITE_SIZE = 64
+export const SHADOW_HEIGHT = 8
 export const SPRITE_SHEET_WIDTH = 512
 
 type SpriteInfo = {

@@ -106,6 +106,8 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
 
+    const { user } = useValues(userLogic)
+
     if (isUsingDashboardTemplates && !isUsingDashboardTemplatesV2) {
         return <ExternalDashboardTemplatesTable />
     }
@@ -143,6 +145,9 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
         {
             width: 0,
             render: (_, { id }: DashboardTemplateType) => {
+                if (!user?.is_staff) {
+                    return null
+                }
                 return (
                     <More
                         overlay={
