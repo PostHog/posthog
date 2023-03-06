@@ -127,7 +127,8 @@ export async function eachBatchIngestionWithOverflow(
                 // We don't want to do it here to preserve the kafka offset handling
                 message.key = null
 
-                ingestionPartitionKeyOverflowed.labels(seenKey).inc()
+                // To reduce cardinality, we only use the `team_id` or `token` as label.
+                ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
 
                 if (LoggingLimiter.consume(seenKey, 1) === true) {
                     status.warn('🪣', `Partition key ${seenKey} overflowed ingestion capacity`)
