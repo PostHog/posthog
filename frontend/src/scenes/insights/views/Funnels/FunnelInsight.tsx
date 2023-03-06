@@ -11,10 +11,10 @@ export function FunnelInsightDataExploration(): JSX.Element {
     const { querySource } = useValues(funnelDataLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
-    const isValidFunnel = true
+    const hasFunnelResults = true
 
     const areFiltersValid = (querySource as FunnelsQuery).series.length > 0
-    const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
+    const nonEmptyState = (hasFunnelResults && areFiltersValid) || insightLoading
 
     return (
         <div
@@ -29,8 +29,8 @@ export function FunnelInsightDataExploration(): JSX.Element {
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { isValidFunnel, areFiltersValid } = useValues(funnelLogic(insightProps))
-    const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
+    const { hasFunnelResults, areFiltersValid } = useValues(funnelLogic(insightProps))
+    const nonEmptyState = (hasFunnelResults && areFiltersValid) || insightLoading
 
     return (
         <div

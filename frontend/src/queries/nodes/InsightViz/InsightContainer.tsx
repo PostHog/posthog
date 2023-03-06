@@ -70,7 +70,7 @@ export function InsightContainer({
 
     // const {
     //     areFiltersValid,
-    //     isValidFunnel,
+    //     hasFunnelResults,
     //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
@@ -90,7 +90,7 @@ export function InsightContainer({
     } = useValues(insightDataLogic(insightProps))
 
     // TODO: implement in funnelDataLogic
-    const isValidFunnel = true
+    const hasFunnelResults = true
     const areFiltersValid = true
 
     // Empty states that completely replace the graph
@@ -111,7 +111,7 @@ export function InsightContainer({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -140,7 +140,7 @@ export function InsightContainer({
             erroredQueryId === null &&
             timedOutQueryId === null &&
             areFiltersValid &&
-            isValidFunnel &&
+            hasFunnelResults &&
             funnelsFilter?.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {
