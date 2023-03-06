@@ -105,7 +105,7 @@ def convert_to_datetime_aware(date_obj):
 
 def correct_result_for_sampling(
     value: Union[int, float], sampling_factor: Optional[float], entity_math: Optional[str] = None
-) -> int:
+) -> Union[int, float]:
     from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
     # We don't adjust results for sampling if:
@@ -115,7 +115,7 @@ def correct_result_for_sampling(
     if (not sampling_factor) or (
         entity_math is not None and entity_math != "sum" and entity_math in ALL_SUPPORTED_MATH_FUNCTIONS
     ):
-        return int(value)
+        return value
 
-    result: int = round(value * (1 / sampling_factor))
+    result = round(value * (1 / sampling_factor))
     return result
