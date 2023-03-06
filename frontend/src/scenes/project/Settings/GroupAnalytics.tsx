@@ -73,8 +73,8 @@ export function GroupAnalytics(): JSX.Element | null {
             {groupsAccessStatus !== GroupsAccessStatus.HasGroupTypes && (
                 <AlertMessage type="info" className="mb-4">
                     Group types will show up here after you send your first event associated with a group. Take a look
-                    at <a href="https://posthog.com/manual/group-analytics">this guide</a> for more information on
-                    getting started.
+                    at <Link to={`https://posthog.com/manual/group-analytics` target="_blank"}>this guide</Link>
+                    for more information on getting started.
                 </AlertMessage>
             )}
 
