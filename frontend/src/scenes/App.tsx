@@ -126,7 +126,7 @@ function AppScene(): JSX.Element | null {
         } else {
             document.body.classList.remove('posthog-3000')
         }
-    })
+    }, [featureFlags])
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||

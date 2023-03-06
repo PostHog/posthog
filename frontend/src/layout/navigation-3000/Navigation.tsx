@@ -8,7 +8,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     useEffect(() => {
         // FIXME: Include debug notice in a non-obstructing way
         document.getElementById('bottom-notice')?.remove()
-    })
+    }, [])
 
     return (
         <div className="Navigation3000">
