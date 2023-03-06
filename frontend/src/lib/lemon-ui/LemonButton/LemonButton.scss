@@ -104,7 +104,7 @@
         display: flex;
         font-size: 1.5rem;
         flex-shrink: 0;
-        transition: color 200ms ease, opacity 200ms ease;
+        transition: color 200ms ease;
     }
 
     // LemonStealth has some specific styles
@@ -214,18 +214,18 @@
 
     // PostHog 3000
     &.LemonButton--status-3000 {
-        color: var(--text-3000);
+        color: var(--default);
 
         &:not(.LemonButton--disabled):hover,
         &.LemonButton--active {
-            background: var(--border-3000);
+            background: var(--border);
             .LemonIcon {
-                opacity: 1;
+                color: var(--default);
             }
         }
 
         .LemonIcon {
-            opacity: 0.5;
+            color: var(--muted);
         }
     }
 }

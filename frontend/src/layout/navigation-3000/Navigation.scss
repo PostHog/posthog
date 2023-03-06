@@ -122,11 +122,11 @@
         width: 1px;
     }
     &::before {
-        transition: 200ms ease transform;
+        transition: 200ms ease transform, 200ms ease background-color;
         background: var(--border);
     }
     &::after {
-        transition: 200ms ease opacity, 200ms ease transform;
+        transition: 200ms ease opacity, 200ms ease transform, 200ms ease background-color;
         background: var(--text-3000);
         opacity: 0;
     }
@@ -152,16 +152,15 @@
 // Accordion
 
 .Accordion {
-    --accordion-header-height: 2rem;
     --accordion-row-height: 1.75rem;
 }
 
 .Accordion__header {
-    transition: 200ms ease background;
+    transition: 200ms ease background, 200ms ease border-color;
     display: flex;
     align-items: center;
     background: var(--accent-3000);
-    height: var(--accordion-header-height);
+    height: var(--accordion-row-height);
     padding: 0 0.75rem;
     border-bottom-width: 1px;
     cursor: pointer;

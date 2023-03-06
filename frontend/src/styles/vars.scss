@@ -126,9 +126,9 @@ $colors: (
 
     'text-3000': var(--text-3000),
     'muted-3000': var(--muted-3000),
-    'accent-3000': var(--accent-3000-light),
+    'accent-3000': var(--accent-3000),
     'bg-3000': var(--bg-3000-light),
-    'border-3000': var(--border-3000-light)
+    'border-3000': var(--border-3000)
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.

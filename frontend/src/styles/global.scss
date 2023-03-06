@@ -44,6 +44,13 @@ ul {
     border-color: var(--border);
 }
 
+// FIXME: Quick hack to make theme transition smooth (almost) everywhere
+*,
+*::before,
+*::after {
+    transition: background-color 200ms ease, border-color 200ms ease;
+}
+
 .page-title-row {
     display: flex;
     flex-wrap: wrap;
@@ -590,7 +597,7 @@ input::-ms-clear {
 body {
     &[theme='light'] {
         --text-3000: var(--text-3000-light);
-        --muted: var(--muted-3000-light);
+        --muted-3000: var(--muted-3000-light);
         --accent-3000: var(--accent-3000-light);
         --bg-3000: var(--bg-3000-light);
         --border-3000: var(--border-3000-light);
@@ -612,12 +619,6 @@ body {
         --border: var(--border-3000);
         --bg-mid: var(--bg-3000);
         background: var(--bg-3000);
-        *,
-        *::before,
-        *::after {
-            // Quick hack to make theme transition smooth (almost) everywhere
-            transition: background-color 200ms ease, border-color 200ms ease;
-        }
     }
 
     h1,
