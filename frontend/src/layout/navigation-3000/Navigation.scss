@@ -155,6 +155,18 @@
     --accordion-row-height: 1.75rem;
 }
 
+.Accordion[aria-disabled='true'] {
+    .Accordion__header {
+        cursor: default;
+        &:hover {
+            background: var(--accent-3000);
+        }
+        .LemonIcon {
+            visibility: hidden;
+        }
+    }
+}
+
 .Accordion__header {
     transition: 200ms ease background, 200ms ease border-color;
     display: flex;
@@ -170,14 +182,14 @@
     }
     .LemonIcon {
         transition: 200ms ease transform;
-        font-size: 1.125rem;
+        font-size: 1rem;
         flex-shrink: 0;
         .Accordion--expanded & {
             transform: rotate(90deg);
         }
     }
     h5 {
-        margin-left: 0.5rem;
+        margin-left: 0.25rem;
     }
 }
 
@@ -187,7 +199,7 @@
 
 .Accordion_meta {
     opacity: 0.5;
-    padding: 0 0.75rem;
+    padding: 0 1.75rem;
     line-height: var(--accordion-row-height);
     user-select: none;
 }
@@ -195,7 +207,7 @@
 .Accordion_list {
     li {
         transition: 200ms ease background;
-        padding: 0 0.75rem;
+        padding: 0 1.75rem;
         line-height: var(--accordion-row-height);
         font-weight: 500;
         text-overflow: ellipsis;
