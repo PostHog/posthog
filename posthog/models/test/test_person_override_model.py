@@ -19,12 +19,6 @@ def organization():
 
     organization.delete()
 
-        This is enforced by a UNIQUE constraint on (team_id, old_person_id)
-        """
-        oldest_event = dt.datetime.now(dt.timezone.utc)
-        old_person_id = uuid4()
-        override_person_id = uuid4()
-        new_override_person_id = uuid4()
 
 @pytest.fixture
 def team(organization):
@@ -373,6 +367,8 @@ def test_person_override_old_person_id_as_override_person_id_in_different_teams(
 def test_person_override_allows_duplicate_override_person_id(team, oldest_event):
     """Test duplicate override_person_ids with different old_person_ids are allowed."""
     override_person_id = uuid4()
+    n_person_overrides = 2
+    created = []
 
     override_mapping = PersonOverrideMapping.objects.create(
         team_id=team.id,
