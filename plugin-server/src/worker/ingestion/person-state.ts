@@ -546,7 +546,7 @@ export class PersonState {
 
          1. Add the persons involved to the helper table (2 of them)
          2. Add an override from oldPerson to override person
-         3. Update any entries that have oldPerson as the override person to now also point to the new override person
+         3. Update any entries that have oldPerson as the override person to now also point to the new override person. Note that we don't update `oldest_event`, because it's a heuristic (used to optimise squashing) tied to the old_person and nothing changed about the old_person who's events need to get squashed.
 
             TODO: how do we want to be updating oldest_event?
 
