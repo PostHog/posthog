@@ -2230,20 +2230,20 @@ describe('person id overrides', () => {
                 ORDER BY id
             )
             SELECT
-                helper.uuid AS old_person_id,
-                overrides_helper.uuid AS override_person_id
+                mapping.uuid AS old_person_id,
+                overrides_mapping.uuid AS override_person_id
             FROM
                 overrides AS first
             JOIN
-                posthog_personoverridehelper AS helper ON first.old_person_id = helper.id
+                posthog_personoverridemapping AS mapping ON first.old_person_id = mapping.id
             JOIN (
                 SELECT
                     second.id AS id,
                     uuid
                 FROM
                     overrides AS second
-                JOIN posthog_personoverridehelper AS helper ON second.override_person_id = helper.id
-            ) AS overrides_helper ON overrides_helper.id = first.id
+                JOIN posthog_personoverridemapping AS mapping ON second.override_person_id = mapping.id
+            ) AS overrides_mapping ON overrides_mapping.id = first.id
             `
         )
         return result.rows

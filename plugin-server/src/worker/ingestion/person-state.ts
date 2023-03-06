@@ -555,8 +555,8 @@ export class PersonState {
          it's an optimization anyway and squash job might be updating those values anyway and it's just a hint, so ignoring if complex seems better
          in any case it's important that we use the oldest_event we stored in postgres in CH too.
          */
-        const oldPersonId = await this.addPersonOverrideHelper(oldPerson, client)
-        const overridePersonId = await this.addPersonOverrideHelper(overridePerson, client)
+        const oldPersonId = await this.addPersonOverrideMapping(oldPerson, client)
+        const overridePersonId = await this.addPersonOverrideMapping(overridePerson, client)
 
         await this.db.postgresQuery(
             SQL`
@@ -602,7 +602,7 @@ export class PersonState {
                 FROM
                     updated_ids
                 JOIN
-                    posthog_personoverridehelper helper
+                    posthog_personoverridemapping helper
                 ON
                     helper.id = updated_ids.old_person_id;
             `,
@@ -642,7 +642,7 @@ export class PersonState {
         return personOverrideMessages
     }
 
-    private async addPersonOverrideHelper(person: Person, client?: PoolClient): Promise<number> {
+    private async addPersonOverrideMapping(person: Person, client?: PoolClient): Promise<number> {
         /**
             Update the helper table that serves as a mapping between a serial ID and a Person UUID.
 
@@ -653,7 +653,7 @@ export class PersonState {
             rows: [{ id }],
         } = await this.db.postgresQuery(
             `WITH insert_id AS (
-                    INSERT INTO posthog_personoverridehelper(
+                    INSERT INTO posthog_personoverridemapping(
                         team_id,
                         uuid
                     )
@@ -670,11 +670,11 @@ export class PersonState {
                 -- Fear not, the constraints on personoverride will handle any inconsistencies.
                 -- This helper table is really nothing more than a mapping.
                 SELECT id
-                FROM posthog_personoverridehelper
+                FROM posthog_personoverridemapping
                 WHERE uuid = '${person.uuid}'
             `,
             undefined,
-            'personOverrideHelper',
+            'personOverrideMapping',
             client
         )
 
