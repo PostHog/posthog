@@ -119,6 +119,16 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                                         Current bill total
                                     </LemonLabel>
                                     <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+                                    {billing.discount_percent && (
+                                        <div className="text-xl">
+                                            ({billing.discount_percent}% off discount applied)
+                                        </div>
+                                    )}
+                                    {billing.discount_amount_usd && (
+                                        <div className="text-xl">
+                                            (-${billing.discount_amount_usd} discount applied)
+                                        </div>
+                                    )}
                                 </>
                             )}
 
