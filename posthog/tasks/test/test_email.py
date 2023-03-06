@@ -58,9 +58,8 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_invite(invite.id)
 
         assert len(mocked_email_messages) == 1
-        the_message = mocked_email_messages[0]
-        assert the_message.send.call_count == 1
-        assert the_message.html_body
+        assert mocked_email_messages[0].send.call_count == 1
+        assert mocked_email_messages[0].html_body
 
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
