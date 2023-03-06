@@ -1,8 +1,5 @@
 import { ReaderModel } from '@maxmind/geoip2-node'
-import { readFileSync } from 'fs'
-import { DateTime } from 'luxon'
 import * as fetch from 'node-fetch'
-import { join } from 'path'
 
 import { ServerInstance, startPluginsServer } from '../../src/main/pluginsServer'
 import { fetchIpLocationInternally } from '../../src/worker/mmdb'
@@ -11,22 +8,8 @@ import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 
-const mmdbBrotliContents = readFileSync(join(__dirname, '..', 'assets', 'GeoLite2-City-Test.mmdb.br'))
-
 async function resetTestDatabaseWithMmdb(): Promise<void> {
-    await resetTestDatabase(undefined, undefined, {
-        pluginAttachments: [
-            {
-                key: '@posthog/mmdb',
-                content_type: 'vnd.maxmind.maxmind-db',
-                file_name: `GeoLite2-City-${DateTime.local().toISODate()}.mmdb.br`,
-                file_size: mmdbBrotliContents.byteLength,
-                contents: mmdbBrotliContents,
-                team_id: null,
-                plugin_config_id: null,
-            },
-        ],
-    })
+    await resetTestDatabase(undefined, undefined)
 }
 
 describe('mmdb', () => {

@@ -1,7 +1,7 @@
 import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import assert from 'assert'
 
-import { defaultConfig } from '../src/config/config'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { EnqueuedPluginJob, LogLevel, PluginsServerConfig } from '../src/types'
 import { Hub } from '../src/types'
@@ -9,10 +9,9 @@ import { UUIDT } from '../src/utils/utils'
 import { EventPipelineRunner } from '../src/worker/ingestion/event-pipeline/runner'
 import { makePiscina } from '../src/worker/piscina'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
-import { resetGraphileWorkerSchema } from './helpers/graphile-worker'
+import { delayUntilEventIngested } from './helpers/clickhouse'
+import { fetchEvents } from './helpers/events'
 import { resetKafka } from './helpers/kafka'
-import { pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/status')
@@ -45,6 +44,8 @@ describe('Historical Export (v2)', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let piscina: Piscina
+    let teamId: number
+    let pluginConfigId: number
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
@@ -54,14 +55,12 @@ describe('Historical Export (v2)', () => {
         console.info = jest.fn()
 
         testConsole.reset()
-        await Promise.all([
-            await resetTestDatabase(indexJs),
-            await resetTestDatabaseClickhouse(extraServerConfig),
-            await resetGraphileWorkerSchema(defaultConfig),
-        ])
+        ;({ teamId, pluginConfigId } = await resetTestDatabase(indexJs))
 
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        assert(startResponse.hub)
         hub = startResponse.hub
+        assert(startResponse.piscina)
         piscina = startResponse.piscina
         stopServer = startResponse.stop
     })
@@ -101,7 +100,7 @@ describe('Historical Export (v2)', () => {
         ])
 
         await hub.kafkaProducer.flush()
-        await delayUntilEventIngested(() => hub.db.fetchEvents(), 9)
+        await delayUntilEventIngested(() => fetchEvents(teamId), 9)
 
         await piscina.run({
             task: 'runPluginJob',
@@ -113,8 +112,8 @@ describe('Historical Export (v2)', () => {
                         parallelism: 5,
                         $operation: 'start',
                     },
-                    pluginConfigId: pluginConfig39.id,
-                    pluginConfigTeam: pluginConfig39.team_id,
+                    pluginConfigId: pluginConfigId,
+                    pluginConfigTeam: teamId,
                     timestamp: 0,
                 } as EnqueuedPluginJob,
             },

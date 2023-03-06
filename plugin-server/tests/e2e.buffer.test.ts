@@ -1,4 +1,4 @@
-import IORedis from 'ioredis'
+import assert from 'assert'
 
 import { ONE_HOUR } from '../src/config/constants'
 import { startPluginsServer } from '../src/main/pluginsServer'
@@ -8,13 +8,12 @@ import { UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
-import { resetKafka } from './helpers/kafka'
-import { pluginConfig39 } from './helpers/plugins'
+import { delayUntilEventIngested } from './helpers/clickhouse'
+import { fetchEvents } from './helpers/events'
 import { resetTestDatabase } from './helpers/sql'
 const { console: testConsole } = writeToFile
 
-jest.setTimeout(60000) // 60 sec timeout
+jest.setTimeout(20000) // 60 sec timeout
 
 const indexJs = `
 import { console as testConsole } from 'test-utils/write-to-file'
@@ -40,9 +39,9 @@ export function onEvent (event, { global }) {
 
 describe('E2E with buffer topic enabled', () => {
     let hub: Hub
-    let stopServer: () => Promise<void>
+    let stopServer: (() => Promise<void>) | undefined
     let posthog: DummyPostHog
-    let redis: IORedis.Redis
+    let teamId: number
 
     const extraServerConfig: Partial<PluginsServerConfig> = {
         WORKER_CONCURRENCY: 1,
@@ -51,37 +50,37 @@ describe('E2E with buffer topic enabled', () => {
         KAFKA_FLUSH_FREQUENCY_MS: 0, // Same as above, but with time
         BUFFER_CONVERSION_SECONDS: 3, // We want to test the delay mechanism, but with a much lower delay than in prod
         CONVERSION_BUFFER_ENABLED: true,
-        CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '2', // For these tests we want to validate that we function correctly with the buffer topic enabled
     }
 
     beforeEach(async () => {
         testConsole.reset()
-        await resetTestDatabase(indexJs)
-        await resetTestDatabaseClickhouse(extraServerConfig)
-        await resetKafka(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        ;({ teamId } = await resetTestDatabase(indexJs))
+        const startResponse = await startPluginsServer(
+            { ...extraServerConfig, CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: teamId.toString() },
+            makePiscina,
+            { ingestion: true, processAsyncHandlers: true }
+        )
+        assert(startResponse.hub)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        redis = await hub.redisPool.acquire()
-        posthog = createPosthog(hub, pluginConfig39)
+        posthog = createPosthog(hub, teamId)
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
-        await stopServer()
+        await stopServer?.()
     })
 
     describe('ClickHouse ingestion', () => {
         test('event captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
+            expect((await fetchEvents(teamId)).length).toBe(0)
 
             const uuid = new UUIDT().toString()
 
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
             await hub.kafkaProducer.flush()
 
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
-            const events = await hub.db.fetchEvents()
+            await delayUntilEventIngested(() => fetchEvents(teamId), 1, 1000, 20)
+            const events = await fetchEvents(teamId)
 
             expect(events.length).toBe(1)
 
@@ -97,9 +96,9 @@ describe('E2E with buffer topic enabled', () => {
 
 describe('E2E with direct to graphile worker', () => {
     let hub: Hub
-    let stopServer: () => Promise<void>
+    let stopServer: (() => Promise<void>) | undefined
     let posthog: DummyPostHog
-    let redis: IORedis.Redis
+    let teamId: number
 
     const extraServerConfig: Partial<PluginsServerConfig> = {
         WORKER_CONCURRENCY: 1,
@@ -113,32 +112,33 @@ describe('E2E with direct to graphile worker', () => {
 
     beforeEach(async () => {
         testConsole.reset()
-        await resetTestDatabase(indexJs)
-        await resetTestDatabaseClickhouse(extraServerConfig)
-        await resetKafka(extraServerConfig)
-        const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        ;({ teamId } = await resetTestDatabase(indexJs))
+        const startResponse = await startPluginsServer(
+            { ...extraServerConfig, CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: teamId.toString() },
+            makePiscina,
+            { ingestion: true, processAsyncHandlers: true }
+        )
+        assert(startResponse.hub)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        redis = await hub.redisPool.acquire()
-        posthog = createPosthog(hub, pluginConfig39)
+        posthog = createPosthog(hub, teamId)
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
-        await stopServer()
+        await stopServer?.()
     })
 
     describe('ClickHouse ingestion', () => {
         test('event captured, processed, ingested', async () => {
-            expect((await hub.db.fetchEvents()).length).toBe(0)
+            expect((await fetchEvents(teamId)).length).toBe(0)
 
             const uuid = new UUIDT().toString()
 
             await posthog.capture('custom event via buffer', { name: 'hehe', uuid })
             await hub.kafkaProducer.flush()
 
-            await delayUntilEventIngested(() => hub.db.fetchEvents(), undefined, undefined, 500)
-            const events = await hub.db.fetchEvents()
+            await delayUntilEventIngested(() => fetchEvents(teamId), 1, 1000, 20)
+            const events = await fetchEvents(teamId)
 
             expect(events.length).toBe(1)
 

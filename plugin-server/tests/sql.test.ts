@@ -7,7 +7,7 @@ import {
     getPluginRows,
     setError,
 } from '../src/utils/db/sql'
-import { commonOrganizationId, pluginConfig39 } from './helpers/plugins'
+import { pluginConfig39 } from './helpers/plugins'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(20_000)
@@ -16,13 +16,23 @@ jest.mock('../src/utils/status')
 describe('sql', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let organizationId: string
+    let teamId: number
+    let pluginConfigId: number
+    let pluginAttachmentId: number
+    let pluginId: number
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase(`const processEvent = event => event`)
     })
 
-    afterEach(async () => {
+    beforeEach(async () => {
+        ;({ organizationId, teamId, pluginId, pluginConfigId, pluginAttachmentId } = await resetTestDatabase(
+            `const processEvent = event => event`
+        ))
+    })
+
+    afterAll(async () => {
         await closeHub()
     })
 
@@ -33,17 +43,17 @@ describe('sql', () => {
                 contents: Buffer.from([116, 101, 115, 116]),
                 file_name: 'test.txt',
                 file_size: 4,
-                id: 42666,
+                id: pluginAttachmentId,
                 key: 'maxmindMmdb',
-                plugin_config_id: 39,
-                team_id: 2,
+                plugin_config_id: pluginConfigId,
+                team_id: teamId,
             },
         ]
 
-        const rows1 = await getPluginAttachmentRows(hub)
+        const rows1 = (await getPluginAttachmentRows(hub)).filter((x) => x.team_id === teamId)
         expect(rows1).toEqual(rowsExpected)
-        await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
-        const rows2 = await getPluginAttachmentRows(hub)
+        await hub.db.postgresQuery(`update posthog_team set plugins_opt_in='f' where id = $1`, [teamId], 'testTag')
+        const rows2 = (await getPluginAttachmentRows(hub)).filter((x) => x.team_id === teamId)
         expect(rows2).toEqual(rowsExpected)
     })
 
@@ -54,22 +64,22 @@ describe('sql', () => {
             },
             enabled: true,
             has_error: false,
-            id: 39,
+            id: pluginConfigId,
             order: 0,
-            plugin_id: 60,
-            team_id: 2,
+            plugin_id: pluginId,
+            team_id: teamId,
             created_at: expect.anything(),
             updated_at: expect.anything(),
         }
 
-        const rows1 = await getPluginConfigRows(hub)
+        const rows1 = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfigId)
         expect(rows1).toEqual([expectedRow])
 
-        await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
+        await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f' where id = $1", [teamId], 'testTag')
         const pluginError: PluginError = { message: 'error happened', time: 'now' }
-        await setError(hub, pluginError, pluginConfig39)
+        await setError(hub, pluginError, { ...pluginConfig39, id: pluginConfigId, plugin_id: pluginId })
 
-        const rows2 = await getPluginConfigRows(hub)
+        const rows2 = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfigId)
         expect(rows2).toEqual([
             {
                 ...expectedRow,
@@ -84,12 +94,12 @@ describe('sql', () => {
                 error: null,
                 from_json: false,
                 from_web: false,
-                id: 60,
+                id: pluginId,
                 is_global: false,
                 is_stateless: false,
-                organization_id: commonOrganizationId,
+                organization_id: organizationId,
                 log_level: null,
-                name: 'test-maxmind-plugin',
+                name: expect.any(String),
                 plugin_type: 'custom',
                 public_jobs: null,
                 source__plugin_json:
@@ -104,54 +114,43 @@ describe('sql', () => {
             },
         ]
 
-        const rows1 = await getPluginRows(hub)
+        const rows1 = (await getPluginRows(hub)).filter((x) => x.organization_id === organizationId)
         expect(rows1).toEqual(rowsExpected)
-        await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f'", undefined, 'testTag')
-        const rows2 = await getPluginRows(hub)
+        await hub.db.postgresQuery("update posthog_team set plugins_opt_in='f' where id = $1", [teamId], 'testTag')
+        const rows2 = (await getPluginRows(hub)).filter((x) => x.organization_id === organizationId)
         expect(rows2).toEqual(rowsExpected)
     })
 
     test('setError', async () => {
         hub.db.postgresQuery = jest.fn() as any
 
-        await setError(hub, null, pluginConfig39)
+        await setError(hub, null, { ...pluginConfig39, id: pluginConfigId, plugin_id: pluginId })
         expect(hub.db.postgresQuery).toHaveBeenCalledWith(
             'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
-            [null, pluginConfig39.id],
+            [null, pluginConfigId],
             'updatePluginConfigError'
         )
 
         const pluginError: PluginError = { message: 'error happened', time: 'now' }
-        await setError(hub, pluginError, pluginConfig39)
+        await setError(hub, pluginError, { ...pluginConfig39, id: pluginConfigId, plugin_id: pluginId })
         expect(hub.db.postgresQuery).toHaveBeenCalledWith(
             'UPDATE posthog_pluginconfig SET error = $1 WHERE id = $2',
-            [pluginError, pluginConfig39.id],
+            [pluginError, pluginConfigId],
             'updatePluginConfigError'
         )
     })
 
     describe('disablePlugin', () => {
-        test('disablePlugin query builds correctly', async () => {
-            hub.db.postgresQuery = jest.fn() as any
-
-            await disablePlugin(hub, 39)
-            expect(hub.db.postgresQuery).toHaveBeenCalledWith(
-                `UPDATE posthog_pluginconfig SET enabled='f' WHERE id=$1 AND enabled='t'`,
-                [39],
-                'disablePlugin'
-            )
-        })
-
         test('disablePlugin disables a plugin', async () => {
             const redis = await hub.db.redisPool.acquire()
-            const rowsBefore = await getPluginConfigRows(hub)
-            expect(rowsBefore[0].plugin_id).toEqual(60)
+            const rowsBefore = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfigId)
+            expect(rowsBefore[0].plugin_id).toEqual(pluginId)
             expect(rowsBefore[0].enabled).toEqual(true)
 
             const receivedMessage = redis.subscribe(hub.PLUGINS_RELOAD_PUBSUB_CHANNEL)
-            await disablePlugin(hub, 39)
+            await disablePlugin(hub, pluginId)
 
-            const rowsAfter = await getPluginConfigRows(hub)
+            const rowsAfter = (await getPluginConfigRows(hub)).filter((x) => x.id === pluginConfigId)
 
             expect(rowsAfter).toEqual([])
             await expect(receivedMessage).resolves.toEqual(1)

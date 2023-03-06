@@ -21,7 +21,7 @@ export function createConsole(hub: Hub, pluginConfig: PluginConfig): ConsoleExte
         status.debug(
             '👉',
             `${type} in ${pluginDigest(pluginConfig.plugin || pluginConfig.plugin_id, pluginConfig.team_id)}:`,
-            ...args
+            { args }
         )
 
         await hub.db.queuePluginLogEntry({

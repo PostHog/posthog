@@ -48,8 +48,8 @@ export type ServerInstance = {
 export async function startPluginsServer(
     config: Partial<PluginsServerConfig>,
     makePiscina: (config: PluginsServerConfig) => Piscina = defaultMakePiscina,
-    capabilities: PluginServerCapabilities | undefined
-): Promise<Partial<ServerInstance>> {
+    capabilities?: PluginServerCapabilities | undefined
+): Promise<Partial<ServerInstance> & Pick<ServerInstance, 'stop'>> {
     const timer = new Date()
 
     const serverConfig: PluginsServerConfig = {
@@ -211,7 +211,7 @@ export async function startPluginsServer(
     })
 
     capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
-    let serverInstance: (Partial<ServerInstance> & Pick<ServerInstance, 'hub'>) | undefined
+    let serverInstance: (Partial<ServerInstance> & Pick<ServerInstance, 'hub' | 'stop'>) | undefined
 
     // A collection of healthchecks that should be used to validate the
     // health of the plugin-server. These are used by the /_health endpoint
@@ -222,7 +222,7 @@ export async function startPluginsServer(
     try {
         if (!serverConfig.DISABLE_MMDB && capabilities.mmdb) {
             ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
-            serverInstance = { hub }
+            serverInstance = { hub, stop: closeJobs }
 
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
             serverInstance.mmdbUpdateJob = schedule.scheduleJob('0 */4 * * *', async () =>
@@ -246,7 +246,7 @@ export async function startPluginsServer(
         //
         if (capabilities.processPluginJobs || capabilities.pluginScheduledTasks) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
+            serverInstance = serverInstance ? serverInstance : { hub, stop: closeJobs }
 
             graphileWorker = new GraphileWorker(hub)
             // `connectProducer` just runs the PostgreSQL migrations. Ideally it
@@ -282,7 +282,7 @@ export async function startPluginsServer(
 
         if (capabilities.ingestion) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
+            serverInstance = serverInstance ? serverInstance : { hub, stop: closeJobs }
 
             piscina = piscina ?? makePiscina(serverConfig)
             const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
@@ -306,7 +306,7 @@ export async function startPluginsServer(
 
         if (capabilities.ingestionOverflow) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
+            serverInstance = serverInstance ? serverInstance : { hub, stop: closeJobs }
 
             piscina = piscina ?? makePiscina(serverConfig)
             analyticsEventsIngestionOverflowConsumer = await startAnalyticsEventsIngestionOverflowConsumer({
@@ -317,7 +317,7 @@ export async function startPluginsServer(
 
         if (capabilities.processAsyncHandlers) {
             ;[hub, closeHub] = hub ? [hub, closeHub] : await createHub(serverConfig, null, capabilities)
-            serverInstance = serverInstance ? serverInstance : { hub }
+            serverInstance = serverInstance ? serverInstance : { hub, stop: closeJobs }
 
             piscina = piscina ?? makePiscina(serverConfig)
             onEventHandlerConsumer = await startOnEventHandlerConsumer({
@@ -415,7 +415,6 @@ export async function startPluginsServer(
 
             serverInstance.piscina = piscina
             serverInstance.queue = analyticsEventsIngestionConsumer
-            serverInstance.stop = closeJobs
 
             hub.statsd?.timing('total_setup_time', timer)
             status.info('🚀', 'All systems go')

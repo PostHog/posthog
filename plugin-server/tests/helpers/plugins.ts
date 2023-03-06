@@ -10,8 +10,6 @@ export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
 export const commonUserUuid = '797757a4-baed-4fa8-b73b-2b6cf0300299'
 
 export const plugin60: Plugin = {
-    id: 60,
-    organization_id: commonOrganizationId,
     plugin_type: 'custom',
     name: 'test-maxmind-plugin',
     description: 'Ingest GeoIP data via MaxMind',
@@ -35,20 +33,14 @@ export const plugin60: Plugin = {
 }
 
 export const pluginAttachment1: PluginAttachmentDB = {
-    id: 42666,
     key: 'maxmindMmdb',
     content_type: 'application/octet-stream',
     file_name: 'test.txt',
     file_size: 4,
     contents: Buffer.from('test'),
-    plugin_config_id: 39,
-    team_id: 2,
 }
 
 export const pluginConfig39: PluginConfig = {
-    id: 39,
-    team_id: 2,
-    plugin_id: 60,
     enabled: true,
     order: 0,
     config: { localhostIP: '94.224.212.175' },
@@ -87,15 +79,13 @@ export const mockPluginWithSourceFiles = (indexJs: string, pluginJson?: string):
 export const makePluginObjects = (
     indexJs = ''
 ): {
-    pluginRows: Omit<Plugin, 'id'>[]
-    pluginConfigRows: Omit<PluginConfig, 'id'>[]
-    pluginAttachmentRows: Omit<PluginAttachmentDB, 'id'>[]
+    pluginRow: Omit<Plugin, 'id'>
+    pluginConfigRow: Omit<PluginConfig, 'id'>
+    pluginAttachmentRow: Omit<PluginAttachmentDB, 'id'>
 } => ({
-    pluginRows: [mockPluginWithSourceFiles(indexJs)],
-    pluginConfigRows: [
-        { ...pluginConfig39, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    ],
-    pluginAttachmentRows: [pluginAttachment1],
+    pluginRow: mockPluginWithSourceFiles(indexJs),
+    pluginConfigRow: { ...pluginConfig39, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    pluginAttachmentRow: pluginAttachment1,
 })
 
 export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plugin, () => void] {

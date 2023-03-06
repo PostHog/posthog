@@ -1,3 +1,5 @@
+import assert from 'assert'
+
 import { KAFKA_EVENTS_PLUGIN_INGESTION } from '../src/config/kafka-topics'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { Hub, LogLevel, PluginsServerConfig } from '../src/types'
@@ -5,8 +7,7 @@ import { delay, UUIDT } from '../src/utils/utils'
 import { makePiscina } from '../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../src/worker/vm/extensions/posthog'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from './helpers/clickhouse'
-import { resetKafka } from './helpers/kafka'
-import { pluginConfig39 } from './helpers/plugins'
+import { fetchEvents } from './helpers/events'
 import { resetTestDatabase } from './helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
@@ -22,13 +23,10 @@ describe('e2e ingestion timeout', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog
-
-    beforeAll(async () => {
-        await resetKafka(extraServerConfig)
-    })
+    let teamId: number
 
     beforeEach(async () => {
-        await resetTestDatabase(`
+        ;({ teamId } = await resetTestDatabase(`
             async function processEvent (event) {
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
                 await new Promise(resolve => __jestSetTimeout(() => resolve(), 800))
@@ -38,12 +36,13 @@ describe('e2e ingestion timeout', () => {
                 event.properties = { passed: true }
                 return event
             }
-        `)
+        `))
         await resetTestDatabaseClickhouse(extraServerConfig)
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
+        assert(startResponse.hub)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        posthog = createPosthog(hub, pluginConfig39)
+        posthog = createPosthog(hub, teamId)
     })
 
     afterEach(async () => {
@@ -51,13 +50,13 @@ describe('e2e ingestion timeout', () => {
     })
 
     test('event captured, processed, ingested', async () => {
-        expect((await hub.db.fetchEvents()).length).toBe(0)
+        expect((await fetchEvents(teamId)).length).toBe(0)
         const uuid = new UUIDT().toString()
         await posthog.capture('custom event', { name: 'haha', uuid, randomProperty: 'lololo' })
-        await delayUntilEventIngested(() => hub.db.fetchEvents())
+        await delayUntilEventIngested(() => fetchEvents(teamId))
 
         await hub.kafkaProducer.flush()
-        const events = await hub.db.fetchEvents()
+        const events = await fetchEvents(teamId)
         await delay(1000)
 
         expect(events.length).toBe(1)

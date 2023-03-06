@@ -2,6 +2,7 @@ import { Properties } from '@posthog/plugin-scaffold'
 import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Hub, PluginConfig, RawEventMessage } from 'types'
+import { v4 } from 'uuid'
 
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
@@ -22,7 +23,7 @@ export interface DummyPostHog {
     api: ApiExtension
 }
 
-async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalData): Promise<void> {
+async function queueEvent(hub: Hub, teamId: number, data: InternalData): Promise<void> {
     const partitionKeyHash = crypto.createHash('sha256')
     partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
     const partitionKey = partitionKeyHash.digest('hex')
@@ -37,7 +38,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
                     ip: '',
                     site_url: '',
                     data: JSON.stringify(data),
-                    team_id: pluginConfig.team_id,
+                    team_id: teamId,
                     now: data.timestamp,
                     sent_at: data.timestamp,
                     uuid: data.uuid,
@@ -47,8 +48,8 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     })
 }
 
-export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHog {
-    const distinctId = pluginConfig.plugin?.name || `plugin-id-${pluginConfig.plugin_id}`
+export function createPosthog(hub: Hub, teamId: number): DummyPostHog {
+    const distinctId = v4()
 
     return {
         capture: async (event, properties = {}) => {
@@ -63,12 +64,12 @@ export function createPosthog(hub: Hub, pluginConfig: PluginConfig): DummyPostHo
                     distinct_id,
                     ...otherProperties,
                 },
-                team_id: pluginConfig.team_id,
+                team_id: teamId,
                 uuid: new UUIDT().toString(),
             }
-            await queueEvent(hub, pluginConfig, data)
+            await queueEvent(hub, teamId, data)
             hub.statsd?.increment('vm_posthog_extension_capture_called')
         },
-        api: createApi(hub, pluginConfig),
+        api: createApi(hub, teamId),
     }
 }

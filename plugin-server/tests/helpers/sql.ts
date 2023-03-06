@@ -1,4 +1,5 @@
 import { Pool, PoolClient } from 'pg'
+import { v4 } from 'uuid'
 
 import { defaultConfig } from '../../src/config/config'
 import {
@@ -6,20 +7,23 @@ import {
     Plugin,
     PluginAttachmentDB,
     PluginConfig,
-    PluginsServerConfig,
     PropertyOperator,
     RawAction,
     RawOrganization,
     Team,
 } from '../../src/types'
 import { UUIDT } from '../../src/utils/utils'
-import {
-    commonOrganizationId,
-    commonOrganizationMembershipId,
-    commonUserId,
-    commonUserUuid,
-    makePluginObjects,
-} from './plugins'
+import { commonUserId, makePluginObjects } from './plugins'
+
+let postgres: Pool
+
+beforeAll(() => {
+    postgres = new Pool({ connectionString: defaultConfig.DATABASE_URL!, max: 1 })
+})
+
+afterAll(async () => {
+    await postgres?.end()
+})
 
 export interface ExtraDatabaseRows {
     plugins?: Omit<Plugin, 'id'>[]
@@ -27,34 +31,15 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-export const POSTGRES_DELETE_TABLES_QUERY = `
-DO $$ DECLARE
-  r RECORD;
-BEGIN
-  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
-    EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
-  END LOOP;
-END $$;
-`
-
 export async function resetTestDatabase(
     code?: string,
-    extraServerConfig: Partial<PluginsServerConfig> = {},
-    extraRows: ExtraDatabaseRows = {},
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
-): Promise<void> {
-    const config = { ...defaultConfig, ...extraServerConfig }
-    const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
-
-    await db.query(POSTGRES_DELETE_TABLES_QUERY)
+) {
     const mocks = makePluginObjects(code)
-    const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
-    const teamIdToCreate = teamIds[0]
-    await createUserTeamAndOrganization(db, teamIdToCreate)
+    const { teamId, organizationId, apiToken, teamUuid } = await createUserTeamAndOrganization({})
     if (withExtendedTestData) {
-        await insertRow(db, 'posthog_action', {
-            id: teamIdToCreate + 67,
-            team_id: teamIdToCreate,
+        const { id: actionId } = await insertRow('posthog_action', {
+            team_id: teamId,
             name: 'Test Action',
             description: '',
             created_at: new Date().toISOString(),
@@ -66,9 +51,9 @@ export async function resetTestDatabase(
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
         } as RawAction)
-        await insertRow(db, 'posthog_actionstep', {
-            id: teamIdToCreate + 911,
-            action_id: teamIdToCreate + 67,
+        await insertRow('posthog_actionstep', {
+            id: teamId,
+            action_id: actionId,
             tag_name: null,
             text: null,
             href: null,
@@ -79,20 +64,28 @@ export async function resetTestDatabase(
             event: null,
             properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
         })
-        for (const plugin of mocks.pluginRows.concat(extraRows.plugins ?? [])) {
-            await insertRow(db, 'posthog_plugin', plugin)
-        }
-        for (const pluginConfig of mocks.pluginConfigRows.concat(extraRows.pluginConfigs ?? [])) {
-            await insertRow(db, 'posthog_pluginconfig', pluginConfig)
-        }
-        for (const pluginAttachment of mocks.pluginAttachmentRows.concat(extraRows.pluginAttachments ?? [])) {
-            await insertRow(db, 'posthog_pluginattachment', pluginAttachment)
-        }
+        const { id: pluginId } = await insertRow('posthog_plugin', {
+            ...mocks.pluginRow,
+            name: `Test plugin teamId=${teamId} orgId=${organizationId}`,
+            organization_id: organizationId,
+        })
+        const { id: pluginConfigId } = await insertRow('posthog_pluginconfig', {
+            ...mocks.pluginConfigRow,
+            team_id: teamId,
+            plugin_id: pluginId,
+        })
+        const { id: pluginAttachmentId } = await insertRow('posthog_pluginattachment', {
+            ...mocks.pluginAttachmentRow,
+            plugin_config_id: pluginConfigId,
+            team_id: teamId,
+        })
+
+        return { teamId, teamUuid, organizationId, pluginId, pluginConfigId, pluginAttachmentId, apiToken }
     }
-    await db.end()
+    return { teamId, teamUuid, organizationId, apiToken }
 }
 
-export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {
+export async function insertRow(table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -112,11 +105,11 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
     try {
         const {
             rows: [rowSaved],
-        } = await db.query(`INSERT INTO ${table} (${keys}) VALUES (${params}) RETURNING *`, values)
+        } = await postgres.query(`INSERT INTO ${table} (${keys}) VALUES (${params}) RETURNING *`, values)
         const dependentQueries: Promise<void>[] = []
         if (source__plugin_json) {
             dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
+                insertRow('posthog_pluginsourcefile', {
                     id: new UUIDT().toString(),
                     filename: 'plugin.json',
                     source: source__plugin_json,
@@ -128,7 +121,7 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
         }
         if (source__index_ts) {
             dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
+                insertRow('posthog_pluginsourcefile', {
                     id: new UUIDT().toString(),
                     filename: 'index.ts',
                     source: source__index_ts,
@@ -140,7 +133,7 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
         }
         if (source__frontend_tsx) {
             dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
+                insertRow('posthog_pluginsourcefile', {
                     id: new UUIDT().toString(),
                     filename: 'frontend.tsx',
                     source: source__frontend_tsx,
@@ -152,7 +145,7 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
         }
         if (source__site_ts) {
             dependentQueries.push(
-                insertRow(db, 'posthog_pluginsourcefile', {
+                insertRow('posthog_pluginsourcefile', {
                     id: new UUIDT().toString(),
                     filename: 'site.ts',
                     source: source__site_ts,
@@ -170,28 +163,28 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
     }
 }
 
-export async function createUserTeamAndOrganization(
-    db: Pool,
-    teamId: number,
-    userId: number = commonUserId,
-    userUuid: string = commonUserUuid,
-    organizationId: string = commonOrganizationId,
-    organizationMembershipId: string = commonOrganizationMembershipId
-): Promise<void> {
-    await insertRow(db, 'posthog_user', {
-        id: userId,
+export async function createUserTeamAndOrganization({
+    userUuid = v4(),
+    organizationId = v4(),
+    organizationMembershipId = v4(),
+}: {
+    userUuid?: string
+    organizationId?: string
+    organizationMembershipId?: string
+}) {
+    const { id: userId } = await insertRow('posthog_user', {
         uuid: userUuid,
         password: 'gibberish',
         first_name: 'PluginTest',
         last_name: 'User',
-        email: `test${userId}@posthog.com`,
-        distinct_id: `plugin_test_user_distinct_id_${userId}`,
+        email: `test${userUuid}@posthog.com`,
+        distinct_id: `plugin_test_user_distinct_id_${userUuid}`,
         is_staff: false,
         is_active: false,
         date_joined: new Date().toISOString(),
         events_column_config: { active: 'DEFAULT' },
     })
-    await insertRow(db, 'posthog_organization', {
+    await insertRow('posthog_organization', {
         id: organizationId,
         name: 'TEST ORG',
         plugins_access_level: 9,
@@ -203,9 +196,9 @@ export async function createUserTeamAndOrganization(
         available_features: [],
         domain_whitelist: [],
         is_member_join_email_enabled: false,
-        slug: Math.round(Math.random() * 10000),
+        slug: v4(),
     } as RawOrganization)
-    await insertRow(db, 'posthog_organizationmembership', {
+    await insertRow('posthog_organizationmembership', {
         id: organizationMembershipId,
         organization_id: organizationId,
         user_id: userId,
@@ -213,8 +206,11 @@ export async function createUserTeamAndOrganization(
         joined_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     })
-    await insertRow(db, 'posthog_team', {
+    const {
         id: teamId,
+        api_token: apiToken,
+        uuid: teamUuid,
+    } = await insertRow('posthog_team', {
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
@@ -233,21 +229,19 @@ export async function createUserTeamAndOrganization(
         plugins_opt_in: false,
         opt_out_capture: false,
         is_demo: false,
-        api_token: `THIS IS NOT A TOKEN FOR TEAM ${teamId}`,
+        api_token: `THIS IS NOT A TOKEN FOR TEAM ${organizationId}`,
         test_account_filters: [],
         timezone: 'UTC',
         data_attributes: ['data-attr'],
         person_display_name_properties: [],
         access_control: false,
     })
+
+    return { teamId, organizationId, userId, organizationMembershipId, apiToken, teamUuid }
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
     return (await hub.db.postgresQuery('SELECT * FROM posthog_team ORDER BY id', undefined, 'fetchAllTeams')).rows
-}
-
-export async function getFirstTeam(hub: Hub): Promise<Team> {
-    return (await getTeams(hub))[0]
 }
 
 /** Inject code onto `server` which runs a callback whenever a postgres query is performed */
@@ -278,19 +272,17 @@ export function onQuery(hub: Hub, onQueryCallback: (queryText: string) => any): 
 }
 
 export async function getErrorForPluginConfig(id: number): Promise<any> {
-    const db = new Pool({ connectionString: defaultConfig.DATABASE_URL! })
     let error
     try {
-        const response = await db.query('SELECT * FROM posthog_pluginconfig WHERE id = $1', [id])
+        const response = await postgres.query('SELECT * FROM posthog_pluginconfig WHERE id = $1', [id])
         error = response.rows[0]['error']
     } catch {}
 
-    await db.end()
     return error
 }
 
-export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
-    return await insertRow(pgClient, 'posthog_plugin', {
+export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
+    return await insertRow('posthog_plugin', {
         ...plugin,
         config_schema: {},
         from_json: false,
@@ -303,10 +295,9 @@ export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) =
 }
 
 export const createPluginConfig = async (
-    pgClient: Pool,
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
-    return await insertRow(pgClient, 'posthog_pluginconfig', {
+    return await insertRow('posthog_pluginconfig', {
         ...pluginConfig,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
@@ -316,9 +307,9 @@ export const createPluginConfig = async (
     })
 }
 
-export const createOrganization = async (pgClient: Pool) => {
+export const createOrganization = async () => {
     const organizationId = new UUIDT().toString()
-    await insertRow(pgClient, 'posthog_organization', {
+    await insertRow('posthog_organization', {
         id: organizationId,
         name: 'TEST ORG',
         plugins_access_level: 9,
@@ -335,8 +326,8 @@ export const createOrganization = async (pgClient: Pool) => {
     return organizationId
 }
 
-export const createTeam = async (pgClient: Pool, organizationId: string, token?: string) => {
-    const team = await insertRow(pgClient, 'posthog_team', {
+export const createTeam = async (organizationId: string, token?: string) => {
+    const team = await insertRow('posthog_team', {
         // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
         id: Math.round(Math.random() * 1000000000),
         organization_id: organizationId,
@@ -367,9 +358,9 @@ export const createTeam = async (pgClient: Pool, organizationId: string, token?:
     return team.id
 }
 
-export const createUser = async (pgClient: Pool, distinctId: string) => {
+export const createUser = async (distinctId: string) => {
     const uuid = new UUIDT().toString()
-    const user = await insertRow(pgClient, 'posthog_user', {
+    const user = await insertRow('posthog_user', {
         uuid: uuid,
         password: 'gibberish',
         first_name: 'PluginTest',
@@ -384,9 +375,9 @@ export const createUser = async (pgClient: Pool, distinctId: string) => {
     return user.id
 }
 
-export const createOrganizationMembership = async (pgClient: Pool, organizationId: string, userId: number) => {
+export const createOrganizationMembership = async (organizationId: string, userId: number) => {
     const membershipId = new UUIDT().toString()
-    const membership = await insertRow(pgClient, 'posthog_organizationmembership', {
+    const membership = await insertRow('posthog_organizationmembership', {
         id: membershipId,
         organization_id: organizationId,
         user_id: userId,

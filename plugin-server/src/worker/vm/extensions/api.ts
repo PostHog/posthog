@@ -28,7 +28,7 @@ enum ApiMethod {
     Delete = 'DELETE',
 }
 
-export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension {
+export function createApi(server: Hub, teamId: number): ApiExtension {
     const sendRequest = async (path: string, method: ApiMethod, options?: ApiMethodOptions): Promise<Response> => {
         options = options ?? ({} as ApiMethodOptions)
 
@@ -53,7 +53,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
         if (options.projectApiKey) {
             tokenParam.token = options.projectApiKey
         } else {
-            const team = await server.teamManager.fetchTeam(pluginConfig.team_id)
+            const team = await server.teamManager.fetchTeam(teamId)
             if (!team) {
                 throw new Error('Unable to determine project')
             }
@@ -67,7 +67,7 @@ export function createApi(server: Hub, pluginConfig: PluginConfig): ApiExtension
                 ? { ...options.data, ...tokenParam }
                 : tokenParam
         )
-        const url = `${host}/${path.replace('@current', pluginConfig.team_id.toString())}${
+        const url = `${host}/${path.replace('@current', teamId.toString())}${
             path.includes('?') ? '&' : '?'
         }${urlParams.toString()}`
 

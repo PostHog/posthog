@@ -25,7 +25,7 @@ describe('server', () => {
 
     function createPluginServer(
         config: Partial<PluginsServerConfig> = {},
-        capabilities: PluginServerCapabilities | null = null
+        capabilities: PluginServerCapabilities | undefined = undefined
     ) {
         return startPluginsServer(
             {
@@ -93,7 +93,7 @@ describe('server', () => {
 
         expect(numberOfScheduledJobs()).toBeGreaterThan(1)
 
-        await pluginsServer.stop()
+        await pluginsServer?.stop()
         pluginsServer = null
 
         expect(numberOfScheduledJobs()).toEqual(0)

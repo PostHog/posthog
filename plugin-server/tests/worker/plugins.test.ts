@@ -32,11 +32,12 @@ jest.setTimeout(20_000)
 describe('plugins', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamId: number
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
-        await resetTestDatabase()
+        ;({ teamId } = await resetTestDatabase())
     })
 
     afterEach(async () => {

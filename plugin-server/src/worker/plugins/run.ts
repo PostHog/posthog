@@ -4,6 +4,7 @@ import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { instrument } from '../../utils/metrics'
 import { runRetriableFunction } from '../../utils/retries'
+import { status } from '../../utils/status'
 import { IllegalOperationError } from '../../utils/utils'
 
 export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise<void> {
@@ -84,6 +85,7 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     const pluginsDeferred = []
     const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
     for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
+        status.debug('🔌', `Running processEvent`, { name: pluginConfig.plugin?.name, pluginConfigId: pluginConfig.id })
         if (processEvent) {
             const timer = new Date()
             const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
@@ -115,6 +117,10 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     successes: 1,
                 })
             } catch (error) {
+                status.debug('🔌', `Error running processEvent`, {
+                    name: pluginConfig.plugin?.name,
+                    stack: error.stack,
+                })
                 await processError(hub, pluginConfig, error, returnedEvent)
                 hub.statsd?.increment(`plugin.process_event.ERROR`, {
                     plugin: pluginConfig.plugin?.name ?? '?',

@@ -3,7 +3,6 @@ import http from 'http'
 import { startPluginsServer } from '../src/main/pluginsServer'
 import { HTTP_SERVER_PORT } from '../src/main/services/http-server'
 import { makePiscina } from '../src/worker/piscina'
-import { resetTestDatabase } from './helpers/sql'
 
 jest.mock('../src/utils/status')
 jest.mock('../src/utils/db/sql')
@@ -24,14 +23,6 @@ describe('http server', () => {
     // these should simply pass under normal conditions
     describe('health and readiness checks', () => {
         test('_health', async () => {
-            const testCode = `
-                async function processEvent (event) {
-                    return event
-                }
-            `
-
-            await resetTestDatabase(testCode)
-
             const pluginsServer = await startPluginsServer(
                 {
                     WORKER_CONCURRENCY: 0,
@@ -52,14 +43,6 @@ describe('http server', () => {
         })
 
         test('_ready', async () => {
-            const testCode = `
-                async function processEvent (event) {
-                    return event
-                }
-            `
-
-            await resetTestDatabase(testCode)
-
             const pluginsServer = await startPluginsServer(
                 {
                     WORKER_CONCURRENCY: 0,
