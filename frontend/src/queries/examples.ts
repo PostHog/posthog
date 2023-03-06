@@ -267,7 +267,26 @@ const InsightLifecycleQuery: LifecycleQuery = {
     },
 }
 
-const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
+const TimeToSeeDataSessionsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    columns: [
+        'session_id',
+        'session_start',
+        'session_end',
+        'duration_ms',
+        'team_events_last_month',
+        'events_count',
+        'interactions_count',
+        'total_interaction_time_to_see_data_ms',
+        'frustrating_interactions_count',
+        'user.email',
+    ],
+    source: {
+        kind: NodeKind.TimeToSeeDataSessionsQuery,
+    },
+}
+
+const TimeToSeeDataSessionsJSON: TimeToSeeDataSessionsQuery = {
     kind: NodeKind.TimeToSeeDataSessionsQuery,
 }
 
@@ -308,7 +327,21 @@ const HogQL: HogQLQuery = {
 const HogQLTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     full: true,
-    source: HogQL,
+    source: {
+        kind: NodeKind.HogQLQuery,
+        query: `   select event,
+          person.properties.email,
+          properties.$browser,
+          count()
+     from events
+    where timestamp > now () - interval 1 month
+      and person.properties.email is not null
+ group by event,
+          properties.$browser,
+          person.properties.email
+ order by count() desc
+    limit 100`,
+    },
 }
 
 export const examples: Record<string, Node> = {
@@ -328,7 +361,8 @@ export const examples: Record<string, Node> = {
     InsightPathsQuery,
     InsightStickinessQuery,
     InsightLifecycleQuery,
-    TimeToSeeDataSessions,
+    TimeToSeeDataSessionsTable,
+    TimeToSeeDataSessionsJSON,
     TimeToSeeDataWaterfall,
     TimeToSeeDataJSON,
     HogQL,

@@ -13,13 +13,17 @@ from typing import (
     cast,
 )
 
+from clickhouse_driver.context import Context
 from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
-from posthog.hogql.hogql import HogQLContext, translate_hogql
+from posthog.hogql import ast
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.parser import parse_expr
+from posthog.hogql.visitor import TraversingVisitor
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -74,7 +78,6 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
-
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -551,6 +554,27 @@ def property_table(property: Property) -> TableWithProperties:
         raise ValueError(f"Property type does not have a table: {property.type}")
 
 
+def escape_param_for_clickhouse(param: Any) -> str:
+    """
+    Escape a parameter for ClickHouse. This uses the `escape_param` function
+    from the `clickhouse-driver` package, but passes an empty `Context` object
+    to it. Prior to
+    https://github.com/mymarilyn/clickhouse-driver/commit/87090902f0270ed51a0b6754d5cbf0dc8544ec4b
+    the `escape_param` function didn't take a `Context` object. As of
+    `clickhouse-driver` 0.2.4 all it uses the context for is to determine the
+    "server" timezone, so passing an empty context maintains the existing
+    behaviour of `clickhouse-driver` 0.2.1, the version we were previously
+    using.
+
+    NOTE: this change is necessary because the `clickhouse-driver` package up to
+    0.2.3 uses an invalid `python_requires` in it's `setup.py` at least for
+    recent versions of setuptools. This was highlighted as a consequence of
+    upgrading to Python 3.10. See
+    https://github.com/mymarilyn/clickhouse-driver/pull/291 for further context.
+    """
+    return escape_param(param, Context())
+
+
 def get_single_or_multi_property_string_expr(
     breakdown,
     table: TableWithProperties,
@@ -578,7 +602,7 @@ def get_single_or_multi_property_string_expr(
         expression, _ = get_property_string_expr(
             table,
             str(breakdown),
-            escape_param(breakdown),
+            escape_param_for_clickhouse(breakdown),
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
@@ -591,7 +615,7 @@ def get_single_or_multi_property_string_expr(
             expr, _ = get_property_string_expr(
                 table,
                 b,
-                escape_param(b),
+                escape_param_for_clickhouse(b),
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
@@ -769,16 +793,36 @@ def build_selector_regex(selector: Selector) -> str:
 
 def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     counters: List[tuple] = []
+
+    class PropertyChecker(TraversingVisitor):
+        def __init__(self):
+            self.event_properties: List[str] = []
+            self.person_properties: List[str] = []
+
+        def visit_field(self, node: ast.Field):
+            if len(node.chain) > 1 and node.chain[0] == "properties":
+                self.event_properties.append(node.chain[1])
+
+            if len(node.chain) > 2 and node.chain[0] == "person" and node.chain[1] == "properties":
+                self.person_properties.append(node.chain[2])
+
+            if (
+                len(node.chain) > 3
+                and node.chain[0] == "pdi"
+                and node.chain[1] == "person"
+                and node.chain[2] == "properties"
+            ):
+                self.person_properties.append(node.chain[3])
+
     for prop in props:
         if prop.type == "hogql":
-            context = HogQLContext()
-            # TODO: Refactor this. Currently it prints and discards a query, just to check the properties.
-            translate_hogql(prop.key, context)
-            for field_access in context.field_access_logs:
-                if field_access.type == "event.properties":
-                    counters.append((field_access.field, "event", None))
-                elif field_access.type == "person.properties":
-                    counters.append((field_access.field, "person", None))
+            node = parse_expr(prop.key)
+            property_checker = PropertyChecker()
+            property_checker.visit(node)
+            for field in property_checker.event_properties:
+                counters.append((field, "event", None))
+            for field in property_checker.person_properties:
+                counters.append((field, "person", None))
         else:
             counters.append((prop.key, prop.type, prop.group_type_index))
     return Counter(cast(Iterable, counters))

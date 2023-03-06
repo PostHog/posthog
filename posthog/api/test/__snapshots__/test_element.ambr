@@ -105,7 +105,7 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:RATE_LIMIT_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:HEATMAP_SAMPLE_N'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='element-stats',route='api/element/stats/%3F%24'*/
   '

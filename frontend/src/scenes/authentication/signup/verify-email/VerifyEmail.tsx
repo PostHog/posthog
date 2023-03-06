@@ -68,7 +68,6 @@ export function VerifyEmail(): JSX.Element {
                                     <HeartHog className="w-full h-full" />
                                 </div>
                                 <p>Thanks for verifying your email address. Now taking you to PostHog...</p>
-                                <VerifyEmailHelpLinks />
                             </>
                         ) : view === 'invalid' ? (
                             <>

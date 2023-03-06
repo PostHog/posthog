@@ -1,55 +1,43 @@
-import { EditorFilterProps, InsightType } from '~/types'
-import './LifecycleToggles.scss'
-import { LemonSwitch } from '@posthog/lemon-ui'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { EditorFilterProps } from '~/types'
+import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 
-const DEFAULT_SAMPLING_FACTOR = 0.1
+import { IconInfo } from 'lib/lemon-ui/icons'
+import { AVAILABLE_SAMPLING_PERCENTAGES, samplingFilterLogic } from './samplingFilterLogic'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-export function SamplingFilter({ filters: editorFilters, insightProps }: EditorFilterProps): JSX.Element {
-    const initializedInsightLogic = insightLogic(insightProps)
-    const initializedFunnelLogic = funnelLogic(insightProps)
+export function SamplingFilter({ filters, insightProps }: EditorFilterProps): JSX.Element {
+    const logic = samplingFilterLogic({ insightType: filters.insight, insightProps })
 
-    const { setFilters: setInsightFilters } = useActions(initializedInsightLogic)
-    const { setFilters: setFunnelFilters } = useActions(initializedFunnelLogic)
+    const { setSamplingPercentage } = useActions(logic)
+    const { samplingPercentage, samplingAvailable } = useValues(logic)
 
-    const { filters } = useValues(initializedInsightLogic)
-
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    // Sampling is currently behind a feature flag and only available on lifecycle queries
-    const insightSupportsSampling =
-        featureFlags[FEATURE_FLAGS.SAMPLING] &&
-        (editorFilters.insight === InsightType.LIFECYCLE || editorFilters.insight === InsightType.FUNNELS)
-
-    if (insightSupportsSampling) {
+    if (samplingAvailable) {
         return (
             <>
+                <span>
+                    <b>Sampling percentage</b>{' '}
+                    <Tooltip
+                        title="Sampling computes the result on only a subset of the data, making insights load significantly
+                            faster."
+                    >
+                        <Link to="https://posthog.com/manual/sampling" target="_blank">
+                            <IconInfo className="text-xl text-muted-alt shrink-0" />
+                        </Link>
+                    </Tooltip>
+                </span>
                 <div className="SamplingFilter">
-                    <LemonSwitch
-                        checked={!!filters.sampling_factor}
-                        label={
-                            <>
-                                <span>Show sampled results</span>
-                            </>
-                        }
-                        onChange={(newChecked) => {
-                            if (editorFilters.insight === InsightType.FUNNELS) {
-                                setFunnelFilters({
-                                    ...filters,
-                                    sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null,
-                                })
-                                return
-                            }
-                            setInsightFilters({
-                                ...filters,
-                                sampling_factor: newChecked ? DEFAULT_SAMPLING_FACTOR : null,
-                            })
-                        }}
-                    />
+                    <div className="flex items-center gap-2">
+                        {AVAILABLE_SAMPLING_PERCENTAGES.map((percentage, key) => (
+                            <LemonButton
+                                key={key}
+                                type="secondary"
+                                size="small"
+                                active={samplingPercentage === percentage}
+                                onClick={() => setSamplingPercentage(percentage)}
+                            >{`${percentage}%`}</LemonButton>
+                        ))}
+                    </div>
                 </div>
             </>
         )

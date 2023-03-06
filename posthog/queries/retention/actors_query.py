@@ -5,7 +5,7 @@ from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.retention.event_query import RetentionEventsQuery
+from posthog.queries.retention.retention_events_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_ACTOR_SQL
 from posthog.queries.retention.types import BreakdownValues
 

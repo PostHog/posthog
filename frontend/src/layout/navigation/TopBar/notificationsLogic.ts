@@ -8,7 +8,7 @@ import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 
 const POLL_TIMEOUT = 5 * 60 * 1000
-const MARK_READ_TIMEOUT = 7500
+const MARK_READ_TIMEOUT = 2500
 
 export const notificationsLogic = kea<notificationsLogicType>([
     path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
@@ -19,11 +19,15 @@ export const notificationsLogic = kea<notificationsLogicType>([
         setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
         incrementErrorCount: true,
         clearErrorCount: true,
+        markAllAsRead: true,
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
             [] as HumanizedActivityLogItem[],
             {
+                markAllAsRead: () => {
+                    return values.importantChanges.map((ic) => ({ ...ic, unread: false }))
+                },
                 loadImportantChanges: async (_, breakpoint) => {
                     await breakpoint(1)
 
@@ -95,6 +99,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                                     bookmark: bookmarkDate,
                                 }
                             )
+                            actions.markAllAsRead()
                         }, MARK_READ_TIMEOUT)
                     )
                 }

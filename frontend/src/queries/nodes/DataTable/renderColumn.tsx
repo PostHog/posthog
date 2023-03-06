@@ -7,7 +7,7 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { DataTableNode, HasPropertiesNode, QueryContext } from '~/queries/schema'
-import { isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isHogQLQuery, isPersonsNode, isTimeToSeeDataSessionsQuery } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
@@ -28,6 +28,18 @@ export function renderColumn(
         return <Spinner />
     } else if (value === errorColumn) {
         return <LemonTag color="red">Error</LemonTag>
+    } else if (isHogQLQuery(query.source)) {
+        if (typeof value === 'string') {
+            try {
+                if ((value.startsWith('{') && value.endsWith('}')) || (value.startsWith('[') && value.endsWith(']'))) {
+                    return <ReactJson src={JSON.parse(value)} name={key} collapsed={1} />
+                }
+            } catch (e) {}
+            if (value.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}/)) {
+                return <TZLabel time={value} showSeconds />
+            }
+        }
+        return <Property value={value} />
     } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
@@ -45,7 +57,7 @@ export function renderColumn(
                 content
             )
         }
-    } else if (key === 'timestamp' || key === 'created_at') {
+    } else if (key === 'timestamp' || key === 'created_at' || key === 'session_start' || key === 'session_end') {
         return <TZLabel time={value} showSeconds />
     } else if (!Array.isArray(record) && key.startsWith('properties.')) {
         const propertyKey = key.substring(11)
@@ -170,6 +182,9 @@ export function renderColumn(
                 {String(value)}
             </CopyToClipboardInline>
         )
+    } else if (key.startsWith('user.') && isTimeToSeeDataSessionsQuery(query.source)) {
+        const [parent, child] = key.split('.')
+        return typeof record === 'object' ? record[parent][child] : 'unknown'
     } else {
         if (typeof value === 'object' && value !== null) {
             return <ReactJson src={value} name={key} collapsed={1} />

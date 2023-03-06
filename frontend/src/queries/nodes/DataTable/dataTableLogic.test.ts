@@ -45,7 +45,7 @@ describe('dataTableLogic', () => {
             response: randomResponse,
         })
 
-        expect(query).toHaveBeenCalledWith(dataTableQuery.source, expect.anything(), false)
+        expect(query).toHaveBeenCalledWith(dataTableQuery.source, expect.anything(), false, expect.any(String))
         expect(query).toHaveBeenCalledTimes(1)
     })
 
@@ -75,7 +75,7 @@ describe('dataTableLogic', () => {
         logic.mount()
         await expectLogic(logic).toMatchValues({
             sourceKind: NodeKind.EventsQuery,
-            orderBy: ['-timestamp'],
+            orderBy: ['timestamp DESC'],
         })
 
         // change props
