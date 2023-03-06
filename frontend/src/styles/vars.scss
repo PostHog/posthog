@@ -113,16 +113,19 @@ $colors: (
 
     // PostHog 3000
     'text-3000-light': #111,
+    'muted-3000-light': rgba(#111, 0.5),
     'accent-3000-light': #e5e7e0,
     'bg-3000-light': #eeefe9,
     'border-3000-light': #d0d1c9,
 
     'text-3000-dark': #fff,
+    'muted-3000-dark': rgba(#fff, 0.5),
     'accent-3000-dark': #151619,
     'bg-3000-dark': #1d1f27,
     'border-3000-dark': #2b2c32,
 
-    'text-3000': var(--text-3000-light),
+    'text-3000': var(--text-3000),
+    'muted-3000': var(--muted-3000),
     'accent-3000': var(--accent-3000-light),
     'bg-3000': var(--bg-3000-light),
     'border-3000': var(--border-3000-light)
@@ -275,7 +278,7 @@ $_lifecycle_dormant: #f86234;
     // Update and override from react-toastify
     // which attaches these variables to :root
     // which means they aren't available in the toolbar
-    --toastify-color-light: #fff;
+    --toastify-color-light: var(--bg-light);
     --toastify-color-info: var(--primary);
     --toastify-color-success: var(--success);
     --toastify-color-warning: var(--warning);

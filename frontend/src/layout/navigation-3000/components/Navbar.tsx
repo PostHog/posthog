@@ -6,10 +6,12 @@ import {
     IconCohort,
     IconComment,
     IconCottage,
+    IconDarkMode,
     IconExperiment,
     IconFlag,
     IconGauge,
     IconHelpOutline,
+    IconLightMode,
     IconLive,
     IconPerson,
     IconRecording,
@@ -23,12 +25,15 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
+import { themeLogic } from '../themeLogic'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {
     const { user } = useValues(userLogic)
     const { isSitePopoverOpen } = useValues(navigationLogic)
     const { closeSitePopover, toggleSitePopover } = useActions(navigationLogic)
+    const { isDarkModeOn } = useValues(themeLogic)
+    const { toggleDarkMode } = useActions(themeLogic)
 
     return (
         <nav className="Navbar3000">
@@ -73,6 +78,12 @@ export function Navbar(): JSX.Element {
                 </div>
                 <div className="Navbar3000__bottom">
                     <ul>
+                        <NavbarButton
+                            icon={isDarkModeOn ? <IconDarkMode /> : <IconLightMode />}
+                            identifier="theme-button"
+                            title={isDarkModeOn ? 'Switch to light mode' : 'Switch to dark mode'}
+                            onClick={() => toggleDarkMode()}
+                        />
                         <HelpButton
                             customComponent={
                                 <NavbarButton
