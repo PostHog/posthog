@@ -21,6 +21,8 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team, User
 from posthog.models.event.events_query import run_events_query
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
+from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.schema import EventsQuery, HogQLQuery, RecentPerformancePageViewNode
 from posthog.utils import relative_date_parse
@@ -89,6 +91,21 @@ class QueryViewSet(StructuredViewSetMixin, viewsets.ViewSet):
                 )
 
                 return JsonResponse(results, safe=False)  # allow non-dict responses with safe=False
+            elif query_kind == "TimeToSeeDataSessionsQuery":
+                sessions_query_serializer = SessionsQuerySerializer(data=query_json)
+                sessions_query_serializer.is_valid(raise_exception=True)
+                return JsonResponse(get_sessions(sessions_query_serializer).data, safe=False)
+            elif query_kind == "TimeToSeeDataQuery":
+                serializer = SessionEventsQuerySerializer(
+                    data={
+                        "team_id": team.pk,
+                        "session_start": query_json["sessionStart"],
+                        "session_end": query_json["sessionEnd"],
+                        "session_id": query_json["sessionId"],
+                    }
+                )
+                serializer.is_valid(raise_exception=True)
+                return JsonResponse(get_session_events(serializer), safe=False)
             else:
                 raise ValidationError("Unsupported query kind: %s" % query_kind)
         except Exception as e:

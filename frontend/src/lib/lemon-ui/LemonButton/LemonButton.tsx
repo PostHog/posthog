@@ -21,7 +21,7 @@ export interface LemonButtonPropsBase
     /** What color scheme the button should follow
      * orange is a temporary variable only for year in posthog
      * */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'orange'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth' | 'orange' | 'default-dark'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */

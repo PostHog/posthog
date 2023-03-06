@@ -236,6 +236,8 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                 <ConfigProvider
                     renderEmpty={() => (
                         <FunnelCorrelationTableEmptyState
+                            infoMessage="Correlated events highlights events users have also performed that are likely to have affected their conversion
+                            rate within the funnel."
                             showLoadResultsButton={!loadedEventCorrelationsTableOnce}
                             loadResults={() => loadEventCorrelations({})}
                         />

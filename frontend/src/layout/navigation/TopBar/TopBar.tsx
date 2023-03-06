@@ -77,7 +77,7 @@ export function TopBar(): JSX.Element {
                         <Tooltip
                             title={
                                 !globalSessionFilters.sampling_factor
-                                    ? 'Turning on lightning mode will automatically enable 10% sampling for all insights you refresh, speeding up the calculation of results'
+                                    ? 'Turning on lightning mode will automatically enable 10% sampling for all new insights, speeding up the calculation of results'
                                     : ''
                             }
                             placement="bottom"
