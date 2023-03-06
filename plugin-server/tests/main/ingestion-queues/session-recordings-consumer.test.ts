@@ -67,6 +67,9 @@ describe('session-recordings-consumer', () => {
                 heartbeat: jest.fn(),
             })
         ).rejects.toEqual(new DependencyUnavailableError('KafkaJSError', 'Kafka', error))
+
+        // Should _not_ have retried or sent to DLQ.
+        expect(mockProduce).toHaveBeenCalledTimes(1)
     })
 
     test('eachBatch emits to DLQ and returns on unrecoverable KafkaJS errors', async () => {
@@ -86,5 +89,8 @@ describe('session-recordings-consumer', () => {
             } as any,
             heartbeat: jest.fn(),
         })
+
+        // Should have send to the DLQ.
+        expect(mockProduce).toHaveBeenCalledTimes(2)
     })
 })
