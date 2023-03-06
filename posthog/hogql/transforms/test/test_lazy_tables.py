@@ -101,6 +101,11 @@ class TestLazyTables(BaseTest):
         )
         self.assertEqual(printed, expected)
 
+    def test_resolve_lazy_tables_two_levels_properties_duplicate(self):
+        printed = self._print_select("select event, person.properties, person.properties.name from events")
+        expected = ""
+        self.assertEqual(printed, expected)
+
     def _print_select(self, select: str):
         expr = parse_select(select)
         return print_ast(expr, HogQLContext(select_team_id=42), "clickhouse")
