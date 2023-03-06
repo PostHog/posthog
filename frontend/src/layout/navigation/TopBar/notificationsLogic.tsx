@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
@@ -6,7 +6,6 @@ import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/compone
 
 import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dayjs } from 'lib/dayjs'
 import ReactMarkdown from 'react-markdown'
 import posthog from 'posthog-js'
@@ -26,7 +25,6 @@ export interface ChangesResponse {
 
 export const notificationsLogic = kea<notificationsLogicType>([
     path(['layout', 'navigation', 'TopBar', 'notificationsLogic']),
-    connect({ values: [featureFlagLogic, ['payloadForKey']] }),
     actions({
         toggleNotificationsPopover: true,
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),

@@ -86,15 +86,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>({
         ],
     },
 
-    selectors: {
-        payloadForKey: [
-            () => [],
-            () => (key: string) => {
-                return posthog.getFeatureFlagPayload(key)
-            },
-        ],
-    },
-
     events: ({ actions }) => ({
         afterMount: () => {
             posthog.onFeatureFlags(actions.setFeatureFlags)
