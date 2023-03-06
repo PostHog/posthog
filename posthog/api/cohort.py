@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime
-from typing import Any, Dict, cast
+from typing import Any, Dict, Optional, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -52,7 +52,7 @@ from posthog.tasks.calculate_cohort import (
     calculate_cohort_from_list,
     insert_cohort_from_insight_filter,
 )
-from posthog.utils import format_query_params_absolute_url
+from posthog.utils import format_query_params_from_absolute_url
 
 
 class CohortSerializer(serializers.ModelSerializer):
@@ -227,37 +227,82 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         filter = Filter(request=request, team=self.team)
 
         is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
-        if is_csv_request and not filter.limit:
-            filter = filter.shallow_clone({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
-        elif not filter.limit:
-            filter = filter.shallow_clone({LIMIT: 100})
 
-        query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
-
-        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
-        actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10 if is_csv_request else None)
-
-        _should_paginate = len(actor_ids) >= filter.limit
-        next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
-        previous_url = (
-            format_query_params_absolute_url(request, filter.offset - filter.limit)
-            if filter.offset - filter.limit >= 0
-            else None
+        return Response(
+            get_cohort_persons_csv(
+                filter,
+                team.pk,
+                cohort,
+                request.build_absolute_uri(),
+                default_filter_limit={LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0} if is_csv_request else {LIMIT: 100},
+                distinct_id_limit=10 if is_csv_request else None,
+            )
         )
-        if is_csv_request:
-            KEYS_ORDER = ["id", "email", "name", "created_at", "properties", "distinct_ids"]
-            DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
-            for actor in serialized_actors:
-                if actor["properties"].get("email"):
-                    actor["email"] = actor["properties"]["email"]  # type: ignore
-                    del actor["properties"]["email"]
-            serialized_actors = [
-                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
-                for actor in serialized_actors
-            ]
 
-        return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
+
+KEYS_ORDER = ["id", "email", "name", "created_at", "properties", "distinct_ids"]
+DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
+
+
+def get_cohort_persons_csv(
+    filter: Filter,
+    team_pk: int,
+    cohort: Cohort,
+    url_to_format: str,
+    default_filter_limit: Dict,
+    distinct_id_limit: Optional[int] = 10,
+) -> Dict[str, Any]:
+    json_results = get_cohort_persons_json(
+        filter, team_pk, cohort, url_to_format, default_filter_limit, distinct_id_limit
+    )
+
+    for actor in json_results["results"]:
+        if actor["properties"].get("email"):
+            actor["email"] = actor["properties"]["email"]
+            del actor["properties"]["email"]
+
+    serialized_actors = [
+        {
+            k: v
+            for k, v in sorted(
+                actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999
+            )
+            if k not in DELETE_KEYS
+        }
+        for actor in json_results["results"]
+    ]
+
+    return {"results": serialized_actors, "next": json_results["next"], "previous": json_results["previous"]}
+
+
+def get_cohort_persons_json(
+    filter: Filter,
+    team_pk: int,
+    cohort: Cohort,
+    url_to_format: str,
+    default_filter_limit: Dict,
+    distinct_id_limit: Optional[int] = None,
+) -> Dict[str, Any]:
+    if not filter.limit:
+        filter = filter.shallow_clone(default_filter_limit)
+
+    query, params = PersonQuery(filter, team_pk, cohort=cohort).get_query(paginate=True)
+
+    raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
+    actor_ids = [row[0] for row in raw_result]
+    actors, serialized_actors = get_people(team_pk, actor_ids, distinct_id_limit=distinct_id_limit)
+
+    _should_paginate = len(actor_ids) >= filter.limit
+    next_url = (
+        format_query_params_from_absolute_url(url_to_format, filter.offset + filter.limit) if _should_paginate else None
+    )
+    previous_url = (
+        format_query_params_from_absolute_url(url_to_format, filter.offset - filter.limit)
+        if filter.offset - filter.limit >= 0
+        else None
+    )
+
+    return {"results": serialized_actors, "next": next_url, "previous": previous_url}
 
 
 class LegacyCohortViewSet(CohortViewSet):
