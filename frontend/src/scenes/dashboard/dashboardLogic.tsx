@@ -634,7 +634,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : undefined
             },
         ],
-        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
+        placement: [
+            () => [(_, props) => props.placement],
+            (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
+        ],
         apiUrl: [
             () => [(_, props) => props.id],
             (id) => {

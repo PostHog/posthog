@@ -1,6 +1,6 @@
 import { Hub } from '../src/types'
 import { getPluginServerCapabilities } from './capabilities'
-import { defaultConfig, formatConfigHelp } from './config/config'
+import { defaultConfig } from './config/config'
 import { healthcheckWithExit } from './healthcheck'
 import { initApp } from './init'
 import { GraphileWorker } from './main/graphile-worker/graphile-worker'
@@ -12,16 +12,13 @@ const { version } = require('../package.json')
 const { argv } = process
 
 enum AlternativeMode {
-    Help = 'HELP',
     Version = 'VRSN',
     Healthcheck = 'HLTH',
     Migrate = 'MGRT',
 }
 
 let alternativeMode: AlternativeMode | undefined
-if (argv.includes('--help') || argv.includes('-h')) {
-    alternativeMode = AlternativeMode.Help
-} else if (argv.includes('--version') || argv.includes('-v')) {
+if (argv.includes('--version') || argv.includes('-v')) {
     alternativeMode = AlternativeMode.Version
 } else if (argv.includes('--healthcheck')) {
     alternativeMode = AlternativeMode.Healthcheck
@@ -35,9 +32,6 @@ status.info('⚡', `@posthog/plugin-server v${version}`)
 
 switch (alternativeMode) {
     case AlternativeMode.Version:
-        break
-    case AlternativeMode.Help:
-        status.info('⚙️', `Supported configuration environment variables:\n${formatConfigHelp(7)}`)
         break
     case AlternativeMode.Healthcheck:
         void healthcheckWithExit()

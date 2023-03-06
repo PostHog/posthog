@@ -115,7 +115,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             },
             sorter: undefined, // using custom sorting code
             more:
-                showActions && isEventsQuery(query.source) ? (
+                !context?.readonly && showActions && isEventsQuery(query.source) ? (
                     <>
                         <div className="px-2 py-1">
                             <div className="font-mono font-bold">{extractExpressionComment(key)}</div>

@@ -1,6 +1,14 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { CompressionCodecs, CompressionTypes, KafkaJSError, Message, Producer, ProducerRecord } from 'kafkajs'
+import {
+    CompressionCodecs,
+    CompressionTypes,
+    KafkaJSError,
+    KafkaJSNumberOfRetriesExceeded,
+    Message,
+    Producer,
+    ProducerRecord,
+} from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 
@@ -148,9 +156,9 @@ export class KafkaProducerWrapper {
                     estimatedSize: batchSize,
                 })
 
-                if (err instanceof KafkaJSError) {
-                    if (err.retriable === true) {
-                        throw new DependencyUnavailableError(err.name, 'Kafka', err)
+                if (err instanceof KafkaJSNumberOfRetriesExceeded && err.cause instanceof KafkaJSError) {
+                    if (err.cause.retriable === true) {
+                        throw new DependencyUnavailableError(err.cause.name, 'Kafka', err.cause)
                     }
                 }
 
