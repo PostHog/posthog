@@ -1,5 +1,5 @@
 import dataclasses
-from typing import Dict, List, Optional, Union, cast
+from typing import Dict, List, Optional, cast
 
 from posthog.hogql import ast
 from posthog.hogql.ast import LazyTableSymbol
@@ -27,7 +27,7 @@ class JoinToAdd:
 class LazyTableResolver(TraversingVisitor):
     def __init__(self, stack: Optional[List[ast.SelectQuery]] = None, context: HogQLContext = None):
         super().__init__()
-        self.stack_of_fields: List[List[Union[ast.FieldSymbol, ast.PropertySymbol]]] = [[]] if stack else []
+        self.stack_of_fields: List[List[ast.FieldSymbol | ast.PropertySymbol]] = [[]] if stack else []
         self.context = context
 
     def _get_long_table_name(self, select: ast.SelectQuerySymbol, symbol: ast.BaseTableSymbol) -> str:
