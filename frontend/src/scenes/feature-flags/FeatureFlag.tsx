@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,6 +18,8 @@ import {
     IconPlusMini,
     IconSubArrowRight,
     IconErrorOutline,
+    IconUnfoldLess,
+    IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -29,10 +31,12 @@ import { userLogic } from 'scenes/userLogic'
 import {
     AnyPropertyFilter,
     AvailableFeature,
+    DashboardPlacement,
     EventsTableRowItem,
     PropertyFilterType,
     PropertyOperator,
     Resource,
+    FeatureFlagType,
 } from '~/types'
 import { Link } from 'lib/lemon-ui/Link'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -68,6 +72,9 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { tagsModel } from '~/models/tagsModel'
+import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -104,6 +111,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -159,7 +167,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <Divider />
+                        <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <AlertMessage type="warning">
                                 This feature flag is linked to an experiment. It's recommended to only make changes to
@@ -283,28 +291,45 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
-                        <Divider />
+                        <LemonDivider />
                         <FeatureFlagRollout />
-                        <Divider />
+                        <LemonDivider />
                         <FeatureFlagReleaseConditions />
-                        <Divider />
-                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
-                        {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                            <Card title="Permissions" className="mb-4">
-                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                    <ResourcePermission
-                                        resourceType={Resource.FEATURE_FLAGS}
-                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                        rolesToAdd={rolesToAdd}
-                                        addableRoles={addableRoles}
-                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                        onAdd={() => addAssociatedRoles()}
-                                        roles={derivedRoles}
-                                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                        canEdit={featureFlag.can_edit}
-                                    />
-                                </PayGateMini>
-                            </Card>
+                        <LemonDivider />
+                        <div>
+                            <LemonButton
+                                fullWidth
+                                status="default-dark"
+                                onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                                sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                            >
+                                <div>
+                                    <h3 className="l4">Advanced settings</h3>
+                                    <div className="text-muted mb-4 font-medium">Define who can modify this flag.</div>
+                                </div>
+                            </LemonButton>
+                        </div>
+                        {advancedSettingsExpanded && (
+                            <>
+                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
+                                {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    <Card title="Permissions" className="mb-4">
+                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                            <ResourcePermission
+                                                resourceType={Resource.FEATURE_FLAGS}
+                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                rolesToAdd={rolesToAdd}
+                                                addableRoles={addableRoles}
+                                                addableRolesLoading={unfilteredAddableRolesLoading}
+                                                onAdd={() => addAssociatedRoles()}
+                                                roles={derivedRoles}
+                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                canEdit={featureFlag.can_edit}
+                                            />
+                                        </PayGateMini>
+                                    </Card>
+                                )}
+                            </>
                         )}
 
                         <LemonDivider className="mt-8" />
@@ -471,7 +496,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             }
                                             key="usage"
                                         >
-                                            <UsageTab id={id} featureFlagKey={featureFlag.key} />
+                                            <UsageTab id={id} featureFlag={featureFlag} />
                                         </Tabs.TabPane>
                                     )}
                                     {featureFlag.id && (
@@ -506,7 +531,14 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     )
 }
 
-function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+function UsageTab({ featureFlag }: { id: string; featureFlag: FeatureFlagType }): JSX.Element {
+    const { key: featureFlagKey, usage_dashboard: dashboardId } = featureFlag
+    const { generateUsageDashboard } = useActions(featureFlagLogic)
+    const { featureFlagLoading } = useValues(featureFlagLogic)
+    const { receivedErrorsFromAPI } = useValues(
+        dashboardLogic({ id: dashboardId, placement: DashboardPlacement.FeatureFlag })
+    )
+    const connectedDashboardExists = dashboardId && !receivedErrorsFromAPI
     const propertyFilter: AnyPropertyFilter[] = [
         {
             key: '$feature_flag',
@@ -514,18 +546,27 @@ function UsageTab({ featureFlagKey }: { id: string; featureFlagKey: string }): J
             value: featureFlagKey,
             operator: PropertyOperator.Exact,
         },
-        {
-            key: '$feature_flag_response',
-            type: PropertyFilterType.Event,
-            value: 'is_set',
-            operator: PropertyOperator.IsSet,
-        },
     ]
 
     // TODO: reintegrate HogQL Editor
     return (
         <div>
-            <div className="mb-4">
+            {connectedDashboardExists ? (
+                <Dashboard id={dashboardId.toString()} placement={DashboardPlacement.FeatureFlag} />
+            ) : (
+                <div>
+                    <b>Dashboard</b>
+                    <div className="text-muted mb-2">{`There is currently no connected dashboard to this feature flag. If there was previously a connected dashboard, it may have been deleted.`}</div>
+                    {featureFlagLoading ? (
+                        <EmptyDashboardComponent loading={true} canEdit={false} />
+                    ) : (
+                        <LemonButton type={'primary'} onClick={() => generateUsageDashboard()}>
+                            Generate Usage Dashboard
+                        </LemonButton>
+                    )}
+                </div>
+            )}
+            <div className="mt-4 mb-4">
                 <b>Log</b>
                 <div className="text-muted">{`Feature flag calls for "${featureFlagKey}" will appear here`}</div>
             </div>
@@ -1295,10 +1336,10 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {readOnly ? (
                                 <LemonTag
                                     type={
-                                        group.properties?.length == 0
+                                        featureFlag.filters.groups.length == 1
                                             ? group.rollout_percentage == null || group.rollout_percentage == 100
                                                 ? 'highlight'
-                                                : 'default'
+                                                : 'caution'
                                             : 'none'
                                     }
                                 >

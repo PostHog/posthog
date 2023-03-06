@@ -112,7 +112,10 @@ export async function eachBatchIngestionWithOverflow(
 
         for (const message of kafkaMessages) {
             const pluginEvent = formPipelineEvent(message)
-            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
+            // NOTE: we need to ensure that we either use the team_id or the
+            // token whilst we haven't fully rolled out lightweight capture i.e.
+            // we can't rely on token being set.
+            const seenKey = `${pluginEvent.team_id ?? pluginEvent.token}:${pluginEvent.distinct_id}`
 
             // Events with a null key should have been produced to the the
             // KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW topic, so we shouldn't see them here as this consumer's
@@ -124,7 +127,8 @@ export async function eachBatchIngestionWithOverflow(
                 // We don't want to do it here to preserve the kafka offset handling
                 message.key = null
 
-                ingestionPartitionKeyOverflowed.labels(seenKey).inc()
+                // To reduce cardinality, we only use the `team_id` or `token` as label.
+                ingestionPartitionKeyOverflowed.labels(`${pluginEvent.team_id ?? pluginEvent.token}`).inc()
 
                 if (LoggingLimiter.consume(seenKey, 1) === true) {
                     status.warn('🪣', `Partition key ${seenKey} overflowed ingestion capacity`)

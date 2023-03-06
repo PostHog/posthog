@@ -83,6 +83,9 @@
                 },
                 {
                     "$ref": "#/definitions/HogQLQuery"
+                },
+                {
+                    "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                 }
             ]
         },
@@ -955,6 +958,12 @@
                         },
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "toggledLifecycles": {
+                            "items": {
+                                "$ref": "#/definitions/LifecycleToggle"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -1341,6 +1350,9 @@
                         },
                         {
                             "$ref": "#/definitions/HogQLQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/TimeToSeeDataSessionsQuery"
                         }
                     ],
                     "description": "Source of the events"
@@ -1745,7 +1757,7 @@
             "type": "string"
         },
         "FunnelConversionWindowTimeUnit": {
-            "enum": ["minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month"],
             "type": "string"
         },
         "FunnelLayout": {
@@ -2125,7 +2137,6 @@
                     "$ref": "#/definitions/ShownAsValue"
                 },
                 "toggledLifecycles": {
-                    "description": "Lifecycles that have been removed from display",
                     "items": {
                         "$ref": "#/definitions/LifecycleToggle"
                     },
@@ -2522,20 +2533,20 @@
         "RecentPerformancePageViewNode": {
             "additionalProperties": false,
             "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
                 "kind": {
                     "const": "RecentPerformancePageViewNode",
                     "description": "Performance",
                     "type": "string"
-                },
-                "numberOfDays": {
-                    "type": "number"
                 },
                 "response": {
                     "description": "Cached query response",
                     "type": "object"
                 }
             },
-            "required": ["kind"],
+            "required": ["dateRange", "kind"],
             "type": "object"
         },
         "RecordingDurationFilter": {
@@ -2777,7 +2788,10 @@
                 },
                 "response": {
                     "description": "Cached query response",
-                    "type": "object"
+                    "items": {
+                        "type": "object"
+                    },
+                    "type": "array"
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
