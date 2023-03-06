@@ -69,8 +69,6 @@ export const warnRecursiveDataPlugin: () => KeaPlugin = () => ({
                 } catch (e: any) {
                     if ((e.name = 'TypeError')) {
                         console.warn('KEA WARNING - action with recursive data structure detected: ', action, e)
-                    } else {
-                        throw e
                     }
                 }
 
