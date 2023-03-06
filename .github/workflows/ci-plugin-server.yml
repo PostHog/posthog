@@ -147,7 +147,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-              run: cd plugin-server && pnpm jest tests/
+              run: cd plugin-server && pnpm jest --maxWorkers=8 tests/
 
     functional-tests:
         name: Functional tests (POE_EMBRACE_JOIN_FOR_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}})
