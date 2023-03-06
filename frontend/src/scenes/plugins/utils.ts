@@ -2,6 +2,9 @@ import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import type { FormInstance } from 'antd/lib/form/hooks/useForm.d'
 import { PluginTypeWithConfig } from 'scenes/plugins/types'
 
+// Internal settings not exposed in the UI, but to be kept on save if present
+const PRESERVED_CONFIG_KEYS = ['exportEventsBufferBytes', 'exportEventsBufferSeconds']
+
 // Keep this in sync with: posthog/api/plugin.py
 export const SECRET_FIELD_VALUE = '**************** POSTHOG SECRET FIELD ****************'
 
@@ -52,8 +55,15 @@ export function getPluginConfigFormData(
     const configSchema = getConfigSchemaObject(editingPlugin.config_schema)
 
     const formData = new FormData()
-    const otherConfig: Record<string, any> = {}
     formData.append('enabled', Boolean(enabled).toString())
+
+    const otherConfig: Record<string, any> = {}
+    for (const key of PRESERVED_CONFIG_KEYS) {
+        if (editingPlugin.pluginConfig.config?.[key]) {
+            otherConfig[key] = editingPlugin.pluginConfig.config?.[key]
+        }
+    }
+
     for (const [key, value] of Object.entries(config)) {
         if (configSchema[key]?.type === 'attachment') {
             if (value && !value.saved) {
