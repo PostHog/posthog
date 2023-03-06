@@ -114,12 +114,12 @@ class LazyTableResolver(TraversingVisitor):
                     if isinstance(table_symbol, ast.LazyTableSymbol):
                         chain.append(table_symbol.resolve_database_table().hogql_table())
                     chain.append(field.name)
-                    if property is None:
-                        new_join.fields_accessed[field.name] = ast.Field(chain=chain)
-                    else:
+                    if property is not None:
                         chain.append(property.name)
                         property.joined_subquery_field_name = f"{field.name}___{property.name}"
                         new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
+                    else:
+                        new_join.fields_accessed[field.name] = ast.Field(chain=chain)
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
