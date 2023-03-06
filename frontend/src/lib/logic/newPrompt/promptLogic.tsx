@@ -20,15 +20,14 @@ function getLastSeenSessionStorageKey(): string {
 }
 
 function hasSeenPromptRecently(): boolean {
-    const lastSeenPoup = localStorage.getItem(getLastSeenSessionStorageKey())
-    const lastSeenPoupDate = lastSeenPoup ? new Date(lastSeenPoup) : null
-    const now = new Date()
-    const oneDayAgo = new Date(now)
-    oneDayAgo.setDate(now.getDate() - MINIMUM_DAYS_BETWEEN_PROMPTS)
+    const lastSeenPopup = localStorage.getItem(getLastSeenSessionStorageKey())
+    const lastSeenPopupDate = lastSeenPopup ? new Date(lastSeenPopup) : null
+    const oneDayAgo = new Date()
+    oneDayAgo.setDate(oneDayAgo.getDate() - MINIMUM_DAYS_BETWEEN_PROMPTS)
 
     let seenRecently = false
 
-    if (lastSeenPoupDate && lastSeenPoupDate > oneDayAgo) {
+    if (lastSeenPopupDate && lastSeenPopupDate > oneDayAgo) {
         seenRecently = true
     }
     return seenRecently
@@ -61,26 +60,16 @@ function sendPopupEvent(
     posthog.capture(event, properties)
 }
 
-function setTheOpenFlag(promptFlags: PromptFlag[], actions: any): void {
-    for (const promptFlag of promptFlags) {
-        if (!promptFlag.payload.url_match || window.location.href.match(promptFlag.payload.url_match)) {
-            if (shouldShowPopup(promptFlag.flag)) {
-                actions.setOpenPromptFlag(promptFlag)
-                return // only show one prompt at a time
-            }
-        }
-    }
-}
-
 export const promptLogic = kea<promptLogicType>([
-    path(['lib', 'logic', 'newPrompt']), // for some reason I couldn't add the promptLogic to the path
+    path(['lib', 'logic', 'newPrompt', 'promptLogic']),
     actions({
         closePrompt: (promptFlag: PromptFlag, buttonType: PromptButtonType) => ({ promptFlag, buttonType }),
         setPromptFlags: (promptFlags: PromptFlag[]) => ({ promptFlags }),
+        searchForValidFlags: true,
         setOpenPromptFlag: (promptFlag: PromptFlag) => ({ promptFlag }),
         // hide the prompt without sending an event or setting the localstorage
         // used for when the user navigates away from the page
-        hidePrompt: (promptFlag: PromptFlag) => ({ promptFlag }),
+        hidePromptWithoutSaving: (promptFlag: PromptFlag) => ({ promptFlag }),
     }),
     connect({
         actions: [featureFlagLogic, ['setFeatureFlags'], router, ['locationChanged']],
@@ -103,7 +92,7 @@ export const promptLogic = kea<promptLogicType>([
                         return { ...flag, showingPrompt: false }
                     })
                 },
-                hidePrompt: (promptFlags, { promptFlag }) => {
+                hidePromptWithoutSaving: (promptFlags, { promptFlag }) => {
                     return promptFlags.map((flag: PromptFlag) => {
                         if (flag.flag === promptFlag.flag) {
                             return { ...flag, showingPrompt: false }
@@ -133,8 +122,19 @@ export const promptLogic = kea<promptLogicType>([
                     })
                 }
             })
+            console.log(promptFlags)
             actions.setPromptFlags(promptFlags)
-            setTheOpenFlag(promptFlags, actions)
+            actions.searchForValidFlags()
+        },
+        searchForValidFlags: async () => {
+            for (const promptFlag of values.promptFlags) {
+                if (!promptFlag.payload.url_match || window.location.href.match(promptFlag.payload.url_match)) {
+                    if (shouldShowPopup(promptFlag.flag)) {
+                        actions.setOpenPromptFlag(promptFlag)
+                        return // only show one prompt at a time
+                    }
+                }
+            }
         },
         setOpenPromptFlag: async ({ promptFlag }, breakpoint) => {
             await breakpoint(1000)
@@ -156,11 +156,11 @@ export const promptLogic = kea<promptLogicType>([
             await breakpoint(100)
             if (values.openPromptFlag && values.openPromptFlag.payload.url_match) {
                 if (!window.location.href.match(values.openPromptFlag.payload.url_match)) {
-                    actions.hidePrompt(values.openPromptFlag)
+                    actions.hidePromptWithoutSaving(values.openPromptFlag)
                 }
             }
 
-            setTheOpenFlag(values.promptFlags, actions)
+            actions.searchForValidFlags()
         },
     })),
     selectors({

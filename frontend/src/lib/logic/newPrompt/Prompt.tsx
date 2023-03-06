@@ -23,11 +23,9 @@ export function ModalPrompt({
             footer={
                 (payload.secondaryButtonText || payload.primaryButtonText) && (
                     <div className="flex flex-wrap items-center w-full gap-4 justify-end">
-                        {
-                            <LemonButton onClick={() => closePrompt(openPromptFlag, 'secondary')} type="secondary">
-                                {payload.secondaryButtonText || 'Dismiss'}
-                            </LemonButton>
-                        }
+                        <LemonButton onClick={() => closePrompt(openPromptFlag, 'secondary')} type="secondary">
+                            {payload.secondaryButtonText || 'Dismiss'}
+                        </LemonButton>
                         {payload.primaryButtonText && (
                             <LemonButton onClick={() => closePrompt(openPromptFlag, 'primary')} type="primary">
                                 {payload.primaryButtonText}
