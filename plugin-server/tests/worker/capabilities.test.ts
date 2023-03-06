@@ -1,15 +1,17 @@
-import { Hub, LogLevel, PluginCapabilities } from '../../src/types'
+import { Hub, LogLevel, PluginCapabilities, PluginConfig } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { loadSchedule } from '../../src/worker/plugins/loadSchedule'
 import { setupPlugins } from '../../src/worker/plugins/setup'
 import { getVMPluginCapabilities, shouldSetupPluginInServer } from '../../src/worker/vm/capabilities'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { pluginConfig39 } from '../helpers/plugins'
+import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/worker/plugins/loadSchedule')
 jest.mock('../../src/worker/plugins/loadPluginsFromDB', () => ({
     loadPluginsFromDB: () => Promise.resolve({ plugins: [], pluginConfigs: [], pluginConfigsPerTeam: [] }),
 }))
+
+let pluginConfig39: PluginConfig
 
 describe('capabilities', () => {
     let hub: Hub
@@ -19,6 +21,7 @@ describe('capabilities', () => {
         console.info = jest.fn() as any
         console.warn = jest.fn() as any
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Warn })
+        ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase())
     })
 
     afterAll(async () => {

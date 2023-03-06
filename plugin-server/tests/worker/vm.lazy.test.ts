@@ -1,10 +1,10 @@
 import { RetryError } from '@posthog/plugin-scaffold'
 
-import { PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
+import { Plugin, PluginConfig, PluginLogEntrySource, PluginLogEntryType, PluginTaskType } from '../../src/types'
 import { status } from '../../src/utils/status'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { plugin60, pluginConfig39 } from '../helpers/plugins'
+import { resetTestDatabase } from '../helpers/sql'
 import { disablePlugin } from '../helpers/sqlMock'
 
 jest.mock('../../src/utils/db/error')
@@ -12,12 +12,12 @@ jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/sql')
 jest.mock('../../src/worker/vm/vm')
 
-const mockConfig = {
-    plugin_id: 60,
-    team_id: 2,
-    id: 39,
-    plugin: { ...plugin60 },
-}
+let plugin60: Plugin
+let pluginConfig39: PluginConfig
+
+beforeAll(async () => {
+    ;({ plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
+})
 
 describe('LazyPluginVM', () => {
     const db = {
@@ -36,7 +36,10 @@ describe('LazyPluginVM', () => {
     }
 
     const createVM = () => {
-        const lazyVm = new LazyPluginVM(mockServer, mockConfig as any)
+        const lazyVm = new LazyPluginVM(mockServer, {
+            ...pluginConfig39,
+            plugin: { ...plugin60 },
+        })
         lazyVm.ready = true
         return lazyVm
     }

@@ -7,9 +7,15 @@ import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
 import { createUtils } from '../../../../../src/worker/vm/extensions/utilities'
 import { addHistoricalEventsExportCapability } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events'
 import { ExportHistoricalEventsUpgrade } from '../../../../../src/worker/vm/upgrades/utils/utils'
-import { pluginConfig39 } from '../../../../helpers/plugins'
+import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
+
+let pluginConfig39
+
+beforeAll(async () => {
+    ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase())
+})
 
 describe('addHistoricalEventsExportCapability()', () => {
     let hub: Hub
@@ -68,7 +74,7 @@ describe('addHistoricalEventsExportCapability()', () => {
         const addOrUpdatePublicJobSpy = jest.spyOn(hub.db, 'addOrUpdatePublicJob')
         addCapabilities()
 
-        expect(addOrUpdatePublicJobSpy).toHaveBeenCalledWith(60, 'Export historical events', {
+        expect(addOrUpdatePublicJobSpy).toHaveBeenCalledWith(pluginConfig39.plugin_id, 'Export historical events', {
             payload: {
                 dateFrom: { required: true, title: 'Export start date', type: 'date' },
                 dateTo: { required: true, title: 'Export end date', type: 'date' },
@@ -87,7 +93,7 @@ describe('addHistoricalEventsExportCapability()', () => {
 
         addCapabilities()
 
-        expect(addOrUpdatePublicJobSpy).toHaveBeenCalledWith(60, 'Export historical events', {
+        expect(addOrUpdatePublicJobSpy).toHaveBeenCalledWith(pluginConfig39.plugin_id, 'Export historical events', {
             payload: {
                 dateFrom: { required: true, title: 'Export start date', type: 'date' },
                 dateTo: { required: true, title: 'Export end date', type: 'date' },

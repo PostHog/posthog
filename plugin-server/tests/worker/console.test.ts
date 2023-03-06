@@ -1,14 +1,16 @@
 import { ConsoleExtension } from '@posthog/plugin-scaffold'
 
 import { KAFKA_PLUGIN_LOG_ENTRIES } from '../../src/config/kafka-topics'
-import { Hub, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
+import { Hub, PluginConfig, PluginLogEntrySource, PluginLogEntryType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { createConsole } from '../../src/worker/vm/extensions/console'
-import { pluginConfig39 } from '../../tests/helpers/plugins'
+import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
 jest.mock('../../src/utils/status')
 jest.mock('../../src/utils/db/kafka-producer-wrapper')
+
+let pluginConfig39: PluginConfig
 
 describe('console extension', () => {
     let hub: Hub
@@ -16,6 +18,7 @@ describe('console extension', () => {
 
     beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
+        ;({ pluginConfig: pluginConfig39 } = await resetTestDatabase())
     })
 
     afterAll(async () => {

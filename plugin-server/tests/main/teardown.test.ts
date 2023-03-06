@@ -2,25 +2,26 @@ import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { startPluginsServer } from '../../src/main/pluginsServer'
-import { LogLevel } from '../../src/types'
+import { LogLevel, PluginConfig } from '../../src/types'
 import { delay } from '../../src/utils/utils'
 import { makePiscina } from '../../src/worker/piscina'
-import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 
-const defaultEvent: PluginEvent = {
+const defaultEvent = {
     uuid: '00000000-0000-0000-0000-000000000000',
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
-    team_id: 2,
     now: new Date().toISOString(),
     event: 'default event',
     properties: { key: 'value' },
 }
+
+let pluginConfig39: PluginConfig
+let teamId: number
 
 describe('teardown', () => {
     const processEvent = async (piscina: Piscina, event: PluginEvent) => {
@@ -30,7 +31,7 @@ describe('teardown', () => {
     }
 
     test('teardown code runs when stopping', async () => {
-        await resetTestDatabase(`
+        ;({ pluginConfig: pluginConfig39, teamId } = await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
@@ -39,7 +40,7 @@ describe('teardown', () => {
             async function teardownPlugin() {
                 throw new Error('This Happened In The Teardown Palace')
             }
-        `)
+        `))
         const { piscina, stop } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
@@ -51,7 +52,7 @@ describe('teardown', () => {
         const error1 = await getErrorForPluginConfig(pluginConfig39.id)
         expect(error1).toBe(null)
 
-        await processEvent(piscina, defaultEvent)
+        await processEvent(piscina, { ...defaultEvent, team_id: teamId })
 
         await stop()
 
@@ -61,7 +62,7 @@ describe('teardown', () => {
     })
 
     test('no need to tear down if plugin was never setup', async () => {
-        await resetTestDatabase(`
+        ;({ pluginConfig: pluginConfig39, teamId } = await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
@@ -70,7 +71,7 @@ describe('teardown', () => {
             async function teardownPlugin() {
                 throw new Error('This Happened In The Teardown Palace')
             }
-        `)
+        `))
         const { stop } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
@@ -91,7 +92,7 @@ describe('teardown', () => {
     })
 
     test('teardown code runs when reloading', async () => {
-        await resetTestDatabase(`
+        ;({ pluginConfig: pluginConfig39, teamId } = await resetTestDatabase(`
             async function processEvent (event, meta) {
                 event.properties.storage = await meta.storage.get('storage', 'nope')
                 return event
@@ -99,7 +100,7 @@ describe('teardown', () => {
             async function teardownPlugin(meta) {
                 await meta.storage.set('storage', 'tore down')
             }
-        `)
+        `))
         const { piscina, stop, hub } = await startPluginsServer(
             {
                 WORKER_CONCURRENCY: 2,
@@ -118,14 +119,14 @@ describe('teardown', () => {
             [pluginConfig39.id],
             'testTag'
         )
-        const event1 = await processEvent(piscina, defaultEvent)
+        const event1 = await processEvent(piscina, { ...defaultEvent, team_id: teamId })
         expect(event1.properties.storage).toBe('nope')
 
         await piscina!.broadcastTask({ task: 'reloadPlugins' })
         await delay(10000)
 
         // const event2 = await piscina!.run({ task: 'runEventPipeline', args: { event: { ...defaultEvent } } })
-        const event2 = await processEvent(piscina, defaultEvent)
+        const event2 = await processEvent(piscina, { ...defaultEvent, team_id: teamId })
         expect(event2.properties.storage).toBe('tore down')
 
         await stop()
