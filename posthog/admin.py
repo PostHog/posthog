@@ -94,11 +94,12 @@ class PluginConfigAdmin(admin.ModelAdmin):
     def team_name(self, config: PluginConfig):
         return format_html(f"{config.team.name} ({config.team_id})")
 
-def queryset(self, request):
-    """
-    Make sure we don't do a request for each row for the team and plugin.
-    """
-    return super().queryset(request).select_related('plugin', 'team')
+    def queryset(self, request):
+        """
+        Make sure we don't do a request for each row for the team and plugin.
+        """
+        return super().queryset(request).select_related("plugin", "team")
+
 
 class UserChangeForm(DjangoUserChangeForm):
     def __init__(self, *args, **kwargs):
