@@ -83,7 +83,7 @@ function emptyFilters(filters: Partial<FilterType> | undefined): boolean {
 
 export const createEmptyInsight = (
     insightId: InsightShortId | `new-${string}` | 'new',
-    baseFilters: Partial<FilterType>
+    baseFilters: Partial<FilterType> = {}
 ): Partial<InsightModel> => {
     return {
         short_id: insightId !== 'new' && !insightId.startsWith('new-') ? (insightId as InsightShortId) : undefined,
@@ -184,7 +184,6 @@ export const insightLogic = kea<insightLogicType>([
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
         abortAnyRunningQuery: true,
         acknowledgeRefreshButtonChanged: true,
-        setDefaultSamplingEnabled: (defaultSamplingEnabled: boolean) => ({ defaultSamplingEnabled }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -441,13 +440,6 @@ export const insightLogic = kea<insightLogicType>([
             null as number | null,
             {
                 highlightSeries: (_, { seriesIndex }) => seriesIndex,
-            },
-        ],
-        defaultSamplingEnabled: [
-            false,
-            { persist: true, storageKey: 'insightLogic.defaultSamplingEnabled' },
-            {
-                setDefaultSamplingEnabled: (_, { defaultSamplingEnabled }) => defaultSamplingEnabled,
             },
         ],
         insight: {
