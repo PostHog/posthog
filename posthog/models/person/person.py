@@ -111,7 +111,7 @@ class PersonOverrideHelper(models.Model):
         ]
 
     id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    team = models.BigIntegerField()
     uuid = models.UUIDField()
 
 

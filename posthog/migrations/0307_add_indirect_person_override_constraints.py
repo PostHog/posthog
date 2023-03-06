@@ -31,6 +31,7 @@ class Migration(migrations.Migration):
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("uuid", models.UUIDField()),
+                ("team", models.BigIntegerField()),
             ],
         ),
         migrations.RemoveConstraint(
@@ -42,11 +43,6 @@ class Migration(migrations.Migration):
             name="old_person_id_is_not_override_person_id",
         ),
         migrations.RunSQL(DROP_FUNCTION_FOR_CONSTRAINT_SQL, CREATE_FUNCTION_FOR_CONSTRAINT_SQL),
-        migrations.AddField(
-            model_name="personoverridehelper",
-            name="team",
-            field=models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
-        ),
         migrations.RemoveField(model_name="personoverride", name="old_person_id"),
         migrations.AddField(
             model_name="personoverride",
