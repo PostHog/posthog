@@ -2705,3 +2705,25 @@ export interface RecordingReportLoadTimes {
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
+
+export type PromptButtonType = 'primary' | 'secondary'
+export type PromptType = 'modal' | 'popup'
+
+export type PromptPayload = {
+    title: string
+    body: string
+    type: PromptType
+    image?: string
+    url_match?: string
+    primaryButtonText?: string
+    secondaryButtonText?: string
+    primaryButtonURL?: string
+}
+
+export type PromptFlag = {
+    flag: string
+    payload: PromptPayload
+    showingPrompt: boolean
+    locationCSS?: Partial<CSSStyleDeclaration>
+    tooltipCSS?: Partial<CSSStyleDeclaration>
+}
