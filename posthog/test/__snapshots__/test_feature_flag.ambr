@@ -146,6 +146,97 @@
          AND "posthog_person"."team_id" = 2)
   '
 ---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators
+  '
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') < '"310"'
+           OR ("posthog_person"."properties" -> 'Distinct Id') < '310')
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators.1
+  '
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') > '"305"'
+           OR ("posthog_person"."properties" -> 'Distinct Id') > '305')
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators.2
+  '
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') >= '"307"'
+           OR ("posthog_person"."properties" -> 'Distinct Id') >= '307')
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators.3
+  '
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') <= '"307"'
+           OR ("posthog_person"."properties" -> 'Distinct Id') <= '307')
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators.4
+  '
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') < '"40"'
+           OR ("posthog_person"."properties" -> 'Distinct Id') < '40')
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators.5
+  '
+  SELECT ((("posthog_person"."properties" -> 'Organizer Id') < '"30"'
+           OR ("posthog_person"."properties" -> 'Organizer Id') < '30')
+          AND "posthog_person"."properties" ? 'Organizer Id'
+          AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
+# name: TestFeatureFlagMatcher.test_db_matches_independent_of_string_or_number_type_with_math_operators.6
+  '
+  SELECT ((("posthog_person"."properties" -> 'Distinct Id') >= '"307"'
+           OR ("posthog_person"."properties" -> 'Distinct Id') >= '307')
+          AND "posthog_person"."properties" ? 'Distinct Id'
+          AND NOT (("posthog_person"."properties" -> 'Distinct Id') = 'null')) AS "flag_X_condition_0"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = 2
+         AND "posthog_person"."team_id" = 2)
+  '
+---
 # name: TestFeatureFlagMatcher.test_multiple_flags
   '
   SELECT "posthog_grouptypemapping"."id",

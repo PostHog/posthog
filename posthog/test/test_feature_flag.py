@@ -684,6 +684,133 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+    def test_db_matches_independent_of_string_or_number_type_with_math_operators(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "Distinct Id": 307,
+                "Organizer Id": "307",
+                "easy": 34,
+            },
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [{"properties": [{"key": "Distinct Id", "value": "310", "operator": "lt", "type": "person"}]}]
+            }
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Distinct Id", "value": "305", "operator": "gt", "type": "person"}]},
+                ]
+            },
+        )
+
+        feature_flag3 = self.create_feature_flag(
+            key="random2",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Distinct Id", "value": "307", "operator": "gte", "type": "person"}]},
+                ]
+            },
+        )
+
+        feature_flag4 = self.create_feature_flag(
+            key="random4",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Distinct Id", "value": "307", "operator": "lte", "type": "person"}]},
+                ]
+            },
+        )
+
+        feature_flag5 = self.create_feature_flag(
+            key="random5",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Distinct Id", "value": "40", "operator": "lt", "type": "person"}]},
+                ]
+            },
+        )
+
+        feature_flag6 = self.create_feature_flag(
+            key="random6",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Organizer Id", "value": "30", "operator": "lt", "type": "person"}]},
+                ]
+            },
+        )
+
+        from django.db import connection, reset_queries
+
+        reset_queries()
+
+        with connection.cursor() as cursor:
+            cursor.execute(f"""
+            SELECT ((
+                ("posthog_person"."properties" -> 'Organizer Id') < '"40"'
+        --    OR ("posthog_person"."properties" -> 'Organizer Id') < '300'
+        )
+          AND "posthog_person"."properties" ? 'Organizer Id'
+          AND NOT (("posthog_person"."properties" -> 'Organizer Id') = 'null')) AS "flag_X_condition_0",
+          ("posthog_person"."properties" -> 'Organizer Id') AS "flag_X_condition_0_value",
+          '"307"' < '"300"' AS "flag_X_condition_1",
+            '"307"' <= '300' AS "flag_X_condition_2"
+  FROM "posthog_person"
+  INNER JOIN "posthog_persondistinctid" ON ("posthog_person"."id" = "posthog_persondistinctid"."person_id")
+  WHERE ("posthog_persondistinctid"."distinct_id" = '307'
+         AND "posthog_persondistinctid"."team_id" = {self.team.pk}
+         AND "posthog_person"."team_id" = {self.team.pk})
+            """)
+            print(cursor.fetchall())
+        
+        from django.db.models.functions import Cast
+        from django.db.models import FloatField, F, IntegerField
+        print(Person.objects.filter(properties__easy=34).all())
+        print(Person.objects.annotate(org_id_as_float=Cast("properties__easy", output_field=IntegerField()))
+            .filter(org_id_as_float__lt=308).all())
+
+            # TODO: try this -> https://stackoverflow.com/questions/2082686/how-do-i-cast-a-string-to-integer-and-have-0-in-case-of-error-in-the-cast-with-p 
+            # i.e. case when regex like integer, then integer.
+            # what about floats?
+
+
+        with snapshot_postgres_queries_context(self):
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag2], "307").get_match(feature_flag2),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag3], "307").get_match(feature_flag3),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag4], "307").get_match(feature_flag4),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag5], "307").get_match(feature_flag5),
+                FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
+            self.assertEqual(
+                FeatureFlagMatcher([feature_flag6], "307").get_match(feature_flag6),
+                FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+                # FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+            )
+
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
         self.assertEqual(

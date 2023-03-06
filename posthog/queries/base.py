@@ -188,7 +188,17 @@ def empty_or_null_with_value_q(
                 f"{column}__{key}", value_as_coerced_to_number
             )
     else:
-        target_filter = Q(**{f"{column}__{key}__{operator}": value})
+        if value_as_given == value_as_coerced_to_number:
+            target_filter = Q(**{f"{column}__{key}__{operator}": value})
+        else:
+            from django.db.models.functions import Cast
+            from django.db.models import FloatField, F
+            print(column, key)
+            
+            target_filter = Q(**{f"{column}__{key}__{operator}": value}) | Q(
+            #     Cast(f"{column}__{key}", output_field=FloatField()) < value_as_coerced_to_number
+                **{f"{column}__{key}__{operator}": value_as_coerced_to_number}
+            )
 
     query_filter = Q(target_filter & Q(**{f"{column}__has_key": key}) & ~Q(**{f"{column}__{key}": None}))
 
