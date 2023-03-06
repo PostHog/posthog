@@ -139,8 +139,6 @@ class PersonOverride(models.Model):
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
-    # We don't want to delete rows before we had a chance to propagate updates to the events table.
-    # To reduce potential side-effects, these are not ForeingKeys.
     old_person_id: models.ForeignKey = models.ForeignKey(
         "PersonOverrideMapping",
         db_column="old_person_id",
