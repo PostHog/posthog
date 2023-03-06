@@ -4,7 +4,6 @@ import { Hub, PluginTaskType } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { pluginDigest } from '../../src/utils/utils'
 import { LazyPluginVM } from '../../src/worker/vm/lazy'
-import { plugin60, pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 describe('VMs are extra lazy 💤', () => {
@@ -29,7 +28,7 @@ describe('VMs are extra lazy 💤', () => {
             await fetch('https://onevent.com/')
         }
     `
-        await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
@@ -54,7 +53,7 @@ describe('VMs are extra lazy 💤', () => {
             }
         }
     `
-        await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
 
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
@@ -77,7 +76,7 @@ describe('VMs are extra lazy 💤', () => {
 
         }
     `
-        await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
         pluginConfig.vm = lazyVm
@@ -104,7 +103,7 @@ describe('VMs are extra lazy 💤', () => {
 
         export async function runEveryMinute () {}
     `
-        await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const pluginConfig = { ...pluginConfig39, plugin: plugin60 }
         const lazyVm = new LazyPluginVM(hub, pluginConfig)
         pluginConfig.vm = lazyVm

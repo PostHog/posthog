@@ -1,16 +1,15 @@
 import { Hub, PluginConfig, PluginConfigVMResponse } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { createPluginConfigVM, TimeoutError } from '../../src/worker/vm/vm'
-import { pluginConfig39 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 
 const defaultEvent = {
+    uuid: 'asdf',
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
-    team_id: 3,
     now: new Date().toISOString(),
     event: 'default event',
     properties: {},
@@ -50,12 +49,12 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -72,11 +71,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -91,11 +90,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -110,11 +109,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -130,11 +129,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -149,11 +148,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -168,11 +167,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -188,11 +187,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -207,11 +206,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -234,13 +233,13 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
         let caller = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             expect(e).toBeInstanceOf(TimeoutError)
             errorMessage = e.message
@@ -272,12 +271,12 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const date = new Date()
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }
@@ -296,11 +295,11 @@ describe('vm timeout tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         let errorMessage = undefined
         try {
-            await vm.methods.processEvent!({ ...defaultEvent })
+            await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         } catch (e) {
             errorMessage = e.message
         }

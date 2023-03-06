@@ -36,7 +36,7 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ) {
     const mocks = makePluginObjects(code)
-    const { teamId, organizationId, apiToken, teamUuid, userId } = await createUserTeamAndOrganization({})
+    const { team, teamId, organizationId, apiToken, teamUuid, userId } = await createUserTeamAndOrganization({})
     if (withExtendedTestData) {
         const { id: actionId } = await insertRow('posthog_action', {
             team_id: teamId,
@@ -51,8 +51,7 @@ export async function resetTestDatabase(
             updated_at: new Date().toISOString(),
             last_calculated_at: new Date().toISOString(),
         } as RawAction)
-        await insertRow('posthog_actionstep', {
-            id: teamId,
+        const { id: actionStepId } = await insertRow('posthog_actionstep', {
             action_id: actionId,
             tag_name: null,
             text: null,
@@ -81,8 +80,10 @@ export async function resetTestDatabase(
         })
 
         return {
+            team,
             teamId,
             teamUuid,
+            userId,
             organizationId,
             pluginId: plugin.id,
             plugin,
@@ -91,9 +92,11 @@ export async function resetTestDatabase(
             pluginAttachmentId: pluginAttachment.id,
             pluginAttachment,
             apiToken,
+            actionId,
+            actionStepId,
         }
     }
-    return { teamId, teamUuid, organizationId, apiToken }
+    return { team, teamId, teamUuid, userId, organizationId, apiToken }
 }
 
 async function createPluginAttachment(pluginAttachment: Omit<PluginAttachmentDB, 'id'>) {
@@ -221,11 +224,7 @@ export async function createUserTeamAndOrganization({
         joined_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
     })
-    const {
-        id: teamId,
-        api_token: apiToken,
-        uuid: teamUuid,
-    } = await insertRow('posthog_team', {
+    const team = await insertRow('posthog_team', {
         organization_id: organizationId,
         app_urls: [],
         name: 'TEST PROJECT',
@@ -252,7 +251,15 @@ export async function createUserTeamAndOrganization({
         access_control: false,
     })
 
-    return { teamId, organizationId, userId, organizationMembershipId, apiToken, teamUuid }
+    return {
+        team,
+        teamId: team.id,
+        organizationId,
+        userId,
+        organizationMembershipId,
+        apiToken: team.api_token,
+        teamUuid: team.uuid,
+    }
 }
 
 export async function getTeams(hub: Hub): Promise<Team[]> {
@@ -298,7 +305,6 @@ export async function getErrorForPluginConfig(id: number): Promise<any> {
 
 export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
     return await insertRow('posthog_plugin', {
-        ...plugin,
         config_schema: {},
         from_json: false,
         from_web: false,
@@ -306,6 +312,7 @@ export const createPlugin = async (plugin: Omit<Plugin, 'id'>) => {
         updated_at: new Date().toISOString(),
         is_preinstalled: false,
         capabilities: {},
+        ...plugin,
     })
 }
 
@@ -313,12 +320,12 @@ export const createPluginConfig = async (
     pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
 ) => {
     return await insertRow('posthog_pluginconfig', {
-        ...pluginConfig,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         enabled: true,
         order: 0,
         config: {},
+        ...pluginConfig,
     })
 }
 

@@ -1,4 +1,5 @@
 import { Settings } from 'luxon'
+import { v4 } from 'uuid'
 
 import { defaultConfig } from '../../../src/config/config'
 import { postgresQuery } from '../../../src/utils/db/postgres'
@@ -17,9 +18,10 @@ jest.mock('../../../src/utils/posthog', () => ({
 describe('TeamManager()', () => {
     let teamManager: TeamManager
     let postgres: ReturnType<typeof createPostgresPool>
+    let teamId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
+        ;({ teamId } = await resetTestDatabase())
         postgres = createPostgresPool(defaultConfig.DATABASE_URL)
         teamManager = new TeamManager(postgres, defaultConfig)
         Settings.defaultZoneName = 'utc'
@@ -34,7 +36,7 @@ describe('TeamManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
             jest.spyOn(postgres, 'query')
 
-            let team = await teamManager.fetchTeam(2)
+            let team = await teamManager.fetchTeam(teamId)
             expect(team!.name).toEqual('TEST PROJECT')
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
 
@@ -43,7 +45,7 @@ describe('TeamManager()', () => {
 
             jest.mocked(postgres.query).mockClear()
 
-            team = await teamManager.fetchTeam(2)
+            team = await teamManager.fetchTeam(teamId)
             expect(team!.name).toEqual('TEST PROJECT')
             // expect(team!.__fetch_event_uuid).toEqual('uuid1')
             expect(postgres.query).toHaveBeenCalledTimes(0)
@@ -51,7 +53,7 @@ describe('TeamManager()', () => {
             // 2min have passed i.e. the cache should have expired
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:02:06Z').getTime())
 
-            team = await teamManager.fetchTeam(2)
+            team = await teamManager.fetchTeam(teamId)
             expect(team!.name).toEqual('Updated Name!')
 
             expect(postgres.query).toHaveBeenCalledTimes(1)
@@ -64,33 +66,44 @@ describe('TeamManager()', () => {
 
     describe('getTeamByToken()', () => {
         it('caches positive lookups for 2 minutes', async () => {
+            const token = v4()
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:00:05Z').getTime())
-            await postgresQuery(postgres, "UPDATE posthog_team SET api_token = 'my_token'", undefined, 'testTag')
+            await postgresQuery(
+                postgres,
+                'UPDATE posthog_team SET api_token = $1 WHERE id = $2',
+                [token, teamId],
+                'testTag'
+            )
 
             // Initial lookup hits the DB and returns null
             jest.spyOn(postgres, 'query')
-            let team = await teamManager.getTeamByToken('my_token')
+            let team = await teamManager.getTeamByToken(token)
             expect(postgres.query).toHaveBeenCalledTimes(1)
-            expect(team!.id).toEqual(2)
+            expect(team!.id).toEqual(teamId)
             expect(team!.anonymize_ips).toEqual(false)
 
             // Settings are updated
-            await postgresQuery(postgres, 'UPDATE posthog_team SET anonymize_ips = true', undefined, 'testTag')
+            await postgresQuery(
+                postgres,
+                'UPDATE posthog_team SET anonymize_ips = true WHERE id = $1',
+                [teamId],
+                'testTag'
+            )
 
             // Second lookup hits the cache and skips the DB lookup, setting is stale
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:01:56Z').getTime())
             jest.mocked(postgres.query).mockClear()
-            team = await teamManager.getTeamByToken('my_token')
+            team = await teamManager.getTeamByToken(token)
             expect(postgres.query).toHaveBeenCalledTimes(0)
-            expect(team!.id).toEqual(2)
+            expect(team!.id).toEqual(teamId)
             expect(team!.anonymize_ips).toEqual(false)
 
             // Setting change take effect after cache expiration
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27T11:25:06Z').getTime())
             jest.mocked(postgres.query).mockClear()
-            team = await teamManager.getTeamByToken('my_token')
+            team = await teamManager.getTeamByToken(token)
             expect(postgres.query).toHaveBeenCalledTimes(1)
-            expect(team!.id).toEqual(2)
+            expect(team!.id).toEqual(teamId)
             expect(team!.anonymize_ips).toEqual(true)
         })
 

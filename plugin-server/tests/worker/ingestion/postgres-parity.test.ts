@@ -11,7 +11,7 @@ import {
 } from '../../../src/types'
 import { castTimestampOrNow, UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
 import { createUserTeamAndOrganization, resetTestDatabase } from '../../helpers/sql'
 
@@ -26,33 +26,24 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 describe('postgres parity', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
-    let teamId = 10 // Incremented every test. Avoids late ingestion causing issues
+    let teamId
 
     beforeAll(async () => {
         await resetKafka(extraServerConfig)
     })
 
     beforeEach(async () => {
-        await resetTestDatabase(`
+        ;({ teamId } = await resetTestDatabase(`
             async function processEvent (event) {
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 return event
             }
-        `)
-        await resetTestDatabaseClickhouse(extraServerConfig)
+        `))
         const startResponse = await startPluginsServer(extraServerConfig, makePiscina)
         hub = startResponse.hub
         stopServer = startResponse.stop
-        teamId++
-        await createUserTeamAndOrganization(
-            hub.db.postgres,
-            teamId,
-            teamId,
-            new UUIDT().toString(),
-            new UUIDT().toString(),
-            new UUIDT().toString()
-        )
+        await createUserTeamAndOrganization({})
     })
 
     afterEach(async () => {

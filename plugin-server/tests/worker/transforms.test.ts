@@ -2,7 +2,6 @@ import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { code } from '../../src/utils/utils'
 import { transformCode } from '../../src/worker/vm/transforms'
-import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
 
@@ -10,12 +9,11 @@ describe('transforms', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase(`const processEvent = event => event`)
     })
 
-    afterEach(async () => {
+    afterAll(async () => {
         await closeHub()
     })
 

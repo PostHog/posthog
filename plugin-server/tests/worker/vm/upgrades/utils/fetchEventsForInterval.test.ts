@@ -6,7 +6,7 @@ import { UUIDT } from '../../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../../src/worker/ingestion/event-pipeline/runner'
 import { fetchEventsForInterval } from '../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval'
 import { HistoricalExportEvent } from '../../../../../src/worker/vm/upgrades/utils/utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../../helpers/clickhouse'
+import { delayUntilEventIngested } from '../../../../helpers/clickhouse'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
@@ -16,10 +16,10 @@ const THIRTY_MINUTES = 1000 * 60 * 30
 describe('fetchEventsForInterval()', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
+    let teamId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        ;({ teamId } = await resetTestDatabase())
         ;[hub, closeServer] = await createHub()
     })
 
@@ -32,7 +32,7 @@ describe('fetchEventsForInterval()', () => {
             event: 'some_event',
             distinct_id: 'some_user',
             site_url: '',
-            team_id: 2,
+            team_id: teamId,
             timestamp: timestamp,
             now: timestamp,
             ip: '',
@@ -68,7 +68,7 @@ describe('fetchEventsForInterval()', () => {
 
         const events = await fetchEventsForInterval(
             hub.db,
-            2,
+            teamId,
             new Date('2021-08-01T00:00:00.000Z'),
             0,
             THIRTY_MINUTES,
@@ -93,7 +93,7 @@ describe('fetchEventsForInterval()', () => {
 
         const offsetEvents = await fetchEventsForInterval(
             hub.db,
-            2,
+            teamId,
             new Date('2021-08-01T00:00:00.000Z'),
             2,
             THIRTY_MINUTES,
@@ -104,7 +104,7 @@ describe('fetchEventsForInterval()', () => {
 
         const offsetEvents2 = await fetchEventsForInterval(
             hub.db,
-            2,
+            teamId,
             new Date('2021-08-01T00:00:00.000Z'),
             4,
             THIRTY_MINUTES,

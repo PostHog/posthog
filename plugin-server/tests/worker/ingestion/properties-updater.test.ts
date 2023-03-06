@@ -7,7 +7,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { upsertGroup } from '../../../src/worker/ingestion/properties-updater'
 import { createPromise } from '../../helpers/promises'
-import { getFirstTeam, resetTestDatabase } from '../../helpers/sql'
+import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
 
@@ -25,10 +25,9 @@ describe('properties-updater', () => {
 
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
-        await resetTestDatabase()
+        ;({ team } = await resetTestDatabase())
         db = hub.db
 
-        team = await getFirstTeam(hub)
         await db.createPerson(PAST_TIMESTAMP, {}, {}, {}, team.id, null, false, uuid, [distinctId])
 
         jest.spyOn(hub.db, 'updateGroup')

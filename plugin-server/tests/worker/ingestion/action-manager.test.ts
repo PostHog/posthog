@@ -7,10 +7,11 @@ describe('ActionManager', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
     let actionManager: ActionManager
+    let TEAM_ID: number, ACTION_ID: number, ACTION_STEP_ID: number
 
     beforeEach(async () => {
         ;[hub, closeServer] = await createHub()
-        await resetTestDatabase()
+        ;({ teamId: TEAM_ID, actionId: ACTION_ID, actionStepId: ACTION_STEP_ID } = await resetTestDatabase())
         actionManager = new ActionManager(hub.db, { processAsyncHandlers: true })
         await actionManager.prepare()
     })
@@ -18,10 +19,6 @@ describe('ActionManager', () => {
     afterEach(async () => {
         await closeServer()
     })
-
-    const TEAM_ID = 2
-    const ACTION_ID = 69
-    const ACTION_STEP_ID = 913
 
     it('returns the correct actions generally', async () => {
         const action = actionManager.getTeamActions(TEAM_ID)

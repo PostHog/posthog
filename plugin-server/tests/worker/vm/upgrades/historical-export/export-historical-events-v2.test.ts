@@ -1,4 +1,4 @@
-import { PluginMeta, RetryError } from '@posthog/plugin-scaffold'
+import { Plugin, PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
 import {
     Hub,
@@ -23,7 +23,6 @@ import {
     TestFunctions,
 } from '../../../../../src/worker/vm/upgrades/historical-export/export-historical-events-v2'
 import { fetchEventsForInterval } from '../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval'
-import { plugin60, pluginConfig39 } from '../../../../helpers/plugins'
 import { resetTestDatabase } from '../../../../helpers/sql'
 
 jest.mock('../../../../../src/utils/status')
@@ -31,6 +30,9 @@ jest.mock('../../../../../src/worker/vm/upgrades/utils/fetchEventsForInterval')
 jest.mock('../../../../../src/utils/db/activity-log')
 
 const ONE_HOUR = 1000 * 60 * 60
+let teamId: number
+let plugin60: Plugin
+let pluginConfig39: PluginConfig
 
 describe('addHistoricalEventsExportCapabilityV2()', () => {
     let hub: Hub
@@ -117,7 +119,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         beforeEach(async () => {
-            await resetTestDatabase()
+            ;({ teamId, plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
             await storage().set(EXPORT_PARAMETERS_KEY, {
                 id: 1,
                 parallelism: 3,
@@ -212,7 +214,18 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
+            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toEqual([
+                [
+                    {
+                        category: 'exportEvents',
+                        jobId: '1',
+                        pluginConfigId: pluginConfig39.id,
+                        successes: 3,
+                        successesOnRetry: 0,
+                        teamId: teamId,
+                    },
+                ],
+            ])
         })
 
         it('does not call exportEvents or log if no events in time range', async () => {
@@ -332,7 +345,21 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toMatchSnapshot()
+            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toEqual([
+                [
+                    {
+                        category: 'exportEvents',
+                        failures: 3,
+                        jobId: '1',
+                        pluginConfigId: pluginConfig39.id,
+                        teamId: teamId,
+                    },
+                    {
+                        error: new Error('Unknown error'),
+                        eventCount: 3,
+                    },
+                ],
+            ])
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
@@ -356,7 +383,21 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toMatchSnapshot()
+            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toEqual([
+                [
+                    {
+                        category: 'exportEvents',
+                        failures: 3,
+                        jobId: '1',
+                        pluginConfigId: pluginConfig39.id,
+                        teamId: teamId,
+                    },
+                    {
+                        error: new RetryError('Retry error'),
+                        eventCount: 3,
+                    },
+                ],
+            ])
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
@@ -440,7 +481,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         const coordinateHistoricalExport = getTestMethod('coordinateHistoricalExport')
 
         beforeEach(async () => {
-            await resetTestDatabase()
+            ;({ teamId, plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
         })
 
         it('does nothing if export isnt running / is done', async () => {
@@ -597,7 +638,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         }
 
         beforeEach(async () => {
-            await resetTestDatabase()
+            ;({ teamId, plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase())
         })
 
         it('does nothing if enough tasks running', async () => {

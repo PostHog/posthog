@@ -28,12 +28,12 @@ jest.mock('../../src/worker/plugins/loadPluginsFromDB')
 jest.mock('../../src/worker/plugins/loadSchedule')
 jest.setTimeout(600000) // 600 sec timeout
 
-function createEvent(index = 0): PluginEvent {
+function createEvent(teamId, index = 0) {
     return {
         distinct_id: 'my_id',
         ip: '127.0.0.1',
+        team_id: teamId,
         site_url: 'http://localhost',
-        team_id: 2,
         now: new Date().toISOString(),
         event: 'default event',
         properties: { key: 'value', index },
@@ -61,7 +61,7 @@ describe('worker', () => {
             return 4
         }
     `
-        await resetTestDatabase(testCode)
+        const { teamId, pluginConfig: pluginConfig39 } = await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, 10)
 
         const runEveryDay = (pluginConfigId: number) => piscina.run({ task: 'runEveryDay', args: { pluginConfigId } })
@@ -72,22 +72,26 @@ describe('worker', () => {
         }
 
         const pluginSchedule = await loadPluginSchedule(piscina)
-        expect(pluginSchedule).toEqual({ runEveryDay: [39], runEveryHour: [], runEveryMinute: [] })
+        expect(pluginSchedule).toEqual({
+            runEveryDay: expect.arrayContaining([pluginConfig39.id]),
+            runEveryHour: expect.not.arrayContaining([pluginConfig39.id]),
+            runEveryMinute: expect.not.arrayContaining([pluginConfig39.id]),
+        })
 
-        const ingestResponse1 = await ingestEvent(createEvent())
+        const ingestResponse1 = await ingestEvent(createEvent(teamId))
         expect(ingestResponse1.event.properties['somewhere']).toBe('over the rainbow')
 
-        const everyDayReturn = await runEveryDay(39)
+        const everyDayReturn = await runEveryDay(pluginConfig39.id)
         expect(everyDayReturn).toBe(4)
 
-        const ingestResponse2 = await ingestEvent(createEvent())
+        const ingestResponse2 = await ingestEvent(createEvent(teamId))
         expect(ingestResponse2).toEqual({
             lastStep: 'createEventStep',
             args: expect.anything(),
             event: expect.anything(),
         })
 
-        const ingestResponse3 = await ingestEvent({ ...createEvent(), uuid: undefined as any })
+        const ingestResponse3 = await ingestEvent({ ...createEvent(teamId), uuid: undefined as any })
         expect(ingestResponse3.error).toEqual('Not a valid UUID: "undefined"')
 
         await delay(2000)
@@ -103,13 +107,13 @@ describe('worker', () => {
             return event
         }
     `
-        await resetTestDatabase(testCode)
+        const { teamId } = await resetTestDatabase(testCode)
         const piscina = setupPiscina(workerThreads, tasksPerWorker)
         const processEvent = (event: PluginEvent) => piscina.run({ task: '_testsRunProcessEvent', args: { event } })
         const promises: Array<Promise<any>> = []
 
         // warmup 2x
-        await Promise.all([processEvent(createEvent()), processEvent(createEvent())])
+        await Promise.all([processEvent(createEvent(teamId)), processEvent(createEvent(teamId))])
 
         // process 10 events in parallel and ignore the result
         for (let i = 0; i < 10; i++) {
@@ -150,10 +154,11 @@ describe('worker', () => {
         })
 
         it('handles `runEventPipeline` tasks', async () => {
+            const { teamId } = await resetTestDatabase()
             const spy = jest
                 .spyOn(EventPipelineRunner.prototype, 'runEventPipeline')
                 .mockResolvedValue('runEventPipeline result' as any)
-            const event = createEvent()
+            const event = createEvent(teamId)
 
             expect(await taskRunner({ task: 'runEventPipeline', args: { event } })).toEqual('runEventPipeline result')
 

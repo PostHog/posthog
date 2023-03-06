@@ -10,15 +10,16 @@ describe('PersonManager.isNewPerson', () => {
     let personManager: PersonManager
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamId: number
 
-    const check = (distinctId: string) => personManager.isNewPerson(hub.db, 2, distinctId)
+    const check = (distinctId: string) => personManager.isNewPerson(hub.db, teamId, distinctId)
     const createPerson = async (distinctId: string) => {
         const uuid = new UUIDT().toString()
-        await hub.db.createPerson(DateTime.utc(), {}, {}, {}, 2, null, false, uuid, [distinctId])
+        await hub.db.createPerson(DateTime.utc(), {}, {}, {}, teamId, null, false, uuid, [distinctId])
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
+        ;({ teamId } = await resetTestDatabase())
         ;[hub, closeHub] = await createHub({
             DISTINCT_ID_LRU_SIZE: 10,
         })

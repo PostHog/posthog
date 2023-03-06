@@ -1,14 +1,14 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import fetch from 'node-fetch'
+import { v4 } from 'uuid'
 
-import { Hook, Hub } from '../../../../src/types'
+import { Hub } from '../../../../src/types'
 import { createHub } from '../../../../src/utils/db/hub'
 import { UUIDT } from '../../../../src/utils/utils'
 import { EventPipelineRunner } from '../../../../src/worker/ingestion/event-pipeline/runner'
 import { setupPlugins } from '../../../../src/worker/plugins/setup'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../../helpers/clickhouse'
-import { commonUserId } from '../../../helpers/plugins'
+import { delayUntilEventIngested } from '../../../helpers/clickhouse'
 import { insertRow, resetTestDatabase } from '../../../helpers/sql'
 
 jest.mock('../../../../src/utils/status')
@@ -16,6 +16,9 @@ jest.mock('../../../../src/utils/status')
 describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
+    let teamId: number
+    let actionId: number
+    let userId: number
 
     const ingestEvent = async (event: PluginEvent) => {
         const runner = new EventPipelineRunner(hub, event)
@@ -25,8 +28,7 @@ describe('Event Pipeline integration test', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
+        ;({ teamId, actionId, userId } = await resetTestDatabase())
         ;[hub, closeServer] = await createHub()
 
         jest.spyOn(hub.db, 'fetchPerson')
@@ -37,7 +39,7 @@ describe('Event Pipeline integration test', () => {
     })
 
     it('handles plugins setting properties', async () => {
-        await resetTestDatabase(`
+        ;({ teamId } = await resetTestDatabase(`
             function processEvent (event) {
                 event.properties = {
                     ...event.properties,
@@ -50,7 +52,7 @@ describe('Event Pipeline integration test', () => {
                 }
                 return event
             }
-        `)
+        `))
         await setupPlugins(hub)
 
         const event: PluginEvent = {
@@ -59,7 +61,7 @@ describe('Event Pipeline integration test', () => {
             $set: { personProp: 1, anotherValue: 2 },
             timestamp: new Date().toISOString(),
             now: new Date().toISOString(),
-            team_id: 2,
+            team_id: teamId,
             distinct_id: 'abc',
             ip: null,
             site_url: 'https://example.com',
@@ -76,7 +78,7 @@ describe('Event Pipeline integration test', () => {
             expect.objectContaining({
                 uuid: event.uuid,
                 event: 'xyz',
-                team_id: 2,
+                team_id: teamId,
                 timestamp: DateTime.fromISO(event.timestamp!, { zone: 'utc' }),
                 // :KLUDGE: Ignore properties like $plugins_succeeded, etc
                 properties: expect.objectContaining({
@@ -116,7 +118,7 @@ describe('Event Pipeline integration test', () => {
             properties: { foo: 'bar' },
             timestamp: new Date().toISOString(),
             now: new Date().toISOString(),
-            team_id: 2,
+            team_id: teamId,
             distinct_id: 'abc',
             ip: null,
             site_url: 'https://example.com',
@@ -127,7 +129,7 @@ describe('Event Pipeline integration test', () => {
         await ingestEvent(event)
 
         const expectedPayload = {
-            text: '[Test Action](https://example.com/action/69) was triggered by [abc](https://example.com/person/abc)',
+            text: `[Test Action](https://example.com/action/${actionId}) was triggered by [abc](https://example.com/person/abc)`,
         }
 
         expect(fetch).toHaveBeenCalledWith('https://webhook.example.com/', {
@@ -142,23 +144,23 @@ describe('Event Pipeline integration test', () => {
         const timestamp = new Date().toISOString()
 
         await hub.db.postgresQuery(`UPDATE posthog_organization SET available_features = '{"zapier"}'`, [], 'testTag')
-        await insertRow(hub.db.postgres, 'ee_hook', {
-            id: 'abc',
-            team_id: 2,
-            user_id: commonUserId,
-            resource_id: 69,
+        const { id: hookId } = await insertRow('ee_hook', {
+            id: v4(),
+            team_id: teamId,
+            user_id: userId,
+            resource_id: actionId,
             event: 'action_performed',
             target: 'https://rest-hooks.example.com/',
             created: timestamp,
             updated: timestamp,
-        } as Hook)
+        })
 
         const event: PluginEvent = {
             event: 'xyz',
             properties: { foo: 'bar' },
             timestamp: timestamp,
             now: timestamp,
-            team_id: 2,
+            team_id: teamId,
             distinct_id: 'abc',
             ip: null,
             site_url: 'https://example.com',
@@ -170,7 +172,7 @@ describe('Event Pipeline integration test', () => {
 
         const expectedPayload = {
             hook: {
-                id: 'abc',
+                id: hookId,
                 event: 'action_performed',
                 target: 'https://rest-hooks.example.com/',
             },
@@ -181,14 +183,14 @@ describe('Event Pipeline integration test', () => {
                 },
                 eventUuid: expect.any(String),
                 timestamp,
-                teamId: 2,
+                teamId: teamId,
                 distinctId: 'abc',
                 ip: null,
                 elementsList: [],
                 person: {
                     id: expect.any(Number),
                     created_at: expect.any(String),
-                    team_id: 2,
+                    team_id: teamId,
                     properties: {
                         $creator_event_uuid: event.uuid,
                     },
@@ -213,7 +215,7 @@ describe('Event Pipeline integration test', () => {
             properties: { foo: 'bar' },
             timestamp: new Date().toISOString(),
             now: new Date().toISOString(),
-            team_id: 2,
+            team_id: teamId,
             distinct_id: 'abc',
             ip: null,
             site_url: 'https://example.com',

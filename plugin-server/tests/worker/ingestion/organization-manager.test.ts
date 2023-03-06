@@ -2,7 +2,6 @@ import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { OrganizationManager } from '../../../src/worker/ingestion/organization-manager'
-import { commonOrganizationId } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -11,10 +10,12 @@ describe('OrganizationManager()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
     let organizationManager: OrganizationManager
+    let organizationId: string
+    let teamId: number
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase()
+        ;({ organizationId, teamId } = await resetTestDatabase())
         organizationManager = new OrganizationManager(hub.db, hub.teamManager)
     })
     afterEach(async () => {
@@ -26,7 +27,7 @@ describe('OrganizationManager()', () => {
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:05').getTime())
             jest.spyOn(hub.db, 'postgresQuery')
 
-            let organization = await organizationManager.fetchOrganization(commonOrganizationId)
+            let organization = await organizationManager.fetchOrganization(organizationId)
 
             expect(organization!.name).toEqual('TEST ORG')
 
@@ -35,14 +36,14 @@ describe('OrganizationManager()', () => {
 
             jest.mocked(hub.db.postgresQuery).mockClear()
 
-            organization = await organizationManager.fetchOrganization(commonOrganizationId)
+            organization = await organizationManager.fetchOrganization(organizationId)
 
             expect(organization!.name).toEqual('TEST ORG')
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(0)
 
             jest.spyOn(global.Date, 'now').mockImplementation(() => new Date('2020-02-27 11:00:36').getTime())
 
-            organization = await organizationManager.fetchOrganization(commonOrganizationId)
+            organization = await organizationManager.fetchOrganization(organizationId)
 
             expect(organization!.name).toEqual('Updated Name!')
             expect(hub.db.postgresQuery).toHaveBeenCalledTimes(1)
@@ -63,19 +64,19 @@ describe('OrganizationManager()', () => {
         })
 
         it('returns if an organization has a feature', async () => {
-            expect(await organizationManager.hasAvailableFeature(2, 'some_feature')).toEqual(true)
-            expect(await organizationManager.hasAvailableFeature(2, 'another_feature')).toEqual(false)
+            expect(await organizationManager.hasAvailableFeature(teamId, 'some_feature')).toEqual(true)
+            expect(await organizationManager.hasAvailableFeature(teamId, 'another_feature')).toEqual(false)
         })
 
         it('efficiently uses cached values', async () => {
             // pre-cache the value
-            await organizationManager.hasAvailableFeature(2, 'some_feature')
+            await organizationManager.hasAvailableFeature(teamId, 'some_feature')
 
             jest.spyOn(hub.teamManager, 'fetchTeam')
             jest.spyOn(organizationManager, 'fetchOrganization')
 
-            expect(await organizationManager.hasAvailableFeature(2, 'some_feature')).toEqual(true)
-            expect(await organizationManager.hasAvailableFeature(2, 'another_feature')).toEqual(false)
+            expect(await organizationManager.hasAvailableFeature(teamId, 'some_feature')).toEqual(true)
+            expect(await organizationManager.hasAvailableFeature(teamId, 'another_feature')).toEqual(false)
 
             expect(hub.teamManager.fetchTeam).not.toHaveBeenCalled()
             expect(organizationManager.fetchOrganization).not.toHaveBeenCalled()
@@ -88,12 +89,12 @@ describe('OrganizationManager()', () => {
 
     describe('resetAvailableFeatureCache()', () => {
         it('resets internal caches', async () => {
-            await organizationManager.hasAvailableFeature(2, 'some_feature')
+            await organizationManager.hasAvailableFeature(teamId, 'some_feature')
 
             expect(organizationManager.availableFeaturesCache.size).toEqual(1)
             expect(organizationManager.organizationCache.size).toEqual(1)
 
-            organizationManager.resetAvailableFeatureCache(commonOrganizationId)
+            organizationManager.resetAvailableFeatureCache(organizationId)
 
             expect(organizationManager.availableFeaturesCache.size).toEqual(0)
             expect(organizationManager.organizationCache.size).toEqual(0)

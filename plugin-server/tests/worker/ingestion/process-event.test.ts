@@ -6,8 +6,7 @@ import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
 import { EventsProcessor } from '../../../src/worker/ingestion/process-event'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
-import { resetKafka } from '../../helpers/kafka'
+import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -17,15 +16,11 @@ let hub: Hub
 let closeHub: () => Promise<void>
 let redis: IORedis.Redis
 let eventsProcessor: EventsProcessor
-
-beforeAll(async () => {
-    await resetKafka()
-})
+let teamId: number
 
 beforeEach(async () => {
-    await resetTestDatabase()
-    await resetTestDatabaseClickhouse()
     ;[hub, closeHub] = await createHub()
+    ;({ teamId } = await resetTestDatabase())
     redis = await hub.redisPool.acquire()
     await redis.flushdb()
 
@@ -49,14 +44,14 @@ describe('EventsProcessor#createEvent()', () => {
         timestamp,
         distinctId: 'my_id',
         ip: '127.0.0.1',
-        teamId: 2,
+        teamId: teamId,
         event: '$pageview',
         properties: { event: 'property' },
         elementsList: [],
     }
 
     beforeEach(() => {
-        personContainer = new LazyPersonContainer(2, 'my_id', hub, {
+        personContainer = new LazyPersonContainer(teamId, 'my_id', hub, {
             uuid: personUuid,
             properties: { foo: 'bar' },
             team_id: 1,
@@ -80,7 +75,7 @@ describe('EventsProcessor#createEvent()', () => {
                 event: '$pageview',
                 properties: { event: 'property' },
                 timestamp: expect.any(DateTime),
-                team_id: 2,
+                team_id: teamId,
                 distinct_id: 'my_id',
                 elements_chain: null,
                 created_at: expect.any(DateTime),
@@ -104,7 +99,7 @@ describe('EventsProcessor#createEvent()', () => {
 
     it('emits event with group columns', async () => {
         await eventsProcessor.db.insertGroup(
-            2,
+            teamId,
             0,
             'group_key',
             { group_prop: 'value' },
@@ -146,7 +141,7 @@ describe('EventsProcessor#createEvent()', () => {
             { foo: 'bar', a: 2 },
             {},
             {},
-            2,
+            teamId,
             null,
             false,
             personUuid,
@@ -159,7 +154,7 @@ describe('EventsProcessor#createEvent()', () => {
                 properties: { $set: { a: 1 } },
             },
             // :TRICKY: We pretend the person has been updated in-between processing and creating the event
-            new LazyPersonContainer(2, 'my_id', hub)
+            new LazyPersonContainer(teamId, 'my_id', hub)
         )
 
         await eventsProcessor.kafkaProducer.flush()
@@ -177,7 +172,7 @@ describe('EventsProcessor#createEvent()', () => {
     })
 
     it('handles the person no longer existing', async () => {
-        await eventsProcessor.createEvent(preIngestionEvent, new LazyPersonContainer(2, 'my_id', hub))
+        await eventsProcessor.createEvent(preIngestionEvent, new LazyPersonContainer(teamId, 'my_id', hub))
         await eventsProcessor.kafkaProducer.flush()
 
         const events = await delayUntilEventIngested(() => hub.db.fetchEvents())

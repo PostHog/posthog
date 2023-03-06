@@ -15,11 +15,12 @@ describe('LazyPersonContainer()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
     let personContainer: LazyPersonContainer
+    let teamId: number
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase()
-        personContainer = new LazyPersonContainer(2, 'my-id', hub)
+        ;({ teamId } = await resetTestDatabase())
+        personContainer = new LazyPersonContainer(teamId, 'my-id', hub)
 
         jest.spyOn(hub.db, 'fetchPerson')
     })
@@ -37,7 +38,7 @@ describe('LazyPersonContainer()', () => {
     })
 
     it('.get loads person lazily and once', async () => {
-        const person = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['my-id'])
+        const person = await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['my-id'])
 
         const persons = await Promise.all([personContainer.get(), personContainer.get(), personContainer.get()])
 
@@ -47,7 +48,7 @@ describe('LazyPersonContainer()', () => {
     })
 
     it('does not load anything if .with followed by .get', async () => {
-        const person = await hub.db.createPerson(timestamp, {}, {}, {}, 2, null, false, uuid.toString(), ['my-id'])
+        const person = await hub.db.createPerson(timestamp, {}, {}, {}, teamId, null, false, uuid.toString(), ['my-id'])
         personContainer = personContainer.with(person)
 
         const persons = await Promise.all([personContainer.get(), personContainer.get(), personContainer.get()])

@@ -16,10 +16,11 @@ describe('PropertyDefinitionsManager()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
     let cache: PropertyDefinitionsCache
+    let teamId: number
 
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase()
+        ;({ teamId } = await resetTestDatabase())
 
         cache = new PropertyDefinitionsCache(hub)
     })
@@ -40,7 +41,7 @@ describe('PropertyDefinitionsManager()', () => {
                     false,
                     null,
                     null,
-                    2,
+                    teamId,
                 ],
                 'testTag'
             )
@@ -54,7 +55,7 @@ describe('PropertyDefinitionsManager()', () => {
                     true,
                     null,
                     null,
-                    2,
+                    teamId,
                 ],
                 'testTag'
             )
@@ -68,7 +69,7 @@ describe('PropertyDefinitionsManager()', () => {
                     false,
                     null,
                     null,
-                    2,
+                    teamId,
                 ],
                 'testTag'
             )
@@ -82,7 +83,7 @@ describe('PropertyDefinitionsManager()', () => {
                     false,
                     null,
                     null,
-                    2,
+                    teamId,
                     0,
                 ],
                 'testTag'
@@ -90,24 +91,24 @@ describe('PropertyDefinitionsManager()', () => {
         })
 
         it('initializes cleanly', async () => {
-            await cache.initialize(2, hub.db)
+            await cache.initialize(teamId, hub.db)
 
-            expect(cache.propertyDefinitionsCache.get(2)!.keys()).toEqual(
+            expect(cache.propertyDefinitionsCache.get(teamId)!.keys()).toEqual(
                 expect.arrayContaining(['30group_prop', '2person_prop', '1numeric_prop', '1property_name'])
             )
         })
 
         it('reports correct shouldUpdate', async () => {
-            await cache.initialize(2, hub.db)
+            await cache.initialize(teamId, hub.db)
 
-            expect(cache.shouldUpdate(2, 'property_name', PropertyDefinitionTypeEnum.Event, null)).toEqual(false)
-            expect(cache.shouldUpdate(2, 'numeric_prop', PropertyDefinitionTypeEnum.Event, null)).toEqual(false)
-            expect(cache.shouldUpdate(2, 'person_prop', PropertyDefinitionTypeEnum.Person, null)).toEqual(false)
-            expect(cache.shouldUpdate(2, 'group_prop', PropertyDefinitionTypeEnum.Group, 0)).toEqual(false)
+            expect(cache.shouldUpdate(teamId, 'property_name', PropertyDefinitionTypeEnum.Event, null)).toEqual(false)
+            expect(cache.shouldUpdate(teamId, 'numeric_prop', PropertyDefinitionTypeEnum.Event, null)).toEqual(false)
+            expect(cache.shouldUpdate(teamId, 'person_prop', PropertyDefinitionTypeEnum.Person, null)).toEqual(false)
+            expect(cache.shouldUpdate(teamId, 'group_prop', PropertyDefinitionTypeEnum.Group, 0)).toEqual(false)
 
-            expect(cache.shouldUpdate(2, 'new_prop', PropertyDefinitionTypeEnum.Event, null)).toEqual(true)
-            expect(cache.shouldUpdate(2, 'new_person_prop', PropertyDefinitionTypeEnum.Person, null)).toEqual(true)
-            expect(cache.shouldUpdate(2, 'group_prop', PropertyDefinitionTypeEnum.Group, 1)).toEqual(true)
+            expect(cache.shouldUpdate(teamId, 'new_prop', PropertyDefinitionTypeEnum.Event, null)).toEqual(true)
+            expect(cache.shouldUpdate(teamId, 'new_person_prop', PropertyDefinitionTypeEnum.Person, null)).toEqual(true)
+            expect(cache.shouldUpdate(teamId, 'group_prop', PropertyDefinitionTypeEnum.Group, 1)).toEqual(true)
         })
     })
 })

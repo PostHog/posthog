@@ -8,8 +8,6 @@ import { createHub } from '../../src/utils/db/hub'
 import { delay, UUIDT } from '../../src/utils/utils'
 import { MAXIMUM_RETRIES } from '../../src/worker/vm/upgrades/export-events'
 import { createPluginConfigVM } from '../../src/worker/vm/vm'
-import { pluginConfig39 } from '../helpers/plugins'
-import { plugin60 } from '../helpers/plugins'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.mock('../../src/utils/status')
@@ -23,7 +21,6 @@ const defaultEvent = {
     distinct_id: 'my_id',
     ip: '127.0.0.1',
     site_url: 'http://localhost',
-    team_id: 3,
     now: new Date().toISOString(),
     timestamp: new Date().toISOString(),
     event: 'default event',
@@ -54,6 +51,8 @@ describe('vm tests', () => {
     })
 
     test('empty plugins', async () => {
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase()
+
         const indexJs = ''
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
@@ -80,9 +79,9 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const newEvent = await vm.methods.processEvent!({ ...defaultEvent })
+        const newEvent = await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         expect(newEvent.event).toEqual('haha')
     })
 
@@ -97,9 +96,9 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const newEvent = await vm.methods.processEvent!({ ...defaultEvent })
+        const newEvent = await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
         expect(newEvent.event).toEqual('haha')
     })
 
@@ -116,10 +115,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         await vm.methods.processEvent!({
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             properties: { haha: 'hoho' },
         })
         expect(fetch).not.toHaveBeenCalled()
@@ -134,12 +134,13 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
         const newEvent = await vm.methods.processEvent!(event)
@@ -155,12 +156,13 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
         const newEvent = await vm.methods.processEvent!(event)
@@ -179,12 +181,13 @@ describe('vm tests', () => {
                 })
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
         const newEvent = await vm.methods.processEvent!(event)
@@ -202,12 +205,13 @@ describe('vm tests', () => {
                 })
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
         const newEvent = await vm.methods.processEvent!(event)
@@ -229,12 +233,13 @@ describe('vm tests', () => {
                 })
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
         const newEvent = await vm.methods.processEvent!(event)
@@ -249,12 +254,13 @@ describe('vm tests', () => {
                 event.event = 'changed event'
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         expect(vm.methods.processEvent).not.toEqual(undefined)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
 
@@ -274,11 +280,12 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
         }
         await vm.methods.processEvent!(event)
@@ -295,11 +302,12 @@ describe('vm tests', () => {
                 }
                 module.exports = { processEvent: myProcessEventFunction }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
             const event: PluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'original event',
             }
             await vm.methods.processEvent!(event)
@@ -315,11 +323,12 @@ describe('vm tests', () => {
                 }
                 module.exports.processEvent = myProcessEventFunction
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
             const event: PluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'original event',
             }
             await vm.methods.processEvent!(event)
@@ -335,10 +344,11 @@ describe('vm tests', () => {
                 }
                 exports = { processEvent: myProcessEventFunction }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: PluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'original event',
             }
             await vm.methods.processEvent!(event)
@@ -354,10 +364,11 @@ describe('vm tests', () => {
                 }
                 exports.processEvent = myProcessEventFunction
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: PluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'original event',
             }
             await vm.methods.processEvent!(event)
@@ -371,10 +382,11 @@ describe('vm tests', () => {
                     await fetch('https://google.com/results.json?query=' + event.event)
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'export',
             }
             await vm.methods.onEvent!(event)
@@ -390,10 +402,11 @@ describe('vm tests', () => {
                 }
                 export default MyPlugin
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'default export',
             }
             await vm.methods.onEvent!(event)
@@ -408,10 +421,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -433,10 +447,11 @@ describe('vm tests', () => {
             }
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -478,10 +493,11 @@ describe('vm tests', () => {
             }
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -511,10 +527,11 @@ describe('vm tests', () => {
             }
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -544,10 +561,11 @@ describe('vm tests', () => {
             }
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -576,10 +594,11 @@ describe('vm tests', () => {
             }
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -614,10 +633,11 @@ describe('vm tests', () => {
 
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -657,10 +677,11 @@ describe('vm tests', () => {
 
         `
 
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'original event',
             properties: {},
         }
@@ -680,10 +701,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { plugin: plugin60, pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, { ...pluginConfig39, plugin: plugin60 }, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'logged event',
         }
         const queueSingleJsonMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueSingleJsonMessage')
@@ -712,10 +734,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'fetched',
         }
 
@@ -734,10 +757,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'fetched',
         }
 
@@ -755,10 +779,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'fetched',
         }
 
@@ -789,10 +814,11 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'fetched',
         }
 
@@ -885,6 +911,7 @@ describe('vm tests', () => {
                 contents: Buffer.from('{"name": "plugin"}'),
             },
         }
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(
             hub,
             {
@@ -895,6 +922,7 @@ describe('vm tests', () => {
         )
         const event: PluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'attachments',
         }
 
@@ -915,7 +943,7 @@ describe('vm tests', () => {
 
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         expect(Object.keys(vm.tasks).sort()).toEqual(['job', 'schedule'])
@@ -941,7 +969,7 @@ describe('vm tests', () => {
             const runEveryHour = false
             const runEveryDay = { some: 'object' }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         expect(Object.keys(vm.tasks.schedule)).toEqual(['runEveryMinute'])
@@ -957,7 +985,7 @@ describe('vm tests', () => {
                 return 'haha'
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
@@ -986,7 +1014,7 @@ describe('vm tests', () => {
                 return 'haha'
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
@@ -1012,7 +1040,7 @@ describe('vm tests', () => {
                 return 'haha'
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
 
         const queueMessageSpy = jest.spyOn(hub.kafkaProducer, 'queueMessage')
@@ -1041,10 +1069,11 @@ describe('vm tests', () => {
                 await fetch('https://google.com/results.json?query=' + event.event)
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
         const event: ProcessedPluginEvent = {
             ...defaultEvent,
+            team_id: pluginConfig39.team_id,
             event: 'onEvent',
         }
         await vm.methods.onEvent!(event)
@@ -1062,7 +1091,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1078,9 +1107,9 @@ describe('vm tests', () => {
             )
 
             await vm.methods.onEvent!(defaultEvent)
-            await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent' })
-            await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent2' })
-            await vm.methods.onEvent!({ ...defaultEvent, event: 'otherEvent3' })
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id, event: 'otherEvent' })
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id, event: 'otherEvent2' })
+            await vm.methods.onEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id, event: 'otherEvent3' })
             await delay(1010)
             expect(fetch).toHaveBeenCalledWith('https://export.com/results.json?query=otherEvent2&events=2')
             expect(hub.appMetrics.queueMetric).toHaveBeenCalledWith({
@@ -1113,7 +1142,7 @@ describe('vm tests', () => {
                     }
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1129,6 +1158,7 @@ describe('vm tests', () => {
             )
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 uuid: new UUIDT().toString(),
                 event: 'exported',
             }
@@ -1142,8 +1172,8 @@ describe('vm tests', () => {
             // get the enqueued job
             expect(hub.enqueuePluginJob).toHaveBeenCalledWith({
                 payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
+                pluginConfigId: pluginConfig39.id,
+                pluginConfigTeam: pluginConfig39.team_id,
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
@@ -1157,8 +1187,8 @@ describe('vm tests', () => {
             expect(hub.enqueuePluginJob).toHaveBeenCalledTimes(2)
             expect(hub.enqueuePluginJob).toHaveBeenLastCalledWith({
                 payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
-                pluginConfigId: 39,
-                pluginConfigTeam: 2,
+                pluginConfigId: pluginConfig39.id,
+                pluginConfigTeam: pluginConfig39.team_id,
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
@@ -1187,7 +1217,7 @@ describe('vm tests', () => {
                     throw new RetryError('Try again')
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1226,7 +1256,7 @@ describe('vm tests', () => {
                     await fetch('https://onevent.com/')
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1242,6 +1272,7 @@ describe('vm tests', () => {
             )
             const event: ProcessedPluginEvent = {
                 ...defaultEvent,
+                team_id: pluginConfig39.team_id,
                 event: 'exported',
             }
             await vm.methods.onEvent!(event)
@@ -1260,7 +1291,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/?length=' + JSON.stringify(events).length + '&count=' + events.length)
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1322,7 +1353,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/?length=' + JSON.stringify(events).length + '&count=' + events.length)
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1362,7 +1393,7 @@ describe('vm tests', () => {
                     await fetch('https://export.com/results.json?query=' + events[0].event + '&events=' + events.length)
                 }
             `
-            await resetTestDatabase(indexJs)
+            const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
             const vm = await createReadyPluginConfigVm(
                 hub,
                 {
@@ -1396,9 +1427,9 @@ describe('vm tests', () => {
                 return event
             }
         `
-        await resetTestDatabase(indexJs)
+        const { pluginConfig: pluginConfig39 } = await resetTestDatabase(indexJs)
         const vm = await createReadyPluginConfigVm(hub, pluginConfig39, indexJs)
-        const event = await vm.methods.processEvent!({ ...defaultEvent })
+        const event = await vm.methods.processEvent!({ ...defaultEvent, team_id: pluginConfig39.team_id })
 
         expect(event?.properties?.imports).toEqual({
             jsonwebtoken: true,
