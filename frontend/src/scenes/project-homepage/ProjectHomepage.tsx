@@ -22,6 +22,8 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function ProjectHomepage(): JSX.Element {
     const { dashboardLogicProps } = useValues(projectHomepageLogic)
@@ -31,48 +33,53 @@ export function ProjectHomepage(): JSX.Element {
     } = useValues(dashboardLogic(dashboardLogicProps))
     const { showInviteModal } = useActions(inviteLogic)
     const { showPrimaryDashboardModal } = useActions(primaryDashboardModalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
     const topListContainerRef = useRef<HTMLDivElement | null>(null)
     const [topListContainerWidth] = useSize(topListContainerRef)
 
     const headerButtons = (
-        <div className="flex">
+        <>
             <LemonButton
                 data-attr="project-home-invite-team-members"
                 onClick={() => {
                     showInviteModal()
                 }}
-                className="mr-2"
                 type="secondary"
             >
                 Invite members
             </LemonButton>
             <NewInsightButton dataAttr="project-home-new-insight" />
-        </div>
+        </>
     )
 
     return (
         <div className="project-homepage">
-            <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
-            <div
-                ref={topListContainerRef}
-                className={
-                    topListContainerWidth && topListContainerWidth < 600
-                        ? 'top-list-container-vertical'
-                        : 'top-list-container-horizontal'
-                }
-            >
-                <div className="top-list">
-                    <RecentInsights />
-                </div>
-                <div className="spacer" />
-                <div className="top-list">
-                    <NewlySeenPersons />
-                </div>
-                <div className="spacer" />
-                <div className="top-list">
-                    <RecentRecordings />
-                </div>
-            </div>
+            {!featureFlags[FEATURE_FLAGS.POSTHOG_3000] && (
+                <>
+                    <PageHeader title={currentTeam?.name || ''} delimited buttons={headerButtons} />
+                    <div
+                        ref={topListContainerRef}
+                        className={
+                            topListContainerWidth && topListContainerWidth < 600
+                                ? 'top-list-container-vertical'
+                                : 'top-list-container-horizontal'
+                        }
+                    >
+                        <div className="top-list">
+                            <RecentInsights />
+                        </div>
+                        <div className="spacer" />
+                        <div className="top-list">
+                            <NewlySeenPersons />
+                        </div>
+                        <div className="spacer" />
+                        <div className="top-list">
+                            <RecentRecordings />
+                        </div>
+                    </div>
+                </>
+            )}
             {currentTeam?.primary_dashboard ? (
                 <div>
                     <div className="homepage-dashboard-header">
@@ -90,15 +97,18 @@ export function ProjectHomepage(): JSX.Element {
                                 </>
                             )}
                         </div>
-                        <LemonButton
-                            type="secondary"
-                            data-attr="project-home-new-insight"
-                            onClick={showPrimaryDashboardModal}
-                        >
-                            Change dashboard
-                        </LemonButton>
+                        <div className="flex items-center gap-2">
+                            <LemonButton
+                                type="secondary"
+                                data-attr="project-home-new-insight"
+                                onClick={showPrimaryDashboardModal}
+                            >
+                                Change dashboard
+                            </LemonButton>
+                            {featureFlags[FEATURE_FLAGS.POSTHOG_3000] && headerButtons}
+                        </div>
                     </div>
-                    <LemonDivider className="my-6" />
+                    <LemonDivider className="my-4" />
                     <Dashboard
                         id={currentTeam.primary_dashboard.toString()}
                         placement={DashboardPlacement.ProjectHomepage}

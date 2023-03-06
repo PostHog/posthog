@@ -2,6 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { IconChevronRight } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import React, { useEffect, useState } from 'react'
 import { projectHomepageLogic } from 'scenes/project-homepage/projectHomepageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,7 +18,12 @@ export function Sidebar(): JSX.Element {
         sidebarOverslideDirection: overslideDirection,
     } = useValues(navigation3000Logic)
     const { syncSidebarWidthWithMouseMove, beginResize, endResize } = useActions(navigation3000Logic)
-    const { recentInsights } = useValues(projectHomepageLogic)
+    const { recentInsights, recentInsightsLoading } = useValues(projectHomepageLogic)
+    const { loadRecentInsights } = useActions(projectHomepageLogic)
+
+    useEffect(() => {
+        loadRecentInsights()
+    }, [])
 
     useEffect(() => {
         if (isResizeInProgress) {
@@ -63,8 +69,24 @@ export function Sidebar(): JSX.Element {
                         richTitle: insight.name || <i>{insight.derived_name}</i> || `Insight #${insight.id}`,
                         url: urls.insightView(insight.short_id),
                     }))}
+                    loading={recentInsightsLoading}
                 />
-                <Accordion title="Recent recordings" items={[]} />
+                <Accordion
+                    title="Newly seen persons"
+                    items={
+                        [
+                            /* TODO */
+                        ]
+                    }
+                />
+                <Accordion
+                    title="Recent recordings"
+                    items={
+                        [
+                            /* TODO */
+                        ]
+                    }
+                />
             </div>
             <div
                 className="Sidebar3000__slider"
@@ -91,18 +113,34 @@ interface AccordionItem {
 interface AccordionProps {
     title: string
     items: AccordionItem[]
+    loading?: boolean
 }
 
-function Accordion({ title, items }: AccordionProps): JSX.Element {
+function Accordion({ title, items, loading = false }: AccordionProps): JSX.Element {
     const { push } = useActions(router)
 
     const [isExpanded, setIsExpanded] = useState(false)
 
+    const isEmpty = items.length === 0
+    const isEmptyDefinitively = !loading && isEmpty
+    const isDisabled = isEmpty && !isExpanded
+
     return (
-        <section className={clsx('Accordion', isExpanded && 'Accordion--expanded')}>
-            <div className="Accordion__header" onClick={() => setIsExpanded(!isExpanded)}>
-                <IconChevronRight />
-                <h5>{title}</h5>
+        <section className={clsx('Accordion', isExpanded && 'Accordion--expanded')} aria-disabled={isDisabled}>
+            <div
+                className="Accordion__header"
+                onClick={isExpanded || items.length > 0 ? () => setIsExpanded(!isExpanded) : undefined}
+            >
+                {!loading ? <IconChevronRight /> : <Spinner />}
+                <h5>
+                    {title}
+                    {isEmptyDefinitively && (
+                        <>
+                            {' '}
+                            <i>(empty)</i>
+                        </>
+                    )}
+                </h5>
             </div>
             {isExpanded && (
                 <div className="Accordion_content">
