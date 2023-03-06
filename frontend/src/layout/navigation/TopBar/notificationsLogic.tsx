@@ -34,14 +34,22 @@ export const notificationsLogic = kea<notificationsLogicType>([
         setMarkReadTimeout: (markReadTimeout: number) => ({ markReadTimeout }),
         incrementErrorCount: true,
         clearErrorCount: true,
-        markAllAsRead: true,
+        markAllAsRead: (bookmarkDate: string) => ({ bookmarkDate }),
     }),
     loaders(({ actions, values }) => ({
         importantChanges: [
             null as ChangesResponse | null,
             {
-                markAllAsRead: () => {
-                    return values.importantChanges.map((ic) => ({ ...ic, unread: false }))
+                markAllAsRead: ({ bookmarkDate }) => {
+                    const current = values.importantChanges
+                    if (!current) {
+                        return null
+                    }
+
+                    return {
+                        last_read: bookmarkDate,
+                        results: current.results.map((ic) => ({ ...ic, unread: false })),
+                    }
                 },
                 loadImportantChanges: async (_, breakpoint) => {
                     await breakpoint(1)
@@ -59,7 +67,7 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         // swallow errors as this isn't user initiated
                         // increment a counter to backoff calling the API while errors persist
                         actions.incrementErrorCount()
-                        return { results: [], last_read: '' }
+                        return null
                     } finally {
                         const pollTimeoutMilliseconds = values.errorCounter
                             ? POLL_TIMEOUT * values.errorCounter
@@ -105,16 +113,18 @@ export const notificationsLogic = kea<notificationsLogicType>([
                 clearTimeout(values.markReadTimeout)
             } else {
                 if (values.notifications?.[0]) {
+                    const bookmarkDate = values.notifications.reduce((a, b) =>
+                        a.created_at.isAfter(b.created_at) ? a : b
+                    ).created_at
                     actions.setMarkReadTimeout(
                         window.setTimeout(async () => {
-                            const bookmarkDate = values.notifications[0].created_at.toISOString()
                             await api.create(
                                 `api/projects/${teamLogic.values.currentTeamId}/activity_log/bookmark_activity_notification`,
                                 {
-                                    bookmark: bookmarkDate,
+                                    bookmark: bookmarkDate.toISOString(),
                                 }
                             )
-                            actions.markAllAsRead()
+                            actions.markAllAsRead(bookmarkDate.toISOString())
                         }, MARK_READ_TIMEOUT)
                     )
                 }
@@ -138,7 +148,10 @@ export const notificationsLogic = kea<notificationsLogicType>([
 
                 if (changelogNotification) {
                     const lastRead = importantChanges?.last_read ? dayjs(importantChanges.last_read) : null
-                    const changeLogIsUnread = !!lastRead && lastRead < changelogNotification.notificationDate
+                    const changeLogIsUnread =
+                        !!lastRead &&
+                        (lastRead.isBefore(changelogNotification.notificationDate) ||
+                            lastRead == changelogNotification.notificationDate)
 
                     const changelogNotificationHumanized: HumanizedActivityLogItem = {
                         email: 'joe@posthog.com',
@@ -152,7 +165,17 @@ export const notificationsLogic = kea<notificationsLogicType>([
                         created_at: changelogNotification.notificationDate,
                         unread: changeLogIsUnread,
                     }
-                    return [changelogNotificationHumanized, ...importantChangesHumanized]
+                    const notifications = [changelogNotificationHumanized, ...importantChangesHumanized]
+                    notifications.sort((a, b) => {
+                        if (a.created_at.isBefore(b.created_at)) {
+                            return 1
+                        } else if (a.created_at.isAfter(b.created_at)) {
+                            return -1
+                        } else {
+                            return 0
+                        }
+                    })
+                    return notifications
                 }
 
                 return humanize(importantChanges?.results || [], describerFor, true)
