@@ -9,12 +9,11 @@ import {
     FunnelStepWithNestedBreakdown,
     InsightLogicProps,
     StepOrderValue,
-    InsightType,
-    FunnelsFilterType,
     FunnelStepWithConversionMetrics,
     FlattenedFunnelStepByBreakdown,
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
+    FunnelResult,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -43,11 +42,11 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
-            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series'],
+            ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'insightData'],
             groupsModel,
             ['aggregationLabel'],
             insightLogic(props),
-            ['insight', 'hiddenLegendKeys'],
+            ['hiddenLegendKeys'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
     }),
@@ -98,19 +97,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
         ],
 
         results: [
-            (s) => [s.insight],
-            ({
-                filters,
-                result,
-            }: {
-                filters: Partial<FunnelsFilterType>
-                result: FunnelResultType
-            }): FunnelResultType => {
-                if (filters?.insight === InsightType.FUNNELS) {
-                    if (isBreakdownFunnelResults(result) && result[0][0].breakdowns) {
+            (s) => [s.insightData],
+            (insightData: FunnelResult | null): FunnelResultType => {
+                // TODO: after hooking up data manager, check that we have a funnels result here
+                if (insightData?.result) {
+                    if (isBreakdownFunnelResults(insightData.result) && insightData.result[0][0].breakdowns) {
                         // in order to stop the UI having to check breakdowns and breakdown
                         // this collapses breakdowns onto the breakdown property
-                        return result.map((series) =>
+                        return insightData.result.map((series) =>
                             series.map((step) => {
                                 const { breakdowns, ...clone } = step
                                 clone.breakdown = breakdowns as (string | number)[]
@@ -118,7 +112,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                             })
                         )
                     }
-                    return result
+                    return insightData.result
                 } else {
                     return []
                 }
@@ -215,6 +209,20 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                         label: percent === 0 ? '' : percentage(percent, 1, true),
                     }
                 })
+            },
+        ],
+        isValidFunnel: [
+            (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
+            (funnelsFilter, steps, histogramGraphData) => {
+                if (funnelsFilter?.funnel_viz_type === FunnelVizType.Steps || !funnelsFilter?.funnel_viz_type) {
+                    return !!(steps && steps[0] && steps[0].count > -1)
+                } else if (funnelsFilter.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return (histogramGraphData?.length ?? 0) > 0
+                } else if (funnelsFilter.funnel_viz_type === FunnelVizType.Trends) {
+                    return (steps?.length ?? 0) > 0 && !!steps?.[0]?.labels
+                } else {
+                    return false
+                }
             },
         ],
 

@@ -7,10 +7,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 export function FunnelInsightDataExploration(): JSX.Element {
     const { insightLoading, insightProps } = useValues(insightLogic)
-    const { areFiltersValid } = useValues(funnelDataLogic(insightProps))
-
-    // TODO: implement in funnelDataLogic
-    const isValidFunnel = true
+    const { areFiltersValid, isValidFunnel } = useValues(funnelDataLogic(insightProps))
 
     const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
 
