@@ -65,7 +65,7 @@ export enum NodeKind {
     RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
 }
 
-export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode | HogQLQuery | TimeToSeeDataSessionsQuery
 
 export type QuerySchema =
     // Data nodes (see utils.ts)
@@ -216,7 +216,14 @@ export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode | HogQLQuery
+    source:
+        | EventsNode
+        | EventsQuery
+        | PersonsNode
+        | RecentPerformancePageViewNode
+        | HogQLQuery
+        | TimeToSeeDataSessionsQuery
+
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -380,6 +387,8 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
 
     /** Project to filter on. Defaults to current project */
     teamId?: number
+
+    response?: Record<string, any>[]
 }
 
 export interface TimeToSeeDataQuery extends DataNode {
