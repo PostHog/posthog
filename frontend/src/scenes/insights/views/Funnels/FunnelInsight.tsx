@@ -8,10 +8,7 @@ import { FunnelsQuery } from '~/queries/schema'
 
 export function FunnelInsightDataExploration(): JSX.Element {
     const { insightLoading, insightProps } = useValues(insightLogic)
-    const { querySource } = useValues(funnelDataLogic(insightProps))
-
-    // TODO: implement in funnelDataLogic
-    const hasFunnelResults = true
+    const { querySource, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
     const areFiltersValid = (querySource as FunnelsQuery).series.length > 0
     const nonEmptyState = (hasFunnelResults && areFiltersValid) || insightLoading
