@@ -73,10 +73,15 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                 if (created_by) {
                     searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === parseInt(created_by))
                 }
-                if (type == 'multivariant') {
+                if (type === 'boolean') {
+                    searchedFlags = searchedFlags.filter(
+                        (flag) => flag.filters.multivariate?.variants?.length ?? 0 == 0
+                    )
+                }
+                if (type === 'multivariant') {
                     searchedFlags = searchedFlags.filter((flag) => flag.filters.multivariate?.variants?.length ?? 0 > 0)
                 }
-                if (type == 'experiment') {
+                if (type === 'experiment') {
                     searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
                 }
                 return searchedFlags

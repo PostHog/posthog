@@ -239,6 +239,7 @@ function OverViewTab(): JSX.Element {
                                     }}
                                     options={[
                                         { label: 'All', value: 'all' },
+                                        { label: 'Boolean', value: 'boolean' },
                                         { label: 'Multiple variants', value: 'multivariant' },
                                         { label: 'Experiment', value: 'experiment' },
                                     ]}
