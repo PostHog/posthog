@@ -13,7 +13,7 @@ import {
     Team,
 } from '../../src/types'
 import { UUIDT } from '../../src/utils/utils'
-import { commonUserId, makePluginObjects } from './plugins'
+import { makePluginObjects } from './plugins'
 
 let postgres: Pool
 
@@ -36,14 +36,14 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ) {
     const mocks = makePluginObjects(code)
-    const { teamId, organizationId, apiToken, teamUuid } = await createUserTeamAndOrganization({})
+    const { teamId, organizationId, apiToken, teamUuid, userId } = await createUserTeamAndOrganization({})
     if (withExtendedTestData) {
         const { id: actionId } = await insertRow('posthog_action', {
             team_id: teamId,
             name: 'Test Action',
             description: '',
             created_at: new Date().toISOString(),
-            created_by_id: commonUserId,
+            created_by_id: userId,
             deleted: false,
             post_to_slack: true,
             slack_message_format: '',

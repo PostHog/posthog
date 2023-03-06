@@ -1,13 +1,16 @@
 import Redis from 'ioredis'
+import { KafkaJSError } from 'kafkajs'
+import Broker from 'kafkajs/src/broker'
 
 import { Hub } from '../../../src/types'
 import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { createTaskRunner } from '../../../src/worker/worker'
-import { createOrganization, createTeam, POSTGRES_DELETE_TABLES_QUERY } from '../../helpers/sql'
+import { createOrganization, createTeam } from '../../helpers/sql'
 
 describe('workerTasks.runEventPipeline()', () => {
+    let mockProduce: jest.SpyInstance
     let hub: Hub
     let redis: Redis.Redis
     let closeHub: () => Promise<void>
@@ -18,8 +21,12 @@ describe('workerTasks.runEventPipeline()', () => {
         ;[hub, closeHub] = await createHub()
         redis = await hub.redisPool.acquire()
         piscinaTaskRunner = createTaskRunner(hub)
-        await hub.postgres.query(POSTGRES_DELETE_TABLES_QUERY) // Need to clear the DB to avoid unique constraint violations on ids
         process.env = { ...OLD_ENV } // Make a copy
+
+        // To ensure we are catching and retrying on the correct error, we make
+        // sure to mock deep into the KafkaJS internals, otherwise we can get
+        // into inplaced confidence that we have covered this critical path.
+        mockProduce = jest.spyOn(Broker.prototype, 'produce')
     })
 
     afterAll(async () => {
@@ -39,11 +46,34 @@ describe('workerTasks.runEventPipeline()', () => {
         jest.clearAllMocks()
     })
 
+    test('throws DependencyUnavailableError on KafkaJs errors ', async () => {
+        const organizationId = await createOrganization()
+        const teamId = await createTeam(organizationId)
+
+        const error = new KafkaJSError('test', { retriable: true })
+        mockProduce.mockRejectedValueOnce(error)
+        await expect(
+            piscinaTaskRunner({
+                task: 'runEventPipeline',
+                args: {
+                    event: {
+                        distinctId: 'asdf',
+                        ip: '',
+                        team_id: teamId,
+                        event: 'some event',
+                        properties: {},
+                        uuid: new UUIDT().toString(),
+                    },
+                },
+            })
+        ).rejects.toEqual(new DependencyUnavailableError('KafkaJSError', 'Kafka', error))
+    })
+
     test('throws DependencyUnavailableError on postgres errors', async () => {
         const errorMessage =
             'connection to server at "posthog-pgbouncer" (171.20.65.128), port 6543 failed: server closed the connection unexpectedly'
-        const organizationId = await createOrganization(hub.postgres)
-        const teamId = await createTeam(hub.postgres, organizationId)
+        const organizationId = await createOrganization()
+        const teamId = await createTeam(organizationId)
 
         jest.spyOn(hub.db.postgres, 'query').mockImplementationOnce(() => {
             return Promise.reject(new Error(errorMessage))

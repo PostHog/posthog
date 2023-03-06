@@ -16,5 +16,8 @@ export const fetchEvents = async (teamId: number): Promise<ClickHouseEvent[]> =>
     return response.data.map((row) => ({
         ...row,
         properties: JSON.parse(row.properties),
+        person_properties: JSON.parse(row.person_properties || 'null'),
+        group0_properties: JSON.parse(row.group0_properties || 'null'),
+        group1_properties: JSON.parse(row.group1_properties || 'null'),
     })) as unknown as ClickHouseEvent[]
 }
