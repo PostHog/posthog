@@ -118,8 +118,8 @@ class LazyTableResolver(TraversingVisitor):
                         new_join.fields_accessed[field.name] = ast.Field(chain=chain)
                     else:
                         chain.append(property.name)
-                        property.direct_name = f"{field.name}___{property.name}"
-                        new_join.fields_accessed[property.direct_name] = ast.Field(chain=chain)
+                        property.joined_subquery_field_name = f"{field.name}___{property.name}"
+                        new_join.fields_accessed[property.joined_subquery_field_name] = ast.Field(chain=chain)
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
         # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
@@ -158,6 +158,6 @@ class LazyTableResolver(TraversingVisitor):
                 to_table = self._get_long_table_name(
                     select_symbol, cast(ast.PropertySymbol, field_or_property).parent.table
                 )
-                field_or_property.direct_query = select_symbol.tables[to_table]
+                field_or_property.joined_subquery = select_symbol.tables[to_table]
 
         self.stack_of_fields.pop()

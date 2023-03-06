@@ -204,9 +204,10 @@ class FieldSymbol(Symbol):
 class PropertySymbol(Symbol):
     name: str
     parent: FieldSymbol
-    # In case the property has been moved into the query, this is its name
-    direct_name: Optional[str]
-    direct_query: Optional[SelectQueryAliasSymbol]
+
+    # The property has been moved into a field we query from a joined subquery
+    joined_subquery: Optional[SelectQueryAliasSymbol]
+    joined_subquery_field_name: Optional[str]
 
     def get_child(self, name: str) -> "Symbol":
         raise NotImplementedError("JSON property traversal is not yet supported")
