@@ -204,6 +204,7 @@ class FieldSymbol(Symbol):
 class PropertySymbol(Symbol):
     name: str
     parent: FieldSymbol
+    # In case the property has been moved into the query, this is its name
     direct_name: Optional[str]
     direct_query: Optional[SelectQueryAliasSymbol]
 
