@@ -121,10 +121,11 @@ class PersonOverride(models.Model):
     This model has a set of constraints to ensure correctness:
     1. Unique constraint on (team_id, old_person_id) pairs.
     2. Check that old_person_id is different to override_person_id for every row.
-    3. Exclude rows that overlap across old_person_id and override_person_id (e.g. if
-        a row exists with old_person_id=123 then we would not allow a row with
+    3. Same person id cannot be used as an old_person_id and an override_person_id (per team)
+       (e.g. if a row exists with old_person_id=123 then we would not allow a row with
         override_person_id=123 to exist, as that would require a self join to figure
         out the ultimate override_person_id required for old_person_id=123).
+        To accomplish this we use a series of constraints.
     """
 
     class Meta:
