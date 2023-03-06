@@ -558,9 +558,7 @@ export class PersonState {
         const oldPersonId = await this.addPersonOverrideHelper(oldPerson, client)
         const overridePersonId = await this.addPersonOverrideHelper(overridePerson, client)
 
-        const {
-            rows: [{ version }],
-        } = await this.db.postgresQuery(
+        await this.db.postgresQuery(
             SQL`
                 INSERT INTO posthog_personoverride (
                     team_id,
@@ -573,9 +571,8 @@ export class PersonState {
                     ${oldPersonId},
                     ${overridePersonId},
                     ${oldestEvent},
-                    1
+                    0
                 )
-                RETURNING version;
             `,
             undefined,
             'personOverride',
@@ -588,7 +585,7 @@ export class PersonState {
                     UPDATE
                         posthog_personoverride
                     SET
-                        override_person_id = ${overridePersonId}, version = version + 1
+                        override_person_id = ${overridePersonId}, version = COALESCE(version, 0)::numeric + 1
                     WHERE
                         team_id = ${this.teamId} AND override_person_id = ${oldPersonId}
                     RETURNING
@@ -626,7 +623,7 @@ export class PersonState {
                         override_person_id: overridePerson.uuid,
                         old_person_id: oldPerson.uuid,
                         oldest_event: castTimestampOrNow(oldestEvent, TimestampFormat.ClickHouse),
-                        version: version,
+                        version: 0,
                     }),
                 },
                 ...transitiveUpdates.map(({ old_person_id, version, oldest_event }) => ({
