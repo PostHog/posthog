@@ -27,11 +27,11 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="PersonOverrideHelper",
+            name="PersonOverrideMapping",
             fields=[
                 ("id", models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("uuid", models.UUIDField()),
-                ("team", models.BigIntegerField()),
+                ("team_id", models.BigIntegerField()),
             ],
         ),
         migrations.RemoveConstraint(
@@ -51,7 +51,7 @@ class Migration(migrations.Migration):
                 db_column="old_person_id",
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="person_override_old",
-                to="posthog.personoverridehelper",
+                to="posthog.personoverridemapping",
             ),
         ),
         migrations.RemoveField(model_name="personoverride", name="override_person_id"),
@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
                 db_column="override_person_id",
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="person_override_override",
-                to="posthog.personoverridehelper",
+                to="posthog.personoverridemapping",
             ),
         ),
         migrations.AddConstraint(
@@ -86,7 +86,7 @@ class Migration(migrations.Migration):
             "ALTER TABLE posthog_personoverride DROP CONSTRAINT exclude_override_person_id_from_being_old_person_id",
         ),
         migrations.AddConstraint(
-            model_name="personoverridehelper",
-            constraint=models.UniqueConstraint(fields=("team", "uuid"), name="unique_uuid"),
+            model_name="personoverridemapping",
+            constraint=models.UniqueConstraint(fields=("team_id", "uuid"), name="unique_uuid"),
         ),
     ]

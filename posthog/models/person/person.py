@@ -102,16 +102,16 @@ class PersonDistinctId(models.Model):
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
 
-class PersonOverrideHelper(models.Model):
+class PersonOverrideMapping(models.Model):
     """A model of persons to be overriden in merge or merge-like events."""
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(fields=["team", "uuid"], name="unique_uuid"),
+            models.UniqueConstraint(fields=["team_id", "uuid"], name="unique_uuid"),
         ]
 
     id = models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
-    team = models.BigIntegerField()
+    team_id = models.BigIntegerField()
     uuid = models.UUIDField()
 
 
@@ -142,13 +142,13 @@ class PersonOverride(models.Model):
     # We don't want to delete rows before we had a chance to propagate updates to the events table.
     # To reduce potential side-effects, these are not ForeingKeys.
     old_person_id: models.ForeignKey = models.ForeignKey(
-        "PersonOverrideHelper",
+        "PersonOverrideMapping",
         db_column="old_person_id",
         related_name="person_override_old",
         on_delete=models.CASCADE,
     )
     override_person_id: models.ForeignKey = models.ForeignKey(
-        "PersonOverrideHelper",
+        "PersonOverrideMapping",
         db_column="override_person_id",
         related_name="person_override_override",
         on_delete=models.CASCADE,

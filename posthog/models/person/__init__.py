@@ -1,3 +1,3 @@
-from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideHelper
+from .person import Person, PersonDistinctId, PersonOverride, PersonOverrideMapping
 
-__all__ = ["Person", "PersonDistinctId", "PersonOverride", "PersonOverrideHelper"]
+__all__ = ["Person", "PersonDistinctId", "PersonOverride", "PersonOverrideMapping"]
