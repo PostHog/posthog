@@ -2,14 +2,12 @@ import * as fs from 'fs'
 import * as os from 'os'
 import * as path from 'path'
 
-import { Plugin, PluginAttachmentDB, PluginConfig } from '../../src/types'
-
 export const commonUserId = 1001
 export const commonOrganizationMembershipId = '0177364a-fc7b-0000-511c-137090b9e4e1'
 export const commonOrganizationId = 'ca30f2ec-e9a4-4001-bf27-3ef194086068'
 export const commonUserUuid = '797757a4-baed-4fa8-b73b-2b6cf0300299'
 
-export const plugin60: Plugin = {
+export const plugin60 = {
     plugin_type: 'custom',
     name: 'test-maxmind-plugin',
     description: 'Ingest GeoIP data via MaxMind',
@@ -30,32 +28,26 @@ export const plugin60: Plugin = {
         indexJs:
             'function processEvent (event) { if (event.properties) { event.properties.processed = true } return event }',
     }),
-}
+} as const
 
-export const pluginAttachment1: PluginAttachmentDB = {
+export const pluginAttachment1 = {
     key: 'maxmindMmdb',
     content_type: 'application/octet-stream',
     file_name: 'test.txt',
     file_size: 4,
     contents: Buffer.from('test'),
-}
+} as const
 
-export const pluginConfig39: PluginConfig = {
+export const pluginConfig39 = {
     enabled: true,
     order: 0,
     config: { localhostIP: '94.224.212.175' },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
-}
+} as const
 
-function mockSourceFileFields(
-    name: string,
-    { indexJs, pluginJson }: { indexJs?: string; pluginJson?: string }
-): Pick<Plugin, 'source__plugin_json' | 'source__index_ts' | 'source__frontend_tsx' | 'source__site_ts'> {
-    const fields: Pick<
-        Plugin,
-        'source__plugin_json' | 'source__index_ts' | 'source__frontend_tsx' | 'source__site_ts'
-    > = {}
+export function mockSourceFileFields(name: string, { indexJs, pluginJson }: { indexJs?: string; pluginJson?: string }) {
+    const fields = {}
     if (indexJs) {
         fields['source__index_ts'] = indexJs
     }
@@ -71,24 +63,18 @@ function mockSourceFileFields(
     return fields
 }
 
-export const mockPluginWithSourceFiles = (indexJs: string, pluginJson?: string): Plugin => ({
+export const mockPluginWithSourceFiles = (indexJs: string, pluginJson?: string) => ({
     ...plugin60,
     ...mockSourceFileFields('posthog-maxmind-plugin', { indexJs, pluginJson }),
 })
 
-export const makePluginObjects = (
-    indexJs = ''
-): {
-    pluginRow: Omit<Plugin, 'id'>
-    pluginConfigRow: Omit<PluginConfig, 'id'>
-    pluginAttachmentRow: Omit<PluginAttachmentDB, 'id'>
-} => ({
+export const makePluginObjects = (indexJs = '') => ({
     pluginRow: mockPluginWithSourceFiles(indexJs),
     pluginConfigRow: { ...pluginConfig39, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
     pluginAttachmentRow: pluginAttachment1,
 })
 
-export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plugin, () => void] {
+export function mockPluginTempFolder(indexJs: string, pluginJson?: string) {
     const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'foo-'))
 
     fs.writeFileSync(path.join(folder, 'index.js'), indexJs)
@@ -104,18 +90,19 @@ export function mockPluginTempFolder(indexJs: string, pluginJson?: string): [Plu
             })
     )
     return [
-        { ...plugin60, plugin_type: 'local', url: `file:${folder}` },
+        { ...plugin60, plugin_type: 'local', url: `file:${folder}` } as const,
         () => {
             fs.rmSync(folder, { recursive: true })
         },
-    ]
+    ] as const
 }
 
-export const mockPluginSourceCode = (): Plugin => ({
-    ...plugin60,
-    plugin_type: 'source',
-    url: undefined,
-})
+export const mockPluginSourceCode = () =>
+    ({
+        ...plugin60,
+        plugin_type: 'source',
+        url: undefined,
+    } as const)
 
 export const plugin70 = {
     ...plugin60,

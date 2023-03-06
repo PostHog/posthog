@@ -64,25 +64,40 @@ export async function resetTestDatabase(
             event: null,
             properties: [{ type: 'event', operator: PropertyOperator.Exact, key: 'foo', value: ['bar'] }],
         })
-        const { id: pluginId } = await insertRow('posthog_plugin', {
+        const plugin = await createPlugin({
             ...mocks.pluginRow,
             name: `Test plugin teamId=${teamId} orgId=${organizationId}`,
             organization_id: organizationId,
         })
-        const { id: pluginConfigId } = await insertRow('posthog_pluginconfig', {
+        const pluginConfig = await createPluginConfig({
             ...mocks.pluginConfigRow,
             team_id: teamId,
-            plugin_id: pluginId,
+            plugin_id: plugin.id,
         })
-        const { id: pluginAttachmentId } = await insertRow('posthog_pluginattachment', {
+        const pluginAttachment = await createPluginAttachment({
             ...mocks.pluginAttachmentRow,
-            plugin_config_id: pluginConfigId,
+            plugin_config_id: pluginConfig.id,
             team_id: teamId,
         })
 
-        return { teamId, teamUuid, organizationId, pluginId, pluginConfigId, pluginAttachmentId, apiToken }
+        return {
+            teamId,
+            teamUuid,
+            organizationId,
+            pluginId: plugin.id,
+            plugin,
+            pluginConfigId: pluginConfig.id,
+            pluginConfig,
+            pluginAttachmentId: pluginAttachment.id,
+            pluginAttachment,
+            apiToken,
+        }
     }
     return { teamId, teamUuid, organizationId, apiToken }
+}
+
+async function createPluginAttachment(pluginAttachment: Omit<PluginAttachmentDB, 'id'>) {
+    return await insertRow('posthog_pluginattachment', pluginAttachment)
 }
 
 export async function insertRow(table: string, objectProvided: Record<string, any>) {

@@ -1,7 +1,6 @@
 import { Hub } from '../../../src/types'
 import { createPluginActivityLog } from '../../../src/utils/db/activity-log'
 import { createHub } from '../../../src/utils/db/hub'
-import { pluginConfig39 } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
 jest.mock('../../../src/utils/status')
@@ -22,9 +21,11 @@ interface ActivityLog {
 describe('createPluginActivityLog()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let teamId: number
+    let pluginConfigId: number
 
     beforeEach(async () => {
-        await resetTestDatabase()
+        ;({ teamId, pluginConfigId } = await resetTestDatabase())
         ;[hub, closeHub] = await createHub({})
     })
 
@@ -34,15 +35,15 @@ describe('createPluginActivityLog()', () => {
 
     async function fetchPluginActivityLogs(hub: Hub): Promise<Array<ActivityLog>> {
         const result = await hub.db.postgresQuery<ActivityLog>(
-            `SELECT * FROM posthog_activitylog`,
-            [],
+            `SELECT * FROM posthog_activitylog WHERE team_id = $1 AND scope = 'PluginConfig'`,
+            [teamId],
             'fetchPluginActivityLogs'
         )
         return result.rows
     }
 
     it('can read own writes', async () => {
-        await createPluginActivityLog(hub, pluginConfig39.team_id, pluginConfig39.id, 'job_finished', {
+        await createPluginActivityLog(hub, teamId, pluginConfigId, 'job_finished', {
             trigger: {
                 job_id: 'foobar',
                 job_type: 'some_type',
@@ -54,12 +55,12 @@ describe('createPluginActivityLog()', () => {
         expect(activityLogs).toEqual([
             expect.objectContaining({
                 id: expect.any(String),
-                team_id: pluginConfig39.team_id,
+                team_id: teamId,
                 organization_id: expect.any(String),
                 user_id: null,
                 is_system: true,
                 activity: 'job_finished',
-                item_id: String(pluginConfig39.id),
+                item_id: String(pluginConfigId),
                 scope: 'PluginConfig',
                 detail: {
                     trigger: {
@@ -74,7 +75,7 @@ describe('createPluginActivityLog()', () => {
     })
 
     it('does not blow up for an invalid team', async () => {
-        await createPluginActivityLog(hub, -1, pluginConfig39.id, 'job_finished', {} as any)
+        await createPluginActivityLog(hub, -1, pluginConfigId, 'job_finished', {} as any)
 
         expect(await fetchPluginActivityLogs(hub)).toEqual([])
     })

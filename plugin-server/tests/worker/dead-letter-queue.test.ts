@@ -5,7 +5,7 @@ import { createHub } from '../../src/utils/db/hub'
 import { UUIDT } from '../../src/utils/utils'
 import { generateEventDeadLetterQueueMessage } from '../../src/worker/ingestion/utils'
 import { workerTasks } from '../../src/worker/tasks'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../helpers/clickhouse'
+import { delayUntilEventIngested } from '../helpers/clickhouse'
 import { resetTestDatabase } from '../helpers/sql'
 
 jest.setTimeout(60000) // 60 sec timeout
@@ -51,7 +51,6 @@ describe('events dead letter queue', () => {
         ;[hub, closeHub] = await createHub({ LOG_LEVEL: LogLevel.Log })
         console.warn = jest.fn() as any
         await resetTestDatabase()
-        await resetTestDatabaseClickhouse()
     })
 
     afterEach(async () => {

@@ -6,9 +6,8 @@ import { UUIDT } from '../../../src/utils/utils'
 import { makePiscina } from '../../../src/worker/piscina'
 import { createPosthog, DummyPostHog } from '../../../src/worker/vm/extensions/posthog'
 import { writeToFile } from '../../../src/worker/vm/extensions/test-utils'
-import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
+import { delayUntilEventIngested } from '../../helpers/clickhouse'
 import { resetKafka } from '../../helpers/kafka'
-import { pluginConfig39 } from '../../helpers/plugins'
 import { resetTestDatabase } from '../../helpers/sql'
 
 const { console: testConsole } = writeToFile
@@ -37,12 +36,11 @@ describe.skip('IngestionConsumer', () => {
 
     beforeEach(async () => {
         testConsole.reset()
-        await resetTestDatabase()
-        await resetTestDatabaseClickhouse(extraServerConfig)
+        const { teamId } = await resetTestDatabase()
         pluginServer = await startPluginsServer(extraServerConfig, makePiscina)
         hub = pluginServer.hub
         stopServer = pluginServer.stop
-        posthog = createPosthog(hub, pluginConfig39)
+        posthog = createPosthog(hub, teamId)
     })
 
     afterEach(async () => {
