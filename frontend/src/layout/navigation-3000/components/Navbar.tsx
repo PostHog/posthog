@@ -23,7 +23,6 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { SitePopoverOverlay } from '~/layout/navigation/TopBar/SitePopover'
-import './Navbar.scss'
 import { NavbarButton } from './NavbarButton'
 
 export function Navbar(): JSX.Element {

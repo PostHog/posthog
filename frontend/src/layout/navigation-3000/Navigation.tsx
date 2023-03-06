@@ -1,6 +1,7 @@
 import { ReactNode, useEffect } from 'react'
 import { Breadcrumbs } from '~/layout/navigation/Breadcrumbs/Breadcrumbs'
-import { Navbar } from '../Navbar/Navbar'
+import { Navbar } from './components/Navbar'
+import { Sidebar } from './components/Sidebar'
 import './Navigation.scss'
 
 export function Navigation({ children }: { children: ReactNode }): JSX.Element {
@@ -12,6 +13,7 @@ export function Navigation({ children }: { children: ReactNode }): JSX.Element {
     return (
         <div className="Navigation3000">
             <Navbar />
+            <Sidebar />
             <main>
                 <Breadcrumbs />
                 {children}

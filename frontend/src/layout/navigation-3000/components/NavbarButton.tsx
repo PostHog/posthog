@@ -13,7 +13,6 @@ export interface NavbarButtonProps {
     to?: string
 }
 
-// eslint-disable-next-line react/display-name
 export const NavbarButton: FunctionComponent<NavbarButtonProps> = React.forwardRef<HTMLElement, NavbarButtonProps>(
     ({ identifier, title, onClick, ...buttonProps }, ref): JSX.Element => {
         const { aliasedActiveScene } = useValues(sceneLogic)
