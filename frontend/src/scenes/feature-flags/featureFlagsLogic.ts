@@ -17,6 +17,7 @@ export enum FeatureFlagsTabs { // TODO: Rename to singular "FeatureFlagTab" in l
 export interface FeatureFlagsFilters {
     active: string
     created_by: string
+    type: string
 }
 
 interface FeatureFlagCreators {
@@ -65,12 +66,23 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>({
                         .map((result) => result.item)
                 }
 
-                const { active, created_by } = filters
+                const { active, created_by, type } = filters
                 if (active) {
                     searchedFlags = searchedFlags.filter((flag) => (active === 'true' ? flag.active : !flag.active))
                 }
                 if (created_by) {
                     searchedFlags = searchedFlags.filter((flag) => flag.created_by?.id === parseInt(created_by))
+                }
+                if (type === 'boolean') {
+                    searchedFlags = searchedFlags.filter(
+                        (flag) => flag.filters.multivariate?.variants?.length ?? 0 == 0
+                    )
+                }
+                if (type === 'multivariant') {
+                    searchedFlags = searchedFlags.filter((flag) => flag.filters.multivariate?.variants?.length ?? 0 > 0)
+                }
+                if (type === 'experiment') {
+                    searchedFlags = searchedFlags.filter((flag) => flag.experiment_set?.length ?? 0 > 0)
                 }
                 return searchedFlags
             },
