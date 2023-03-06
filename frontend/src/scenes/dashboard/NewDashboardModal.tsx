@@ -112,9 +112,10 @@ export function DashboardTemplatePreview(): JSX.Element {
 
 export function DashboardTemplateChooser(): JSX.Element {
     const { allTemplates } = useValues(dashboardTemplatesLogic)
-    const { addDashboard } = useActions(newDashboardLogic)
 
-    const { setActiveDashboardTemplate, createDashboardFromTemplate } = useActions(newDashboardLogic)
+    const { isLoading } = useValues(newDashboardLogic)
+    const { setActiveDashboardTemplate, createDashboardFromTemplate, addDashboard, setIsLoading } =
+        useActions(newDashboardLogic)
 
     return (
         <div>
@@ -125,12 +126,16 @@ export function DashboardTemplateChooser(): JSX.Element {
                         dashboard_description: 'Create a blank dashboard',
                         image_url: BlankDashboardHog,
                     }}
-                    onClick={() =>
+                    onClick={() => {
+                        if (isLoading) {
+                            return
+                        }
+                        setIsLoading(true)
                         addDashboard({
                             name: 'New Dashboard',
                             show: true,
                         })
-                    }
+                    }}
                     index={0}
                 />
                 {allTemplates.map((template, index) => (
@@ -138,6 +143,10 @@ export function DashboardTemplateChooser(): JSX.Element {
                         key={index}
                         template={template}
                         onClick={() => {
+                            if (isLoading) {
+                                return
+                            }
+                            setIsLoading(true)
                             // while we might receive templates from the external repository
                             // we need to handle templates that don't have variables
                             if ((template.variables || []).length === 0) {

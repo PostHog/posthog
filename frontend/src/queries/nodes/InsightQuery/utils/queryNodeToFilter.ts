@@ -7,7 +7,15 @@ import {
     NewEntityNode,
     NodeKind,
 } from '~/queries/schema'
-import { ActionFilter, EntityTypes, FilterType, InsightType, StickinessFilterType, TrendsFilterType } from '~/types'
+import {
+    ActionFilter,
+    EntityTypes,
+    FilterType,
+    InsightType,
+    LifecycleFilterType,
+    StickinessFilterType,
+    TrendsFilterType,
+} from '~/types'
 import {
     isActionsNode,
     isEventsNode,
@@ -123,6 +131,11 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isStickinessQuery(query)) {
         ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
+    }
+
+    if (isLifecycleQuery(query)) {
+        ;(filters as LifecycleFilterType).toggledLifecycles = query.lifecycleFilter?.toggledLifecycles
+        ;(filters as LifecycleFilterType).shown_as = query.lifecycleFilter?.shown_as
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

@@ -424,6 +424,7 @@ describe('filtersToQueryNode', () => {
             const filters: Partial<LifecycleFilterType> = {
                 insight: InsightType.LIFECYCLE,
                 shown_as: ShownAsValue.LIFECYCLE,
+                toggledLifecycles: ['new', 'dormant'],
             }
 
             const result = filtersToQueryNode(filters)
@@ -432,6 +433,7 @@ describe('filtersToQueryNode', () => {
                 kind: NodeKind.LifecycleQuery,
                 lifecycleFilter: {
                     shown_as: ShownAsValue.LIFECYCLE,
+                    toggledLifecycles: ['new', 'dormant'],
                 },
             }
             expect(result).toEqual(query)

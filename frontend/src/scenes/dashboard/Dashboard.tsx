@@ -111,7 +111,11 @@ function DashboardScene(): JSX.Element {
             ) : (
                 <div>
                     <div className="flex space-x-4 justify-between">
-                        {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
+                        {![
+                            DashboardPlacement.Public,
+                            DashboardPlacement.Export,
+                            DashboardPlacement.FeatureFlag,
+                        ].includes(placement) && (
                             <div className="flex space-x-4">
                                 <div className="flex items-center h-8">
                                     <DateFilter

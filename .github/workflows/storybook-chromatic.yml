@@ -15,6 +15,7 @@ jobs:
     storybook-chromatic:
         name: Publish to Chromatic
         runs-on: ubuntu-latest
+        timeout-minutes: 15
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         outputs:
             storybook-url: ${{ steps.publish.outputs.storybookUrl }}
@@ -48,6 +49,7 @@ jobs:
     visual-regression:
         name: Visual regression tests
         runs-on: ubuntu-20.04
+        timeout-minutes: 30
         container:
             image: mcr.microsoft.com/playwright:v1.29.2-focal
         strategy:
@@ -149,19 +151,29 @@ jobs:
               if: github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   git config --global --add safe.directory '*' # Calm git down about file ownership
+                  git diff --name-status frontend/__snapshots__/ # For debugging
                   ADDED=$(git diff --name-status frontend/__snapshots__/ | grep '^A' | wc -l)
                   MODIFIED=$(git diff --name-status frontend/__snapshots__/ | grep '^M' | wc -l)
                   DELETED=$(git diff --name-status frontend/__snapshots__/ | grep '^D' | wc -l)
                   TOTAL=$(git diff --name-status frontend/__snapshots__/ | wc -l)
-                  echo A $ADDED + M $MODIFIED + D $DELETED = $TOTAL # Debugging
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-added=$ADDED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-modified=$MODIFIED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-deleted=$DELETED" >> $GITHUB_OUTPUT
                   echo "${{ matrix.browser }}-${{ matrix.shard }}-total=$TOTAL" >> $GITHUB_OUTPUT
 
+            - name: Compress new/changed images using OptiPNG
+              if: |
+                  github.event.pull_request.head.repo.full_name == github.repository && (
+                    steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-added != '0'
+                    || steps.diff.outputs.${{ matrix.browser }}-${{ matrix.shard }}-modified != '0'
+                  )
+              run: |
+                  apt update && apt install -y optipng
+                  git add frontend/__snapshots__/ playwright/
+                  pnpm lint-staged
+
             - name: Commit updated snapshots
               uses: EndBug/add-and-commit@v9
-              # Skip on forks
               if: github.event.pull_request.head.repo.full_name == github.repository
               id: commit
               with:
@@ -179,6 +191,7 @@ jobs:
     visual-regression-summary:
         name: Summarize visual regression tests
         runs-on: ubuntu-20.04
+        timeout-minutes: 5
         needs: visual-regression
         if: always() # Run even if visual-regression fails for one (or more) of the browsers
         steps:
