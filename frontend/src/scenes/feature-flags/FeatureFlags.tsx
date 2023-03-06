@@ -219,6 +219,33 @@ function OverViewTab(): JSX.Element {
                         value={searchTerm}
                     />
                     <div className="flex items-center gap-2">
+                        {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                            <>
+                                <span>
+                                    <b>Type</b>
+                                </span>
+                                <LemonSelect
+                                    onChange={(type) => {
+                                        if (type) {
+                                            if (type === 'all') {
+                                                if (filters) {
+                                                    const { type, ...restFilters } = filters
+                                                    setFeatureFlagsFilters(restFilters, true)
+                                                }
+                                            } else {
+                                                setFeatureFlagsFilters({ type })
+                                            }
+                                        }
+                                    }}
+                                    options={[
+                                        { label: 'All', value: 'all' },
+                                        { label: 'Multiple variants', value: 'multivariant' },
+                                        { label: 'Experiment', value: 'experiment' },
+                                    ]}
+                                    value="all"
+                                />
+                            </>
+                        )}
                         <span>
                             <b>Status</b>
                         </span>
@@ -241,7 +268,6 @@ function OverViewTab(): JSX.Element {
                                 { label: 'Disabled', value: 'false' },
                             ]}
                             value="all"
-                            dropdownMaxContentWidth
                         />
                         <span className="ml-1">
                             <b>Created by</b>
