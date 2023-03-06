@@ -8,7 +8,6 @@ import {
 } from './kafka-topics'
 
 export const defaultConfig = overrideWithEnv(getDefaultConfig())
-export const configHelp = getConfigHelp()
 
 export function getDefaultConfig(): PluginsServerConfig {
     return {
@@ -112,113 +111,25 @@ export function getDefaultConfig(): PluginsServerConfig {
     }
 }
 
-export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
-    return {
-        DATABASE_URL: 'Postgres database URL',
-        CLICKHOUSE_HOST: 'ClickHouse host',
-        CLICKHOUSE_DATABASE: 'ClickHouse database',
-        CLICKHOUSE_USER: 'ClickHouse username',
-        CLICKHOUSE_PASSWORD: 'ClickHouse password',
-        CLICKHOUSE_CA: 'ClickHouse CA certs',
-        CLICKHOUSE_SECURE: 'whether to secure ClickHouse connection',
-        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS:
-            'whether to disallow external schemas like protobuf for clickhouse kafka engine',
-        REDIS_URL: 'Redis store URL',
-        BASE_DIR: 'base path for resolving local plugins',
-        PLUGINS_RELOAD_PUBSUB_CHANNEL: 'Redis channel for reload events',
-        WORKER_CONCURRENCY: 'number of concurrent worker threads',
-        TASK_TIMEOUT: 'how many seconds until tasks are timed out',
-        TASKS_PER_WORKER: 'number of parallel tasks per worker thread',
-        LOG_LEVEL: 'minimum log level',
-        KAFKA_HOSTS: 'comma-delimited Kafka hosts',
-        KAFKA_CONSUMPTION_TOPIC: 'Kafka consumption topic override',
-        KAFKA_CLIENT_CERT_B64: 'Kafka certificate in Base64',
-        KAFKA_CLIENT_CERT_KEY_B64: 'Kafka certificate key in Base64',
-        KAFKA_TRUSTED_CERT_B64: 'Kafka trusted CA in Base64',
-        KAFKA_SECURITY_PROTOCOL: 'Kafka security protocol, one of "PLAINTEXT", "SSL", "SASL_PLAINTEXT", or "SASL_SSL"',
-        KAFKA_SASL_MECHANISM: 'Kafka SASL mechanism, one of "plain", "scram-sha-256", or "scram-sha-512"',
-        KAFKA_SASL_USER: 'Kafka SASL username',
-        KAFKA_SASL_PASSWORD: 'Kafka SASL password',
-        KAFKAJS_LOG_LEVEL: 'Kafka log level',
-        SENTRY_DSN: 'Sentry ingestion URL',
-        SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: 'Rate of tracing in plugin server (between 0 and 1)',
-        STATSD_HOST: 'StatsD host - integration disabled if this is not provided',
-        STATSD_PORT: 'StatsD port',
-        STATSD_PREFIX: 'StatsD prefix',
-        SCHEDULE_LOCK_TTL: 'how many seconds to hold the lock for the schedule',
-        REDIS_POOL_MIN_SIZE: 'minimum number of Redis connections to use per thread',
-        REDIS_POOL_MAX_SIZE: 'maximum number of Redis connections to use per thread',
-        DISABLE_MMDB: 'whether to disable fetching MaxMind database for IP location',
-        DISTINCT_ID_LRU_SIZE: 'size of persons distinct ID LRU cache',
-        EVENT_PROPERTY_LRU_SIZE: "size of the event property tracker's LRU cache (keyed by [team.id, event])",
-        INTERNAL_MMDB_SERVER_PORT: 'port of the internal server used for IP location (0 means random)',
-        JOB_QUEUES: 'retry queue engine and fallback queues',
-        JOB_QUEUE_GRAPHILE_URL: 'use a different postgres connection in the graphile worker',
-        JOB_QUEUE_GRAPHILE_SCHEMA: 'the postgres schema that the graphile worker',
-        JOB_QUEUE_GRAPHILE_PREPARED_STATEMENTS: 'enable this to increase job queue throughput if not using pgbouncer',
-        JOB_QUEUE_S3_AWS_ACCESS_KEY: 'AWS access key for the S3 job queue',
-        JOB_QUEUE_S3_AWS_SECRET_ACCESS_KEY: 'AWS secret access key for the S3 job queue',
-        JOB_QUEUE_S3_AWS_REGION: 'AWS region for the S3 job queue',
-        JOB_QUEUE_S3_BUCKET_NAME: 'S3 bucket name for the S3 job queue',
-        JOB_QUEUE_S3_PREFIX: 'S3 filename prefix for the S3 job queue',
-        CRASH_IF_NO_PERSISTENT_JOB_QUEUE:
-            'refuse to start unless there is a properly configured persistent job queue (e.g. graphile)',
-        STALENESS_RESTART_SECONDS: 'trigger a restart if no event ingested for this duration',
-        HEALTHCHECK_MAX_STALE_SECONDS:
-            'maximum number of seconds the plugin server can go without ingesting events before the healthcheck fails',
-        PISCINA_USE_ATOMICS:
-            'corresponds to the piscina useAtomics config option (https://github.com/piscinajs/piscina#constructor-new-piscinaoptions)',
-        PISCINA_ATOMICS_TIMEOUT:
-            '(advanced) corresponds to the length of time a piscina worker should block for when looking for tasks',
-        EXPERIMENTAL_EVENTS_LAST_SEEN_ENABLED: '(advanced) enable experimental feature to track lastSeenAt',
-        EXPERIMENTAL_EVENT_PROPERTY_TRACKER_ENABLED: '(advanced) enable experimental feature to track event properties',
-        MAX_PENDING_PROMISES_PER_WORKER:
-            '(advanced) maximum number of promises that a worker can have running at once in the background. currently only targets the exportEvents buffer.',
-        KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY:
-            '(advanced) how many kafka partitions the plugin server should consume from concurrently',
-        CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS:
-            '(advanced) a comma separated list of teams to disable clickhouse external schemas for',
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: '(advanced) topic to send events to for clickhouse ingestion',
-        PLUGIN_SERVER_MODE: '(advanced) plugin server mode',
-        OBJECT_STORAGE_ENABLED:
-            'Disables or enables the use of object storage. It will become mandatory to use object storage',
-        OBJECT_STORAGE_ENDPOINT: 'minio endpoint',
-        OBJECT_STORAGE_ACCESS_KEY_ID: 'access key for minio',
-        OBJECT_STORAGE_SECRET_ACCESS_KEY: 'secret key for minio',
-        OBJECT_STORAGE_SESSION_RECORDING_FOLDER:
-            'the top level folder for storing session recordings inside the storage bucket',
-        OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
-        HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
-        APP_METRICS_GATHERED_FOR_ALL: 'whether to gather app metrics for all teams',
-        USE_KAFKA_FOR_SCHEDULED_TASKS: 'distribute scheduled tasks across the scheduler workers',
-    }
-}
-
-export function formatConfigHelp(indentation = 0): string {
-    const spaces = Array(indentation).fill(' ').join('')
-    return Object.entries(getConfigHelp())
-        .map(([variable, description]) => `${spaces}- ${variable} - ${description}`)
-        .join('\n')
-}
-
 export function overrideWithEnv(
     config: PluginsServerConfig,
     env: Record<string, string | undefined> = process.env
 ): PluginsServerConfig {
-    const defaultConfig = getDefaultConfig()
+    const defaultConfig = getDefaultConfig() as any // to make typechecker happy to use defaultConfig[key]
 
-    const newConfig: PluginsServerConfig = { ...config }
+    const tmpConfig: any = { ...config }
     for (const key of Object.keys(config)) {
         if (typeof env[key] !== 'undefined') {
             if (typeof defaultConfig[key] === 'number') {
-                newConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
+                tmpConfig[key] = env[key]?.indexOf('.') ? parseFloat(env[key]!) : parseInt(env[key]!)
             } else if (typeof defaultConfig[key] === 'boolean') {
-                newConfig[key] = stringToBoolean(env[key])
+                tmpConfig[key] = stringToBoolean(env[key])
             } else {
-                newConfig[key] = env[key]
+                tmpConfig[key] = env[key]
             }
         }
     }
+    const newConfig: PluginsServerConfig = { ...tmpConfig }
 
     if (
         ![
