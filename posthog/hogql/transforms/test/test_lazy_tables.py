@@ -103,7 +103,17 @@ class TestLazyTables(BaseTest):
 
     def test_resolve_lazy_tables_two_levels_properties_duplicate(self):
         printed = self._print_select("select event, person.properties, person.properties.name from events")
-        expected = ""
+        expected = (
+            "SELECT event, events__pdi__person.properties, events__pdi__person.properties___name "
+            "FROM events INNER JOIN (SELECT argMax(person_distinct_id2.person_id, version) AS person_id, distinct_id "
+            "FROM person_distinct_id2 WHERE equals(team_id, 42) GROUP BY distinct_id HAVING equals(argMax(is_deleted, version), 0)"
+            ") AS events__pdi ON equals(events.distinct_id, events__pdi.distinct_id) INNER JOIN "
+            "(SELECT argMax(person.properties, version) AS properties, "
+            "argMax(replaceRegexpAll(JSONExtractRaw(person.properties, %(hogql_val_0)s), '^\"|\"$', ''), version) AS properties___name, "
+            "id FROM person WHERE equals(team_id, 42) GROUP BY id HAVING equals(argMax(is_deleted, version), 0)) AS events__pdi__person "
+            "ON equals(events__pdi.person_id, events__pdi__person.id) "
+            "WHERE equals(team_id, 42) LIMIT 65535"
+        )
         self.assertEqual(printed, expected)
 
     def _print_select(self, select: str):

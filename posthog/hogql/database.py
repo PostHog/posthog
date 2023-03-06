@@ -48,6 +48,9 @@ class Table(BaseModel):
     def clickhouse_table(self):
         raise NotImplementedError("Table.clickhouse_table not overridden")
 
+    def hogql_table(self):
+        raise NotImplementedError("Table.hogql_table not overridden")
+
     def avoid_asterisk_fields(self) -> List[str]:
         return []
 
@@ -101,6 +104,9 @@ class EventsPersonSubTable(VirtualTable):
     def clickhouse_table(self):
         return "events"
 
+    def hogql_table(self):
+        return "events"
+
 
 class PersonsTable(Table):
     id: StringDatabaseField = StringDatabaseField(name="id")
@@ -113,6 +119,9 @@ class PersonsTable(Table):
 
     def clickhouse_table(self):
         return "person"
+
+    def hogql_table(self):
+        return "persons"
 
 
 def join_with_persons_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
@@ -168,6 +177,9 @@ class PersonDistinctIdTable(Table):
 
     def clickhouse_table(self):
         return "person_distinct_id2"
+
+    def hogql_table(self):
+        return "person_distinct_ids"
 
 
 def join_with_max_person_distinct_id_table(from_table: str, to_table: str, requested_fields: Dict[str, Any]):
@@ -233,6 +245,9 @@ class EventsTable(Table):
     def clickhouse_table(self):
         return "events"
 
+    def hogql_table(self):
+        return "events"
+
 
 class SessionRecordingEvents(Table):
     uuid: StringDatabaseField = StringDatabaseField(name="uuid")
@@ -257,6 +272,9 @@ class SessionRecordingEvents(Table):
     )
 
     def clickhouse_table(self):
+        return "session_recording_events"
+
+    def hogql_table(self):
         return "session_recording_events"
 
 

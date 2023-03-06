@@ -110,14 +110,19 @@ class LazyTableResolver(TraversingVisitor):
                     )
                 new_join = joins_to_add[to_table]
                 if table_symbol == field.table:
+                    chain = []
+                    if isinstance(table_symbol, ast.LazyTableSymbol):
+                        chain.append(table_symbol.resolve_database_table().hogql_table())
+                    chain.append(field.name)
                     if property is None:
-                        new_join.fields_accessed[field.name] = ast.Field(chain=[field.name])
+                        new_join.fields_accessed[field.name] = ast.Field(chain=chain)
                     else:
+                        chain.append(property.name)
                         property.direct_name = f"{field.name}___{property.name}"
-                        new_join.fields_accessed[property.direct_name] = ast.Field(chain=[field.name, property.name])
+                        new_join.fields_accessed[property.direct_name] = ast.Field(chain=chain)
 
         # Make sure we also add fields we will use for the join's "ON" condition into the list of fields accessed.
-        # Without thi "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
+        # Without this "pdi.person.id" won't work if you did not ALSO select "pdi.person_id" explicitly for the join.
         for new_join in joins_to_add.values():
             if new_join.from_table in joins_to_add:
                 joins_to_add[new_join.from_table].fields_accessed[new_join.lazy_table.from_field] = ast.Field(
