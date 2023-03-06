@@ -28,7 +28,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 // import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
-import { FunnelsQuery, StickinessFilter, TrendsFilter } from '~/queries/schema'
+import { StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -69,11 +69,9 @@ export function InsightContainer({
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     // const {
-    //     isValidFunnel,
-    //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { querySource, areFiltersValid } = useValues(funnelDataLogic(insightProps))
+    const { areFiltersValid, isValidFunnel } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const {
@@ -88,9 +86,6 @@ export function InsightContainer({
         exportContext,
     } = useValues(insightDataLogic(insightProps))
 
-    // TODO: implement in funnelDataLogic
-    const isValidFunnel = true
-
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightLoading && timedOutQueryId === null) {
@@ -103,7 +98,7 @@ export function InsightContainer({
 
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
-            if (((querySource as FunnelsQuery).series || []).length <= 1) {
+            if (!areFiltersValid) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
