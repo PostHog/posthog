@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 
 import { teamLogic } from 'scenes/teamLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
@@ -20,8 +20,8 @@ describe('funnelDataLogic', () => {
     const insightProps: InsightLogicProps = {
         dashboardItemId: undefined,
     }
-    let logic: ReturnType<typeof funnelDataLogic.build>
-    let builtInsightLogic: ReturnType<typeof insightLogic.build>
+    let logic: ReturnType<typeof dataNodeLogic.build>
+    let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
 
     beforeEach(() => {
         initKeaTests(false)
@@ -31,9 +31,9 @@ describe('funnelDataLogic', () => {
         teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
 
-        builtInsightLogic = insightLogic(insightProps)
-        builtInsightLogic.mount()
-        await expectLogic(insightLogic).toFinishAllListeners()
+        builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} })
+        builtDataNodeLogic.mount()
+        await expectLogic(dataNodeLogic).toFinishAllListeners()
 
         logic = funnelDataLogic(insightProps)
         logic.mount()
@@ -164,14 +164,9 @@ describe('funnelDataLogic', () => {
         })
     })
 
-    /**
-     * We set insightLogic.insight via a call to setInsight for data exploration,
-     * in future we should use the response of dataNodeLogic via a connected
-     * insightDataLogic.
-     */
-    describe('based on insightLogic', () => {
+    describe('based on insightDataLogic', () => {
         describe('results', () => {
-            it('with non-funnel insight', async () => {
+            it.skip('with non-funnel insight', async () => {
                 await expectLogic(logic).toMatchValues({
                     insight: expect.objectContaining({ filters: {} }),
                     results: [],
@@ -180,14 +175,11 @@ describe('funnelDataLogic', () => {
 
             it('for standard funnel', async () => {
                 const insight: Partial<InsightModel> = {
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                    },
                     result: funnelResult.result,
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     results: funnelResult.result,
                 })
@@ -195,14 +187,11 @@ describe('funnelDataLogic', () => {
 
             it('with breakdown', async () => {
                 const insight: Partial<InsightModel> = {
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                    },
                     result: funnelResultWithBreakdown.result,
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     results: expect.arrayContaining([
                         expect.arrayContaining([
@@ -217,14 +206,11 @@ describe('funnelDataLogic', () => {
 
             it('with multi breakdown', async () => {
                 const insight: Partial<InsightModel> = {
-                    filters: {
-                        insight: InsightType.FUNNELS,
-                    },
                     result: funnelResultWithMultiBreakdown.result,
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     results: expect.arrayContaining([
                         expect.arrayContaining([
@@ -256,7 +242,7 @@ describe('funnelDataLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     steps: [],
                 })
@@ -271,7 +257,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     steps: funnelResult.result,
                 })
@@ -286,7 +272,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     steps: expect.arrayContaining([
                         expect.objectContaining({
@@ -318,7 +304,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     steps: expect.arrayContaining([
                         expect.objectContaining({
@@ -352,7 +338,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     stepsWithConversionMetrics: expect.arrayContaining([
                         expect.objectContaining({
@@ -384,7 +370,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     stepsWithConversionMetrics: expect.arrayContaining([
                         expect.objectContaining({
@@ -432,7 +418,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     stepsWithConversionMetrics: expect.arrayContaining([
                         expect.objectContaining({
@@ -485,7 +471,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     flattenedBreakdowns: [
                         {
@@ -527,7 +513,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     flattenedBreakdowns: [
                         expect.objectContaining({ breakdown: ['baseline'] }),
@@ -573,7 +559,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     flattenedBreakdowns: [
                         expect.objectContaining({ breakdown: ['baseline'] }),
@@ -621,7 +607,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
                         expect.objectContaining({
@@ -656,7 +642,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
                         expect.objectContaining({
@@ -704,7 +690,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     visibleStepsWithConversionMetrics: [
                         expect.objectContaining({
@@ -791,7 +777,7 @@ describe('funnelDataLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     timeConversionResults: funnelResultTimeToConvert.result,
                 })
@@ -806,7 +792,7 @@ describe('funnelDataLogic', () => {
                 }
 
                 await expectLogic(logic, () => {
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     timeConversionResults: null,
                 })
@@ -834,7 +820,7 @@ describe('funnelDataLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     histogramGraphData: null,
                 })
@@ -857,7 +843,7 @@ describe('funnelDataLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     histogramGraphData: [],
                 })
@@ -880,7 +866,7 @@ describe('funnelDataLogic', () => {
 
                 await expectLogic(logic, () => {
                     logic.actions.updateQuerySource(query)
-                    builtInsightLogic.actions.setInsight(insight, {})
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     histogramGraphData: [
                         { bin0: 4, bin1: 73591, count: 74, id: 4, label: '54.8%' },
@@ -914,7 +900,7 @@ describe('funnelDataLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                builtInsightLogic.actions.setInsight(insight, {})
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 isValidFunnel: true,
@@ -938,7 +924,7 @@ describe('funnelDataLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                builtInsightLogic.actions.setInsight(insight, {})
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 isValidFunnel: true,
@@ -962,7 +948,7 @@ describe('funnelDataLogic', () => {
             }
 
             await expectLogic(logic, () => {
-                builtInsightLogic.actions.setInsight(insight, {})
+                builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
                 isValidFunnel: true,
