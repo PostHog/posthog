@@ -31,7 +31,6 @@ import {
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { getBreakdown, getCompare, getDisplay, getInterval, getSeries } from '~/queries/nodes/InsightViz/utils'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -67,8 +66,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['insight', 'isUsingDataExploration'],
             featureFlagLogic,
             ['featureFlags'],
-            trendsLogic,
-            ['toggledLifecycles as trendsLifecycles'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
             ['response'],
@@ -82,8 +79,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 'loadResultsSuccess',
                 'saveInsight as insightLogicSaveInsight',
             ],
-            trendsLogic(props),
-            ['setLifecycles as setTrendsLifecycles'],
         ],
     })),
 
@@ -196,14 +191,6 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 if (isLifecycleQuery(querySource)) {
                     const filters = queryNodeToFilter(querySource)
                     actions.setFilters(filters)
-
-                    if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
-                        actions.setTrendsLifecycles(
-                            querySource.lifecycleFilter?.toggledLifecycles
-                                ? querySource.lifecycleFilter.toggledLifecycles
-                                : ['new', 'resurrecting', 'returning', 'dormant']
-                        )
-                    }
                 }
             }
         },
@@ -229,10 +216,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         saveInsight: ({ redirectToViewMode }) => {
+            let filters = values.insight.filters
+            if (isInsightVizNode(values.query)) {
+                const querySource = values.query.source
+                filters = queryNodeToFilter(querySource)
+            } else if (values.isQueryBasedInsight) {
+                filters = {}
+            }
+
             actions.setInsight(
                 {
                     ...values.insight,
-                    ...(values.isQueryBasedInsight ? { query: values.query, filters: {} } : {}),
+                    filters: filters,
+                    ...(values.isQueryBasedInsight ? { query: values.query } : {}),
                 },
                 { overrideFilter: true, fromPersistentApi: false }
             )

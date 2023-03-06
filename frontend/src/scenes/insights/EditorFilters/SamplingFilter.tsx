@@ -1,5 +1,4 @@
 import { EditorFilterProps } from '~/types'
-import './LifecycleToggles.scss'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 
