@@ -58,7 +58,7 @@ export const loggerPlugin: () => KeaPlugin = () => ({
     },
 })
 
-/** warn about recursive data structures in actions, as these will crash the redux dev tools plugin */
+/** warn about recursive data structures in actions, as these will crash the redux dev tools */
 export const warnRecursiveDataPlugin: () => KeaPlugin = () => ({
     name: 'kea-warn-recursive',
     events: {
