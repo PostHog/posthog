@@ -23,7 +23,7 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
                 minRows={6}
                 maxRows={6}
                 placeholder={
-                    'Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.$screen_width) * 10\n- concat(event, " ", distinct_id)\n- if(1 < 2, "small", "large")'
+                    "Enter HogQL Expression, such as:\n- properties.$current_url\n- person.properties.$geoip_country_name\n- toInt(properties.`Long Field Name`) * 10\n- concat(event, ' ', distinct_id)\n- if(1 < 2, 'small', 'large')"
                 }
                 // :TRICKY: No autofocus here. It's controlled in the TaxonomicFilter.
                 // autoFocus

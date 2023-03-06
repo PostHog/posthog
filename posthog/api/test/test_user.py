@@ -291,7 +291,7 @@ class TestUserAPI(APIBaseTest):
         mock_is_email_available.assert_called_once()
         mock_send_email_change_emails.assert_not_called()
 
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.get_feature_flag", return_value="test")
     @patch("posthog.api.user.is_email_available", return_value=True)
     @patch("posthog.tasks.email.send_email_change_emails.delay")
     @patch("posthog.tasks.email.send_email_verification.delay")

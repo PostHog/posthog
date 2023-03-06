@@ -208,6 +208,12 @@ class PropertySymbol(Symbol):
     direct_name: Optional[str]
     direct_query: Optional[SelectQueryAliasSymbol]
 
+    def get_child(self, name: str) -> "Symbol":
+        raise NotImplementedError("JSON property traversal is not yet supported")
+
+    def has_child(self, name: str) -> bool:
+        return False
+
 
 class Expr(AST):
     symbol: Optional[Symbol]

@@ -246,6 +246,7 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
     [Scene.VerifyEmail]: {
         allowUnauthenticated: true,
+        plain: true,
     },
 }
 
