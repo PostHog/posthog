@@ -45,7 +45,7 @@ class LazyTableResolver(TraversingVisitor):
             raise ValueError("Should not be reachable")
 
     def visit_property_symbol(self, node: ast.PropertySymbol):
-        if isinstance(node.parent, ast.SelectQueryAliasSymbol):
+        if node.joined_subquery is not None:
             # we have already visited this property
             return
         if isinstance(node.parent.table, ast.LazyTableSymbol):
