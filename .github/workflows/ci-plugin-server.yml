@@ -70,13 +70,8 @@ jobs:
               run: pnpm lint
 
     tests:
-        name: Tests (${{matrix.shard}})
+        name: Tests
         runs-on: ubuntu-22.04
-
-        strategy:
-            fail-fast: false
-            matrix:
-                shard: [1/3, 2/3, 3/3]
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -152,7 +147,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
-              run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
+              run: cd plugin-server && pnpm jest tests/
 
     functional-tests:
         name: Functional tests (POE_EMBRACE_JOIN_FOR_TEAMS=${{matrix.POE_EMBRACE_JOIN_FOR_TEAMS}})
