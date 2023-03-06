@@ -177,8 +177,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(len(response["results"]), 1)
 
-    # TODO: events query person property filters don't use materialized columns!
-    # @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["key"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_person_property_filter(self):
         with freeze_time("2020-01-10 12:00:00"):
