@@ -6,13 +6,13 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0307_add_indirect_person_override_constraints'),
+        ("posthog", "0307_add_indirect_person_override_constraints"),
     ]
 
     operations = [
         migrations.AlterField(
-            model_name='pluginconfig',
-            name='error',
+            model_name="pluginconfig",
+            name="error",
             field=models.JSONField(blank=True, default=None, null=True),
         ),
     ]
