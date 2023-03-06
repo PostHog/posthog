@@ -296,6 +296,7 @@ jobs:
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
+                  retention-days: 5
 
     cloud:
         needs: changes
