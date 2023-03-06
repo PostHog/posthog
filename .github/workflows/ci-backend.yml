@@ -292,7 +292,7 @@ jobs:
 
             - name: Archive email renders
               uses: actions/upload-artifact@v3
-              if: matrix.foss
+              if: matrix.segment == 'FOSS' && matrix.person-on-events == false
               with:
                   name: email_renders
                   path: posthog/tasks/test/__emails__
