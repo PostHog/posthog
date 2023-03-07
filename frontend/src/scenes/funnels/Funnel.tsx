@@ -1,7 +1,7 @@
 import './Funnel.scss'
 import { BindLogic, useValues } from 'kea'
 import { ChartParams, FunnelVizType } from '~/types'
-import { FunnelHistogram } from './FunnelHistogram'
+import { FunnelHistogram, FunnelHistogramDataExploration } from './FunnelHistogram'
 import { funnelLogic } from './funnelLogic'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -20,7 +20,7 @@ export function FunnelDataExploration(props: ChartParams): JSX.Element {
     }
 
     if (funnel_viz_type == FunnelVizType.TimeToConvert) {
-        return <FunnelHistogram />
+        return <FunnelHistogramDataExploration />
     }
 
     return (
