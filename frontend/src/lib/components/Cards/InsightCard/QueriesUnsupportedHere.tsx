@@ -1,6 +1,6 @@
 import { XRayHog2 } from 'lib/components/hedgehogs'
 
-export default function QueriesUnsupportedHere(): JSX.Element {
+export function QueriesUnsupportedHere(): JSX.Element {
     return (
         <div className="text-center">
             <span className="text-muted">
