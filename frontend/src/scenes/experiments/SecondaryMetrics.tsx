@@ -58,6 +58,7 @@ export function SecondaryMetrics({
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
                     <div
+                        // eslint-disable-next-line react/forbid-dom-props
                         style={{
                             color: getSeriesColor(
                                 getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)

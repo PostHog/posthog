@@ -52,7 +52,6 @@ export function Link({ to, target, disableClientSideRouting, preventClick = fals
     }
 
     return (
-        // eslint-disable-next-line react/forbid-elements
         <a
             {...props}
             href={typeof to === 'string' ? to : '#'}
