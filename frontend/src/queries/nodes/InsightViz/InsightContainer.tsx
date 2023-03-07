@@ -71,7 +71,7 @@ export function InsightContainer({
     // const {
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { isFunnelWithEnoughSteps, isValidFunnel } = useValues(funnelDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const {
@@ -104,7 +104,7 @@ export function InsightContainer({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -133,7 +133,7 @@ export function InsightContainer({
             erroredQueryId === null &&
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
-            isValidFunnel &&
+            hasFunnelResults &&
             funnelsFilter?.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {

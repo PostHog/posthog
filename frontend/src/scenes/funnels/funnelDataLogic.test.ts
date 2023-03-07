@@ -882,7 +882,7 @@ describe('funnelDataLogic', () => {
         })
     })
 
-    describe('isValidFunnel', () => {
+    describe('hasFunnelResults', () => {
         it('for steps viz', async () => {
             const query: FunnelsQuery = {
                 kind: NodeKind.FunnelsQuery,
@@ -903,7 +903,7 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
-                isValidFunnel: true,
+                hasFunnelResults: true,
             })
         })
 
@@ -927,7 +927,7 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
-                isValidFunnel: true,
+                hasFunnelResults: true,
             })
         })
 
@@ -951,7 +951,7 @@ describe('funnelDataLogic', () => {
                 builtDataNodeLogic.actions.loadDataSuccess(insight)
                 logic.actions.updateQuerySource(query)
             }).toMatchValues({
-                isValidFunnel: true,
+                hasFunnelResults: true,
             })
         })
     })

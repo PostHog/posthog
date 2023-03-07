@@ -515,7 +515,7 @@ export const funnelLogic = kea<funnelLogicType>({
         ],
         isStepsEmpty: [() => [selectors.filters], (filters: FunnelsFilterType) => isStepsEmpty(filters)],
         propertiesForUrl: [() => [selectors.filters], (filters: FunnelsFilterType) => cleanFilters(filters)],
-        isValidFunnel: [
+        hasFunnelResults: [
             () => [selectors.filters, selectors.steps, selectors.histogramGraphData],
             (filters, steps, histogramGraphData) => {
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {

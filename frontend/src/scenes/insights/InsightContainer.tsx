@@ -68,7 +68,7 @@ export function InsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { isFunnelWithEnoughSteps, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -87,7 +87,7 @@ export function InsightContainer({
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -116,7 +116,7 @@ export function InsightContainer({
             erroredQueryId === null &&
             timedOutQueryId === null &&
             isFunnelWithEnoughSteps &&
-            isValidFunnel &&
+            hasFunnelResults &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {
