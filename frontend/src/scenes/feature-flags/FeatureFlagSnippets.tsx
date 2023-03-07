@@ -101,7 +101,7 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 export function AndroidSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.Java} wrap>
-            {`if (PostHog.with(this).getFeatureFlag(${flagKey})) {
+            {`if (PostHog.with(this).getFeatureFlag('${flagKey}')) {
     // do something
 }
             `}
@@ -112,7 +112,7 @@ export function AndroidSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 export function iOSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.Swift} wrap>
-            {`if (posthog.getFeatureFlag(${flagKey})) {
+            {`if (posthog.getFeatureFlag('${flagKey}')) {
     // do something
 }
             `}
@@ -127,7 +127,7 @@ export function ReactNativeSnippet({ flagKey }: { flagKey: string }): JSX.Elemen
 import { useFeatureFlag } from 'posthog-react-native'
 
 const MyComponent = () => {
-    const showFlaggedFeature = useFeatureFlag(${flagKey})
+    const showFlaggedFeature = useFeatureFlag('${flagKey}')
 
     if (showFlaggedFeature === undefined) {
         // the response is undefined if the flags are being loaded
