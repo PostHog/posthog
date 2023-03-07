@@ -68,7 +68,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['featureFlags'],
             // TODO: need to pass empty query here, as otherwise dataNodeLogic will throw
             dataNodeLogic({ key: insightVizDataNodeKey(props), query: {} as DataNode }),
-            ['response'],
+            ['response as insightData'],
         ],
         actions: [
             insightLogic,
@@ -240,7 +240,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
          * This subscription updates the insight for all visualizations
          * that haven't been refactored to use the data exploration yet.
          */
-        response: (response: Record<string, any> | null) => {
+        insightData: (insightData: Record<string, any> | null) => {
             if (!values.isUsingDataExploration) {
                 return
             }
@@ -248,9 +248,9 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setInsight(
                 {
                     ...values.insight,
-                    result: response?.result,
-                    next: response?.next,
-                    // filters: queryNodeToFilter(query.source),
+                    result: insightData?.result,
+                    next: insightData?.next,
+                    filters: queryNodeToFilter(values.querySource),
                 },
                 {}
             )

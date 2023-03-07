@@ -401,6 +401,11 @@ def capture_report(
     pha_client.flush()
 
 
+# extend this with future usage based products
+def has_non_zero_usage(report: FullUsageReport) -> bool:
+    return report.event_count_in_period > 0 or report.recording_count_in_period > 0
+
+
 @app.task(ignore_result=True, retries=3)
 def send_all_org_usage_reports(
     dry_run: bool = False,
@@ -543,5 +548,6 @@ def send_all_org_usage_reports(
             capture_report.delay(capture_event_name, org_id, full_report_dict, at_date)
 
         # Then capture the events to Billing
-        send_report_to_billing_service.delay(org_id, full_report_dict)
+        if has_non_zero_usage(full_report):
+            send_report_to_billing_service.delay(org_id, full_report_dict)
     return all_reports
