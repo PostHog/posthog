@@ -83,6 +83,7 @@ export const urls = {
     annotations: (): string => '/annotations',
     projectApps: (tab?: PluginTab): string => `/project/apps${tab ? `?tab=${tab}` : ''}`,
     projectApp: (id: string | number): string => `/project/apps/${id}`,
+    projectAppSearch: (name: string): string => `/project/apps?name=${name}`,
     projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
     projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,

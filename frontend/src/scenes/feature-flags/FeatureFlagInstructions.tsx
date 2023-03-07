@@ -37,7 +37,7 @@ interface InstructionOption {
     Snippet: ({ flagKey }: { flagKey: string }) => JSX.Element
 }
 
-const OPTIONS: InstructionOption[] = [
+export const OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
         documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
@@ -136,7 +136,7 @@ function FeatureFlagInstructionsFooter({ documentationLink }: { documentationLin
     )
 }
 
-function CodeInstructions({
+export function CodeInstructions({
     featureFlagKey,
     options,
     headerPrompt,
