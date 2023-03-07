@@ -8,6 +8,31 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { FunnelLayout } from 'lib/constants'
 import { FunnelBarChart } from './FunnelBarChart'
 import { FunnelBarGraph } from './FunnelBarGraph'
+import { funnelDataLogic } from './funnelDataLogic'
+
+export function FunnelDataExploration(props: ChartParams): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
+    const { funnel_viz_type, layout } = funnelsFilter
+
+    if (funnel_viz_type == FunnelVizType.Trends) {
+        return <FunnelLineGraph {...props} />
+    }
+
+    if (funnel_viz_type == FunnelVizType.TimeToConvert) {
+        return <FunnelHistogram />
+    }
+
+    return (
+        <BindLogic logic={funnelLogic} props={insightProps}>
+            {(layout || FunnelLayout.vertical) === FunnelLayout.vertical ? (
+                <FunnelBarChart {...props} />
+            ) : (
+                <FunnelBarGraph {...props} />
+            )}
+        </BindLogic>
+    )
+}
 
 export function Funnel(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
