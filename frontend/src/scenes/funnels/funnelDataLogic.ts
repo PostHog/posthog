@@ -13,7 +13,7 @@ import {
     FlattenedFunnelStepByBreakdown,
     FunnelsTimeConversionBins,
     HistogramGraphDatum,
-    FunnelResult,
+    FunnelAPIResponse,
 } from '~/types'
 import { FunnelsQuery, NodeKind } from '~/queries/schema'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -98,7 +98,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
 
         results: [
             (s) => [s.insightData],
-            (insightData: FunnelResult | null): FunnelResultType => {
+            (insightData: FunnelAPIResponse | null): FunnelResultType => {
                 // TODO: after hooking up data manager, check that we have a funnels result here
                 if (insightData?.result) {
                     if (isBreakdownFunnelResults(insightData.result) && insightData.result[0][0].breakdowns) {
