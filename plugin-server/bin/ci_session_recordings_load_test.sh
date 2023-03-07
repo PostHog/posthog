@@ -31,6 +31,8 @@ LOG_FILE=$(mktemp)
 SESSION_RECORDING_EVENTS_TOPIC=session_recording_events
 SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 
+export KAFKAJS_NO_PARTITIONER_WARNING=1
+
 # Wait for Kafka to be ready, give it 30 seconds
 SECONDS=0
 
@@ -50,6 +52,18 @@ until docker compose \
     sleep 1
 done
 
+# Make sure the topic exists, and if not, create it.
+echo "Creating topic $SESSION_RECORDING_EVENTS_TOPIC"
+docker compose \
+    -f "$DIR"/../../docker-compose.dev.yml exec \
+    -T kafka kafka-topics.sh \
+    --bootstrap-server localhost:9092 \
+    --create \
+    --topic $SESSION_RECORDING_EVENTS_TOPIC \
+    --partitions 1 \
+    --replication-factor 1 >/dev/null 2>&1 ||
+    echo 'Topic already exists'
+
 # Before we do anything, reset the consumer group offsets to the latest offsets.
 # This is to ensure that we are only testing the ingestion of new messages, and
 # not the replay of old messages. We don't fail if the topic does not exist.
@@ -61,22 +75,10 @@ docker compose \
     --reset-offsets \
     --to-latest \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
-    --topic $SESSION_RECORDING_EVENTS_TOPIC ||
-    true
+    --topic $SESSION_RECORDING_EVENTS_TOPIC >/dev/null 2>&1
 
-# Make sure the topic exists, and if not, create it.
-echo "Creating topic $SESSION_RECORDING_EVENTS_TOPIC"
-docker compose \
-    -f "$DIR"/../../docker-compose.dev.yml exec \
-    -T kafka kafka-topics.sh \
-    --bootstrap-server localhost:9092 \
-    --create \
-    --topic $SESSION_RECORDING_EVENTS_TOPIC \
-    --partitions 1 \
-    --replication-factor 1 ||
-    true
-
-"$DIR"/../../manage.py setup_dev || true # Assume a failure means it has already been run.
+echo Creating test user
+"$DIR"/../../manage.py setup_dev >/dev/null 2>&1 || echo 'User already exists' # Assume a failure means it has already been run.
 
 # Generate the session recording events and send them to Kafka.
 echo "Generating $SESSONS_COUNT session recording events"
@@ -100,13 +102,14 @@ echo "Generating $SESSONS_COUNT session recording events"
 # messages if we want to make this time insignificant.
 PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
-trap 'kill $SERVER_PID' EXIT
+trap 'cat $LOG_FILE || kill $SERVER_PID' EXIT
 
 # Wait for the plugin server health check to be ready, and timeout after 10
 # seconds with exit code 1.
 SECONDS=0
 
 until curl http://localhost:6738/_health; do
+
     if ((SECONDS > 10)); then
         echo 'Timed out waiting for plugin-server to be ready'
         echo '::endgroup::'
@@ -121,24 +124,30 @@ until curl http://localhost:6738/_health; do
     sleep 1
 done
 
+echo ''
+echo 'Plugin server is ready'
+
 # Wait for the ingestion lag for the session recordings consumer group for the
 # session recording events topic to drop to zero, timing out after 120 seconds
 # with exit code 1. We also print progress of the lag every second.
 SECONDS=0
 
 while [[ $SECONDS -lt 120 ]]; do
-    LAG=$(docker compose \
+    OUTPUT=$(docker compose \
         -f "$DIR"/../../docker-compose.dev.yml exec \
         -T kafka kafka-consumer-groups.sh \
         --bootstrap-server localhost:9092 \
         --describe \
-        --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP |
-        grep $SESSION_RECORDING_EVENTS_TOPIC |
-        awk '{print $6}')
+        --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP | grep $SESSION_RECORDING_EVENTS_TOPIC)
+
+    LAG=$(echo "$OUTPUT" | awk '{print $6}')
+
+    echo "Group info: $OUTPUT"
 
     echo "Ingestion lag: $LAG"
 
-    if [[ "$LAG" -eq "0" ]]; then
+    # Check if the LAG string is "0"
+    if [[ $LAG == "0" ]]; then
         break
     fi
 

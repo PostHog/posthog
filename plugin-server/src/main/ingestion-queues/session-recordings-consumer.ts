@@ -44,7 +44,12 @@ export const startSessionRecordingEventsConsumer = async ({
     const consumer = kafka.consumer({ groupId: groupId, sessionTimeout: sessionTimeout })
     setupEventHandlers(consumer)
 
-    status.info('🔁', 'Starting session recordings consumer')
+    status.info('🔁', 'Starting session recordings consumer', {
+        topic: KAFKA_SESSION_RECORDING_EVENTS,
+        groupId,
+        sessionTimeout,
+        partitionsConsumedConcurrently,
+    })
 
     await consumer.connect()
     await consumer.subscribe({ topic: KAFKA_SESSION_RECORDING_EVENTS })
@@ -58,6 +63,8 @@ export const startSessionRecordingEventsConsumer = async ({
             )
         },
     })
+
+    status.info('🔁', 'Started session recordings consumer')
 
     // Subscribe to the heatbeat event to track when the consumer has last
     // successfully consumed a message. This is used to determine if the
