@@ -107,20 +107,22 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
-            // If waiting for loaders, also fill all canvases with solid black for the snapshot
+            // If waiting for a canvas, fill all canvases on the page with solid black for the snapshot
             // This prevents Chart.js from causing constant flakiness, which has proven to be very challenging
             // Black is for making this behavior explicit in the snapshots
-            await page.evaluate(() => {
-                const canvases = document.getElementsByTagName('canvas')
-                for (let i = 0; i < canvases.length; i++) {
-                    const canvas = canvases[i]
-                    const ctx = canvas.getContext('2d')
-                    if (ctx) {
-                        ctx.fillStyle = 'black'
-                        ctx.fillRect(0, 0, canvas.width, canvas.height)
+            if (waitForLoadersToDisappear.split(' ').at(-1)!.startsWith('canvas')) {
+                await page.evaluate(() => {
+                    const canvases = document.getElementsByTagName('canvas')
+                    for (let i = 0; i < canvases.length; i++) {
+                        const canvas = canvases[i]
+                        const ctx = canvas.getContext('2d')
+                        if (ctx) {
+                            ctx.fillStyle = 'black'
+                            ctx.fillRect(0, 0, canvas.width, canvas.height)
+                        }
                     }
-                }
-            })
+                })
+            }
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
