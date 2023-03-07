@@ -5,7 +5,6 @@ import { mswDecorator } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { BillingLocked } from './BillingLocked'
 
 export default {
     title: 'Scenes-Other/Billing',
@@ -33,7 +32,4 @@ export const Subscribed = (): JSX.Element => {
         router.actions.push(urls.billingSubscribed(), { s: 'success' })
     })
     return <BillingSubscribed />
-}
-export const Locked = (): JSX.Element => {
-    return <BillingLocked />
 }
