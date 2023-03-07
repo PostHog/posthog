@@ -13,7 +13,7 @@ import { funnelDataLogic } from './funnelDataLogic'
 export function FunnelDataExploration(props: ChartParams): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { funnelsFilter } = useValues(funnelDataLogic(insightProps))
-    const { funnel_viz_type, layout } = funnelsFilter
+    const { funnel_viz_type, layout } = funnelsFilter || {}
 
     if (funnel_viz_type == FunnelVizType.Trends) {
         return <FunnelLineGraph {...props} />
