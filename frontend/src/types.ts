@@ -1801,7 +1801,7 @@ export interface FunnelsTimeConversionBins {
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
 
-export interface FunnelResult<ResultType = FunnelResultType> {
+export interface FunnelAPIResponse<ResultType = FunnelResultType> {
     is_cached: boolean
     last_refresh: string | null
     result: ResultType
