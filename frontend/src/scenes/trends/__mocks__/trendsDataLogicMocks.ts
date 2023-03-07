@@ -206,7 +206,7 @@ export const trendResult: TrendAPIResponse = {
     last_refresh: '2023-03-07T13:42:17.746798Z',
     is_cached: true,
     next: null,
-}
+} as unknown as TrendAPIResponse
 
 // 1. Add step "Autocapture"
 // 2. Add step "Feature Flag Called"
@@ -352,7 +352,7 @@ export const trendPieResult: TrendAPIResponse = {
     last_refresh: '2023-03-07T15:19:31.730326Z',
     is_cached: false,
     next: null,
-}
+} as unknown as TrendAPIResponse
 
 // 1. Select "Lifecycle"
 export const lifecycleResult: TrendAPIResponse = {
@@ -870,4 +870,4 @@ export const lifecycleResult: TrendAPIResponse = {
     last_refresh: '2023-03-07T15:44:27.385509Z',
     is_cached: true,
     next: null,
-}
+} as unknown as TrendAPIResponse
