@@ -13,6 +13,41 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Field, Form } from 'kea-forms'
 
 import './Feedback.scss'
+import { IconClose, IconHelpOutline, IconUnfoldLess, IconUnfoldMore } from 'lib/lemon-ui/icons'
+
+export function ExpandableSection({
+    header,
+    children,
+    expanded,
+    setExpanded,
+}: {
+    header: JSX.Element
+    children: JSX.Element
+    expanded: boolean
+    setExpanded: (expanded: boolean) => void
+}): JSX.Element {
+    return (
+        <div className="rounded border p-4 my-4">
+            <div
+                className="flex cursor-pointer"
+                onClick={() => {
+                    setExpanded(!expanded)
+                }}
+            >
+                <LemonButton
+                    className="inline-flex items-center justify-center mr-2 mb-2"
+                    status="stealth"
+                    noPadding={true}
+                    onClick={() => setExpanded(!expanded)}
+                    icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    title={expanded ? 'Collapse' : 'Expand'}
+                />
+                <div className="inline-flex">{header}</div>
+            </div>
+            <div>{expanded && children}</div>
+        </div>
+    )
+}
 
 function useEvents(eventName: string): { events: EventType[]; eventsLoading: boolean } {
     const [events, setEvents] = useState<EventType[]>([])
@@ -56,59 +91,67 @@ export function FeedbackInstructions(): JSX.Element {
     const eventName = 'Feedback Sent'
     const feedbackProperties = ['$feedback']
 
+    const { expandedSection } = useValues(feedbackLogic)
+    const { setExpandedSection } = useActions(feedbackLogic)
+
     // TODO: Hook up the table and form to the API
 
     return (
         <div className="max-w-200">
-            <div className="rounded border p-4 my-4">
-                <h2 className="text-2xl">Set up the feedback app</h2>
-                <p className="text-sm italic">
-                    The feedback widget is the quickest way to collect feedback from your users.
-                </p>
+            <ExpandableSection
+                header={<h2 className="text-2xl">Set up the feedback widget</h2>}
+                expanded={expandedSection(0)}
+                setExpanded={(expanded) => setExpandedSection(0, expanded)}
+            >
                 <div>
+                    <p className="text-sm italic">
+                        The feedback widget is the quickest way to collect feedback from your users.
+                    </p>
                     <div>
-                        <div className="text-lg">1. Turn on the feedback widget</div>
-                        <div className="ml-4 my-4">
-                            <LemonButton
-                                onClick={() => {
-                                    window.open(urls.projectAppSearch('Feedback Widget'), '_blank')
-                                }}
-                                type="primary"
-                            >
-                                Feedback widget
-                            </LemonButton>
+                        <div>
+                            <div className="text-lg">1. Turn on the feedback widget</div>
+                            <div className="ml-4 my-4">
+                                <LemonButton
+                                    onClick={() => {
+                                        window.open(urls.projectAppSearch('Feedback Widget'), '_blank')
+                                    }}
+                                    type="primary"
+                                >
+                                    Feedback widget
+                                </LemonButton>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <div className="text-lg">2. Enable site apps</div>
-                        <div className="ml-4 my-4">
-                            <CodeSnippet language={Language.JavaScript} wrap>
-                                {`posthog.init('YOUR_PROJECT_API_KEY', {
+                        <div>
+                            <div className="text-lg">2. Enable site apps</div>
+                            <div className="ml-4 my-4">
+                                <CodeSnippet language={Language.JavaScript} wrap>
+                                    {`posthog.init('YOUR_PROJECT_API_KEY', {
     api_host: 'YOUR API HOST',
     opt_in_site_apps: true // <--- Add this line
 })`}
-                            </CodeSnippet>
+                                </CodeSnippet>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <div className="text-lg">3. Configure the feedback widget</div>
-                        <div className="ml-4 my-4 text-base">
-                            <p>Configure the feedback widget one of the following ways:</p>
-                            <ul className="list-disc ml-4">
-                                <li>
-                                    <strong>Floating feedback button:</strong> Select show feedback button on the page
-                                    to have a floating feedback button on your website.
-                                </li>
-                                <li>
-                                    <strong>Custom button:</strong> Add a button with a corresponding data attribute
-                                    e.g. data-attr='posthog-feedback-button'. When clicked this will open the feedback
-                                    widget
-                                </li>
-                            </ul>
+                        <div>
+                            <div className="text-lg">3. Configure the feedback widget</div>
+                            <div className="ml-4 my-4 text-base">
+                                <p>Configure the feedback widget one of the following ways:</p>
+                                <ul className="list-disc ml-4">
+                                    <li>
+                                        <strong>Floating feedback button:</strong> Select show feedback button on the
+                                        page to have a floating feedback button on your website.
+                                    </li>
+                                    <li>
+                                        <strong>Custom button:</strong> Add a button with a corresponding data attribute
+                                        e.g. data-attr='posthog-feedback-button'. When clicked this will open the
+                                        feedback widget
+                                    </li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </ExpandableSection>
             <div>
                 <div className="flex justify-center items-center">
                     <LemonDivider dashed className="flex-1" />
@@ -116,91 +159,96 @@ export function FeedbackInstructions(): JSX.Element {
                     <LemonDivider dashed className="flex-1" />
                 </div>
             </div>
-            <div className="rounded border p-4 my-4">
-                <h2 className="text-2xl">Create a custom feedback form</h2>
-                <p className="text-sm italic">
-                    Or create a custom form styled to your app and then send the feedback to PostHog.
-                </p>
+            <ExpandableSection
+                header={<h2 className="text-2xl">Create a custom feedback form</h2>}
+                expanded={expandedSection(1)}
+                setExpanded={(expanded) => setExpandedSection(1, expanded)}
+            >
                 <div>
+                    <p className="text-sm italic">
+                        Or create a custom form styled to your app and then send the feedback to PostHog.
+                    </p>
                     <div>
-                        <div className="text-lg">1. Create the form and send the feedback to PostHog</div>
-                        <div className="ml-4 my-4">
-                            <CodeSnippet language={Language.JavaScript} wrap>
-                                {`posthog.capture('Feedback Sent', { '$feedback': 'Can you make the logo bigger?' })`}
-                            </CodeSnippet>
+                        <div>
+                            <div className="text-lg">1. Create the form and send the feedback to PostHog</div>
+                            <div className="ml-4 my-4">
+                                <CodeSnippet language={Language.JavaScript} wrap>
+                                    {`posthog.capture('Feedback Sent', { '$feedback': 'Can you make the logo bigger?' })`}
+                                </CodeSnippet>
+                            </div>
                         </div>
-                    </div>
-                    <div>
-                        <div className="text-lg">2. Add your feedback properties</div>
-                        <div className="ml-4 max-w-200 my-4 FeedbackEventsTable">
-                            {/* Lemon table containing event name and event properties */}
-                            <LemonTable
-                                dataSource={[
-                                    {
-                                        event: eventName,
-                                        properties: feedbackProperties,
-                                    },
-                                ]}
-                                columns={[
-                                    {
-                                        key: 'event',
-                                        title: 'Feedback Event',
-                                        render: (_, event) => {
-                                            return <div>{event.event}</div>
+                        <div>
+                            <div className="text-lg">2. Add your feedback properties</div>
+                            <div className="ml-4 max-w-200 my-4 FeedbackEventsTable">
+                                {/* Lemon table containing event name and event properties */}
+                                <LemonTable
+                                    dataSource={[
+                                        {
+                                            event: eventName,
+                                            properties: feedbackProperties,
                                         },
-                                    },
-                                    {
-                                        key: 'properties',
-                                        title: 'Feedback Properties',
-                                        render: (_, event) => {
-                                            return (
-                                                <div>
-                                                    {event.properties.map((property: string, index: number) => (
-                                                        <div key={index}>{property}</div>
-                                                    ))}
+                                    ]}
+                                    columns={[
+                                        {
+                                            key: 'event',
+                                            title: 'Feedback Event',
+                                            render: (_, event) => {
+                                                return <div>{event.event}</div>
+                                            },
+                                        },
+                                        {
+                                            key: 'properties',
+                                            title: 'Feedback Properties',
+                                            render: (_, event) => {
+                                                return (
+                                                    <div>
+                                                        {event.properties.map((property: string, index: number) => (
+                                                            <div key={index}>{property}</div>
+                                                        ))}
+                                                    </div>
+                                                )
+                                            },
+                                        },
+                                    ]}
+                                />
+                                <Form logic={feedbackLogic} formKey={formKey} className="my-4">
+                                    <div className="flex gap-4">
+                                        <div className="flex-1">
+                                            <Field name="name">
+                                                <LemonInput placeholder="Feedback Sent" />
+                                            </Field>
+                                        </div>
+                                        <div className="flex-1">
+                                            <div className="flex gap-4">
+                                                <div className="flex-1">
+                                                    <Field name="properties">
+                                                        <LemonInput placeholder="$feedback,$feedback2" />
+                                                    </Field>
                                                 </div>
-                                            )
-                                        },
-                                    },
-                                ]}
-                            />
-                            <Form logic={feedbackLogic} formKey={formKey} className="my-4">
-                                <div className="flex gap-4">
-                                    <div className="flex-1">
-                                        <Field name="name">
-                                            <LemonInput placeholder="Feedback Sent" />
-                                        </Field>
-                                    </div>
-                                    <div className="flex-1">
-                                        <div className="flex gap-4">
-                                            <div className="flex-1">
-                                                <Field name="properties">
-                                                    <LemonInput placeholder="$feedback,$feedback2" />
-                                                </Field>
-                                            </div>
-                                            <div>
-                                                <LemonButton
-                                                    type="primary"
-                                                    onClick={() => {
-                                                        feedbackLogic.actions.addFeedbackProperty()
-                                                    }}
-                                                >
-                                                    Add
-                                                </LemonButton>
+                                                <div>
+                                                    <LemonButton
+                                                        type="primary"
+                                                        onClick={() => {
+                                                            feedbackLogic.actions.addFeedbackProperty()
+                                                        }}
+                                                    >
+                                                        Add
+                                                    </LemonButton>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
-                                </div>
-                            </Form>
+                                </Form>
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
+            </ExpandableSection>
         </div>
     )
 }
 
-function FeedbackWidget({
+function FeedbackWidgetTab({
     config,
 }: {
     config: {
@@ -211,16 +259,36 @@ function FeedbackWidget({
     const eventName = config.eventName || 'Feedback Sent'
     const { events, eventsLoading } = useEvents(eventName)
     const filters = useFilters(eventName)
+    const { inAppFeedbackInstructions } = useValues(feedbackLogic)
+    const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
 
     return (
         <>
-            <h2>Feedback received in the last 14 days</h2>
+            <div className="flex justify-end float-right">
+                {events.length > 0 && (
+                    <LemonButton
+                        onClick={() => {
+                            toggleInAppFeedbackInstructions()
+                        }}
+                        sideIcon={!inAppFeedbackInstructions ? <IconHelpOutline /> : <IconClose />}
+                    >
+                        {!inAppFeedbackInstructions ? 'Show' : 'Hide'} instructions
+                    </LemonButton>
+                )}
+            </div>
             {eventsLoading ? (
                 <div>Loading...</div>
             ) : events.length === 0 ? (
-                <FeedbackInstructions />
+                <>
+                    <div className="mb-8">
+                        <h3 className="text-2xl">No feedback received in the last 14 days.</h3>
+                        <p className="text-sm italic">Starting sending feedback to use this feature. </p>
+                    </div>
+                    <FeedbackInstructions />
+                </>
             ) : (
                 <>
+                    <h2>Feedback received in the last 14 days</h2>
                     <AdHocInsight filters={filters} style={{ height: 200 }} />
                     <LemonTable
                         dataSource={events}
@@ -262,6 +330,7 @@ function FeedbackWidget({
 export const Feedback = (): JSX.Element => {
     const { activeTab } = useValues(feedbackLogic)
     const { setTab } = useActions(feedbackLogic)
+
     return (
         <div className="Feedback">
             <PageHeader
@@ -273,7 +342,7 @@ export const Feedback = (): JSX.Element => {
                         </LemonTag>
                     </div>
                 }
-                caption={<p>Hear what your users have to say about your product</p>}
+                caption={<p>Hear what your users have to say about your product.</p>}
             />
             <LemonTabs
                 activeKey={activeTab}
@@ -281,7 +350,7 @@ export const Feedback = (): JSX.Element => {
                 tabs={[
                     {
                         content: (
-                            <FeedbackWidget
+                            <FeedbackWidgetTab
                                 config={{
                                     eventName: 'Feedback Sent',
                                     feedbackProperty: '$feedback',
@@ -306,6 +375,5 @@ export const Feedback = (): JSX.Element => {
 
 export const scene: SceneExport = {
     component: Feedback,
-    // logic: webPerformanceLogic,
-    paramsToProps: () => ({ sceneUrl: urls.feedback() }),
+    logic: feedbackLogic,
 }
