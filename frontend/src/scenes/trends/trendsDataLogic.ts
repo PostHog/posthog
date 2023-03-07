@@ -1,5 +1,5 @@
 import { kea, props, key, path, connect, selectors } from 'kea'
-import { ChartDisplayType, InsightLogicProps, TrendAPIResponse, TrendResult } from '~/types'
+import { ChartDisplayType, InsightLogicProps, LifecycleToggle, TrendAPIResponse, TrendResult } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
@@ -39,7 +39,8 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     indexedResults.sort((a, b) => b.aggregated_value - a.aggregated_value)
                 } else if (lifecycleFilter && lifecycleFilter.toggledLifecycles) {
                     indexedResults = indexedResults.filter((result) =>
-                        lifecycleFilter.toggledLifecycles.includes(String(result.status))
+                        // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+                        lifecycleFilter.toggledLifecycles!.includes(String(result.status) as LifecycleToggle)
                     )
                 }
                 return indexedResults.map((result, index) => ({ ...result, id: index }))
