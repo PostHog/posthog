@@ -101,7 +101,7 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 export function AndroidSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.Java} wrap>
-            {`if (PostHog.with(this).getFeatureFlag('${flagKey}')) {
+            {`if (PostHog.with(this).isFeatureEnabled('${flagKey}')) {
     // do something
 }
             `}
@@ -112,7 +112,9 @@ export function AndroidSnippet({ flagKey }: { flagKey: string }): JSX.Element {
 export function iOSSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <CodeSnippet language={Language.Swift} wrap>
-            {`if (posthog.getFeatureFlag('${flagKey}')) {
+            {`// In Swift
+
+if (posthog.isFeatureEnabled('${flagKey}')) {
     // do something
 }
             `}
