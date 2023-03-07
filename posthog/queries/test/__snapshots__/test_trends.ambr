@@ -616,7 +616,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
             count(*) as count
-     FROM events e
+     FROM events e SAMPLE 1.0
      WHERE team_id = 2
        AND ((event = 'sign up'))
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -657,7 +657,7 @@
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
-           FROM events e
+           FROM events e SAMPLE 1.0
            INNER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
@@ -687,7 +687,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') AS value,
             count(*) as count
-     FROM events e
+     FROM events e SAMPLE 1.0
      WHERE team_id = 2
        AND event = 'sign up'
        AND toTimeZone(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC')
@@ -728,7 +728,7 @@
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$some_property'), '^"|"$', '') as breakdown_value
-           FROM events e
+           FROM events e SAMPLE 1.0
            INNER JOIN
              (SELECT distinct_id,
                      argMax(person_id, version) as person_id
@@ -3359,7 +3359,7 @@
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS value,
             count(*) as count
-     FROM events e
+     FROM events e SAMPLE 1.0
      INNER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id
@@ -3392,7 +3392,7 @@
     (SELECT COUNT(*) AS intermediate_count,
             pdi.person_id,
             replaceRegexpAll(JSONExtractRaw(properties, 'color'), '^"|"$', '') AS breakdown_value
-     FROM events AS e
+     FROM events AS e SAMPLE 1.0
      INNER JOIN
        (SELECT distinct_id,
                argMax(person_id, version) as person_id

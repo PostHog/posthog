@@ -1,171 +1,171 @@
 from posthog.hogql import ast
 from posthog.hogql.database import database
 from posthog.hogql.parser import parse_select
-from posthog.hogql.resolver import ResolverException, resolve_symbols
+from posthog.hogql.resolver import ResolverException, resolve_refs
 from posthog.test.base import BaseTest
 
 
 class TestResolver(BaseTest):
     def test_resolve_events_table(self):
         expr = parse_select("SELECT event, events.timestamp FROM events WHERE events.event = 'test'")
-        resolve_symbols(expr)
+        resolve_refs(expr)
 
-        events_table_symbol = ast.TableSymbol(table=database.events)
-        event_field_symbol = ast.FieldSymbol(name="event", table=events_table_symbol)
-        timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_symbol)
-        select_query_symbol = ast.SelectQuerySymbol(
-            columns={"event": event_field_symbol, "timestamp": timestamp_field_symbol},
-            tables={"events": events_table_symbol},
+        events_table_ref = ast.TableRef(table=database.events)
+        event_field_ref = ast.FieldRef(name="event", table=events_table_ref)
+        timestamp_field_ref = ast.FieldRef(name="timestamp", table=events_table_ref)
+        select_query_ref = ast.SelectQueryRef(
+            columns={"event": event_field_ref, "timestamp": timestamp_field_ref},
+            tables={"events": events_table_ref},
         )
 
         expected = ast.SelectQuery(
             select=[
-                ast.Field(chain=["event"], symbol=event_field_symbol),
-                ast.Field(chain=["events", "timestamp"], symbol=timestamp_field_symbol),
+                ast.Field(chain=["event"], ref=event_field_ref),
+                ast.Field(chain=["events", "timestamp"], ref=timestamp_field_ref),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
-                symbol=events_table_symbol,
+                table=ast.Field(chain=["events"], ref=events_table_ref),
+                ref=events_table_ref,
             ),
             where=ast.CompareOperation(
-                left=ast.Field(chain=["events", "event"], symbol=event_field_symbol),
+                left=ast.Field(chain=["events", "event"], ref=event_field_ref),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
+                right=ast.Constant(value="test", ref=ast.ConstantRef(value="test")),
             ),
-            symbol=select_query_symbol,
+            ref=select_query_ref,
         )
 
         # asserting individually to help debug if something is off
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_alias(self):
         expr = parse_select("SELECT event, e.timestamp FROM events e WHERE e.event = 'test'")
-        resolve_symbols(expr)
+        resolve_refs(expr)
 
-        events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table_symbol=events_table_symbol)
-        event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
-        timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
-        select_query_symbol = ast.SelectQuerySymbol(
-            columns={"event": event_field_symbol, "timestamp": timestamp_field_symbol},
-            tables={"e": events_table_alias_symbol},
+        events_table_ref = ast.TableRef(table=database.events)
+        events_table_alias_ref = ast.TableAliasRef(name="e", table_ref=events_table_ref)
+        event_field_ref = ast.FieldRef(name="event", table=events_table_alias_ref)
+        timestamp_field_ref = ast.FieldRef(name="timestamp", table=events_table_alias_ref)
+        select_query_ref = ast.SelectQueryRef(
+            columns={"event": event_field_ref, "timestamp": timestamp_field_ref},
+            tables={"e": events_table_alias_ref},
         )
 
         expected = ast.SelectQuery(
             select=[
-                ast.Field(chain=["event"], symbol=event_field_symbol),
-                ast.Field(chain=["e", "timestamp"], symbol=timestamp_field_symbol),
+                ast.Field(chain=["event"], ref=event_field_ref),
+                ast.Field(chain=["e", "timestamp"], ref=timestamp_field_ref),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                table=ast.Field(chain=["events"], ref=events_table_ref),
                 alias="e",
-                symbol=events_table_alias_symbol,
+                ref=events_table_alias_ref,
             ),
             where=ast.CompareOperation(
-                left=ast.Field(chain=["e", "event"], symbol=event_field_symbol),
+                left=ast.Field(chain=["e", "event"], ref=event_field_ref),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
+                right=ast.Constant(value="test", ref=ast.ConstantRef(value="test")),
             ),
-            symbol=select_query_symbol,
+            ref=select_query_ref,
         )
 
         # asserting individually to help debug if something is off
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_column_alias(self):
         expr = parse_select("SELECT event as ee, ee, ee as e, e.timestamp FROM events e WHERE e.event = 'test'")
-        resolve_symbols(expr)
+        resolve_refs(expr)
 
-        events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(name="e", table_symbol=events_table_symbol)
-        event_field_symbol = ast.FieldSymbol(name="event", table=events_table_alias_symbol)
-        timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=events_table_alias_symbol)
+        events_table_ref = ast.TableRef(table=database.events)
+        events_table_alias_ref = ast.TableAliasRef(name="e", table_ref=events_table_ref)
+        event_field_ref = ast.FieldRef(name="event", table=events_table_alias_ref)
+        timestamp_field_ref = ast.FieldRef(name="timestamp", table=events_table_alias_ref)
 
-        select_query_symbol = ast.SelectQuerySymbol(
+        select_query_ref = ast.SelectQueryRef(
             aliases={
-                "ee": ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol),
-                "e": ast.FieldAliasSymbol(name="e", symbol=ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol)),
+                "ee": ast.FieldAliasRef(name="ee", ref=event_field_ref),
+                "e": ast.FieldAliasRef(name="e", ref=ast.FieldAliasRef(name="ee", ref=event_field_ref)),
             },
             columns={
-                "ee": ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol),
-                "e": ast.FieldAliasSymbol(name="e", symbol=ast.FieldAliasSymbol(name="ee", symbol=event_field_symbol)),
-                "timestamp": timestamp_field_symbol,
+                "ee": ast.FieldAliasRef(name="ee", ref=event_field_ref),
+                "e": ast.FieldAliasRef(name="e", ref=ast.FieldAliasRef(name="ee", ref=event_field_ref)),
+                "timestamp": timestamp_field_ref,
             },
-            tables={"e": events_table_alias_symbol},
+            tables={"e": events_table_alias_ref},
         )
 
         expected = ast.SelectQuery(
             select=[
                 ast.Alias(
                     alias="ee",
-                    expr=ast.Field(chain=["event"], symbol=event_field_symbol),
-                    symbol=select_query_symbol.aliases["ee"],
+                    expr=ast.Field(chain=["event"], ref=event_field_ref),
+                    ref=select_query_ref.aliases["ee"],
                 ),
-                ast.Field(chain=["ee"], symbol=select_query_symbol.aliases["ee"]),
+                ast.Field(chain=["ee"], ref=select_query_ref.aliases["ee"]),
                 ast.Alias(
                     alias="e",
-                    expr=ast.Field(chain=["ee"], symbol=select_query_symbol.aliases["ee"]),
-                    symbol=select_query_symbol.aliases["e"],  # is ee ?
+                    expr=ast.Field(chain=["ee"], ref=select_query_ref.aliases["ee"]),
+                    ref=select_query_ref.aliases["e"],  # is ee ?
                 ),
-                ast.Field(chain=["e", "timestamp"], symbol=timestamp_field_symbol),
+                ast.Field(chain=["e", "timestamp"], ref=timestamp_field_ref),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                table=ast.Field(chain=["events"], ref=events_table_ref),
                 alias="e",
-                symbol=select_query_symbol.tables["e"],
+                ref=select_query_ref.tables["e"],
             ),
             where=ast.CompareOperation(
-                left=ast.Field(chain=["e", "event"], symbol=event_field_symbol),
+                left=ast.Field(chain=["e", "event"], ref=event_field_ref),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
+                right=ast.Constant(value="test", ref=ast.ConstantRef(value="test")),
             ),
-            symbol=select_query_symbol,
+            ref=select_query_ref,
         )
         # asserting individually to help debug if something is off
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_events_table_column_alias_inside_subquery(self):
         expr = parse_select("SELECT b FROM (select event as b, timestamp as c from events) e WHERE e.b = 'test'")
-        resolve_symbols(expr)
-        inner_events_table_symbol = ast.TableSymbol(table=database.events)
-        inner_event_field_symbol = ast.FieldAliasSymbol(
-            name="b", symbol=ast.FieldSymbol(name="event", table=inner_events_table_symbol)
+        resolve_refs(expr)
+        inner_events_table_ref = ast.TableRef(table=database.events)
+        inner_event_field_ref = ast.FieldAliasRef(
+            name="b", ref=ast.FieldRef(name="event", table=inner_events_table_ref)
         )
-        timestamp_field_symbol = ast.FieldSymbol(name="timestamp", table=inner_events_table_symbol)
-        timstamp_alias_symbol = ast.FieldAliasSymbol(name="c", symbol=timestamp_field_symbol)
-        inner_select_symbol = ast.SelectQuerySymbol(
+        timestamp_field_ref = ast.FieldRef(name="timestamp", table=inner_events_table_ref)
+        timstamp_alias_ref = ast.FieldAliasRef(name="c", ref=timestamp_field_ref)
+        inner_select_ref = ast.SelectQueryRef(
             aliases={
-                "b": inner_event_field_symbol,
-                "c": ast.FieldAliasSymbol(name="c", symbol=timestamp_field_symbol),
+                "b": inner_event_field_ref,
+                "c": ast.FieldAliasRef(name="c", ref=timestamp_field_ref),
             },
             columns={
-                "b": inner_event_field_symbol,
-                "c": ast.FieldAliasSymbol(name="c", symbol=timestamp_field_symbol),
+                "b": inner_event_field_ref,
+                "c": ast.FieldAliasRef(name="c", ref=timestamp_field_ref),
             },
             tables={
-                "events": inner_events_table_symbol,
+                "events": inner_events_table_ref,
             },
         )
-        select_alias_symbol = ast.SelectQueryAliasSymbol(name="e", symbol=inner_select_symbol)
+        select_alias_ref = ast.SelectQueryAliasRef(name="e", ref=inner_select_ref)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["b"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="b",
-                        table=ast.SelectQueryAliasSymbol(name="e", symbol=inner_select_symbol),
+                        table=ast.SelectQueryAliasRef(name="e", ref=inner_select_ref),
                     ),
                 ),
             ],
@@ -174,43 +174,43 @@ class TestResolver(BaseTest):
                     select=[
                         ast.Alias(
                             alias="b",
-                            expr=ast.Field(chain=["event"], symbol=inner_event_field_symbol.symbol),
-                            symbol=inner_event_field_symbol,
+                            expr=ast.Field(chain=["event"], ref=inner_event_field_ref.ref),
+                            ref=inner_event_field_ref,
                         ),
                         ast.Alias(
                             alias="c",
-                            expr=ast.Field(chain=["timestamp"], symbol=timestamp_field_symbol),
-                            symbol=timstamp_alias_symbol,
+                            expr=ast.Field(chain=["timestamp"], ref=timestamp_field_ref),
+                            ref=timstamp_alias_ref,
                         ),
                     ],
                     select_from=ast.JoinExpr(
-                        table=ast.Field(chain=["events"], symbol=inner_events_table_symbol),
-                        symbol=inner_events_table_symbol,
+                        table=ast.Field(chain=["events"], ref=inner_events_table_ref),
+                        ref=inner_events_table_ref,
                     ),
-                    symbol=inner_select_symbol,
+                    ref=inner_select_ref,
                 ),
                 alias="e",
-                symbol=select_alias_symbol,
+                ref=select_alias_ref,
             ),
             where=ast.CompareOperation(
                 left=ast.Field(
                     chain=["e", "b"],
-                    symbol=ast.FieldSymbol(name="b", table=select_alias_symbol),
+                    ref=ast.FieldRef(name="b", table=select_alias_ref),
                 ),
                 op=ast.CompareOperationType.Eq,
-                right=ast.Constant(value="test", symbol=ast.ConstantSymbol(value="test")),
+                right=ast.Constant(value="test", ref=ast.ConstantRef(value="test")),
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
-                columns={"b": ast.FieldSymbol(name="b", table=select_alias_symbol)},
-                tables={"e": select_alias_symbol},
+                columns={"b": ast.FieldRef(name="b", table=select_alias_ref)},
+                tables={"e": select_alias_ref},
             ),
         )
         # asserting individually to help debug if something is off
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_subquery_no_field_access(self):
@@ -219,7 +219,7 @@ class TestResolver(BaseTest):
             "SELECT event, (select count() from events where event = e.event) as c FROM events e where event = '$pageview'"
         )
         with self.assertRaises(ResolverException) as e:
-            resolve_symbols(expr)
+            resolve_refs(expr)
         self.assertEqual(str(e.exception), "Unable to resolve field: e")
 
     def test_resolve_errors(self):
@@ -232,170 +232,166 @@ class TestResolver(BaseTest):
         ]
         for query in queries:
             with self.assertRaises(ResolverException) as e:
-                resolve_symbols(parse_select(query))
+                resolve_refs(parse_select(query))
             self.assertIn("Unable to resolve field:", str(e.exception))
 
     def test_resolve_lazy_pdi_person_table(self):
         expr = parse_select("select distinct_id, person.id from person_distinct_ids")
-        resolve_symbols(expr)
-        pdi_table_symbol = ast.TableSymbol(table=database.person_distinct_ids)
+        resolve_refs(expr)
+        pdi_table_ref = ast.TableRef(table=database.person_distinct_ids)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["distinct_id"],
-                    symbol=ast.FieldSymbol(name="distinct_id", table=pdi_table_symbol),
+                    ref=ast.FieldRef(name="distinct_id", table=pdi_table_ref),
                 ),
                 ast.Field(
                     chain=["person", "id"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableSymbol(
-                            table=pdi_table_symbol, field="person", lazy_table=database.person_distinct_ids.person
+                        table=ast.LazyTableRef(
+                            table=pdi_table_ref, field="person", lazy_table=database.person_distinct_ids.person
                         ),
                     ),
                 ),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["person_distinct_ids"], symbol=pdi_table_symbol),
-                symbol=pdi_table_symbol,
+                table=ast.Field(chain=["person_distinct_ids"], ref=pdi_table_ref),
+                ref=pdi_table_ref,
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "distinct_id": ast.FieldSymbol(name="distinct_id", table=pdi_table_symbol),
-                    "id": ast.FieldSymbol(
+                    "distinct_id": ast.FieldRef(name="distinct_id", table=pdi_table_ref),
+                    "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableSymbol(
-                            table=pdi_table_symbol,
+                        table=ast.LazyTableRef(
+                            table=pdi_table_ref,
                             lazy_table=database.person_distinct_ids.person,
                             field="person",
                         ),
                     ),
                 },
-                tables={"person_distinct_ids": pdi_table_symbol},
+                tables={"person_distinct_ids": pdi_table_ref},
             ),
         )
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_table(self):
         expr = parse_select("select event, pdi.person_id from events")
-        resolve_symbols(expr)
-        events_table_symbol = ast.TableSymbol(table=database.events)
+        resolve_refs(expr)
+        events_table_ref = ast.TableRef(table=database.events)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["event"],
-                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                    ref=ast.FieldRef(name="event", table=events_table_ref),
                 ),
                 ast.Field(
                     chain=["pdi", "person_id"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableSymbol(
-                            table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
-                        ),
+                        table=ast.LazyTableRef(table=events_table_ref, field="pdi", lazy_table=database.events.pdi),
                     ),
                 ),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
-                symbol=events_table_symbol,
+                table=ast.Field(chain=["events"], ref=events_table_ref),
+                ref=events_table_ref,
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
-                    "person_id": ast.FieldSymbol(
+                    "event": ast.FieldRef(name="event", table=events_table_ref),
+                    "person_id": ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableSymbol(
-                            table=events_table_symbol,
+                        table=ast.LazyTableRef(
+                            table=events_table_ref,
                             lazy_table=database.events.pdi,
                             field="pdi",
                         ),
                     ),
                 },
-                tables={"events": events_table_symbol},
+                tables={"events": events_table_ref},
             ),
         )
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_table_aliased(self):
         expr = parse_select("select event, e.pdi.person_id from events e")
-        resolve_symbols(expr)
-        events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
+        resolve_refs(expr)
+        events_table_ref = ast.TableRef(table=database.events)
+        events_table_alias_ref = ast.TableAliasRef(table_ref=events_table_ref, name="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["event"],
-                    symbol=ast.FieldSymbol(name="event", table=events_table_alias_symbol),
+                    ref=ast.FieldRef(name="event", table=events_table_alias_ref),
                 ),
                 ast.Field(
                     chain=["e", "pdi", "person_id"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableSymbol(
-                            table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
+                        table=ast.LazyTableRef(
+                            table=events_table_alias_ref, field="pdi", lazy_table=database.events.pdi
                         ),
                     ),
                 ),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                table=ast.Field(chain=["events"], ref=events_table_ref),
                 alias="e",
-                symbol=events_table_alias_symbol,
+                ref=events_table_alias_ref,
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldSymbol(name="event", table=events_table_alias_symbol),
-                    "person_id": ast.FieldSymbol(
+                    "event": ast.FieldRef(name="event", table=events_table_alias_ref),
+                    "person_id": ast.FieldRef(
                         name="person_id",
-                        table=ast.LazyTableSymbol(
-                            table=events_table_alias_symbol,
+                        table=ast.LazyTableRef(
+                            table=events_table_alias_ref,
                             lazy_table=database.events.pdi,
                             field="pdi",
                         ),
                     ),
                 },
-                tables={"e": events_table_alias_symbol},
+                tables={"e": events_table_alias_ref},
             ),
         )
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_person_table(self):
         expr = parse_select("select event, pdi.person.id from events")
-        resolve_symbols(expr)
-        events_table_symbol = ast.TableSymbol(table=database.events)
+        resolve_refs(expr)
+        events_table_ref = ast.TableRef(table=database.events)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["event"],
-                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                    ref=ast.FieldRef(name="event", table=events_table_ref),
                 ),
                 ast.Field(
                     chain=["pdi", "person", "id"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableSymbol(
-                            table=ast.LazyTableSymbol(
-                                table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
-                            ),
+                        table=ast.LazyTableRef(
+                            table=ast.LazyTableRef(table=events_table_ref, field="pdi", lazy_table=database.events.pdi),
                             field="person",
                             lazy_table=database.events.pdi.table.person,
                         ),
@@ -403,52 +399,50 @@ class TestResolver(BaseTest):
                 ),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
-                symbol=events_table_symbol,
+                table=ast.Field(chain=["events"], ref=events_table_ref),
+                ref=events_table_ref,
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
-                    "id": ast.FieldSymbol(
+                    "event": ast.FieldRef(name="event", table=events_table_ref),
+                    "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableSymbol(
-                            table=ast.LazyTableSymbol(
-                                table=events_table_symbol, field="pdi", lazy_table=database.events.pdi
-                            ),
+                        table=ast.LazyTableRef(
+                            table=ast.LazyTableRef(table=events_table_ref, field="pdi", lazy_table=database.events.pdi),
                             field="person",
                             lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 },
-                tables={"events": events_table_symbol},
+                tables={"events": events_table_ref},
             ),
         )
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_lazy_events_pdi_person_table_aliased(self):
         expr = parse_select("select event, e.pdi.person.id from events e")
-        resolve_symbols(expr)
-        events_table_symbol = ast.TableSymbol(table=database.events)
-        events_table_alias_symbol = ast.TableAliasSymbol(table_symbol=events_table_symbol, name="e")
+        resolve_refs(expr)
+        events_table_ref = ast.TableRef(table=database.events)
+        events_table_alias_ref = ast.TableAliasRef(table_ref=events_table_ref, name="e")
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["event"],
-                    symbol=ast.FieldSymbol(name="event", table=events_table_alias_symbol),
+                    ref=ast.FieldRef(name="event", table=events_table_alias_ref),
                 ),
                 ast.Field(
                     chain=["e", "pdi", "person", "id"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableSymbol(
-                            table=ast.LazyTableSymbol(
-                                table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
+                        table=ast.LazyTableRef(
+                            table=ast.LazyTableRef(
+                                table=events_table_alias_ref, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
                             lazy_table=database.events.pdi.table.person,
@@ -457,76 +451,76 @@ class TestResolver(BaseTest):
                 ),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
+                table=ast.Field(chain=["events"], ref=events_table_ref),
                 alias="e",
-                symbol=events_table_alias_symbol,
+                ref=events_table_alias_ref,
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldSymbol(name="event", table=events_table_alias_symbol),
-                    "id": ast.FieldSymbol(
+                    "event": ast.FieldRef(name="event", table=events_table_alias_ref),
+                    "id": ast.FieldRef(
                         name="id",
-                        table=ast.LazyTableSymbol(
-                            table=ast.LazyTableSymbol(
-                                table=events_table_alias_symbol, field="pdi", lazy_table=database.events.pdi
+                        table=ast.LazyTableRef(
+                            table=ast.LazyTableRef(
+                                table=events_table_alias_ref, field="pdi", lazy_table=database.events.pdi
                             ),
                             field="person",
                             lazy_table=database.events.pdi.table.person,
                         ),
                     ),
                 },
-                tables={"e": events_table_alias_symbol},
+                tables={"e": events_table_alias_ref},
             ),
         )
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
 
     def test_resolve_virtual_events_poe(self):
         expr = parse_select("select event, poe.id from events")
-        resolve_symbols(expr)
-        events_table_symbol = ast.TableSymbol(table=database.events)
+        resolve_refs(expr)
+        events_table_ref = ast.TableRef(table=database.events)
         expected = ast.SelectQuery(
             select=[
                 ast.Field(
                     chain=["event"],
-                    symbol=ast.FieldSymbol(name="event", table=events_table_symbol),
+                    ref=ast.FieldRef(name="event", table=events_table_ref),
                 ),
                 ast.Field(
                     chain=["poe", "id"],
-                    symbol=ast.FieldSymbol(
+                    ref=ast.FieldRef(
                         name="id",
-                        table=ast.VirtualTableSymbol(
-                            table=events_table_symbol, field="poe", virtual_table=database.events.poe
+                        table=ast.VirtualTableRef(
+                            table=events_table_ref, field="poe", virtual_table=database.events.poe
                         ),
                     ),
                 ),
             ],
             select_from=ast.JoinExpr(
-                table=ast.Field(chain=["events"], symbol=events_table_symbol),
-                symbol=events_table_symbol,
+                table=ast.Field(chain=["events"], ref=events_table_ref),
+                ref=events_table_ref,
             ),
-            symbol=ast.SelectQuerySymbol(
+            ref=ast.SelectQueryRef(
                 aliases={},
                 anonymous_tables=[],
                 columns={
-                    "event": ast.FieldSymbol(name="event", table=events_table_symbol),
-                    "id": ast.FieldSymbol(
+                    "event": ast.FieldRef(name="event", table=events_table_ref),
+                    "id": ast.FieldRef(
                         name="id",
-                        table=ast.VirtualTableSymbol(
-                            table=events_table_symbol, field="poe", virtual_table=database.events.poe
+                        table=ast.VirtualTableRef(
+                            table=events_table_ref, field="poe", virtual_table=database.events.poe
                         ),
                     ),
                 },
-                tables={"events": events_table_symbol},
+                tables={"events": events_table_ref},
             ),
         )
         self.assertEqual(expr.select, expected.select)
         self.assertEqual(expr.select_from, expected.select_from)
         self.assertEqual(expr.where, expected.where)
-        self.assertEqual(expr.symbol, expected.symbol)
+        self.assertEqual(expr.ref, expected.ref)
         self.assertEqual(expr, expected)
