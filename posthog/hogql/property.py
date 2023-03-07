@@ -175,21 +175,21 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
-        cohort_id = int(property.value)
-        cohort = Cohort.objects.get(team=team, id=cohort_id)
+        cohort = Cohort.objects.get(team=team, id=int(property.value))
+
         if cohort.is_static:
-            cohort_query = parse_expr(
-                "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})",
-                {"cohort_id": ast.Constant(value=cohort.pk)},
-            )
+            sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
         else:
-            cohort_query = parse_expr(
-                "(SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)",
-                {"cohort_id": ast.Constant(value=cohort.pk)},
-            )
+            sql = "(SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+
+        select_person_from_cohort = parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
         return parse_expr(
-            "distinct_id IN (SELECT distinct_id FROM (SELECT distinct_id, argMax(person_id, version) as person_id FROM person_distinct_ids GROUP BY distinct_id HAVING argMax(is_deleted, version) = 0) WHERE person_id IN {cohort_query})",
-            {"cohort_id": ast.Constant(value=cohort.pk), "cohort_query": cohort_query},
+            "distinct_id IN "
+            "(SELECT distinct_id FROM "
+            "(SELECT distinct_id, argMax(person_id, version) as person_id "
+            "FROM person_distinct_ids GROUP BY distinct_id HAVING argMax(is_deleted, version) = 0) "
+            "WHERE person_id IN {select_person_from_cohort})",
+            {"select_person_from_cohort": select_person_from_cohort},
         )
     # "group",
     # "recording",
