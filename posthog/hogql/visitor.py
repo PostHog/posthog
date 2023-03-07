@@ -77,6 +77,8 @@ class TraversingVisitor(Visitor):
             self.visit(expr)
         self.visit(node.limit),
         self.visit(node.offset),
+        for union_query in node.union_all or []:
+            self.visit(union_query)
 
     def visit_field_alias_symbol(self, node: ast.FieldAliasSymbol):
         self.visit(node.symbol)
@@ -206,4 +208,5 @@ class CloningVisitor(Visitor):
             limit_with_ties=node.limit_with_ties,
             offset=self.visit(node.offset),
             distinct=node.distinct,
+            union_all=[self.visit(expr) for expr in node.union_all] if node.union_all else None,
         )

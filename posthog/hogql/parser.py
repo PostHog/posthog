@@ -1,4 +1,4 @@
-from typing import Dict, Literal, Optional, cast
+from typing import Dict, List, Literal, Optional, cast
 
 from antlr4 import CommonTokenStream, InputStream, ParseTreeVisitor
 from antlr4.error.ErrorListener import ErrorListener
@@ -67,10 +67,10 @@ class HogQLParseTreeConverter(ParseTreeVisitor):
         return self.visit(ctx.selectUnionStmt() or ctx.selectStmt())
 
     def visitSelectUnionStmt(self, ctx: HogQLParser.SelectUnionStmtContext):
-        selects = ctx.selectStmtWithParens()
-        if len(selects) != 1:
-            raise NotImplementedError(f"Unsupported: UNION ALL")
-        return self.visit(selects[0])
+        selects: List[ast.SelectQuery] = [self.visit(select) for select in ctx.selectStmtWithParens()]
+        if len(selects) > 1:
+            selects[0].union_all = (selects[0].union_all or []) + selects[1:]
+        return selects[0]
 
     def visitSelectStmtWithParens(self, ctx: HogQLParser.SelectStmtWithParensContext):
         return self.visit(ctx.selectStmt() or ctx.selectUnionStmt())

@@ -66,6 +66,9 @@ class Resolver(TraversingVisitor):
 
         self.scopes.pop()
 
+        for union_query in node.union_all or []:
+            self.visit(union_query)
+
         return node.symbol
 
     def visit_join_expr(self, node):

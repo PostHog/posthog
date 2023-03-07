@@ -323,6 +323,8 @@ class SelectQuery(Expr):
     limit_with_ties: Optional[bool] = None
     offset: Optional[Expr] = None
 
+    union_all: Optional[List["SelectQuery"]] = None
+
 
 JoinExpr.update_forward_refs(SelectQuery=SelectQuery)
 JoinExpr.update_forward_refs(JoinExpr=JoinExpr)

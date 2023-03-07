@@ -139,6 +139,10 @@ class _Printer(Visitor):
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 
+        for union_query in node.union_all or []:
+            clauses.append("UNION ALL")
+            clauses.append(self.visit(union_query))
+
         response = " ".join([clause for clause in clauses if clause])
 
         # If we are printing a SELECT subquery (not the first AST node we are visiting), wrap it in parentheses.
