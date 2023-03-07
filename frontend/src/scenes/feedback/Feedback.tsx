@@ -333,7 +333,7 @@ function FeedbackWidgetTab({
                 </>
             ) : (
                 <>
-                    <InAppFeedback />
+                    <InAppFeedback config={config} />
                 </>
             )}
         </>
