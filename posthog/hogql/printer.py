@@ -394,7 +394,7 @@ class _Printer(Visitor):
 
         return field_sql
 
-    def visit_property_symbol(self, ref: ast.PropertyRef):
+    def visit_property_ref(self, ref: ast.PropertyRef):
         if ref.joined_subquery is not None and ref.joined_subquery_field_name is not None:
             return f"{self._print_identifier(ref.joined_subquery.name)}.{self._print_identifier(ref.joined_subquery_field_name)}"
 
