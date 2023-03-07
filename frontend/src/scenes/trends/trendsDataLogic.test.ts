@@ -5,8 +5,8 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { trendsDataLogic } from './trendsDataLogic'
 
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
-import { DataNode, NodeKind, TrendsQuery } from '~/queries/schema'
-import { trendResult, trendPieResult } from './__mocks__/trendsDataLogicMocks'
+import { DataNode, LifecycleQuery, NodeKind, TrendsQuery } from '~/queries/schema'
+import { trendResult, trendPieResult, lifecycleResult } from './__mocks__/trendsDataLogicMocks'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
@@ -103,7 +103,50 @@ describe('trendsDataLogic', () => {
                 })
             })
 
-            // lifecycle
+            it('for lifecycle insight', async () => {
+                const query: LifecycleQuery = {
+                    kind: NodeKind.LifecycleQuery,
+                    series: [],
+                    lifecycleFilter: {
+                        toggledLifecycles: ['new', 'dormant', 'resurrecting'],
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: lifecycleResult.result,
+                }
+
+                await expectLogic(logic, () => {
+                    insightDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [
+                        expect.objectContaining({
+                            // count: 35346.0,
+                            status: 'new',
+                            id: 0,
+                            seriesIndex: 0,
+                        }),
+                        expect.objectContaining({
+                            // count: -50255.0,
+                            status: 'dormant',
+                            id: 1,
+                            seriesIndex: 1,
+                        }),
+                        // expect.objectContaining({
+                        //     count: 9814.0,
+                        //     status: 'returning',
+                        //     id: 0,
+                        //     seriesIndex: 2,
+                        // }),
+                        expect.objectContaining({
+                            // count: 11612.0,
+                            status: 'resurrecting',
+                            id: 2,
+                            seriesIndex: 3,
+                        }),
+                    ],
+                })
+            })
         })
     })
 })

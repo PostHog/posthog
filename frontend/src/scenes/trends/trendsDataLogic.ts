@@ -12,7 +12,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
     path((key) => ['scenes', 'trends', 'trendsDataLogic', key]),
 
     connect((props: InsightLogicProps) => ({
-        values: [insightDataLogic(props), ['insightData', 'display']],
+        values: [insightDataLogic(props), ['insightData', 'display', 'lifecycleFilter']],
     })),
 
     selectors({
@@ -29,18 +29,19 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
         ],
 
         indexedResults: [
-            (s) => [s.results, s.display],
-            (results, display): IndexedTrendResult[] => {
-                const indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
+            (s) => [s.results, s.display, s.lifecycleFilter],
+            (results, display, lifecycleFilter): IndexedTrendResult[] => {
+                let indexedResults = results.map((result, index) => ({ ...result, seriesIndex: index }))
                 if (
                     display &&
                     (display === ChartDisplayType.ActionsBarValue || display === ChartDisplayType.ActionsPie)
                 ) {
                     indexedResults.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                } else if (lifecycleFilter && lifecycleFilter.toggledLifecycles) {
+                    indexedResults = indexedResults.filter((result) =>
+                        lifecycleFilter.toggledLifecycles.includes(String(result.status))
+                    )
                 }
-                // else if (isLifecycleFilter(filters)) {
-                //     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
-                // }
                 return indexedResults.map((result, index) => ({ ...result, id: index }))
             },
         ],
