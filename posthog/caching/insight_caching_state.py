@@ -65,6 +65,27 @@ class LazyLoader:
         return set(recently_viewed_insights.values_list("insight_id", flat=True))
 
 
+cacheable_query_kinds = [
+    "EventsQuery",
+    "HogQLQuery",
+    "RecentPerformancePageViewNode",
+    "TimeToSeeDataSessionsQuery",
+    "TimeToSeeDataQuery",
+]
+
+
+def insight_can_be_cached(insight: Optional[Insight]) -> bool:
+    if insight is None:
+        return False
+
+    cacheable_filter_based_insight = len(insight.filters) > 0
+    cacheable_query_based_insight = insight.query is not None and (
+        insight.query.get("kind", None) in cacheable_query_kinds
+        or insight.query.get("source", {}).get("kind") in cacheable_query_kinds
+    )
+    return cacheable_filter_based_insight or cacheable_query_based_insight
+
+
 def sync_insight_cache_states():
     lazy_loader = LazyLoader()
     insights = Insight.objects.all().prefetch_related("team", "sharingconfiguration_set").order_by("pk")
@@ -138,8 +159,7 @@ def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: Lazy
     if team.pk not in lazy_loader.active_teams:
         return TargetCacheAge.NO_CACHING
 
-    is_invalid = len(insight.filters) == 0 and insight.query is None
-    if insight.deleted or is_invalid:
+    if insight.deleted or not insight_can_be_cached(insight):
         return TargetCacheAge.NO_CACHING
 
     if insight.pk not in lazy_loader.recently_viewed_insights:
@@ -160,10 +180,11 @@ def calculate_target_age_dashboard_tile(
     if dashboard_tile.deleted or dashboard_tile.dashboard.deleted:
         return TargetCacheAge.NO_CACHING
 
-    is_invalid = (
-        dashboard_tile.insight and len(dashboard_tile.insight.filters) == 0 and dashboard_tile.insight.query is None
-    )
-    if not dashboard_tile.insight or dashboard_tile.insight.deleted or is_invalid:
+    if (
+        not dashboard_tile.insight
+        or dashboard_tile.insight.deleted
+        or not insight_can_be_cached(dashboard_tile.insight)
+    ):
         return TargetCacheAge.NO_CACHING
 
     if dashboard_tile.dashboard_id == team.primary_dashboard_id:

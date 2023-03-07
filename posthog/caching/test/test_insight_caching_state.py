@@ -167,11 +167,53 @@ def create_tile(
         pytest.param(
             create_tile, {"viewed_at_delta": timedelta(days=20)}, TargetCacheAge.LOW_PRIORITY, id="tile viewed ages ago"
         ),
+        # cacheable types of query
         pytest.param(
             create_insight,
             {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=1)},
             TargetCacheAge.MID_PRIORITY,
-            id="insight with query viewed recently",
+            id="insight with EventsQuery query viewed recently",
+        ),
+        pytest.param(
+            create_insight,
+            {"query": {"kind": "HogQLQuery"}, "viewed_at_delta": timedelta(days=1)},
+            TargetCacheAge.MID_PRIORITY,
+            id="insight with HogQLQuery query viewed recently",
+        ),
+        pytest.param(
+            create_insight,
+            {"query": {"kind": "RecentPerformancePageViewNode"}, "viewed_at_delta": timedelta(days=1)},
+            TargetCacheAge.MID_PRIORITY,
+            id="insight with RecentPerformancePageViewNode query viewed recently",
+        ),
+        pytest.param(
+            create_insight,
+            {"query": {"kind": "TimeToSeeDataSessionsQuery"}, "viewed_at_delta": timedelta(days=1)},
+            TargetCacheAge.MID_PRIORITY,
+            id="insight with TimeToSeeDataSessionsQuery query viewed recently",
+        ),
+        pytest.param(
+            create_insight,
+            {"query": {"kind": "TimeToSeeDataQuery"}, "viewed_at_delta": timedelta(days=1)},
+            TargetCacheAge.MID_PRIORITY,
+            id="insight with TimeToSeeDataQuery query viewed recently",
+        ),
+        # other types of query aren't cacheable
+        pytest.param(
+            create_insight,
+            {"query": {"kind": "something else"}, "viewed_at_delta": timedelta(days=1)},
+            TargetCacheAge.NO_CACHING,
+            id="insight with query viewed recently but not a cacheable type of query",
+        ),
+        # unless they have cacheable source
+        pytest.param(
+            create_insight,
+            {
+                "query": {"kind": "something else", "source": {"kind": "EventsQuery"}},
+                "viewed_at_delta": timedelta(days=1),
+            },
+            TargetCacheAge.MID_PRIORITY,
+            id="insight with query viewed recently, not a cacheable type of query, but with a cacheable source",
         ),
         pytest.param(
             create_tile,
