@@ -72,9 +72,9 @@ class Migration(migrations.Migration):
             ),
         ),
         # Provides operator classes for integers (gist_int4_ops)
-        migrations.RunSQL("CREATE EXTENSION btree_gist", "DROP EXTENSION btree_gist"),
+        migrations.RunSQL("CREATE EXTENSION IF EXISTS btree_gist", "DROP EXTENSION btree_gist"),
         # Provides operator classes for integer arrays (gist__int_ops)
-        migrations.RunSQL("CREATE EXTENSION intarray", "DROP EXTENSION intarray"),
+        migrations.RunSQL("CREATE EXTENSION IF EXISTS intarray", "DROP EXTENSION intarray"),
         migrations.RunSQL(
             """
             ALTER TABLE posthog_personoverride
