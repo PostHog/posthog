@@ -39,6 +39,10 @@ def substitute_params(query, params):
     It seems somewhat unusual that you need to connect to the server before
     you can escape params, so we're just going to copy the function here
     and remove that dependency.
+
+    See
+    https://github.com/mymarilyn/clickhouse-driver/blob/87090902f0270ed51a0b6754d5cbf0dc8544ec4b/clickhouse_driver/client.py#L593
+    for the original function.
     """
     if not isinstance(params, dict):
         raise ValueError("Parameters are expected in dict form")
@@ -52,6 +56,10 @@ def escape_params(params):
     This is a copy of clickhouse-driver's `escape_params` function without the
     dependency that you need to connect to the server before you can escape
     params.
+
+    See
+    https://github.com/mymarilyn/clickhouse-driver/blob/87090902f0270ed51a0b6754d5cbf0dc8544ec4b/clickhouse_driver/util/escape.py#L60
+    for the original function.
     """
     escaped = {}
 
@@ -68,6 +76,10 @@ def escape_param_for_clickhouse(param: Any) -> str:
     just such that it can run. The only value that the real `escape_param` uses
     from the context is the server timezone. We assume that the server timezone
     is UTC.
+
+    See
+    https://github.com/mymarilyn/clickhouse-driver/blob/87090902f0270ed51a0b6754d5cbf0dc8544ec4b/clickhouse_driver/util/escape.py#L31
+    for the wrapped function.
     """
     context = Context()
     context.server_info = ServerInfo(
