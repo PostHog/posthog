@@ -21,7 +21,7 @@
 # https://github.com/mymarilyn/clickhouse-driver/pull/291 for further context.
 
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from clickhouse_driver.connection import ServerInfo
@@ -93,6 +93,22 @@ def escape_param_for_clickhouse(param: Any) -> str:
         timezone="UTC",
     )
     if isinstance(param, datetime):
-        # Interpret datetime as UTC
-        return f"toDateTime('{param.strftime('%Y-%m-%d %H:%M:%S')}', 'UTC')"
+        # Ensure that we pass datetimes not just as ISO8601 date strings, but we
+        # also wrap the string in the `toDateTime` function _and_ specify the
+        # timezone explicitly as UTC. This is because ClickHouse will interpret
+        # the string as being in the timezone of the server, which is not
+        # necessarily UTC.
+
+        # Rather than trying to specify the timezone specific to the datetime we
+        # receive, we first convert it to UTC and then pass it to ClickHouse as
+        # a UTC datetime.
+
+        # NOTE: we're using the `strftime` method here rather than the
+        # `isoformat` method because the `isoformat` method produces an ISO8601
+        # string with the `T` separator between the date and time, which
+        # ClickHouse doesn't like. It wants a space instead. If also doesn't
+        # support the `Z` timezone indicator.
+        if param.tzinfo is None:
+            param.replace(tzinfo=timezone.utc)
+        return f"toDateTime('{param.astimezone(tz=timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}', 'UTC')"
     return escape_param(param, context=context)
