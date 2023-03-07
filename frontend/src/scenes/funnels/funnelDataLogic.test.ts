@@ -6,7 +6,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { funnelDataLogic } from './funnelDataLogic'
 
 import { FunnelVizType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import { ActionsNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
+import { ActionsNode, DataNode, EventsNode, FunnelsQuery, InsightQueryNode, NodeKind } from '~/queries/schema'
 import {
     funnelResult,
     funnelResultWithBreakdown,
@@ -20,7 +20,7 @@ describe('funnelDataLogic', () => {
     const insightProps: InsightLogicProps = {
         dashboardItemId: undefined,
     }
-    let logic: ReturnType<typeof dataNodeLogic.build>
+    let logic: ReturnType<typeof funnelDataLogic.build>
     let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
 
     beforeEach(() => {
@@ -31,7 +31,7 @@ describe('funnelDataLogic', () => {
         teamLogic.mount()
         await expectLogic(teamLogic).toFinishAllListeners()
 
-        builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} })
+        builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
         builtDataNodeLogic.mount()
         await expectLogic(dataNodeLogic).toFinishAllListeners()
 
