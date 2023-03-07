@@ -79,6 +79,7 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(PluginConfig)
 class PluginConfigAdmin(admin.ModelAdmin):
+    list_select_related = ("plugin", "team")
     list_display = ("id", "plugin_name", "team_name", "enabled")
     list_filter = (
         ("enabled", admin.BooleanFieldListFilter),
@@ -93,12 +94,6 @@ class PluginConfigAdmin(admin.ModelAdmin):
 
     def team_name(self, config: PluginConfig):
         return format_html(f"{config.team.name} ({config.team_id})")
-
-    def queryset(self, request):
-        """
-        Make sure we don't do a request for each row for the team and plugin.
-        """
-        return super().queryset(request).select_related("plugin", "team")
 
 
 class UserChangeForm(DjangoUserChangeForm):
