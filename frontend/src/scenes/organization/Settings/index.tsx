@@ -37,7 +37,7 @@ function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const [name, setName] = useState(currentOrganization?.name || '')
 
     return (
-        <div style={{ maxWidth: '40rem' }}>
+        <div className="max-w-160">
             <h2 id="name" className="subtitle mt-0">
                 Display Name
             </h2>
