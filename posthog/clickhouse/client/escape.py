@@ -21,6 +21,7 @@
 # https://github.com/mymarilyn/clickhouse-driver/pull/291 for further context.
 
 
+from datetime import datetime
 from typing import Any
 
 from clickhouse_driver.connection import ServerInfo
@@ -91,4 +92,7 @@ def escape_param_for_clickhouse(param: Any) -> str:
         display_name="placeholder server_info value",
         timezone="UTC",
     )
+    if isinstance(param, datetime):
+        # Interpret datetime as UTC
+        return f"toDateTime('{param.strftime('%Y-%m-%d %H:%M:%S')}', 'UTC')"
     return escape_param(param, context=context)

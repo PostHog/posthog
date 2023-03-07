@@ -85,13 +85,13 @@ def create_event(
 def format_clickhouse_timestamp(
     raw_timestamp: Optional[Union[timezone.datetime, str]],
     default=None,
-) -> str:
+):
     if default is None:
         default = timezone.now()
     parsed_datetime = (
         isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
     )
-    return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
+    return parsed_datetime
 
 
 def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Dict[str, Person]] = None) -> None:
