@@ -567,18 +567,20 @@ function InsightCardInternal(
     const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
         insightLogic(insightLogicProps)
     )
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
+        funnelLogic(insightLogicProps)
+    )
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
     let empty = false
     if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!areFiltersValid) {
+        if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
         } else if (!areExclusionFiltersValid) {
             invalidFunnelExclusion = true
         }
-        if (!isValidFunnel) {
+        if (!hasFunnelResults) {
             empty = true
         }
     }

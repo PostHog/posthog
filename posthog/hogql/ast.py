@@ -34,64 +34,64 @@ class AST(BaseModel):
         raise ValueError(f"Visitor has no method {method_name}")
 
 
-class Symbol(AST):
-    def get_child(self, name: str) -> "Symbol":
-        raise NotImplementedError("Symbol.get_child not overridden")
+class Ref(AST):
+    def get_child(self, name: str) -> "Ref":
+        raise NotImplementedError("Ref.get_child not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.get_child(name) is not None
 
 
-class FieldAliasSymbol(Symbol):
+class FieldAliasRef(Ref):
     name: str
-    symbol: Symbol
+    ref: Ref
 
-    def get_child(self, name: str) -> Symbol:
-        return self.symbol.get_child(name)
+    def get_child(self, name: str) -> Ref:
+        return self.ref.get_child(name)
 
     def has_child(self, name: str) -> bool:
-        return self.symbol.has_child(name)
+        return self.ref.has_child(name)
 
 
-class BaseTableSymbol(Symbol):
+class BaseTableRef(Ref):
     def resolve_database_table(self) -> Table:
-        raise NotImplementedError("BaseTableSymbol.resolve_database_table not overridden")
+        raise NotImplementedError("BaseTableRef.resolve_database_table not overridden")
 
     def has_child(self, name: str) -> bool:
         return self.resolve_database_table().has_field(name)
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Ref:
         if name == "*":
-            return AsteriskSymbol(table=self)
+            return AsteriskRef(table=self)
         if self.has_child(name):
             field = self.resolve_database_table().get_field(name)
             if isinstance(field, LazyTable):
-                return LazyTableSymbol(table=self, field=name, lazy_table=field)
+                return LazyTableRef(table=self, field=name, lazy_table=field)
             if isinstance(field, FieldTraverser):
-                return FieldTraverserSymbol(table=self, chain=field.chain)
+                return FieldTraverserRef(table=self, chain=field.chain)
             if isinstance(field, VirtualTable):
-                return VirtualTableSymbol(table=self, field=name, virtual_table=field)
-            return FieldSymbol(name=name, table=self)
+                return VirtualTableRef(table=self, field=name, virtual_table=field)
+            return FieldRef(name=name, table=self)
         raise ValueError(f"Field not found: {name}")
 
 
-class TableSymbol(BaseTableSymbol):
+class TableRef(BaseTableRef):
     table: Table
 
     def resolve_database_table(self) -> Table:
         return self.table
 
 
-class TableAliasSymbol(BaseTableSymbol):
+class TableAliasRef(BaseTableRef):
     name: str
-    table_symbol: TableSymbol
+    table_ref: TableRef
 
     def resolve_database_table(self) -> Table:
-        return self.table_symbol.table
+        return self.table_ref.table
 
 
-class LazyTableSymbol(BaseTableSymbol):
-    table: BaseTableSymbol
+class LazyTableRef(BaseTableRef):
+    table: BaseTableRef
     field: str
     lazy_table: LazyTable
 
@@ -99,8 +99,8 @@ class LazyTableSymbol(BaseTableSymbol):
         return self.lazy_table.table
 
 
-class VirtualTableSymbol(BaseTableSymbol):
-    table: BaseTableSymbol
+class VirtualTableRef(BaseTableRef):
+    table: BaseTableRef
     field: str
     virtual_table: VirtualTable
 
@@ -111,101 +111,101 @@ class VirtualTableSymbol(BaseTableSymbol):
         return self.virtual_table.has_field(name)
 
 
-class SelectQuerySymbol(Symbol):
+class SelectQueryRef(Ref):
     # all aliases a select query has access to in its scope
-    aliases: Dict[str, FieldAliasSymbol] = PydanticField(default_factory=dict)
-    # all symbols a select query exports
-    columns: Dict[str, Symbol] = PydanticField(default_factory=dict)
+    aliases: Dict[str, FieldAliasRef] = PydanticField(default_factory=dict)
+    # all refs a select query exports
+    columns: Dict[str, Ref] = PydanticField(default_factory=dict)
     # all from and join, tables and subqueries with aliases
-    tables: Dict[str, Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"]] = PydanticField(
+    tables: Dict[str, Union[BaseTableRef, "SelectQueryRef", "SelectQueryAliasRef"]] = PydanticField(
         default_factory=dict
     )
     # all from and join subqueries without aliases
-    anonymous_tables: List["SelectQuerySymbol"] = PydanticField(default_factory=list)
+    anonymous_tables: List["SelectQueryRef"] = PydanticField(default_factory=list)
 
-    def get_alias_for_table_symbol(
+    def get_alias_for_table_ref(
         self,
-        table_symbol: Union[BaseTableSymbol, "SelectQuerySymbol", "SelectQueryAliasSymbol"],
+        table_ref: Union[BaseTableRef, "SelectQueryRef", "SelectQueryAliasRef"],
     ) -> Optional[str]:
         for key, value in self.tables.items():
-            if value == table_symbol:
+            if value == table_ref:
                 return key
         return None
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Ref:
         if name == "*":
-            return AsteriskSymbol(table=self)
+            return AsteriskRef(table=self)
         if name in self.columns:
-            return FieldSymbol(name=name, table=self)
+            return FieldRef(name=name, table=self)
         raise ValueError(f"Column not found: {name}")
 
     def has_child(self, name: str) -> bool:
         return name in self.columns
 
 
-class SelectQueryAliasSymbol(Symbol):
+class SelectQueryAliasRef(Ref):
     name: str
-    symbol: SelectQuerySymbol
+    ref: SelectQueryRef
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Ref:
         if name == "*":
-            return AsteriskSymbol(table=self)
-        if self.symbol.has_child(name):
-            return FieldSymbol(name=name, table=self)
+            return AsteriskRef(table=self)
+        if self.ref.has_child(name):
+            return FieldRef(name=name, table=self)
         raise ValueError(f"Field {name} not found on query with alias {self.name}")
 
     def has_child(self, name: str) -> bool:
-        return self.symbol.has_child(name)
+        return self.ref.has_child(name)
 
 
-SelectQuerySymbol.update_forward_refs(SelectQueryAliasSymbol=SelectQueryAliasSymbol)
+SelectQueryRef.update_forward_refs(SelectQueryAliasRef=SelectQueryAliasRef)
 
 
-class CallSymbol(Symbol):
+class CallRef(Ref):
     name: str
-    args: List[Symbol]
+    args: List[Ref]
 
 
-class ConstantSymbol(Symbol):
+class ConstantRef(Ref):
     value: Any
 
 
-class AsteriskSymbol(Symbol):
-    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+class AsteriskRef(Ref):
+    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef]
 
 
-class FieldTraverserSymbol(Symbol):
+class FieldTraverserRef(Ref):
     chain: List[str]
-    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef]
 
 
-class FieldSymbol(Symbol):
+class FieldRef(Ref):
     name: str
-    table: Union[BaseTableSymbol, SelectQuerySymbol, SelectQueryAliasSymbol]
+    table: Union[BaseTableRef, SelectQueryRef, SelectQueryAliasRef]
 
     def resolve_database_field(self) -> Optional[DatabaseField]:
-        if isinstance(self.table, BaseTableSymbol):
+        if isinstance(self.table, BaseTableRef):
             table = self.table.resolve_database_table()
             if table is not None:
                 return table.get_field(self.name)
         return None
 
-    def get_child(self, name: str) -> Symbol:
+    def get_child(self, name: str) -> Ref:
         database_field = self.resolve_database_field()
         if database_field is None:
             raise ValueError(f'Can not access property "{name}" on field "{self.name}".')
         if isinstance(database_field, StringJSONDatabaseField):
-            return PropertySymbol(name=name, parent=self)
+            return PropertyRef(name=name, parent=self)
         raise ValueError(
             f'Can not access property "{name}" on field "{self.name}" of type: {type(database_field).__name__}'
         )
 
 
-class PropertySymbol(Symbol):
+class PropertyRef(Ref):
     name: str
-    parent: FieldSymbol
+    parent: FieldRef
 
-    def get_child(self, name: str) -> "Symbol":
+    def get_child(self, name: str) -> "Ref":
         raise NotImplementedError("JSON property traversal is not yet supported")
 
     def has_child(self, name: str) -> bool:
@@ -213,7 +213,7 @@ class PropertySymbol(Symbol):
 
 
 class Expr(AST):
-    symbol: Optional[Symbol]
+    ref: Optional[Ref]
 
 
 class Alias(Expr):
@@ -308,7 +308,7 @@ class JoinExpr(Expr):
 
 
 class SelectQuery(Expr):
-    symbol: Optional[SelectQuerySymbol] = None
+    ref: Optional[SelectQueryRef] = None
 
     select: List[Expr]
     distinct: Optional[bool] = None

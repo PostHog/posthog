@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, props, key, connect, selectors } from 'kea'
 import {
     FilterType,
     FunnelResultType,
@@ -34,12 +34,12 @@ import {
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
-export const funnelDataLogic = kea<funnelDataLogicType>({
-    path: (key) => ['scenes', 'funnels', 'funnelDataLogic', key],
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY),
+export const funnelDataLogic = kea<funnelDataLogicType>([
+    path((key) => ['scenes', 'funnels', 'funnelDataLogic', key]),
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY)),
 
-    connect: (props: InsightLogicProps) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
             ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'insightData'],
@@ -49,9 +49,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             ['hiddenLegendKeys'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
-    }),
+    })),
 
-    selectors: ({ props }) => ({
+    selectors(({ props }) => ({
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
@@ -118,7 +118,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 }
             },
         ],
-        areFiltersValid: [
+        isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
                 return (series?.length || 0) > 1
@@ -211,7 +211,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 })
             },
         ],
-        isValidFunnel: [
+        hasFunnelResults: [
             (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
             (funnelsFilter, steps, histogramGraphData) => {
                 if (funnelsFilter?.funnel_viz_type === FunnelVizType.Steps || !funnelsFilter?.funnel_viz_type) {
@@ -263,5 +263,5 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 events: funnelsFilter?.exclusions,
             }),
         ],
-    }),
-})
+    })),
+])
