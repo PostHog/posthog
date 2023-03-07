@@ -1,17 +1,20 @@
-import { kea } from 'kea'
+import { actions, afterMount, kea, path, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
+import api from 'lib/api'
+import { EventType } from '~/types'
 
 import type { feedbackLogicType } from './feedbackLogicType'
 
-export const feedbackLogic = kea<feedbackLogicType>({
-    path: ['scenes', 'feedback', 'feedbackLogic'],
-    actions: {
+export const feedbackLogic = kea<feedbackLogicType>([
+    path(['scenes', 'feedback', 'feedbackLogic']),
+    actions({
         setTab: (activeTab: string) => ({ activeTab }),
         toggleInAppFeedbackInstructions: true,
         setExpandedSection: (idx: number, expanded: boolean) => ({ idx, expanded }),
-    },
-    reducers: {
+    }),
+    reducers({
         activeTab: [
-            'in-app-feedback',
+            'in-app-feedback' as string,
             {
                 setTab: (_, { activeTab }) => activeTab,
             },
@@ -31,11 +34,37 @@ export const feedbackLogic = kea<feedbackLogicType>({
                 },
             },
         ],
-    },
-    selectors: {
+        events: [
+            [] as EventType[],
+            {
+                loadEventsSuccess: (_, { events }) => events,
+            },
+        ],
+    }),
+    loaders({
+        events: {
+            loadEvents: async ({ eventName }: { eventName: string }) => {
+                debugger
+                const response = await api.events.list({
+                    properties: [],
+                    event: eventName,
+                    orderBy: ['-timestamp'],
+                })
+
+                // TODO: improve typing
+                return response.results
+            },
+        },
+    }),
+    selectors({
         expandedSection: [
             (s) => [s.expandedSections],
             (expandedSections: boolean[]) => (idx: number) => expandedSections[idx],
         ],
-    },
-})
+    }),
+    afterMount(({ actions }) => {
+        actions.loadEvents({
+            eventName: 'Feedback Sent',
+        })
+    }),
+])
