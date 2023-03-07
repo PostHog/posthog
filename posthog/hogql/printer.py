@@ -139,9 +139,13 @@ class _Printer(Visitor):
             if node.limit_with_ties:
                 clauses.append("WITH TIES")
 
-        for union_query in node.union_all or []:
-            clauses.append("UNION ALL")
-            clauses.append(self.visit(union_query))
+        if len(node.union_all or []) > 0:
+            # :TRICKY: union queries are not "children" the parent select, but "siblings". Adjust the stack for the visit
+            last_stack = self.stack.pop()
+            for union_query in node.union_all or []:
+                clauses.append("UNION ALL")
+                clauses.append(self.visit(union_query))
+            self.stack.append(last_stack)
 
         response = " ".join([clause for clause in clauses if clause])
 
