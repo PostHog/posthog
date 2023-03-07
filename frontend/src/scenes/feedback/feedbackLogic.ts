@@ -44,7 +44,6 @@ export const feedbackLogic = kea<feedbackLogicType>([
     loaders({
         events: {
             loadEvents: async ({ eventName }: { eventName: string }) => {
-                debugger
                 const response = await api.events.list({
                     properties: [],
                     event: eventName,
