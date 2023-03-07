@@ -38,6 +38,7 @@ export function DataNode(props: DataNodeProps): JSX.Element {
                             language={'json'}
                             value={JSON.stringify(response ?? responseErrorObject, null, 2)}
                             height={Math.max(height, 300)}
+                            loading={<Spinner />}
                         />
                     )}
                 </AutoSizer>

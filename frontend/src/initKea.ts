@@ -34,51 +34,95 @@ interface InitKeaProps {
 
 // Used in some tests to make life easier
 let errorsSilenced = false
+
 export function silenceKeaLoadersErrors(): void {
     errorsSilenced = true
 }
+
 export function resumeKeaLoadersErrors(): void {
     errorsSilenced = false
 }
 
+export const loggerPlugin: () => KeaPlugin = () => ({
+    name: 'verbose-kea-logger',
+    events: {
+        beforeReduxStore(options) {
+            options.middleware.push((store) => (next) => (action) => {
+                const response = next(action)
+                console.groupCollapsed('KEA LOGGER', action)
+                console.log(store.getState())
+                console.groupEnd()
+                return response
+            })
+        },
+    },
+})
+
+/** warn about recursive data structures in actions, as these will crash the redux dev tools */
+export const warnRecursiveDataPlugin: () => KeaPlugin = () => ({
+    name: 'kea-warn-recursive',
+    events: {
+        beforeReduxStore(options) {
+            options.middleware.push(() => (next) => (action) => {
+                try {
+                    JSON.stringify(action)
+                } catch (e: any) {
+                    if ((e.name = 'TypeError')) {
+                        console.warn('KEA WARNING - action with recursive data structure detected: ', action, e)
+                    }
+                }
+
+                return next(action)
+            })
+        },
+    },
+})
+
 export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKeaProps = {}): void {
+    const plugins = [
+        ...(beforePlugins || []),
+        localStoragePlugin,
+        windowValuesPlugin({ window: window }),
+        routerPlugin({
+            history: routerHistory,
+            location: routerLocation,
+            urlPatternOptions: {
+                // :TRICKY: We override default url segment matching characters.
+                // This list includes all characters which are not escaped by encodeURIComponent
+                segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+            },
+        }),
+        formsPlugin,
+        loadersPlugin({
+            onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Toast if it's a fetch error or a specific API update error
+                if (
+                    !ERROR_FILTER_WHITELIST.includes(actionKey) &&
+                    (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
+                        (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
+                ) {
+                    lemonToast.error(
+                        `${identifierToHuman(actionKey)} failed: ${
+                            error.detail || error.statusText || 'PostHog may be offline'
+                        }`
+                    )
+                }
+                if (!errorsSilenced) {
+                    console.error({ error, reducerKey, actionKey })
+                }
+                ;(window as any).Sentry?.captureException(error)
+            },
+        }),
+        subscriptionsPlugin,
+        waitForPlugin,
+        warnRecursiveDataPlugin,
+    ]
+
+    if (window.JS_KEA_VERBOSE_LOGGING) {
+        plugins.push(loggerPlugin)
+    }
+
     resetContext({
-        plugins: [
-            ...(beforePlugins || []),
-            localStoragePlugin,
-            windowValuesPlugin({ window: window }),
-            routerPlugin({
-                history: routerHistory,
-                location: routerLocation,
-                urlPatternOptions: {
-                    // :TRICKY: We override default url segment matching characters.
-                    // This list includes all characters which are not escaped by encodeURIComponent
-                    segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
-                },
-            }),
-            formsPlugin,
-            loadersPlugin({
-                onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
-                    // Toast if it's a fetch error or a specific API update error
-                    if (
-                        !ERROR_FILTER_WHITELIST.includes(actionKey) &&
-                        (error?.message === 'Failed to fetch' || // Likely CORS headers errors (i.e. request failing without reaching Django)
-                            (error?.status !== undefined && ![200, 201, 204].includes(error.status)))
-                    ) {
-                        lemonToast.error(
-                            `${identifierToHuman(actionKey)} failed: ${
-                                error.detail || error.statusText || 'PostHog may be offline'
-                            }`
-                        )
-                    }
-                    if (!errorsSilenced) {
-                        console.error({ error, reducerKey, actionKey })
-                    }
-                    ;(window as any).Sentry?.captureException(error)
-                },
-            }),
-            subscriptionsPlugin,
-            waitForPlugin,
-        ],
+        plugins: plugins,
     })
 }

@@ -41,7 +41,6 @@ export type ServerInstance = {
     piscina: Piscina
     queue: IngestionConsumer | null
     mmdb?: ReaderModel
-    mmdbUpdateJob?: schedule.Job
     stop: () => Promise<void>
 }
 
@@ -104,9 +103,11 @@ export async function startPluginsServer(
 
     let lastActivityCheck: NodeJS.Timeout | undefined
     let stopEventLoopMetrics: (() => void) | undefined
+    let mmdbUpdateJob: schedule.Job | undefined
 
     let shuttingDown = false
     async function closeJobs(): Promise<void> {
+        mmdbUpdateJob?.cancel()
         shuttingDown = true
         status.info('💤', ' Shutting down gracefully...')
         lastActivityCheck && clearInterval(lastActivityCheck)
@@ -213,15 +214,21 @@ export async function startPluginsServer(
     capabilities = capabilities ?? getPluginServerCapabilities(serverConfig)
     let serverInstance: (Partial<ServerInstance> & Pick<ServerInstance, 'hub'>) | undefined
 
+    // A collection of healthchecks that should be used to validate the
+    // health of the plugin-server. These are used by the /_health endpoint
+    // to determine if we should trigger a restart of the pod. These should
+    // be super lightweight and ideally not do any IO.
+    const healthChecks: { [service: string]: () => Promise<boolean> } = {}
+
     try {
         if (!serverConfig.DISABLE_MMDB && capabilities.mmdb) {
             ;[hub, closeHub] = await createHub(serverConfig, null, capabilities)
             serverInstance = { hub }
 
             serverInstance.mmdb = (await prepareMmdb(serverInstance)) ?? undefined
-            serverInstance.mmdbUpdateJob = schedule.scheduleJob('0 */4 * * *', async () =>
-                serverInstance ? await performMmdbStalenessCheck(serverInstance) : null
-            )
+            mmdbUpdateJob = serverInstance
+                ? schedule.scheduleJob('0 */4 * * *', async () => await performMmdbStalenessCheck(serverInstance!))
+                : undefined
             mmdbServer = await createMmdbServer(serverInstance)
             serverConfig.INTERNAL_MMDB_SERVER_PORT = (mmdbServer.address() as AddressInfo).port
             hub.INTERNAL_MMDB_SERVER_PORT = serverConfig.INTERNAL_MMDB_SERVER_PORT
@@ -279,10 +286,15 @@ export async function startPluginsServer(
             serverInstance = serverInstance ? serverInstance : { hub }
 
             piscina = piscina ?? makePiscina(serverConfig)
-            analyticsEventsIngestionConsumer = await startAnalyticsEventsIngestionConsumer({
-                hub: hub,
-                piscina: piscina,
-            })
+            const { queue, isHealthy: isAnalyticsEventsIngestionHealthy } = await startAnalyticsEventsIngestionConsumer(
+                {
+                    hub: hub,
+                    piscina: piscina,
+                }
+            )
+
+            analyticsEventsIngestionConsumer = queue
+            healthChecks['analytics-ingestion'] = isAnalyticsEventsIngestionHealthy
 
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 hub: hub,
@@ -412,12 +424,6 @@ export async function startPluginsServer(
             hub.lastActivity = new Date().valueOf()
             hub.lastActivityType = 'serverStart'
         }
-
-        // A collection of healthchecks that should be used to validate the
-        // health of the plugin-server. These are used by the /_health endpoint
-        // to determine if we should trigger a restart of the pod. These should
-        // be super lightweight and ideally not do any IO.
-        const healthChecks: { [service: string]: () => Promise<boolean> } = {}
 
         if (capabilities.sessionRecordingIngestion) {
             const kafka = hub?.kafka ?? createKafkaClient(serverConfig as KafkaConfig)

@@ -34,6 +34,10 @@
         color: var(--indigo);
     }
 
+    &.caution {
+        background-color: var(--danger-lighter);
+    }
+
     &.none {
         background: none;
     }

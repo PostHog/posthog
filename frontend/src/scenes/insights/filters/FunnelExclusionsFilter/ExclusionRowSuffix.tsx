@@ -12,7 +12,9 @@ import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelU
 
 export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, insightFilter, exclusionDefaultStepRange } = useValues(funnelDataLogic(insightProps))
+    const { querySource, insightFilter, exclusionDefaultStepRange, areFiltersValid, series } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const setOneEventExclusionFilter = (eventFilter: FunnelStepRangeEntityFilter, index: number): void => {
@@ -33,8 +35,8 @@ export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixCompo
     return (
         <ExclusionRowSuffixComponent
             exclusions={(insightFilter as FunnelsFilterType)?.exclusions}
-            areFiltersValid={(querySource as FunnelsQuery).series.length > 1}
-            numberOfSeries={(querySource as FunnelsQuery).series.length}
+            areFiltersValid={areFiltersValid}
+            numberOfSeries={series?.length || 0}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
             setOneEventExclusionFilter={setOneEventExclusionFilter}
             {...props}

@@ -814,7 +814,7 @@ describe('funnelLogic', () => {
                         funnel_viz_type: FunnelVizType.Trends,
                     } as FunnelsFilterType,
                 })
-            }).toNotHaveDispatchedActions(['loadCorrelations', 'loadPropertyCorrelations'])
+            }).toNotHaveDispatchedActions(['loadEventCorrelations', 'loadPropertyCorrelations'])
         })
 
         it('triggers update to correlation list when property excluded from project', async () => {

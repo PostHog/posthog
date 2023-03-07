@@ -79,8 +79,21 @@ class TeamAdmin(admin.ModelAdmin):
 
 @admin.register(PluginConfig)
 class PluginConfigAdmin(admin.ModelAdmin):
-    list_display = ("plugin_id", "team_id")
+    list_select_related = ("plugin", "team")
+    list_display = ("id", "plugin_name", "team_name", "enabled")
+    list_filter = (
+        ("enabled", admin.BooleanFieldListFilter),
+        ("updated_at", admin.DateFieldListFilter),
+        ("plugin", admin.RelatedOnlyFieldListFilter),
+    )
+    search_fields = ("team__name", "team__organization__name", "plugin__name")
     ordering = ("-created_at",)
+
+    def plugin_name(self, config: PluginConfig):
+        return format_html(f"{config.plugin.name} ({config.plugin_id})")
+
+    def team_name(self, config: PluginConfig):
+        return format_html(f"{config.team.name} ({config.team_id})")
 
 
 class UserChangeForm(DjangoUserChangeForm):
