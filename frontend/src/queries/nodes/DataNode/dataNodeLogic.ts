@@ -15,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyDataNode, DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
+import { AnyDataNode, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -99,9 +99,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         if (newResponse?.results) {
                             actions.highlightRows(newResponse?.results)
                         }
+                        const currentResults = ((values.response || { results: [] }) as EventsQueryResponse).results
                         return {
                             ...values.response,
-                            results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
+                            results: [...(newResponse?.results ?? []), ...currentResults],
                         }
                     }
                     return values.response
@@ -115,14 +116,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (isEventsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
+                        const eventQueryResponse = values.response as EventsQueryResponse
                         return {
-                            ...values.response,
-                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            ...eventQueryResponse,
+                            results: [...(eventQueryResponse?.results ?? []), ...(newResponse?.results ?? [])],
                             hasMore: newResponse?.hasMore,
                         }
                     } else if (isPersonsNode(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
+                        if (Array.isArray(values.response)) {
+                            // help typescript by asserting we can't have an array here
+                            throw new Error('Unexpected response type for persons node query')
+                        }
                         return {
                             ...values.response,
                             results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
@@ -146,7 +152,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         autoLoadToggled: [
             false,
-            // store the autoload toggle's state in localstorage, separately for each data node kind
+            // store the 'autoload toggle' state in localstorage, separately for each data node kind
             {
                 persist: true,
                 storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
@@ -310,7 +316,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 let disabledReason = ''
 
                 if (!!nextAllowedRefresh && now().isBefore(dayjs(nextAllowedRefresh))) {
-                    // If this is a saved insight, the result will contain nextAllowedRefresh and we use that to disable the button
+                    // If this is a saved insight, the result will contain nextAllowedRefresh, and we use that to disable the button
                     disabledReason = `You can refresh this insight again ${dayjs(nextAllowedRefresh).fromNow()}`
                 } else if (
                     !!lastRefresh &&

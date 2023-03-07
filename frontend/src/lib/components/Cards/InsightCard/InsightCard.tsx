@@ -597,7 +597,7 @@ function InsightCardInternal(
 
     return (
         <div
-            className={clsx('InsightCard', highlighted && 'InsightCard--highlighted', className)}
+            className={clsx('InsightCard border', highlighted && 'InsightCard--highlighted', className)}
             data-attr="insight-card"
             {...divProps}
             ref={ref}
