@@ -49,44 +49,7 @@ export function ExpandableSection({
     )
 }
 
-function useEvents(eventName: string): { events: EventType[]; eventsLoading: boolean } {
-    const [events, setEvents] = useState<EventType[]>([])
-    const [eventsLoading, setEventsLoading] = useState(true)
-    useEffect(() => {
-        const fetchEvents = async (): Promise<void> => {
-            const response = await api.events.list({
-                properties: [],
-                event: eventName,
-                orderBy: ['-timestamp'],
-            })
-            // TODO: improve typing
-            setEvents(response.results as unknown as EventType[])
-            setEventsLoading(false)
-        }
-        fetchEvents()
-    }, [])
-    return { events, eventsLoading }
-}
-
-function useFilters(eventName: string): Record<string, any> {
-    return {
-        insight: 'TRENDS',
-        events: [{ id: eventName, name: eventName, type: 'events', order: 0 }],
-        actions: [],
-        display: 'ActionsLineGraph',
-        interval: 'day',
-        new_entity: [],
-        properties: [],
-        filter_test_accounts: false,
-        date_from: '-14d',
-    }
-}
-
 export function FeedbackInstructions(): JSX.Element {
-    // what this does
-    // instructions to install the feedback widget
-    // instructions to send feedback directly
-    // potentially config the eventName and feedbackProperty
     const formKey = 'newFeedbackEvent'
     const eventName = 'Feedback Sent'
     const feedbackProperties = ['$feedback']
@@ -248,6 +211,89 @@ export function FeedbackInstructions(): JSX.Element {
     )
 }
 
+function useEvents(eventName: string): { events: EventType[]; eventsLoading: boolean } {
+    const [events, setEvents] = useState<EventType[]>([])
+    const [eventsLoading, setEventsLoading] = useState(true)
+    useEffect(() => {
+        const fetchEvents = async (): Promise<void> => {
+            const response = await api.events.list({
+                properties: [],
+                event: eventName,
+                orderBy: ['-timestamp'],
+            })
+            // TODO: improve typing
+            setEvents(response.results as unknown as EventType[])
+            setEventsLoading(false)
+        }
+        fetchEvents()
+    }, [])
+    return { events, eventsLoading }
+}
+
+function useFilters(eventName: string): Record<string, any> {
+    return {
+        insight: 'TRENDS',
+        events: [{ id: eventName, name: eventName, type: 'events', order: 0 }],
+        actions: [],
+        display: 'ActionsLineGraph',
+        interval: 'day',
+        new_entity: [],
+        properties: [],
+        filter_test_accounts: false,
+        date_from: '-14d',
+    }
+}
+
+function InAppFeedback({
+    config,
+}: {
+    config: {
+        eventName: string
+        feedbackProperty: string
+    }
+}): JSX.Element {
+    const { eventName } = config
+    const filters = useFilters(eventName)
+    const { events } = useEvents(eventName)
+    return (
+        <>
+            <h2>Feedback received in the last 14 days</h2>
+            <AdHocInsight filters={filters} style={{ height: 200 }} />
+            <LemonTable
+                dataSource={events}
+                columns={[
+                    {
+                        key: 'feedback',
+                        title: 'Feedback',
+                        render: (_, event) => {
+                            return <div>{event.properties[config.feedbackProperty || '$feedback']}</div>
+                        },
+                    },
+                    {
+                        key: 'distinct_id',
+                        title: 'Author',
+                        render: (_, event) => {
+                            console.log({ event })
+                            return event.person ? (
+                                <Link to={urls.person(event.person.distinct_ids[0])}>
+                                    <PersonHeader noLink withIcon person={event.person} />
+                                </Link>
+                            ) : (
+                                'Unknown user'
+                            )
+                        },
+                    },
+                    {
+                        key: 'timestamp',
+                        title: 'Sent',
+                        render: (_, event) => <TZLabel time={event.timestamp} showSeconds />,
+                    },
+                ]}
+            />
+        </>
+    )
+}
+
 function FeedbackWidgetTab({
     config,
 }: {
@@ -256,9 +302,8 @@ function FeedbackWidgetTab({
         feedbackProperty: string
     }
 }): JSX.Element {
-    const eventName = config.eventName || 'Feedback Sent'
+    const { eventName } = config
     const { events, eventsLoading } = useEvents(eventName)
-    const filters = useFilters(eventName)
     const { inAppFeedbackInstructions } = useValues(feedbackLogic)
     const { toggleInAppFeedbackInstructions } = useActions(feedbackLogic)
 
@@ -288,39 +333,7 @@ function FeedbackWidgetTab({
                 </>
             ) : (
                 <>
-                    <h2>Feedback received in the last 14 days</h2>
-                    <AdHocInsight filters={filters} style={{ height: 200 }} />
-                    <LemonTable
-                        dataSource={events}
-                        columns={[
-                            {
-                                key: 'feedback',
-                                title: 'Feedback',
-                                render: (_, event) => {
-                                    return <div>{event.properties[config.feedbackProperty || '$feedback']}</div>
-                                },
-                            },
-                            {
-                                key: 'distinct_id',
-                                title: 'Author',
-                                render: (_, event) => {
-                                    console.log({ event })
-                                    return event.person ? (
-                                        <Link to={urls.person(event.person.distinct_ids[0])}>
-                                            <PersonHeader noLink withIcon person={event.person} />
-                                        </Link>
-                                    ) : (
-                                        'Unknown user'
-                                    )
-                                },
-                            },
-                            {
-                                key: 'timestamp',
-                                title: 'Sent',
-                                render: (_, event) => <TZLabel time={event.timestamp} showSeconds />,
-                            },
-                        ]}
-                    />
+                    <InAppFeedback />
                 </>
             )}
         </>

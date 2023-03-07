@@ -26,9 +26,8 @@ export const feedbackLogic = kea<feedbackLogicType>({
             [false, false] as boolean[],
             {
                 setExpandedSection: (state, { idx, expanded }) => {
-                    const newState: boolean[] = [...state]
-                    newState[idx] = expanded
-                    return newState
+                    // set all to false apart from the one we're changing
+                    return state.map((_, i) => (i === idx ? expanded : false))
                 },
             },
         ],
