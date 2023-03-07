@@ -394,7 +394,7 @@ describe('funnelLogic', () => {
                             { id: '$pageview', order: 1 },
                         ],
                     },
-                    areFiltersValid: true,
+                    isFunnelWithEnoughSteps: true,
                 })
                 .toDispatchActions(['loadResultsSuccess'])
                 .toMatchValues({
@@ -415,12 +415,12 @@ describe('funnelLogic', () => {
                             { id: '$pageview', order: 1 },
                         ],
                     },
-                    areFiltersValid: true,
+                    isFunnelWithEnoughSteps: true,
                 })
         })
     })
 
-    describe('areFiltersValid', () => {
+    describe('isFunnelWithEnoughSteps', () => {
         beforeEach(async () => {
             await initFunnelLogic()
         })
@@ -428,23 +428,23 @@ describe('funnelLogic', () => {
         it('sets it properly', () => {
             expectLogic(logic, () => {
                 logic.actions.setFilters({ actions: [] })
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({})
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({ actions: [{}, {}] })
-            }).toMatchValues({ areFiltersValid: true })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
 
             expectLogic(logic, () => {
                 logic.actions.setFilters({ events: [{}, {}] })
-            }).toMatchValues({ areFiltersValid: true })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
 
             expectLogic(logic, () => {
-                logic.actions.setFilters({ events: [{}], actions: [{ from: 'previous areFiltersValid test' }] })
-            }).toMatchValues({ areFiltersValid: true })
+                logic.actions.setFilters({ events: [{}], actions: [{ from: 'previous isFunnelWithEnoughSteps test' }] })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 
