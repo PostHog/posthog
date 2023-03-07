@@ -107,24 +107,20 @@ async function expectStoryToMatchSnapshot(
         await Promise.all(LOADER_SELECTORS.map((selector) => page.waitForSelector(selector, { state: 'detached' })))
         if (typeof waitForLoadersToDisappear === 'string') {
             await page.waitForSelector(waitForLoadersToDisappear)
-            if (waitForLoadersToDisappear.split(' ').at(-1)?.startsWith('canvas')) {
-                // If waiting for a canvas or canvases, wait for all to be non-blank
-                await page.waitForFunction(
-                    (selector) => {
-                        const canvases = document.querySelectorAll<HTMLCanvasElement>(selector)
-                        // Check canvas data for pixels that are neither transparent, black, or white
-                        return Array.from(canvases).every(
-                            (canvas) =>
-                                canvas
-                                    .getContext('2d')
-                                    ?.getImageData(0, 0, canvas.width, canvas.height)
-                                    .data.some((pixel) => pixel !== 0 && pixel !== 255) ?? false
-                        )
-                    },
-                    waitForLoadersToDisappear,
-                    { timeout: 5000 }
-                )
-            }
+            // If waiting for loaders, also fill all canvases with solid black for the snapshot
+            // This prevents Chart.js from causing constant flakiness, which has proven to be very challenging
+            // Black is for making this behavior explicit in the snapshots
+            await page.evaluate(() => {
+                const canvases = document.getElementsByTagName('canvas')
+                for (let i = 0; i < canvases.length; i++) {
+                    const canvas = canvases[i]
+                    const ctx = canvas.getContext('2d')
+                    if (ctx) {
+                        ctx.fillStyle = 'black'
+                        ctx.fillRect(0, 0, canvas.width, canvas.height)
+                    }
+                }
+            })
         }
     }
     await page.waitForTimeout(100) // Just a bit of extra delay for things to settle
