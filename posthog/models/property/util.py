@@ -13,10 +13,9 @@ from typing import (
     cast,
 )
 
-from clickhouse_driver.context import Context
-from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
+from posthog.clickhouse.client.escape import escape_param_for_clickhouse
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
@@ -552,27 +551,6 @@ def property_table(property: Property) -> TableWithProperties:
         return "groups"
     else:
         raise ValueError(f"Property type does not have a table: {property.type}")
-
-
-def escape_param_for_clickhouse(param: Any) -> str:
-    """
-    Escape a parameter for ClickHouse. This uses the `escape_param` function
-    from the `clickhouse-driver` package, but passes an empty `Context` object
-    to it. Prior to
-    https://github.com/mymarilyn/clickhouse-driver/commit/87090902f0270ed51a0b6754d5cbf0dc8544ec4b
-    the `escape_param` function didn't take a `Context` object. As of
-    `clickhouse-driver` 0.2.4 all it uses the context for is to determine the
-    "server" timezone, so passing an empty context maintains the existing
-    behaviour of `clickhouse-driver` 0.2.1, the version we were previously
-    using.
-
-    NOTE: this change is necessary because the `clickhouse-driver` package up to
-    0.2.3 uses an invalid `python_requires` in it's `setup.py` at least for
-    recent versions of setuptools. This was highlighted as a consequence of
-    upgrading to Python 3.10. See
-    https://github.com/mymarilyn/clickhouse-driver/pull/291 for further context.
-    """
-    return escape_param(param, Context())
 
 
 def get_single_or_multi_property_string_expr(
