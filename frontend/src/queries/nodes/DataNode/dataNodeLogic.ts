@@ -15,7 +15,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { AnyDataNode, AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
+import { AnyResponseType, DataNode, EventsQuery, EventsQueryResponse, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -50,7 +50,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
             actions.clearResponse()
         }
-        if (!objectsEqual(props.query, oldProps.query)) {
+        if (!objectsEqual(props.query, oldProps.query) && !props.cachedResults) {
             actions.loadData()
         }
     }),
@@ -66,14 +66,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
-            null as AnyDataNode['response'] | null,
+            props.cachedResults ?? null,
             {
                 clearResponse: () => null,
                 loadData: async (refresh: boolean = false, breakpoint) => {
                     if (props.cachedResults) {
                         return props.cachedResults
                     }
+
                     if (!values.currentTeamId) {
+                        // if shared/exported, the team is not loaded
                         return null
                     }
 
@@ -240,7 +242,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors({
-        isShowingCachedResults: [(_, p) => [p.cachedResults], (cachedResults): boolean => !!cachedResults],
+        isShowingCachedResults: [
+            () => [(_, props) => props.cachedResults ?? null],
+            (cachedResults: AnyResponseType | null): boolean => !!cachedResults,
+        ],
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
