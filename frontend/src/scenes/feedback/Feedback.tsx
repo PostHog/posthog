@@ -127,7 +127,7 @@ export function FeedbackInstructions(): JSX.Element {
             >
                 <div>
                     <p className="text-sm italic">
-                        Or create a custom form styled to your app and then send the feedback to PostHog.
+                        Create a custom form styled to your app and then send the feedback to PostHog.
                     </p>
                     <div>
                         <div>
