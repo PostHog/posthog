@@ -1,6 +1,7 @@
+from datetime import datetime
 import json
 from dataclasses import asdict, dataclass, field
-from typing import Any, List
+from typing import Any, List, Optional
 from unittest import mock
 
 import pytest
@@ -39,15 +40,21 @@ class TestTimeToSeeDataApi(APIBaseTest):
         insert(
             "metrics_time_to_see_data",
             [
-                MetricsRow(session_id="456", timestamp="2022-10-05 12:20:30", time_to_see_data_ms=7000),
-                MetricsRow(session_id="123", timestamp="2022-10-05 10:10:30", time_to_see_data_ms=2000),
+                MetricsRow(
+                    session_id="456", timestamp=datetime.fromisoformat("2022-10-05 12:20:30"), time_to_see_data_ms=7000
+                ),
+                MetricsRow(
+                    session_id="123", timestamp=datetime.fromisoformat("2022-10-05 10:10:30"), time_to_see_data_ms=2000
+                ),
                 MetricsRow(
                     session_id="123",
-                    timestamp="2022-10-05 10:30:25",
+                    timestamp=datetime.fromisoformat("2022-10-05 10:30:25"),
                     time_to_see_data_ms=1000,
                     is_primary_interaction=False,
                 ),
-                MetricsRow(session_id="123", timestamp="2022-10-05 10:30:30", time_to_see_data_ms=7000),
+                MetricsRow(
+                    session_id="123", timestamp=datetime.fromisoformat("2022-10-05 10:30:30"), time_to_see_data_ms=7000
+                ),
             ],
         )
 
@@ -90,22 +97,26 @@ class TestTimeToSeeDataApi(APIBaseTest):
         insert(
             "metrics_time_to_see_data",
             [
-                MetricsRow(session_id="456", timestamp="2022-10-05 12:20:30", time_to_see_data_ms=7000),
+                MetricsRow(
+                    session_id="456", timestamp=datetime.fromisoformat("2022-10-05 12:20:30"), time_to_see_data_ms=7000
+                ),
                 MetricsRow(
                     session_id="123",
-                    timestamp="2022-10-05 10:10:30",
+                    timestamp=datetime.fromisoformat("2022-10-05 10:10:30"),
                     time_to_see_data_ms=2000,
                     primary_interaction_id="111-222-333",
                 ),
                 MetricsRow(
                     session_id="123",
-                    timestamp="2022-10-05 10:30:25",
+                    timestamp=datetime.fromisoformat("2022-10-05 10:30:25"),
                     time_to_see_data_ms=1000,
                     is_primary_interaction=False,
                     primary_interaction_id="111-222-333",
                     query_id="777",
                 ),
-                MetricsRow(session_id="123", timestamp="2022-10-05 10:30:30", time_to_see_data_ms=7000),
+                MetricsRow(
+                    session_id="123", timestamp=datetime.fromisoformat("2022-10-05 10:30:30"), time_to_see_data_ms=7000
+                ),
             ],
         )
 
@@ -114,13 +125,13 @@ class TestTimeToSeeDataApi(APIBaseTest):
             [
                 QueryLogRow(
                     session_id="123",
-                    timestamp="2022-10-05 10:10:30",
+                    timestamp=datetime.fromisoformat("2022-10-05 10:10:30"),
                     query_duration_ms=400,
                     client_query_id="111-222-333::777",
                 ),
                 QueryLogRow(
                     session_id="123",
-                    timestamp="2022-10-05 10:10:30",
+                    timestamp=datetime.fromisoformat("2022-10-05 10:10:30"),
                     query_duration_ms=200,
                     client_query_id="111-222-333::999",
                 ),
@@ -148,7 +159,7 @@ class MetricsRow:
     team_id: int = 2
     user_id: int = 123
     session_id: str = ""
-    timestamp: str = "2022-10-05 10:20:00"
+    timestamp: datetime = datetime.fromisoformat("2022-10-05 10:20:00")
     type: str = ""
     context: str = ""
     is_primary_interaction: int = True
@@ -168,7 +179,7 @@ class MetricsRow:
 @dataclass
 class QueryLogRow:
     host: str = ""
-    timestamp: str = ""
+    timestamp: Optional[datetime] = None
     query_duration_ms: int = 555
     read_rows: int = 0
     read_bytes: int = 0

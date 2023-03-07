@@ -16,8 +16,8 @@ SELECT
     session_id,
     any(user_id) AS user_id,
     any(team_id) AS team_id,
-    min(timestamp - toIntervalSecond(time_to_see_data_ms / 1000)) AS session_start,
-    max(timestamp) AS session_end,
+    toDateTime(min(timestamp - toIntervalSecond(time_to_see_data_ms / 1000)), 'UTC') AS session_start,
+    toDateTime(max(timestamp), 'UTC') AS session_end,
     1000 * dateDiff('second', session_start, session_end) AS duration_ms,
     argMax(team_events_last_month, _timestamp) as team_events_last_month,
     count() AS events_count,
@@ -31,7 +31,12 @@ ORDER BY session_end DESC
 """
 
 GET_SESSION_EVENTS = f"""
-SELECT *, {IS_FRUSTRATING_INTERACTION} AS is_frustrating
+SELECT 
+    * EXCEPT (timestamp, min_last_refresh, max_last_refresh), 
+    toDateTime(timestamp, 'UTC') as timestamp, 
+    toDateTime(min_last_refresh, 'UTC') as min_last_refresh, 
+    toDateTime(max_last_refresh, 'UTC') as max_last_refresh, 
+    {IS_FRUSTRATING_INTERACTION} AS is_frustrating
 FROM metrics_time_to_see_data
 WHERE team_id = %(team_id)s
   AND session_id = %(session_id)s
@@ -40,7 +45,10 @@ WHERE team_id = %(team_id)s
 """
 
 GET_SESSION_QUERIES = f"""
-SELECT * EXCEPT (ProfileEvents), query_duration_ms >= 5000 AS is_frustrating
+SELECT 
+    * EXCEPT (ProfileEvents, timestamp), 
+    toDateTime(timestamp, 'UTC') as timestamp, 
+    query_duration_ms >= 5000 AS is_frustrating
 FROM metrics_query_log
 WHERE team_id = %(team_id)s
   AND session_id = %(session_id)s
@@ -62,8 +70,8 @@ def get_session_events(query: SessionEventsQuerySerializer) -> Optional[Dict]:
     params = {
         "team_id": query.validated_data["team_id"],
         "session_id": query.validated_data["session_id"],
-        "session_start": query.validated_data["session_start"].strftime("%Y-%m-%d %H:%M:%S"),
-        "session_end": query.validated_data["session_end"].strftime("%Y-%m-%d %H:%M:%S"),
+        "session_start": query.validated_data["session_start"],
+        "session_end": query.validated_data["session_end"],
     }
     events = query_with_columns(GET_SESSION_EVENTS, params)
     queries = query_with_columns(GET_SESSION_QUERIES, params)
