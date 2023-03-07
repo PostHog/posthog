@@ -31,7 +31,6 @@
                   "team_id": 2,
                   "user_id": 123,
                   "session_id": "123",
-                  "timestamp": "2022-10-05T10:10:30",
                   "type": "",
                   "context": "",
                   "is_primary_interaction": 1,
@@ -44,11 +43,12 @@
                   "action": "",
                   "insights_fetched": 1,
                   "insights_fetched_cached": 0,
-                  "min_last_refresh": "1970-01-01T00:00:00",
-                  "max_last_refresh": "1970-01-01T00:00:00",
-                  "_timestamp": "1970-01-01T00:00:00",
+                  "_timestamp": "1970-01-01T03:00:00",
                   "_offset": 0,
                   "_partition": 0,
+                  "timestamp": "2022-10-05T10:10:30Z",
+                  "min_last_refresh": "1970-01-01T00:00:00Z",
+                  "max_last_refresh": "1970-01-01T00:00:00Z",
                   "is_frustrating": 0
               },
               "children": [
@@ -61,7 +61,6 @@
                           "team_id": 2,
                           "user_id": 123,
                           "session_id": "123",
-                          "timestamp": "2022-10-05T10:30:25",
                           "type": "",
                           "context": "",
                           "is_primary_interaction": 0,
@@ -74,11 +73,12 @@
                           "action": "",
                           "insights_fetched": 1,
                           "insights_fetched_cached": 0,
-                          "min_last_refresh": "1970-01-01T00:00:00",
-                          "max_last_refresh": "1970-01-01T00:00:00",
-                          "_timestamp": "1970-01-01T00:00:00",
+                          "_timestamp": "1970-01-01T03:00:00",
                           "_offset": 0,
                           "_partition": 0,
+                          "timestamp": "2022-10-05T10:30:25Z",
+                          "min_last_refresh": "1970-01-01T00:00:00Z",
+                          "max_last_refresh": "1970-01-01T00:00:00Z",
                           "is_frustrating": 0
                       },
                       "children": [
@@ -86,7 +86,6 @@
                               "type": "query",
                               "data": {
                                   "host": "",
-                                  "timestamp": "2022-10-05T10:10:30",
                                   "query_duration_ms": 400,
                                   "read_rows": 0,
                                   "read_bytes": 0,
@@ -115,6 +114,7 @@
                                   "columns": [],
                                   "query": "",
                                   "log_comment": "",
+                                  "timestamp": "2022-10-05T10:10:30Z",
                                   "is_frustrating": 0
                               },
                               "children": []
@@ -125,7 +125,6 @@
                       "type": "query",
                       "data": {
                           "host": "",
-                          "timestamp": "2022-10-05T10:10:30",
                           "query_duration_ms": 200,
                           "read_rows": 0,
                           "read_bytes": 0,
@@ -154,6 +153,7 @@
                           "columns": [],
                           "query": "",
                           "log_comment": "",
+                          "timestamp": "2022-10-05T10:10:30Z",
                           "is_frustrating": 0
                       },
                       "children": []
@@ -169,7 +169,6 @@
                   "team_id": 2,
                   "user_id": 123,
                   "session_id": "123",
-                  "timestamp": "2022-10-05T10:30:30",
                   "type": "",
                   "context": "",
                   "is_primary_interaction": 1,
@@ -182,11 +181,12 @@
                   "action": "",
                   "insights_fetched": 1,
                   "insights_fetched_cached": 0,
-                  "min_last_refresh": "1970-01-01T00:00:00",
-                  "max_last_refresh": "1970-01-01T00:00:00",
-                  "_timestamp": "1970-01-01T00:00:00",
+                  "_timestamp": "1970-01-01T03:00:00",
                   "_offset": 0,
                   "_partition": 0,
+                  "timestamp": "2022-10-05T10:30:30Z",
+                  "min_last_refresh": "1970-01-01T00:00:00Z",
+                  "max_last_refresh": "1970-01-01T00:00:00Z",
                   "is_frustrating": 1
               },
               "children": []
