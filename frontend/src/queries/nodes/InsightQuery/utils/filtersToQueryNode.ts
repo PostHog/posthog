@@ -212,6 +212,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectCleanWithEmpty({
             shown_as: filters.shown_as,
+            toggledLifecycles: filters.toggledLifecycles,
         })
     }
 

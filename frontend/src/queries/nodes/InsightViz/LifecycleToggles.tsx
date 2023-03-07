@@ -55,11 +55,11 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
     }
 
     return (
-        <div className="flex flex-col -mt-1">
+        <div className="flex flex-col -mt-1 uppercase">
             {lifecycles.map((lifecycle) => (
                 <LemonLabel key={lifecycle.name} info={lifecycle.tooltip}>
                     <LemonCheckbox
-                        label={lifecycle.name.charAt(0).toUpperCase() + lifecycle.name.substring(1)}
+                        label={lifecycle.name}
                         color={lifecycle.color}
                         checked={toggledLifecycles.includes(lifecycle.name)}
                         onChange={() => toggleLifecycle(lifecycle.name)}

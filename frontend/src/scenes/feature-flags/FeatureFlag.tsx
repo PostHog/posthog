@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton, Card } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
 import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -18,6 +18,8 @@ import {
     IconPlusMini,
     IconSubArrowRight,
     IconErrorOutline,
+    IconUnfoldLess,
+    IconUnfoldMore,
 } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -109,6 +111,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
 
     const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
+    const [advancedSettingsExpanded, setAdvancedSettingsExpanded] = useState(false)
 
     const isNewFeatureFlag = id === 'new' || id === undefined
 
@@ -164,7 +167,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </div>
                             }
                         />
-                        <Divider />
+                        <LemonDivider />
                         {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
                             <AlertMessage type="warning">
                                 This feature flag is linked to an experiment. It's recommended to only make changes to
@@ -288,28 +291,45 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
-                        <Divider />
+                        <LemonDivider />
                         <FeatureFlagRollout />
-                        <Divider />
+                        <LemonDivider />
                         <FeatureFlagReleaseConditions />
-                        <Divider />
-                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
-                        {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                            <Card title="Permissions" className="mb-4">
-                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                    <ResourcePermission
-                                        resourceType={Resource.FEATURE_FLAGS}
-                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                        rolesToAdd={rolesToAdd}
-                                        addableRoles={addableRoles}
-                                        addableRolesLoading={unfilteredAddableRolesLoading}
-                                        onAdd={() => addAssociatedRoles()}
-                                        roles={derivedRoles}
-                                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                        canEdit={featureFlag.can_edit}
-                                    />
-                                </PayGateMini>
-                            </Card>
+                        <LemonDivider />
+                        <div>
+                            <LemonButton
+                                fullWidth
+                                status="default-dark"
+                                onClick={() => setAdvancedSettingsExpanded(!advancedSettingsExpanded)}
+                                sideIcon={advancedSettingsExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                            >
+                                <div>
+                                    <h3 className="l4">Advanced settings</h3>
+                                    <div className="text-muted mb-4 font-medium">Define who can modify this flag.</div>
+                                </div>
+                            </LemonButton>
+                        </div>
+                        {advancedSettingsExpanded && (
+                            <>
+                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
+                                {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    <Card title="Permissions" className="mb-4">
+                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                            <ResourcePermission
+                                                resourceType={Resource.FEATURE_FLAGS}
+                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                rolesToAdd={rolesToAdd}
+                                                addableRoles={addableRoles}
+                                                addableRolesLoading={unfilteredAddableRolesLoading}
+                                                onAdd={() => addAssociatedRoles()}
+                                                roles={derivedRoles}
+                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                canEdit={featureFlag.can_edit}
+                                            />
+                                        </PayGateMini>
+                                    </Card>
+                                )}
+                            </>
                         )}
 
                         <LemonDivider className="mt-8" />
@@ -1316,10 +1336,10 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {readOnly ? (
                                 <LemonTag
                                     type={
-                                        group.properties?.length == 0
+                                        featureFlag.filters.groups.length == 1
                                             ? group.rollout_percentage == null || group.rollout_percentage == 100
                                                 ? 'highlight'
-                                                : 'default'
+                                                : 'caution'
                                             : 'none'
                                     }
                                 >

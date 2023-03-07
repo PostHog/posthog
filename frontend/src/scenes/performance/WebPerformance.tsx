@@ -85,6 +85,10 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                         kind: NodeKind.DataTableNode,
                         source: {
                             kind: NodeKind.RecentPerformancePageViewNode,
+                            dateRange: {
+                                date_from: null,
+                                date_to: null,
+                            },
                         },
                         columns: [
                             'context.columns.page_url',
