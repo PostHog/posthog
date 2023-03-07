@@ -21,7 +21,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -84,7 +84,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -140,7 +140,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -200,7 +200,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -263,7 +263,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -319,7 +319,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -393,7 +393,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -481,7 +481,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -683,7 +683,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
@@ -744,7 +744,7 @@
                         [
                           dateDiff(
                               'Week',
-                              toStartOfWeek(toDateTime('2020-06-07 00:00:00' , 0, 'UTC')),
+                              toStartOfWeek(toDateTime(toDateTime('2020-06-07 00:00:00', 'UTC') , 0, 'UTC')),
                               toStartOfWeek(toTimeZone(toDateTime(e.timestamp, 'UTC'), 'UTC'))
                           )
                       ] as breakdown_values
