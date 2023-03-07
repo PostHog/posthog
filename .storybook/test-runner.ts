@@ -109,17 +109,21 @@ async function expectStoryToMatchSnapshot(
             await page.waitForSelector(waitForLoadersToDisappear)
             if (waitForLoadersToDisappear.split(' ').at(-1)?.startsWith('canvas')) {
                 // If waiting for a canvas or canvases, wait for all to be non-blank
-                await page.waitForFunction((selector) => {
-                    const canvases = document.querySelectorAll<HTMLCanvasElement>(selector)
-                    // Check canvas data for pixels that are neither transparent, black, or white
-                    return Array.from(canvases).every(
-                        (canvas) =>
-                            canvas
-                                .getContext('2d')
-                                ?.getImageData(0, 0, canvas.width, canvas.height)
-                                .data.some((pixel) => pixel !== 0 && pixel !== 255) ?? false
-                    )
-                }, waitForLoadersToDisappear)
+                await page.waitForFunction(
+                    (selector) => {
+                        const canvases = document.querySelectorAll<HTMLCanvasElement>(selector)
+                        // Check canvas data for pixels that are neither transparent, black, or white
+                        return Array.from(canvases).every(
+                            (canvas) =>
+                                canvas
+                                    .getContext('2d')
+                                    ?.getImageData(0, 0, canvas.width, canvas.height)
+                                    .data.some((pixel) => pixel !== 0 && pixel !== 255) ?? false
+                        )
+                    },
+                    waitForLoadersToDisappear,
+                    { timeout: 5000 }
+                )
             }
         }
     }
