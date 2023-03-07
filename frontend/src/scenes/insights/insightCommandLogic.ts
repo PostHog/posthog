@@ -1,5 +1,5 @@
 import { Command, commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { kea } from 'kea'
+import { kea, props, key, path, connect, events } from 'kea'
 import type { insightCommandLogicType } from './insightCommandLogicType'
 import { compareFilterLogic } from 'lib/components/CompareFilter/compareFilterLogic'
 import { RiseOutlined } from '@ant-design/icons'
@@ -10,17 +10,17 @@ import { insightDateFilterLogic } from 'scenes/insights/filters/InsightDateFilte
 
 const INSIGHT_COMMAND_SCOPE = 'insights'
 
-export const insightCommandLogic = kea<insightCommandLogicType>({
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps('new'),
-    path: (key) => ['scenes', 'insights', 'insightCommandLogic', key],
+export const insightCommandLogic = kea<insightCommandLogicType>([
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps('new')),
+    path((key) => ['scenes', 'insights', 'insightCommandLogic', key]),
 
-    connect: (props: InsightLogicProps) => [
+    connect((props: InsightLogicProps) => [
         commandPaletteLogic,
         compareFilterLogic(props),
         insightDateFilterLogic(props),
-    ],
-    events: ({ props }) => ({
+    ]),
+    events(({ props }) => ({
         afterMount: () => {
             const funnelCommands: Command[] = [
                 {
@@ -51,5 +51,5 @@ export const insightCommandLogic = kea<insightCommandLogicType>({
         beforeUnmount: () => {
             commandPaletteLogic.actions.deregisterScope(INSIGHT_COMMAND_SCOPE)
         },
-    }),
-})
+    })),
+])
