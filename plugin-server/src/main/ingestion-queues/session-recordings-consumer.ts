@@ -208,6 +208,19 @@ export const eachBatch =
                             parseEventTimestamp(event as PluginEvent),
                             producer
                         )
+                    } else {
+                        status.warn('⚠️', 'invalid_message', {
+                            reason: 'invalid_event_type',
+                            type: event.event,
+                            partition: batch.partition,
+                            offset: message.offset,
+                        })
+                        eventDroppedCounter
+                            .labels({
+                                event_type: 'session_recordings',
+                                drop_cause: 'invalid_event_type',
+                            })
+                            .inc()
                     }
                 } catch (error) {
                     status.error('⚠️', 'processing_error', {
@@ -234,6 +247,13 @@ export const eachBatch =
                     // DLQ.
                     await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
                 }
+            } else {
+                eventDroppedCounter
+                    .labels({
+                        event_type: 'session_recordings',
+                        drop_cause: 'disabled',
+                    })
+                    .inc()
             }
 
             // After processing each message, we need to heartbeat to ensure
