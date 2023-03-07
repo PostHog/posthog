@@ -260,6 +260,31 @@ class SessionRecordingEvents(Table):
         return "session_recording_events"
 
 
+class CohortPeople(Table):
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+    sign: IntegerDatabaseField = IntegerDatabaseField(name="sign")
+    version: IntegerDatabaseField = IntegerDatabaseField(name="version")
+
+    person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
+
+    def clickhouse_table(self):
+        return "cohortpeople"
+
+
+class StaticCohortPeople(Table):
+    person_id: StringDatabaseField = StringDatabaseField(name="person_id")
+    cohort_id: IntegerDatabaseField = IntegerDatabaseField(name="cohort_id")
+    team_id: IntegerDatabaseField = IntegerDatabaseField(name="team_id")
+
+    def avoid_asterisk_fields(self):
+        return ["_timestamp", "_offset"]
+
+    def clickhouse_table(self):
+        return "person_static_cohort"
+
+
 class Database(BaseModel):
     class Config:
         extra = Extra.forbid
@@ -269,6 +294,8 @@ class Database(BaseModel):
     persons: PersonsTable = PersonsTable()
     person_distinct_ids: PersonDistinctIdTable = PersonDistinctIdTable()
     session_recording_events: SessionRecordingEvents = SessionRecordingEvents()
+    cohort_people: CohortPeople = CohortPeople()
+    static_cohort_people: StaticCohortPeople = StaticCohortPeople()
 
     def has_table(self, table_name: str) -> bool:
         return hasattr(self, table_name)
