@@ -97,6 +97,8 @@ export interface Node {
 
 // Data nodes
 
+export type AnyResponseType = Record<string, any> | HogQLQueryResponse | EventsNode['response'] | EventsQueryResponse
+
 export interface DataNode extends Node {
     /** Cached query response */
     response?: Record<string, any>

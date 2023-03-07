@@ -1,5 +1,14 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, EventsQuery, HogQLQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import {
+    AnyResponseType,
+    DataTableNode,
+    EventsNode,
+    EventsQuery,
+    HogQLQuery,
+    Node,
+    PersonsNode,
+    QueryContext,
+} from '~/queries/schema'
 import { useCallback, useState } from 'react'
 import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -41,6 +50,9 @@ interface DataTableProps {
     setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext
+    /* Cached Results are provided when shared or exported,
+    the data node logic becomes read only implicitly */
+    cachedResults?: AnyResponseType
 }
 
 const groupTypes = [
@@ -52,10 +64,10 @@ const groupTypes = [
 
 let uniqueNode = 0
 
-export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Element {
+export function DataTable({ query, setQuery, context, cachedResults }: DataTableProps): JSX.Element {
     const [key] = useState(() => `DataTable.${uniqueNode++}`)
 
-    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
+    const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key, cachedResults: cachedResults }
     const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
 
     const {
