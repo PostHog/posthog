@@ -42,11 +42,15 @@ def create_insight(
     is_shared=True,
     filters=filter_dict,
     deleted=False,
+    query: Optional[Dict] = None,
 ) -> Insight:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
 
-    insight = Insight.objects.create(team=team, filters=filters, deleted=deleted)
+    if query is not None:
+        filters = {}
+
+    insight = Insight.objects.create(team=team, filters=filters, deleted=deleted, query=query)
     if viewed_at_delta is not None:
         InsightViewed.objects.create(insight=insight, last_viewed_at=now() - viewed_at_delta, user=user, team=team)
     if is_shared:
@@ -68,6 +72,7 @@ def create_tile(
     dashboard_tile_deleted=False,
     is_dashboard_shared=True,
     text_tile=False,
+    query: Optional[Dict] = None,
 ) -> DashboardTile:
     if mock_active_teams:
         mock_active_teams.return_value = {team.pk} if team_should_be_active else set()
@@ -87,7 +92,9 @@ def create_tile(
     if text_tile:
         text = Text.objects.create(team=team, body="Some text")
     else:
-        insight = Insight.objects.create(team=team, filters=insight_filters, deleted=insight_deleted)
+        if query is not None:
+            insight_filters = {}
+        insight = Insight.objects.create(team=team, filters=insight_filters, deleted=insight_deleted, query=query)
 
     return DashboardTile.objects.create(
         dashboard=dashboard,
@@ -159,6 +166,18 @@ def create_tile(
         ),
         pytest.param(
             create_tile, {"viewed_at_delta": timedelta(days=20)}, TargetCacheAge.LOW_PRIORITY, id="tile viewed ages ago"
+        ),
+        pytest.param(
+            create_insight,
+            {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=1)},
+            TargetCacheAge.MID_PRIORITY,
+            id="insight with query viewed recently",
+        ),
+        pytest.param(
+            create_tile,
+            {"query": {"kind": "EventsQuery"}, "viewed_at_delta": timedelta(days=20)},
+            TargetCacheAge.LOW_PRIORITY,
+            id="tile with query viewed ages ago",
         ),
     ],
 )

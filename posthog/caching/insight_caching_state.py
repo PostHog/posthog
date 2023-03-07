@@ -138,7 +138,8 @@ def calculate_target_age_insight(team: Team, insight: Insight, lazy_loader: Lazy
     if team.pk not in lazy_loader.active_teams:
         return TargetCacheAge.NO_CACHING
 
-    if insight.deleted or len(insight.filters) == 0:
+    is_invalid = len(insight.filters) == 0 and insight.query is None
+    if insight.deleted or is_invalid:
         return TargetCacheAge.NO_CACHING
 
     if insight.pk not in lazy_loader.recently_viewed_insights:
@@ -159,7 +160,10 @@ def calculate_target_age_dashboard_tile(
     if dashboard_tile.deleted or dashboard_tile.dashboard.deleted:
         return TargetCacheAge.NO_CACHING
 
-    if not dashboard_tile.insight or dashboard_tile.insight.deleted or len(dashboard_tile.insight.filters) == 0:
+    is_invalid = (
+        dashboard_tile.insight and len(dashboard_tile.insight.filters) == 0 and dashboard_tile.insight.query is None
+    )
+    if not dashboard_tile.insight or dashboard_tile.insight.deleted or is_invalid:
         return TargetCacheAge.NO_CACHING
 
     if dashboard_tile.dashboard_id == team.primary_dashboard_id:
