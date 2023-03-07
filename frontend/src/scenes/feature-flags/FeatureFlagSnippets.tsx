@@ -151,11 +151,11 @@ export function APISnippet(): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Bash} wrap>
-                {`curl ${window.location.origin}/decide/ \\
+                {`curl ${window.location.origin}/decide?v=2/ \\
 -X POST -H 'Content-Type: application/json' \\
 -d '{
     "api_key": "${currentTeam ? currentTeam.api_token : '[project_api_key]'}",
-    "distinct_id": "[user distinct id]"
+    "distinct_id": "[user distinct id]",
 }'
                 `}
             </CodeSnippet>

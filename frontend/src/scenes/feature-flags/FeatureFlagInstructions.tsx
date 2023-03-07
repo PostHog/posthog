@@ -88,7 +88,7 @@ const OPTIONS: InstructionOption[] = [
     },
     {
         value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/feature-flags${UTM_TAGS}`,
+        documentationLink: `${DOC_BASE_URL}api/post-only-endpoints#example-request--response-decide-v2`,
         Snippet: APISnippet,
         type: LibraryType.Server,
     },
