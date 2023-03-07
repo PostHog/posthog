@@ -103,6 +103,7 @@ SELECT groupArray(value) FROM (
         {value_expression},
         {aggregate_operation} as count
     FROM events e
+    {sample_clause}
     {person_join_clauses}
     {groups_join_clauses}
     {sessions_join_clauses}
@@ -120,6 +121,7 @@ SELECT {bucketing_expression} FROM (
         {value_expression},
         {aggregate_operation} as count
     FROM events e
+    {sample_clause}
     {person_join_clauses}
     {groups_join_clauses}
     {sessions_join_clauses}
@@ -199,6 +201,7 @@ SELECT
     {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
+{sample_clause}
 {person_join}
 {groups_join}
 {sessions_join}
@@ -217,6 +220,7 @@ FROM (
         {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS day_start,
         {breakdown_value} as breakdown_value
     FROM events AS e
+    {sample_clause}
     {person_join}
     {groups_join}
     {sessions_join}
@@ -234,6 +238,7 @@ FROM (
         COUNT(*) AS intermediate_count,
         {aggregator}, {breakdown_value} AS breakdown_value
     FROM events AS e
+    {sample_clause}
     {person_join}
     {groups_join}
     {sessions_join_condition}
@@ -252,6 +257,7 @@ FROM (
         SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as day_start,
             {breakdown_value} as breakdown_value
         FROM events AS e
+        {sample_clause}
         {person_join}
         {groups_join}
         {sessions_join}
@@ -280,6 +286,7 @@ FROM (
         {breakdown_value} as breakdown_value
         FROM
         events e
+        {sample_clause}
         {person_join}
         {groups_join}
         {sessions_join}
@@ -303,6 +310,7 @@ FROM (
             {person_id_alias}.person_id AS person_id,
             {breakdown_value} AS breakdown_value
         FROM events e
+        {sample_clause}
         {person_join}
         {groups_join}
         {sessions_join}
@@ -320,6 +328,7 @@ BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL = """
 SELECT
     {aggregate_operation} AS total, {breakdown_value} as breakdown_value
 FROM events AS e
+{sample_clause}
 {person_join}
 {groups_join}
 {sessions_join}
@@ -333,6 +342,7 @@ ORDER BY breakdown_value
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
 FROM events e
+{sample_clause}
 {person_join}
 {groups_join}
 {sessions_join_condition}
@@ -348,6 +358,7 @@ FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (
         SELECT {event_sessions_table_alias}.$session_id, session_duration, {breakdown_value} AS breakdown_value FROM
             events e
+            {sample_clause}
             {person_join}
             {groups_join}
             {sessions_join_condition}

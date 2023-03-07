@@ -66,7 +66,7 @@ import { dateRangeFor, isInsightQueryNode, isInsightVizNode } from '~/queries/ut
 import { InsightVizNode } from '~/queries/schema'
 import { PieChartFilled } from '@ant-design/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import QueriesUnsupportedHere from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
+import { QueriesUnsupportedHere } from 'lib/components/Cards/InsightCard/QueriesUnsupportedHere'
 
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
@@ -567,18 +567,20 @@ function InsightCardInternal(
     const { timedOutQueryId, erroredQueryId, insightLoading, isUsingDashboardQueryTiles } = useValues(
         insightLogic(insightLogicProps)
     )
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(
+        funnelLogic(insightLogicProps)
+    )
 
     let tooFewFunnelSteps = false
     let invalidFunnelExclusion = false
     let empty = false
     if (insight.filters.insight === InsightType.FUNNELS) {
-        if (!areFiltersValid) {
+        if (!isFunnelWithEnoughSteps) {
             tooFewFunnelSteps = true
         } else if (!areExclusionFiltersValid) {
             invalidFunnelExclusion = true
         }
-        if (!isValidFunnel) {
+        if (!hasFunnelResults) {
             empty = true
         }
     }

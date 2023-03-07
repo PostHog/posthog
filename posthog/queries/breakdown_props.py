@@ -147,6 +147,8 @@ def get_breakdown_prop_values(
         cast_as_float=filter.using_histogram,
     )
 
+    sample_clause = f"SAMPLE {filter.sampling_factor}" if filter.sampling_factor else ""
+
     if filter.using_histogram:
         bucketing_expression = _to_bucketing_expression(cast(int, filter.breakdown_histogram_bin_count))
         elements_query = HISTOGRAM_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -160,6 +162,7 @@ def get_breakdown_prop_values(
             groups_join_clauses=groups_join_clause,
             sessions_join_clauses=sessions_join_clause,
             null_person_filter=null_person_filter,
+            sample_clause=sample_clause,
             **entity_format_params,
         )
     else:
@@ -173,6 +176,7 @@ def get_breakdown_prop_values(
             groups_join_clauses=groups_join_clause,
             sessions_join_clauses=sessions_join_clause,
             null_person_filter=null_person_filter,
+            sample_clause=sample_clause,
             **entity_format_params,
         )
 

@@ -21,7 +21,6 @@ import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-// import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
 import { AnimationType } from 'lib/animations/animations'
 // import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
@@ -29,10 +28,11 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 // import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 import { FunnelInsightDataExploration } from 'scenes/insights/views/Funnels/FunnelInsight'
-import { FunnelsQuery, StickinessFilter, TrendsFilter } from '~/queries/schema'
+import { StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { FunnelStepsTableDataExploration } from 'scenes/insights/views/Funnels/FunnelStepsTable'
 import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
@@ -69,12 +69,9 @@ export function InsightContainer({
     const { activeView } = useValues(insightNavLogic(insightProps))
 
     // const {
-    //     areFiltersValid,
-    //     isValidFunnel,
-    //     areExclusionFiltersValid,
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { querySource } = useValues(funnelDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const {
@@ -89,10 +86,6 @@ export function InsightContainer({
         exportContext,
     } = useValues(insightDataLogic(insightProps))
 
-    // TODO: implement in funnelDataLogic
-    const isValidFunnel = true
-    const areFiltersValid = true
-
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
         if (insightLoading && timedOutQueryId === null) {
@@ -105,13 +98,13 @@ export function InsightContainer({
 
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
-            if (((querySource as FunnelsQuery).series || []).length <= 1) {
+            if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -139,15 +132,15 @@ export function InsightContainer({
             isFunnels &&
             erroredQueryId === null &&
             timedOutQueryId === null &&
-            areFiltersValid &&
-            isValidFunnel &&
+            isFunnelWithEnoughSteps &&
+            hasFunnelResults &&
             funnelsFilter?.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {
             return (
                 <>
-                    {/* <h2 className="my-4 mx-0">Detailed results</h2> */}
-                    {/* <FunnelStepsTable /> */}
+                    <h2 className="my-4 mx-0">Detailed results</h2>
+                    <FunnelStepsTableDataExploration />
                 </>
             )
         }

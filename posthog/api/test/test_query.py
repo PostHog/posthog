@@ -4,6 +4,7 @@ from dateutil.parser import isoparse
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.query import process_query
 from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
@@ -323,9 +324,10 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         one_hour_before = "2020-01-10T11:14:00Z"
 
         with freeze_time(frozen_now):
-            self.client.post(
-                f"/api/projects/{self.team.id}/query/",
+            process_query(
+                self.team,
                 {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
+                False,
             )
 
             patched_load_performance_events.assert_called_with(
