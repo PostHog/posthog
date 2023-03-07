@@ -12,6 +12,7 @@ from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
 from posthog.clickhouse.client.connection import Workload, get_pool
+from posthog.clickhouse.client.escape import substitute_params
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
@@ -187,7 +188,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Wo
     else:
         # Else perform the substitution so we can perform operations on the raw
         # non-templated SQL
-        rendered_sql = client.substitute_params(query, args, client.connection.context)
+        rendered_sql = substitute_params(query, args)
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
