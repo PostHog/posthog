@@ -4,9 +4,10 @@ import { initKeaTests } from '~/test/init'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { trendsDataLogic } from './trendsDataLogic'
 
-import { InsightLogicProps, InsightModel } from '~/types'
-import { DataNode } from '~/queries/schema'
-import { trendResult } from './__mocks__/trendsDataLogicMocks'
+import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
+import { DataNode, NodeKind, TrendsQuery } from '~/queries/schema'
+import { trendResult, trendPieResult } from './__mocks__/trendsDataLogicMocks'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 let logic: ReturnType<typeof trendsDataLogic.build>
 let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
@@ -53,108 +54,56 @@ describe('trendsDataLogic', () => {
             })
         })
 
-        //     describe('steps', () => {
-        //         it('with time-to-convert funnel', async () => {
-        //             const query: FunnelsQuery = {
-        //                 kind: NodeKind.FunnelsQuery,
-        //                 series: [],
-        //                 funnelsFilter: {
-        //                     funnel_viz_type: FunnelVizType.TimeToConvert,
-        //                 },
-        //             }
-        //             const insight: Partial<InsightModel> = {
-        //                 filters: {
-        //                     insight: InsightType.FUNNELS,
-        //                 },
-        //                 result: funnelResultTimeToConvert.result,
-        //             }
+        describe('indexedResults', () => {
+            it('for standard trend', async () => {
+                const insight: Partial<InsightModel> = {
+                    result: trendResult.result,
+                }
 
-        //             await expectLogic(logic, () => {
-        //                 logic.actions.updateQuerySource(query)
-        //                 builtDataNodeLogic.actions.loadDataSuccess(insight)
-        //             }).toMatchValues({
-        //                 steps: [],
-        //             })
-        //         })
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [{ ...trendResult.result[0], id: 0, seriesIndex: 0 }],
+                })
+            })
 
-        //         it('for standard funnel', async () => {
-        //             const insight: Partial<InsightModel> = {
-        //                 filters: {
-        //                     insight: InsightType.FUNNELS,
-        //                 },
-        //                 result: funnelResult.result,
-        //             }
+            it('for pie visualization', async () => {
+                const query: TrendsQuery = {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: {
+                        display: ChartDisplayType.ActionsPie,
+                    },
+                }
+                const insight: Partial<InsightModel> = {
+                    result: trendPieResult.result,
+                }
 
-        //             await expectLogic(logic, () => {
-        //                 builtDataNodeLogic.actions.loadDataSuccess(insight)
-        //             }).toMatchValues({
-        //                 steps: funnelResult.result,
-        //             })
-        //         })
+                await expectLogic(logic, () => {
+                    insightDataLogic.findMounted(insightProps)?.actions.updateQuerySource(query)
+                    builtDataNodeLogic.actions.loadDataSuccess(insight)
+                }).toMatchValues({
+                    indexedResults: [
+                        expect.objectContaining({
+                            aggregated_value: 3377681,
+                            id: 0,
+                            seriesIndex: 2,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 874570,
+                            id: 1,
+                            seriesIndex: 1,
+                        }),
+                        expect.objectContaining({
+                            aggregated_value: 553348,
+                            id: 2,
+                            seriesIndex: 0,
+                        }),
+                    ],
+                })
+            })
 
-        //         it('with breakdown', async () => {
-        //             const insight: Partial<InsightModel> = {
-        //                 filters: {
-        //                     insight: InsightType.FUNNELS,
-        //                 },
-        //                 result: funnelResultWithBreakdown.result,
-        //             }
-
-        //             await expectLogic(logic, () => {
-        //                 builtDataNodeLogic.actions.loadDataSuccess(insight)
-        //             }).toMatchValues({
-        //                 steps: expect.arrayContaining([
-        //                     expect.objectContaining({
-        //                         count: 201,
-        //                         nested_breakdown: expect.arrayContaining([
-        //                             expect.objectContaining({ breakdown: ['Chrome'], count: 136 }),
-        //                             expect.objectContaining({ breakdown: ['Firefox'], count: 53 }),
-        //                             expect.objectContaining({ breakdown: ['Safari'], count: 12 }),
-        //                         ]),
-        //                     }),
-        //                     expect.objectContaining({
-        //                         count: 99,
-        //                         nested_breakdown: expect.arrayContaining([
-        //                             expect.objectContaining({ breakdown: ['Chrome'], count: 66 }),
-        //                             expect.objectContaining({ breakdown: ['Firefox'], count: 27 }),
-        //                             expect.objectContaining({ breakdown: ['Safari'], count: 6 }),
-        //                         ]),
-        //                     }),
-        //                 ]),
-        //             })
-        //         })
-
-        //         it('with multi breakdown', async () => {
-        //             const insight: Partial<InsightModel> = {
-        //                 filters: {
-        //                     insight: InsightType.FUNNELS,
-        //                 },
-        //                 result: funnelResultWithMultiBreakdown.result,
-        //             }
-
-        //             await expectLogic(logic, () => {
-        //                 builtDataNodeLogic.actions.loadDataSuccess(insight)
-        //             }).toMatchValues({
-        //                 steps: expect.arrayContaining([
-        //                     expect.objectContaining({
-        //                         count: 69,
-        //                         nested_breakdown: expect.arrayContaining([
-        //                             expect.objectContaining({ breakdown: ['Chrome', 'Mac OS X'], count: 49 }),
-        //                             expect.objectContaining({ breakdown: ['Chrome', 'Linux'], count: 15 }),
-        //                             expect.objectContaining({ breakdown: ['Internet Explorer', 'Windows'], count: 5 }),
-        //                         ]),
-        //                     }),
-        //                     expect.objectContaining({
-        //                         count: 37,
-        //                         nested_breakdown: expect.arrayContaining([
-        //                             expect.objectContaining({ breakdown: ['Chrome', 'Mac OS X'], count: 26 }),
-        //                             expect.objectContaining({ breakdown: ['Chrome', 'Linux'], count: 8 }),
-        //                             expect.objectContaining({ breakdown: ['Internet Explorer', 'Windows'], count: 3 }),
-        //                         ]),
-        //                     }),
-        //                 ]),
-        //             })
-        //         })
-        //     })
+            // lifecycle
+        })
     })
 })
