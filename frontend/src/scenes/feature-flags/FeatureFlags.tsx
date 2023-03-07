@@ -219,7 +219,7 @@ function OverViewTab(): JSX.Element {
                         value={searchTerm}
                     />
                     <div className="flex items-center gap-2">
-                        {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
+                        {hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
                             <>
                                 <span>
                                     <b>Type</b>
