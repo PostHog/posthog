@@ -175,6 +175,9 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
+                    {featureFlags[FEATURE_FLAGS.FEEDBACK_SCENE] && (
+                        <PageButton icon={<IconCoffee />} identifier={Scene.Feedback} to={urls.feedback()} />
+                    )}
                     <div className="SideBar__heading">Data</div>
 
                     <PageButton

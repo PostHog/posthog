@@ -142,4 +142,5 @@ export const urls = {
         }).url,
     query: (query?: string | Record<string, any>): string =>
         combineUrl('/query', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
+    feedback: (): string => '/feedback',
 }
