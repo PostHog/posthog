@@ -7,9 +7,9 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 
 export function FunnelInsightDataExploration(): JSX.Element {
     const { insightLoading, insightProps } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel } = useValues(funnelDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults } = useValues(funnelDataLogic(insightProps))
 
-    const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
+    const nonEmptyState = (hasFunnelResults && isFunnelWithEnoughSteps) || insightLoading
 
     return (
         <div
@@ -24,8 +24,8 @@ export function FunnelInsightDataExploration(): JSX.Element {
 
 export function FunnelInsight(): JSX.Element {
     const { insightProps, insightLoading } = useValues(insightLogic)
-    const { isValidFunnel, areFiltersValid } = useValues(funnelLogic(insightProps))
-    const nonEmptyState = (isValidFunnel && areFiltersValid) || insightLoading
+    const { hasFunnelResults, isFunnelWithEnoughSteps } = useValues(funnelLogic(insightProps))
+    const nonEmptyState = (hasFunnelResults && isFunnelWithEnoughSteps) || insightLoading
 
     return (
         <div

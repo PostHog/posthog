@@ -118,7 +118,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 }
             },
         ],
-        areFiltersValid: [
+        isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
                 return (series?.length || 0) > 1
@@ -211,7 +211,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 })
             },
         ],
-        isValidFunnel: [
+        hasFunnelResults: [
             (s) => [s.funnelsFilter, s.steps, s.histogramGraphData],
             (funnelsFilter, steps, histogramGraphData) => {
                 if (funnelsFilter?.funnel_viz_type === FunnelVizType.Steps || !funnelsFilter?.funnel_viz_type) {
