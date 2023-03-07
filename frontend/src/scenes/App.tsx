@@ -21,6 +21,8 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { LemonModal } from '@posthog/lemon-ui'
 import { Setup2FA } from './authentication/Setup2FA'
 import { membersLogic } from './organization/Settings/membersLogic'
+import { Prompt } from 'lib/logic/newPrompt/Prompt'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export const appLogic = kea<appLogicType>({
     path: ['scenes', 'App'],
@@ -115,6 +117,7 @@ function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
         (activeScene ? loadedScenes[activeScene]?.component : null) ||
@@ -175,6 +178,7 @@ function AppScene(): JSX.Element | null {
                     />
                 </LemonModal>
             )}
+            {featureFlags[FEATURE_FLAGS.ENABLE_PROMPTS] && <Prompt />}
         </>
     )
 }

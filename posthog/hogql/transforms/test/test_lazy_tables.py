@@ -1,7 +1,7 @@
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import print_ast
-from posthog.hogql.resolver import resolve_symbols
+from posthog.hogql.resolver import resolve_refs
 from posthog.hogql.transforms import resolve_lazy_tables
 from posthog.test.base import BaseTest
 
@@ -73,6 +73,6 @@ class TestLazyTables(BaseTest):
 
     def _print_select(self, select: str):
         expr = parse_select(select)
-        resolve_symbols(expr)
+        resolve_refs(expr)
         resolve_lazy_tables(expr)
         return print_ast(expr, HogQLContext(select_team_id=42), "clickhouse")

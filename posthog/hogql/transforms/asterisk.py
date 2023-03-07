@@ -14,30 +14,30 @@ class AsteriskExpander(TraversingVisitor):
 
         columns: List[ast.Expr] = []
         for column in node.select:
-            if isinstance(column.symbol, ast.AsteriskSymbol):
-                asterisk = column.symbol
-                if isinstance(asterisk.table, ast.BaseTableSymbol):
+            if isinstance(column.ref, ast.AsteriskRef):
+                asterisk = column.ref
+                if isinstance(asterisk.table, ast.BaseTableRef):
                     table = asterisk.table.resolve_database_table()
                     database_fields = table.get_asterisk()
                     for key in database_fields.keys():
-                        symbol = ast.FieldSymbol(name=key, table=asterisk.table)
-                        columns.append(ast.Field(chain=[key], symbol=symbol))
-                        node.symbol.columns[key] = symbol
-                elif isinstance(asterisk.table, ast.SelectQuerySymbol) or isinstance(
-                    asterisk.table, ast.SelectQueryAliasSymbol
+                        ref = ast.FieldRef(name=key, table=asterisk.table)
+                        columns.append(ast.Field(chain=[key], ref=ref))
+                        node.ref.columns[key] = ref
+                elif isinstance(asterisk.table, ast.SelectQueryRef) or isinstance(
+                    asterisk.table, ast.SelectQueryAliasRef
                 ):
                     select = asterisk.table
-                    while isinstance(select, ast.SelectQueryAliasSymbol):
-                        select = select.symbol
-                    if isinstance(select, ast.SelectQuerySymbol):
+                    while isinstance(select, ast.SelectQueryAliasRef):
+                        select = select.ref
+                    if isinstance(select, ast.SelectQueryRef):
                         for name in select.columns.keys():
-                            symbol = ast.FieldSymbol(name=name, table=asterisk.table)
-                            columns.append(ast.Field(chain=[name], symbol=symbol))
-                            node.symbol.columns[name] = symbol
+                            ref = ast.FieldRef(name=name, table=asterisk.table)
+                            columns.append(ast.Field(chain=[name], ref=ref))
+                            node.ref.columns[name] = ref
                     else:
                         raise ValueError("Can't expand asterisk (*) on subquery")
                 else:
-                    raise ValueError(f"Can't expand asterisk (*) on a symbol of type {type(asterisk.table).__name__}")
+                    raise ValueError(f"Can't expand asterisk (*) on a ref of type {type(asterisk.table).__name__}")
 
             else:
                 columns.append(column)

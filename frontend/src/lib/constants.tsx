@@ -118,7 +118,6 @@ export const FEATURE_FLAGS = {
     SMOOTHING_INTERVAL: 'smoothing-interval', // owner: @timgl
     BILLING_LIMIT: 'billing-limit', // owner: @timgl
     KAFKA_INSPECTOR: 'kafka-inspector', // owner: @yakkomajuri
-    BILLING_LOCK_EVERYTHING: 'billing-lock-everything', // owner @timgl
     HISTORICAL_EXPORTS_V2: 'historical-exports-v2', // owner @macobo
     PERSON_ON_EVENTS_ENABLED: 'person-on-events-enabled', //owner: @EDsCODE
     REGION_SELECT: 'region-select', //owner: @kappa90
@@ -146,6 +145,7 @@ export const FEATURE_FLAGS = {
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra and @lharries
     TEMPLUKES: 'templukes', // owner: @pauldambra and @lharries
     RECORDINGS_V2_RECORDER: 'recordings-v2-recorder', // owner: #team-session-recordings
+    ENABLE_PROMPTS: 'enable-prompts', // owner: @lharries
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

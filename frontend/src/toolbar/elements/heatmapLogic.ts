@@ -355,6 +355,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             }
         },
         setHeatmapFilter: () => {
+            actions.resetElementStats()
             actions.getElementStats()
         },
     })),
