@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, path, props, key, connect, selectors } from 'kea'
 import {
     FilterType,
     FunnelResultType,
@@ -34,12 +34,12 @@ import {
 
 const DEFAULT_FUNNEL_LOGIC_KEY = 'default_funnel_key'
 
-export const funnelDataLogic = kea<funnelDataLogicType>({
-    path: (key) => ['scenes', 'funnels', 'funnelDataLogic', key],
-    props: {} as InsightLogicProps,
-    key: keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY),
+export const funnelDataLogic = kea<funnelDataLogicType>([
+    path((key) => ['scenes', 'funnels', 'funnelDataLogic', key]),
+    props({} as InsightLogicProps),
+    key(keyForInsightLogicProps(DEFAULT_FUNNEL_LOGIC_KEY)),
 
-    connect: (props: InsightLogicProps) => ({
+    connect((props: InsightLogicProps) => ({
         values: [
             insightDataLogic(props),
             ['querySource', 'insightFilter', 'funnelsFilter', 'breakdown', 'series', 'insightData'],
@@ -49,9 +49,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
             ['hiddenLegendKeys'],
         ],
         actions: [insightDataLogic(props), ['updateInsightFilter', 'updateQuerySource']],
-    }),
+    })),
 
-    selectors: ({ props }) => ({
+    selectors(({ props }) => ({
         isStepsFunnel: [
             (s) => [s.funnelsFilter],
             (funnelsFilter): boolean | null => {
@@ -263,5 +263,5 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 events: funnelsFilter?.exclusions,
             }),
         ],
-    }),
-})
+    })),
+])
