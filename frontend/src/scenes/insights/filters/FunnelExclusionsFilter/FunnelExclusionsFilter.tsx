@@ -13,14 +13,16 @@ import { ExclusionRow } from './ExclusionRow'
 
 export function FunnelExclusionsFilterDataExploration(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { exclusionFilters, exclusionDefaultStepRange, areFiltersValid } = useValues(funnelDataLogic(insightProps))
+    const { exclusionFilters, exclusionDefaultStepRange, isFunnelWithEnoughSteps } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     return (
         <FunnelExclusionsFilterComponent
             exclusionFilters={exclusionFilters}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
-            areFiltersValid={areFiltersValid}
+            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
             setFilters={(filters) => {
                 const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((e) => ({
                     ...e,
@@ -36,14 +38,16 @@ export function FunnelExclusionsFilterDataExploration(): JSX.Element {
 
 export function FunnelExclusionsFilter(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
-    const { exclusionFilters, areFiltersValid, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
+    const { exclusionFilters, isFunnelWithEnoughSteps, exclusionDefaultStepRange } = useValues(
+        funnelLogic(insightProps)
+    )
     const { setEventExclusionFilters } = useActions(funnelLogic(insightProps))
 
     return (
         <FunnelExclusionsFilterComponent
             exclusionFilters={exclusionFilters}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
-            areFiltersValid={areFiltersValid}
+            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
             setFilters={setEventExclusionFilters}
         />
     )
@@ -52,7 +56,7 @@ export function FunnelExclusionsFilter(): JSX.Element {
 type FunnelExclusionsFilterComponentProps = {
     exclusionFilters: FilterType
     exclusionDefaultStepRange: Omit<FunnelStepRangeEntityFilter, 'id' | 'name'>
-    areFiltersValid: boolean
+    isFunnelWithEnoughSteps: boolean
     setFilters: (filters: Partial<FilterType>) => void
     isDataExploration?: boolean
 }
@@ -60,7 +64,7 @@ type FunnelExclusionsFilterComponentProps = {
 export function FunnelExclusionsFilterComponent({
     exclusionFilters,
     exclusionDefaultStepRange,
-    areFiltersValid,
+    isFunnelWithEnoughSteps,
     setFilters,
     isDataExploration,
 }: FunnelExclusionsFilterComponentProps): JSX.Element {
@@ -80,7 +84,7 @@ export function FunnelExclusionsFilterComponent({
                 type: EntityTypes.EVENTS,
                 ...exclusionDefaultStepRange,
             }}
-            disabled={!areFiltersValid}
+            disabled={!isFunnelWithEnoughSteps}
             buttonCopy="Add exclusion"
             actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
             mathAvailability={MathAvailability.None}
