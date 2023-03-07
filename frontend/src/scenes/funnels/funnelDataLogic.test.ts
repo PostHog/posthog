@@ -16,30 +16,29 @@ import {
     funnelResultTrends,
 } from './__mocks__/funnelDataLogicMocks'
 
+let logic: ReturnType<typeof funnelDataLogic.build>
+let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
+
+const insightProps: InsightLogicProps = {
+    dashboardItemId: undefined,
+}
+
+async function initFunnelDataLogic(): Promise<void> {
+    teamLogic.mount()
+    await expectLogic(teamLogic).toFinishAllListeners()
+
+    builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
+    builtDataNodeLogic.mount()
+    await expectLogic(dataNodeLogic).toFinishAllListeners()
+
+    logic = funnelDataLogic(insightProps)
+    logic.mount()
+    await expectLogic(logic).toFinishAllListeners()
+}
+
 describe('funnelDataLogic', () => {
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: undefined,
-    }
-    let logic: ReturnType<typeof funnelDataLogic.build>
-    let builtDataNodeLogic: ReturnType<typeof dataNodeLogic.build>
-
-    beforeEach(() => {
-        initKeaTests(false)
-    })
-
-    async function initFunnelDataLogic(): Promise<void> {
-        teamLogic.mount()
-        await expectLogic(teamLogic).toFinishAllListeners()
-
-        builtDataNodeLogic = dataNodeLogic({ key: 'InsightViz.new', query: {} as DataNode })
-        builtDataNodeLogic.mount()
-        await expectLogic(dataNodeLogic).toFinishAllListeners()
-
-        logic = funnelDataLogic(insightProps)
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-    }
     beforeEach(async () => {
+        initKeaTests(false)
         await initFunnelDataLogic()
     })
 
