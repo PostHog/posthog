@@ -3,6 +3,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import structlog
 from sentry_sdk import capture_exception
 
+from posthog.api.query import process_query
 from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -49,21 +50,31 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
     return generate_insight_cache_key(insight, dashboard)
 
 
-def get_cache_type(filter: FilterType) -> CacheType:
-    if filter.insight == INSIGHT_FUNNELS:
-        return CacheType.FUNNEL
+def get_cache_type(filter: Optional[FilterType], query: Optional[Dict]) -> CacheType:
+    if query and query.get("source"):
+        cache_type = query["source"].get("kind", None)
+    elif query and query.get("kind"):
+        cache_type = query["kind"]
+    elif filter.insight == INSIGHT_FUNNELS:
+        cache_type = CacheType.FUNNEL
     elif filter.insight == INSIGHT_PATHS:
-        return CacheType.PATHS
+        cache_type = CacheType.PATHS
     elif filter.insight == INSIGHT_RETENTION:
-        return CacheType.RETENTION
+        cache_type = CacheType.RETENTION
     elif (
         filter.insight == INSIGHT_TRENDS
         and isinstance(filter, StickinessFilter)
         and filter.shown_as == TRENDS_STICKINESS
     ) or filter.insight == INSIGHT_STICKINESS:
-        return CacheType.STICKINESS
+        cache_type = CacheType.STICKINESS
     else:
-        return CacheType.TRENDS
+        cache_type = CacheType.TRENDS
+
+    if cache_type is None:
+        logger.error("cannot_generate_cache_type_for_insight", filter_type=filter, query=query)
+        raise Exception("Cannot generate cache type for insight")
+
+    return cache_type
 
 
 def calculate_result_by_insight(
@@ -71,7 +82,7 @@ def calculate_result_by_insight(
 ) -> Tuple[str, str, List[Dict[str, Any]]]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
     cache_key = generate_insight_cache_key(insight, dashboard)
-    cache_type = get_cache_type(filter)
+    cache_type = get_cache_type(filter, insight.query)
 
     tag_queries(
         team_id=team.pk,
@@ -79,10 +90,16 @@ def calculate_result_by_insight(
         cache_type=cache_type,
         cache_key=cache_key,
     )
-    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
+
+    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, insight.query, team)
 
 
-def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
+def calculate_result_by_cache_type(
+    cache_type: CacheType, filter: Filter, query: Optional[Dict], team: Team
+) -> List[Dict[str, Any]]:
+    if query:
+        # TODO need to properly check that hogql is enabled?
+        return process_query(team, query, True)
     if cache_type == CacheType.FUNNEL:
         return _calculate_funnel(filter, team)
     else:
