@@ -4,7 +4,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { urls, Link, PersonHeader, AdHocInsight, TZLabel } from '@posthog/apps-common'
 import { LemonTable } from '@posthog/lemon-ui'
-import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+// import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { useActions, useValues } from 'kea'
 import { feedbackLogic } from './feedbackLogic'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
@@ -54,8 +54,6 @@ export function FeedbackInstructions(): JSX.Element {
 
     const { expandedSection } = useValues(feedbackLogic)
     const { setExpandedSection } = useActions(feedbackLogic)
-
-    // TODO: Hook up the table and form to the API
 
     return (
         <div className="max-w-200">
@@ -238,7 +236,7 @@ function InAppFeedback({
 
     const { events } = useValues(feedbackLogic)
 
-    // TODO call the events endpoint to get the feedback events
+    // TODO in next PR call the events endpoint to get the feedback events
 
     return (
         <>
@@ -329,8 +327,8 @@ function FeedbackWidgetTab({
 }
 
 export const Feedback = (): JSX.Element => {
-    const { activeTab } = useValues(feedbackLogic)
-    const { setTab } = useActions(feedbackLogic)
+    // const { activeTab } = useValues(feedbackLogic)
+    // const { setTab } = useActions(feedbackLogic)
 
     return (
         <div className="Feedback">
@@ -345,7 +343,13 @@ export const Feedback = (): JSX.Element => {
                 }
                 caption={<p>Hear what your users have to say about your product.</p>}
             />
-            <LemonTabs
+            <FeedbackWidgetTab
+                config={{
+                    eventName: 'Feedback Sent',
+                    feedbackProperty: '$feedback',
+                }}
+            />
+            {/* <LemonTabs
                 activeKey={activeTab}
                 onChange={(key) => setTab(key)}
                 tabs={[
@@ -369,7 +373,7 @@ export const Feedback = (): JSX.Element => {
                         tooltip: 'Schedule user interviews with your users',
                     },
                 ]}
-            />
+            /> */}
         </div>
     )
 }

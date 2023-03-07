@@ -51,8 +51,8 @@ export const feedbackLogic = kea<feedbackLogicType>([
                     orderBy: ['-timestamp'],
                 })
 
-                // TODO: improve typing
-                return response.results
+                // TODO: fix this type
+                return response.results as unknown as EventType[]
             },
         },
     }),
