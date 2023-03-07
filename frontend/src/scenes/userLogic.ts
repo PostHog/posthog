@@ -1,3 +1,4 @@
+import { FilterType } from './../types'
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { userLogicType } from './userLogicType'
@@ -25,6 +26,7 @@ export const userLogic = kea<userLogicType>([
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
         logout: true,
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({ user, successCallback }),
+        setGlobalSessionFilters: (globalSessionFilters: Partial<FilterType>) => ({ globalSessionFilters }),
     })),
     forms(({ actions }) => ({
         userDetails: {
@@ -89,6 +91,12 @@ export const userLogic = kea<userLogicType>([
                 }),
             },
         ],
+        globalSessionFilters: [
+            {} as Partial<FilterType>,
+            {
+                setGlobalSessionFilters: (_, { globalSessionFilters }) => globalSessionFilters,
+            },
+        ],
     }),
     listeners(({ values }) => ({
         logout: () => {
@@ -147,6 +155,11 @@ export const userLogic = kea<userLogicType>([
         updateUserSuccess: () => {
             lemonToast.dismiss('updateUser')
             lemonToast.success('Preferences saved', {
+                toastId: 'updateUser',
+            })
+        },
+        updateUserFailure: () => {
+            lemonToast.error(`Error saving preferences`, {
                 toastId: 'updateUser',
             })
         },

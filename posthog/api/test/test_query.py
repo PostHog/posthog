@@ -1,6 +1,10 @@
+from unittest.mock import patch
+
+from dateutil.parser import isoparse
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.api.query import process_query
 from posthog.schema import (
     EventPropertyFilter,
     EventsQuery,
@@ -37,26 +41,26 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         with freeze_time("2020-01-10 12:11:00"):
             _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
         with freeze_time("2020-01-10 12:12:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
         with freeze_time("2020-01-10 12:13:00"):
-            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val3"})
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            query = EventsQuery(select=["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"])
+            query = EventsQuery(select=["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"])
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(
                 response,
                 {
-                    "columns": ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"],
+                    "columns": ["properties.key", "event", "distinct_id", "concat(event, ' ', properties.key)"],
                     "hasMore": False,
-                    "types": ["String", "String", "String", "String"],
                     "results": [
-                        ["sign out", "4", "test_val3", "sign out test_val3"],
-                        ["sign out", "3", "test_val2", "sign out test_val2"],
-                        ["sign out", "2", "test_val2", "sign out test_val2"],
-                        ["sign up", "2", "test_val1", "sign up test_val1"],
+                        ["test_val1", "sign up", "2", "sign up test_val1"],
+                        ["test_val2", "sign out", "2", "sign out test_val2"],
+                        ["test_val2", "sign out", "2", "sign out test_val2"],
+                        ["test_val3", "sign out", "2", "sign out test_val3"],
                     ],
+                    "types": ["String", "String", "String", "String"],
                 },
             )
 
@@ -83,7 +87,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
 
             query.select = ["count()", "event"]
             query.where = ["event == 'sign up' or like(properties.key, '%val2')"]
-            query.orderBy = ["-count()", "event"]
+            query.orderBy = ["count() DESC", "event"]
             response = self.client.post(f"/api/projects/{self.team.id}/query/", query.dict()).json()
             self.assertEqual(
                 response,
@@ -300,4 +304,35 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                     ["sign out", "3", "test_val2"],
                     ["sign out", "4", "test_val3"],
                 ],
+            )
+
+    def test_invalid_recent_performance_pageviews(self):
+        api_response = self.client.post(
+            f"/api/projects/{self.team.id}/query/", {"kind": "RecentPerformancePageViewNode"}
+        )
+        assert api_response.status_code == 400
+
+    def test_valid_recent_performance_pageviews(self):
+        api_response = self.client.post(
+            f"/api/projects/{self.team.id}/query/",
+            {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
+        )
+        assert api_response.status_code == 200
+
+    @patch("ee.api.performance_events.load_performance_events_recent_pageviews")
+    def test_valid_recent_performance_pageviews_defaults_to_the_last_hour(self, patched_load_performance_events):
+        frozen_now = "2020-01-10T12:14:00Z"
+        one_hour_before = "2020-01-10T11:14:00Z"
+
+        with freeze_time(frozen_now):
+            process_query(
+                self.team,
+                {"kind": "RecentPerformancePageViewNode", "dateRange": {"date_from": None, "date_to": None}},
+                False,
+            )
+
+            patched_load_performance_events.assert_called_with(
+                team_id=self.team.pk,
+                date_from=isoparse(one_hour_before),
+                date_to=isoparse(frozen_now),
             )

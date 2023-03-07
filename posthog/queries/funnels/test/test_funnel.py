@@ -1581,6 +1581,50 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual([str(id) for id in self._get_actor_ids_at_step(filter, 2)], ids_to_compare)
 
+        @snapshot_clickhouse_queries
+        def test_funnel_conversion_window_seconds(self):
+            ids_to_compare = []
+            for i in range(10):
+                person = _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+                ids_to_compare.append(str(person.uuid))
+                _create_event(
+                    event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
+                )
+                _create_event(
+                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:10"
+                )
+
+            for i in range(10, 25):
+                _create_person(distinct_ids=[f"user_{i}"], team=self.team)
+                _create_event(
+                    event="step one", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:00"
+                )
+                _create_event(
+                    event="step two", distinct_id=f"user_{i}", team=self.team, timestamp="2021-05-01 00:00:20"
+                )
+
+            data = {
+                "insight": INSIGHT_FUNNELS,
+                "date_from": "2021-05-01 00:00:00",
+                "date_to": "2021-05-14 00:00:00",
+                "funnel_window_interval": 15,
+                "funnel_window_interval_unit": "second",
+                "events": [
+                    {"id": "step one", "order": 0},
+                    {"id": "step two", "order": 1},
+                    {"id": "step three", "order": 2},
+                ],
+            }
+
+            filter = Filter(data={**data})
+            results = Funnel(filter, self.team).run()
+
+            self.assertEqual(results[0]["count"], 25)
+            self.assertEqual(results[1]["count"], 10)
+            self.assertEqual(results[2]["count"], 0)
+
+            self.assertCountEqual([str(id) for id in self._get_actor_ids_at_step(filter, 2)], ids_to_compare)
+
         def test_funnel_exclusions_invalid_params(self):
             filters = {
                 "events": [
@@ -2274,7 +2318,6 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["name"], "user signed up")
             self.assertEqual(result[0]["count"], 0)
 
-        @snapshot_clickhouse_queries
         def test_funnel_with_sampling(self):
             action_play_movie = Action.objects.create(team=self.team, name="watched movie")
             ActionStep.objects.create(action=action_play_movie, event="$autocapture", tag_name="a", href="/movie")

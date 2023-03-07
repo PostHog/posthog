@@ -27,7 +27,7 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { objectCleanWithEmpty } from 'lib/utils'
 
-const reverseInsightMap: Record<InsightType, InsightNodeKind> = {
+const reverseInsightMap: Record<Exclude<InsightType, InsightType.QUERY>, InsightNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
     [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
     [InsightType.RETENTION]: NodeKind.RetentionQuery,
@@ -212,6 +212,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectCleanWithEmpty({
             shown_as: filters.shown_as,
+            toggledLifecycles: filters.toggledLifecycles,
         })
     }
 

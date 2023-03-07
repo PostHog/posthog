@@ -26,6 +26,10 @@ body strong {
     font-weight: 600;
 }
 
+.main-app-content {
+    background-color: var(--bg-light);
+}
+
 // Disable default styling for ul
 ul {
     margin-bottom: 0;

@@ -19,7 +19,7 @@ flake8-import-order==0.18.1
 flake8-logging-format==0.7.5
 flake8-print==5.0.0
 pip-tools==6.6.2
-mypy==0.931
+mypy==0.981
 mypy-extensions==0.4.3
 datamodel-code-generator==0.16.1
 djangorestframework-stubs==1.4.0

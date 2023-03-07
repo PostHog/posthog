@@ -15,7 +15,7 @@ $screens: (
 );
 
 $tiny_spaces: 0, 0.5, 1, 1.5, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20;
-$humongous_spaces: 40, 60, 80, 100, 120, 140, 160, 180, 200;
+$humongous_spaces: 30, 40, 60, 80, 100, 120, 140, 160, 180, 200;
 $all_spaces: list.join($tiny_spaces, $humongous_spaces);
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
@@ -76,6 +76,7 @@ $colors: (
     'primary': #1d4aff,
     'primary-dark': #1330a6,
     'danger-highlight': #fbebe6,
+    'danger-lighter': #ffa599,
     'danger-light': #df4b20,
     'danger': #db3707,
     'danger-dark': #992705,

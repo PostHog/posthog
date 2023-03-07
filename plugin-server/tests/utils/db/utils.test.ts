@@ -12,6 +12,7 @@ describe('personInitialAndUTMProperties()', () => {
             $referrer: 'https://google.com/?q=posthog',
             utm_medium: 'twitter',
             gclid: 'GOOGLE ADS ID',
+            msclkid: 'BING ADS ID',
             $elements: [
                 { tag_name: 'a', nth_child: 1, nth_of_type: 2, attr__class: 'btn btn-sm' },
                 { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
@@ -28,6 +29,7 @@ describe('personInitialAndUTMProperties()', () => {
             $referrer: 'https://google.com/?q=posthog',
             utm_medium: 'twitter',
             gclid: 'GOOGLE ADS ID',
+            msclkid: 'BING ADS ID',
             $elements: [
                 {
                     tag_name: 'a',
@@ -37,7 +39,7 @@ describe('personInitialAndUTMProperties()', () => {
                 },
                 { tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' },
             ],
-            $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID' },
+            $set: { utm_medium: 'twitter', gclid: 'GOOGLE ADS ID', msclkid: 'BING ADS ID' },
             $set_once: {
                 $initial_browser: 'Chrome',
                 $initial_current_url: 'https://test.com',
@@ -45,6 +47,7 @@ describe('personInitialAndUTMProperties()', () => {
                 $initial_browser_version: '95',
                 $initial_utm_medium: 'twitter',
                 $initial_gclid: 'GOOGLE ADS ID',
+                $initial_msclkid: 'BING ADS ID',
                 $initial_referring_domain: 'https://google.com',
                 $initial_referrer: 'https://google.com/?q=posthog',
             },

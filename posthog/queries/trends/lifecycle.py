@@ -48,7 +48,7 @@ class Lifecycle:
             for val in result:
                 label = "{} - {}".format(entity.name, val[2])
                 additional_values = {"label": label, "status": val[2]}
-                parsed_result = parse_response(val, filter, additional_values=additional_values)
+                parsed_result = parse_response(val, filter, additional_values=additional_values, entity=entity)
                 parsed_result.update(
                     {"persons_urls": self._get_persons_urls(filter, entity, parsed_result["days"], val[2])}
                 )

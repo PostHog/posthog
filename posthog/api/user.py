@@ -6,9 +6,10 @@ from base64 import b32encode
 from binascii import unhexlify
 from typing import Any, Optional, cast
 
+import posthoganalytics
 import requests
 from django.conf import settings
-from django.contrib.auth import update_session_auth_hash
+from django.contrib.auth import login, update_session_auth_hash
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.http import HttpResponse, JsonResponse
@@ -21,16 +22,18 @@ from django_otp.util import random_hex
 from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
 from two_factor.forms import TOTPDeviceForm
 from two_factor.utils import default_device
 
+from posthog.api.email_verification import EmailVerifier
 from posthog.api.organization import OrganizationSerializer
 from posthog.api.shared import OrganizationBasicSerializer, TeamBasicSerializer
 from posthog.auth import authenticate_secondarily
 from posthog.email import is_email_available
-from posthog.event_usage import report_user_updated
+from posthog.event_usage import report_user_logged_in, report_user_updated, report_user_verified_email
 from posthog.models import Team, User
 from posthog.models.organization import Organization
 from posthog.models.user import NOTIFICATION_DEFAULTS, Notifications
@@ -55,6 +58,7 @@ class UserSerializer(serializers.ModelSerializer):
     has_password = serializers.SerializerMethodField()
     is_impersonated = serializers.SerializerMethodField()
     is_2fa_enabled = serializers.SerializerMethodField()
+    has_social_auth = serializers.SerializerMethodField()
     team = TeamBasicSerializer(read_only=True)
     organization = OrganizationSerializer(read_only=True)
     organizations = OrganizationBasicSerializer(many=True, read_only=True)
@@ -71,7 +75,10 @@ class UserSerializer(serializers.ModelSerializer):
             "distinct_id",
             "first_name",
             "email",
+            "pending_email",
             "email_opt_in",
+            "is_email_verified",
+            "pending_email",
             "notification_settings",
             "anonymize_data",
             "toolbar_mode",
@@ -87,6 +94,7 @@ class UserSerializer(serializers.ModelSerializer):
             "current_password",  # used when changing current password
             "events_column_config",
             "is_2fa_enabled",
+            "has_social_auth",
         ]
         extra_kwargs = {"date_joined": {"read_only": True}, "password": {"write_only": True}}
 
@@ -97,6 +105,9 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
         return is_impersonated_session(self.context["request"])
+
+    def get_has_social_auth(self, instance: User) -> bool:
+        return instance.social_auth.exists()  # type: ignore
 
     def get_is_2fa_enabled(self, instance: User) -> bool:
         return default_device(instance) is not None
@@ -177,14 +188,26 @@ class UserSerializer(serializers.ModelSerializer):
             validated_data["current_team"] = current_team
             validated_data["current_organization"] = current_team.organization
 
+        require_verification_feature = (
+            posthoganalytics.get_feature_flag(
+                "require-email-verification", str(instance.distinct_id), person_properties={"email": instance.email}
+            )
+            == "test"
+        )
+
         if (
             "email" in validated_data
             and validated_data["email"].lower() != instance.email.lower()
             and is_email_available()
         ):
-            send_email_change_emails.delay(
-                timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
-            )
+            if require_verification_feature:
+                instance.pending_email = validated_data.pop("email", None)
+                instance.save()
+                EmailVerifier.create_token_and_send_email_verification(instance)
+            else:
+                send_email_change_emails.delay(
+                    timezone.now().isoformat(), instance.first_name, instance.email, validated_data["email"]
+                )
 
         # Update password
         current_password = validated_data.pop("current_password", None)
@@ -262,6 +285,60 @@ class UserViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, mixins.Lis
             raise serializers.ValidationError("Token is not valid", code="token_invalid")
         form.save()
         otp_login(request, default_device(request.user))
+        return Response({"success": True})
+
+    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    def verify_email(self, request, **kwargs):
+        token = request.data["token"] if "token" in request.data else None
+        user_uuid = request.data["uuid"]
+        if not token:
+            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
+
+        # Special handling for E2E tests
+        if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
+            return {"success": True, "token": token}
+
+        try:
+            user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
+        except User.DoesNotExist:
+            user = None
+
+        if not user or not EmailVerifier.check_token(user, token):
+            raise serializers.ValidationError(
+                {"token": ["This verification token is invalid or has expired."]}, code="invalid_token"
+            )
+
+        if user.pending_email:
+            old_email = user.email
+            user.email = user.pending_email
+            user.pending_email = None
+            user.save()
+            send_email_change_emails.delay(timezone.now().isoformat(), user.first_name, old_email, user.email)
+
+        user.is_email_verified = True
+        user.save()
+        report_user_verified_email(user)
+
+        login(self.request, user, backend="django.contrib.auth.backends.ModelBackend")
+        report_user_logged_in(user)
+        return Response({"success": True, "token": token})
+
+    @action(methods=["POST"], detail=True, permission_classes=[AllowAny])
+    def request_email_verification(self, request, **kwargs):
+        uuid = request.data["uuid"]
+        if not is_email_available():
+            raise serializers.ValidationError(
+                "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
+                code="email_not_available",
+            )
+        try:
+            user = User.objects.filter(is_active=True).get(uuid=uuid)
+        except User.DoesNotExist:
+            user = None
+        if user:
+            EmailVerifier.create_token_and_send_email_verification(user)
+
+        # TODO: Limit number of requests for verification emails
         return Response({"success": True})
 
 

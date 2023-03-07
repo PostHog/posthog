@@ -18,7 +18,8 @@ import {
 // import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 // import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -32,6 +33,7 @@ import { FunnelsQuery, StickinessFilter, TrendsFilter } from '~/queries/schema'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { insightNavLogic } from 'scenes/insights/InsightNav/insightNavLogic'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -59,11 +61,13 @@ export function InsightContainer({
         insightProps,
         canEditInsight,
         insightLoading,
-        activeView,
         timedOutQueryId,
         erroredQueryId,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
+
+    const { activeView } = useValues(insightNavLogic(insightProps))
+
     // const {
     //     areFiltersValid,
     //     isValidFunnel,
@@ -117,7 +121,14 @@ export function InsightContainer({
             return <InsightErrorState queryId={erroredQueryId} />
         }
         if (!!timedOutQueryId) {
-            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
+            return (
+                <InsightTimeoutState
+                    isLoading={insightLoading}
+                    queryId={timedOutQueryId}
+                    insightProps={insightProps}
+                    insightType={activeView}
+                />
+            )
         }
 
         return null

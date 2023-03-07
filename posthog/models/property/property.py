@@ -251,9 +251,9 @@ class Property:
         return {key: value for key, value in vars(self).items() if value is not None}
 
     @staticmethod
-    def _parse_value(value: ValueT) -> Any:
+    def _parse_value(value: ValueT, convert_to_number: bool = False) -> Any:
         if isinstance(value, list):
-            return [Property._parse_value(v) for v in value]
+            return [Property._parse_value(v, convert_to_number) for v in value]
         if value == "true":
             return True
         if value == "false":
@@ -262,14 +262,15 @@ class Property:
             return value
 
         # `json.loads()` converts strings to numbers if possible
-        # and we don't want this behavior, as if we wanted a number
+        # and we don't want this behavior by default, as if we wanted a number
         # we would have passed it as a number
-        try:
-            # tests if string is a number & returns string if it is a number
-            float(value)
-            return value
-        except (ValueError, TypeError):
-            pass
+        if not convert_to_number:
+            try:
+                # tests if string is a number & returns string if it is a number
+                float(value)
+                return value
+            except (ValueError, TypeError):
+                pass
 
         try:
             return json.loads(value)

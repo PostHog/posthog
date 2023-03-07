@@ -1,5 +1,53 @@
 # name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results
   '
+  /* user_id:46 celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.1
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.3
+  '
+  /* celery:posthog.celery.sync_insight_caching_state */
+  SELECT team_id,
+         date_diff('second', max(timestamp), now()) AS age
+  FROM events
+  WHERE timestamp > date_sub(DAY, 3, now())
+    AND timestamp < now()
+  GROUP BY team_id
+  ORDER BY age;
+  '
+---
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.4
+  '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
@@ -16,7 +64,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.1
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(day_start) as date,
@@ -62,7 +110,7 @@
   ORDER BY breakdown_value
   '
 ---
-# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.2
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
@@ -80,7 +128,7 @@
      OFFSET 0)
   '
 ---
-# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.3
+# name: ClickhouseTestExperimentSecondaryResults.test_basic_secondary_metric_results.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT countIf(steps = 1) step_1,
