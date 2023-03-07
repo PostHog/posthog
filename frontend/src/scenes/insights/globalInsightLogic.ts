@@ -1,7 +1,7 @@
 import { kea, path, actions, reducers } from 'kea'
 
 import { FilterType } from '~/types'
-import { globalInsightLogicType } from './globalInsightLogicType'
+import type { globalInsightLogicType } from './globalInsightLogicType'
 
 export const FAST_MODE_DEFAULT_SAMPLING_RATE = 0.1
 
