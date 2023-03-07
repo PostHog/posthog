@@ -26,7 +26,6 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps, DataTableRow } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
@@ -99,7 +98,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
         showElapsedTime,
         showColumnConfigurator,
         showSavedQueries,
-        showEventsBufferWarning,
         expandable,
     } = queryWithDefaults
 
@@ -380,9 +378,6 @@ export function DataTable({ query, setQuery, context, cachedResults }: DataTable
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
-                    )}
-                    {showEventsBufferWarning && isEventsQuery(query.source) && (
-                        <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
                     {inlineEditorButtonOnRow === 0 && !isReadOnly ? (
                         <div className="absolute right-0 z-10 p-1">

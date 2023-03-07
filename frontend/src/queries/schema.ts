@@ -267,8 +267,6 @@ export interface DataTableNode extends Node {
     expandable?: boolean
     /** Link properties via the URL (default: false) */
     propertiesViaUrl?: boolean
-    /** Show warning about live events being buffered max 60 sec (default: false) */
-    showEventsBufferWarning?: boolean
     /** Can the user click on column headers to sort the table? (default: true) */
     allowSorting?: boolean
 }
