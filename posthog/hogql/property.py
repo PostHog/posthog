@@ -175,7 +175,7 @@ def property_to_expr(
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
         if not team:
             raise Exception("Can not convert cohort property to expression without team")
-        cohort = Cohort.objects.get(team=team, id=int(property.value))
+        cohort = Cohort.objects.get(team=team, id=property.value)
 
         if cohort.is_static:
             sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
