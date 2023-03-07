@@ -731,7 +731,7 @@ describe('funnelDataLogic', () => {
         })
     })
 
-    describe('areFiltersValid', () => {
+    describe('isFunnelWithEnoughSteps', () => {
         const queryWithSeries = (series: (ActionsNode | EventsNode)[]): FunnelsQuery => ({
             kind: NodeKind.FunnelsQuery,
             series,
@@ -740,21 +740,21 @@ describe('funnelDataLogic', () => {
         it('with enough/not enough steps', () => {
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource({ kind: NodeKind.RetentionQuery } as InsightQueryNode)
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource(queryWithSeries([]))
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource(queryWithSeries([{ kind: NodeKind.EventsNode }]))
-            }).toMatchValues({ areFiltersValid: false })
+            }).toMatchValues({ isFunnelWithEnoughSteps: false })
 
             expectLogic(logic, () => {
                 logic.actions.updateQuerySource(
                     queryWithSeries([{ kind: NodeKind.EventsNode }, { kind: NodeKind.EventsNode }])
                 )
-            }).toMatchValues({ areFiltersValid: true })
+            }).toMatchValues({ isFunnelWithEnoughSteps: true })
         })
     })
 

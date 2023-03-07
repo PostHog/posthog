@@ -71,7 +71,7 @@ export function InsightContainer({
     // const {
     //     // correlationAnalysisAvailable
     // } = useValues(funnelLogic(insightProps))
-    const { areFiltersValid, isValidFunnel } = useValues(funnelDataLogic(insightProps))
+    const { isFunnelWithEnoughSteps, isValidFunnel } = useValues(funnelDataLogic(insightProps))
     // TODO: convert to data exploration with insightLogic
     const { areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
     const {
@@ -98,7 +98,7 @@ export function InsightContainer({
 
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
-            if (!areFiltersValid) {
+            if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
@@ -132,7 +132,7 @@ export function InsightContainer({
             isFunnels &&
             erroredQueryId === null &&
             timedOutQueryId === null &&
-            areFiltersValid &&
+            isFunnelWithEnoughSteps &&
             isValidFunnel &&
             funnelsFilter?.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable

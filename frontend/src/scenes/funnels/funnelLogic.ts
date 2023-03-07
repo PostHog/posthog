@@ -558,7 +558,7 @@ export const funnelLogic = kea<funnelLogicType>({
                 })
             },
         ],
-        areFiltersValid: [
+        isFunnelWithEnoughSteps: [
             () => [selectors.numberOfSeries],
             (numberOfSeries) => {
                 return numberOfSeries > 1
@@ -727,10 +727,10 @@ export const funnelLogic = kea<funnelLogicType>({
             },
         ],
         exclusionDefaultStepRange: [
-            () => [selectors.numberOfSeries, selectors.areFiltersValid],
-            (numberOfSeries, areFiltersValid): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
+            () => [selectors.numberOfSeries, selectors.isFunnelWithEnoughSteps],
+            (numberOfSeries, isFunnelWithEnoughSteps): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
                 funnel_from_step: 0,
-                funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
+                funnel_to_step: isFunnelWithEnoughSteps ? numberOfSeries - 1 : 1,
             }),
         ],
         exclusionFilters: [

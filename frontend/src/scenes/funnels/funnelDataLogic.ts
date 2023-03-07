@@ -118,7 +118,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>({
                 }
             },
         ],
-        areFiltersValid: [
+        isFunnelWithEnoughSteps: [
             (s) => [s.series],
             (series) => {
                 return (series?.length || 0) > 1
