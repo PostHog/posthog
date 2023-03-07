@@ -1796,7 +1796,7 @@ export interface FunnelStep {
 
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
-    average_conversion_time: number
+    average_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins

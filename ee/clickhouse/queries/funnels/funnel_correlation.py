@@ -640,8 +640,8 @@ class FunnelCorrelation:
 
         event_contingency_tables, success_total, failure_total = self.get_partial_event_contingency_tables()
 
-        success_total = correct_result_for_sampling(success_total, self._filter.sampling_factor)
-        failure_total = correct_result_for_sampling(failure_total, self._filter.sampling_factor)
+        success_total = int(correct_result_for_sampling(success_total, self._filter.sampling_factor))
+        failure_total = int(correct_result_for_sampling(failure_total, self._filter.sampling_factor))
 
         if not success_total or not failure_total:
             return [], True
