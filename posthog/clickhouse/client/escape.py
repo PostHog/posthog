@@ -66,8 +66,8 @@ def escape_param_for_clickhouse(param: Any) -> str:
     This is a wrapper around the `escape_param` function from the
     `clickhouse-driver` package, but passes a placeholder `Context` object to it
     just such that it can run. The only value that the real `escape_param` uses
-    from the context is the server timezone, which we don't care about here so
-    we set it to None.
+    from the context is the server timezone. We assume that the server timezone
+    is UTC.
     """
     context = Context()
     context.server_info = ServerInfo(
@@ -77,6 +77,6 @@ def escape_param_for_clickhouse(param: Any) -> str:
         version_patch="placeholder server_info value",
         revision="placeholder server_info value",
         display_name="placeholder server_info value",
-        timezone=None,
+        timezone="UTC",
     )
     return escape_param(param, context=context)
