@@ -2,10 +2,11 @@ import { actions, afterMount, connect, kea, path, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 
-import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 import { DashboardTemplateType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+
+import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),

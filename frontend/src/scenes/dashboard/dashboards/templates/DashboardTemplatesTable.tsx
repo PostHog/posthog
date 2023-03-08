@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 
 export const DashboardTemplatesTable = (): JSX.Element | null => {
     const { searchTerm } = useValues(dashboardsLogic)
-    const { allTemplates, repositoryLoading, isUsingDashboardTemplatesV2 } = useValues(dashboardTemplatesLogic)
+    const { allTemplates, allTemplatesLoading, isUsingDashboardTemplatesV2 } = useValues(dashboardTemplatesLogic)
 
     const { openDashboardTemplateEditor, setDashboardTemplateId, deleteDashboardTemplate } =
         useActions(dashboardTemplateEditorLogic)
@@ -103,7 +103,7 @@ export const DashboardTemplatesTable = (): JSX.Element | null => {
                 pagination={{ pageSize: 10 }}
                 dataSource={Object.values(allTemplates)}
                 columns={columns}
-                loading={repositoryLoading}
+                loading={allTemplatesLoading}
                 defaultSorting={{
                     columnKey: 'name',
                     order: 1,
