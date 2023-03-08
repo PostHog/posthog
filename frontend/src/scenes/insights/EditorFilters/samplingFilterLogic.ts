@@ -1,6 +1,6 @@
 import { FEATURE_FLAGS } from './../../../lib/constants'
 import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
-import { InsightType } from './../../../types'
+import { FilterType, InsightType } from './../../../types'
 import { insightLogic } from './../insightLogic'
 import { kea, path, connect, actions, reducers, props, selectors, listeners } from 'kea'
 
@@ -21,6 +21,7 @@ export const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
 export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
     insightType?: InsightType
+    setFilters?: (filters: Partial<FilterType>) => void
 }
 
 export const samplingFilterLogic = kea<samplingFilterLogicType>([
@@ -79,22 +80,19 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
     listeners(({ props, actions, values }) => ({
         setSamplingPercentage: () => {
             const samplingFactor = values.samplingPercentage ? values.samplingPercentage / 100 : null
-
-            if (props.insightType === InsightType.FUNNELS) {
-                actions.setFunnelFilters({
-                    ...values.filters,
-                    sampling_factor: samplingFactor,
-                })
+            const newFilters = {
+                ...values.filters,
+                sampling_factor: samplingFactor,
+            }
+            // Experiments
+            if (props.setFilters) {
+                props.setFilters(newFilters)
+            } else if (props.insightType === InsightType.FUNNELS) {
+                actions.setFunnelFilters(newFilters)
             } else if (props.insightType === InsightType.RETENTION) {
-                actions.setRetentionFilters({
-                    ...values.filters,
-                    sampling_factor: samplingFactor,
-                })
+                actions.setRetentionFilters(newFilters)
             } else {
-                actions.setInsightFilters({
-                    ...values.filters,
-                    sampling_factor: samplingFactor,
-                })
+                actions.setInsightFilters(newFilters)
             }
         },
     })),
