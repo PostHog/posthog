@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import structlog
 from sentry_sdk import capture_exception
 
-from posthog.api.query import process_query
 from posthog.caching.utils import ensure_is_date
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
@@ -51,35 +50,39 @@ def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
 
 
 def get_cache_type(filter: Optional[FilterType], query: Optional[Dict]) -> CacheType:
+    if not filter and not query:
+        raise Exception("Cannot generate cache type for insight. Must provide a filter or a query")
+
     if query and query.get("source"):
         cache_type = query["source"].get("kind", None)
     elif query and query.get("kind"):
         cache_type = query["kind"]
-    elif filter.insight == INSIGHT_FUNNELS:
+    elif filter and filter.insight == INSIGHT_FUNNELS:
         cache_type = CacheType.FUNNEL
-    elif filter.insight == INSIGHT_PATHS:
+    elif filter and filter.insight == INSIGHT_PATHS:
         cache_type = CacheType.PATHS
-    elif filter.insight == INSIGHT_RETENTION:
+    elif filter and filter.insight == INSIGHT_RETENTION:
         cache_type = CacheType.RETENTION
     elif (
-        filter.insight == INSIGHT_TRENDS
-        and isinstance(filter, StickinessFilter)
-        and filter.shown_as == TRENDS_STICKINESS
-    ) or filter.insight == INSIGHT_STICKINESS:
+        (
+            filter
+            and filter.insight == INSIGHT_TRENDS
+            and isinstance(filter, StickinessFilter)
+            and filter.shown_as == TRENDS_STICKINESS
+        )
+        or filter
+        and filter.insight == INSIGHT_STICKINESS
+    ):
         cache_type = CacheType.STICKINESS
     else:
         cache_type = CacheType.TRENDS
-
-    if cache_type is None:
-        logger.error("cannot_generate_cache_type_for_insight", filter_type=filter, query=query)
-        raise Exception("Cannot generate cache type for insight")
 
     return cache_type
 
 
 def calculate_result_by_insight(
     team: Team, insight: Insight, dashboard: Optional[Dashboard]
-) -> Tuple[str, str, List[Dict[str, Any]]]:
+) -> Tuple[str, str, List | Dict]:
     filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
     cache_key = generate_insight_cache_key(insight, dashboard)
     cache_type = get_cache_type(filter, insight.query)
@@ -96,7 +99,9 @@ def calculate_result_by_insight(
 
 def calculate_result_by_cache_type(
     cache_type: CacheType, filter: Filter, query: Optional[Dict], team: Team
-) -> List[Dict[str, Any]]:
+) -> Dict | List[Dict]:
+    from posthog.api.query import process_query
+
     if query:
         # TODO need to properly check that hogql is enabled?
         return process_query(team, query, True)
