@@ -285,6 +285,8 @@ class CohortPeople(Table):
     sign: IntegerDatabaseField = IntegerDatabaseField(name="sign")
     version: IntegerDatabaseField = IntegerDatabaseField(name="version")
 
+    # TODO: automatically add "HAVING SUM(sign) > 0" to fields selected from this table?
+
     person: LazyTable = LazyTable(from_field="person_id", table=PersonsTable(), join_function=join_with_persons_table)
 
     def clickhouse_table(self):
