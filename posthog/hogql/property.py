@@ -178,19 +178,11 @@ def property_to_expr(
         cohort = Cohort.objects.get(team=team, id=property.value)
 
         if cohort.is_static:
-            sql = "(SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+            sql = "person_id in (SELECT person_id FROM static_cohort_people WHERE cohort_id = {cohort_id})"
         else:
-            sql = "(SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+            sql = "person_id in (SELECT person_id FROM cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
 
-        select_person_from_cohort = parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
-        return parse_expr(
-            "distinct_id IN "
-            "(SELECT distinct_id FROM "
-            "(SELECT distinct_id, argMax(person_id, version) as person_id "
-            "FROM person_distinct_ids GROUP BY distinct_id HAVING argMax(is_deleted, version) = 0) "
-            "WHERE person_id IN {select_person_from_cohort})",
-            {"select_person_from_cohort": select_person_from_cohort},
-        )
+        return parse_expr(sql, {"cohort_id": ast.Constant(value=cohort.pk)})
     # "group",
     # "recording",
     # "behavioral",
