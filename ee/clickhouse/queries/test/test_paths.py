@@ -3172,6 +3172,59 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             [actor["matched_recordings"] for actor in serialized_actors],
         )
 
+    @snapshot_clickhouse_queries
+    def test_path_by_grouping_with_sampling(self):
+        self._create_sample_data_multiple_dropoffs()
+        data = {
+            "insight": INSIGHT_FUNNELS,
+            "date_from": "2021-05-01 00:00:00",
+            "date_to": "2021-05-07 00:00:00",
+            "path_groupings": ["between_step_1_*", "between_step_2_*", "step drop*"],
+            "sampling_factor": 1,
+        }
+        path_filter = PathFilter(data=data)
+        response = Paths(team=self.team, filter=path_filter).run()
+        self.assertCountEqual(
+            response,
+            [
+                {
+                    "source": "1_step one",
+                    "target": "2_step drop*",
+                    "value": 20,
+                    "average_conversion_time": 2 * ONE_MINUTE,
+                },
+                # when we group events for a single user, these effectively become duplicate events, and we choose the last event from
+                # a list of duplicate events.
+                {
+                    "source": "1_step one",
+                    "target": "2_between_step_1_*",
+                    "value": 15,
+                    "average_conversion_time": (5 * 3 + 10 * 2)
+                    * ONE_MINUTE
+                    / 15,  # first 5 go till between_step_1_c, next 10 go till between_step_1_b
+                },
+                {
+                    "source": "2_between_step_1_*",
+                    "target": "3_step two",
+                    "value": 15,
+                    "average_conversion_time": ONE_MINUTE,
+                },
+                {
+                    "source": "2_step drop*",
+                    "target": "3_step branch",
+                    "value": 10,
+                    "average_conversion_time": ONE_MINUTE,
+                },
+                {
+                    "source": "3_step two",
+                    "target": "4_between_step_2_*",
+                    "value": 10,
+                    "average_conversion_time": 160000,
+                },
+                {"source": "3_step two", "target": "4_step three", "value": 5, "average_conversion_time": ONE_MINUTE},
+            ],
+        )
+
 
 class TestClickhousePathsEdgeValidation(TestCase):
 

@@ -8,9 +8,7 @@ import posthog from 'posthog-js'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
-import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { windowValues } from 'kea-window-values'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 import { urlToAction } from 'kea-router'
@@ -222,18 +220,6 @@ export const billingLogic = kea<billingLogicType>([
         loadBillingSuccess: () => {
             if (!values.billing) {
                 return
-            }
-
-            if (
-                values.billingVersion === 'v1' &&
-                values.billing.event_allocation &&
-                (values.billing.current_usage || 0) > values.billing.event_allocation &&
-                values.billing.should_setup_billing &&
-                router.values.location.pathname !== '/organization/billing/locked' &&
-                values.featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
-            ) {
-                posthog.capture('billing locked screen shown')
-                router.actions.replace(urls.billingLocked())
             }
         },
     })),

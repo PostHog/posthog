@@ -49,7 +49,6 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Ingestion]: () => import('./ingestion/IngestionWizard'),
     [Scene.Billing]: () => import('./billing/Billing'),
     [Scene.BillingSubscribed]: () => import('./billing/BillingSubscribed'),
-    [Scene.BillingLocked]: () => import('./billing/BillingLocked'),
     [Scene.Plugins]: () => import('./plugins/Plugins'),
     [Scene.FrontendAppScene]: () => import('./apps/FrontendAppScene'),
     [Scene.AppMetrics]: () => import('./apps/AppMetricsScene'),

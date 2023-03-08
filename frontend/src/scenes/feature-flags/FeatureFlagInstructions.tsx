@@ -1,17 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
-import { Card, Select, Row } from 'antd'
-import {
-    IconFlag,
-    IconJavascript,
-    IconPython,
-    IconOpenInNew,
-    IconNodeJS,
-    IconPHP,
-    IconRuby,
-    IconGolang,
-    LemonIconProps,
-} from 'lib/lemon-ui/icons'
+import { Card, Row } from 'antd'
+import { IconFlag, IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import {
     UTM_TAGS,
@@ -22,63 +12,145 @@ import {
     PHPSnippet,
     RubySnippet,
     GolangSnippet,
+    NodeLocalEvaluationSnippet,
+    PHPLocalEvaluationSnippet,
+    RubyLocalEvaluationSnippet,
+    PythonLocalEvaluationSnippet,
+    JSBootstrappingSnippet,
+    ReactNativeSnippet,
+    iOSSnippet,
+    AndroidSnippet,
 } from 'scenes/feature-flags/FeatureFlagSnippets'
 
 import './FeatureFlagInstructions.scss'
 import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
+const LOCAL_EVAL_ANCHOR = '#local-evaluation'
+const BOOTSTRAPPING_ANCHOR = '#bootstrapping-flags'
 
 interface InstructionOption {
     value: string
     documentationLink: string
-    Icon: (props: LemonIconProps) => JSX.Element
     Snippet: ({ flagKey }: { flagKey: string }) => JSX.Element
+    type: LibraryType
+}
+
+enum LibraryType {
+    Client = 'Client',
+    Server = 'Server',
 }
 
 export const OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
         documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconJavascript,
         Snippet: JSSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'Android',
+        documentationLink: `${DOC_BASE_URL}integrate/client/android${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: AndroidSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'iOS',
+        documentationLink: `${DOC_BASE_URL}integrate/client/ios${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: iOSSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'ReactNative',
+        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: ReactNativeSnippet,
+        type: LibraryType.Client,
     },
     {
         value: 'Node.js',
         documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconNodeJS,
         Snippet: NodeJSSnippet,
-    },
-    {
-        value: 'PHP',
-        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconPHP,
-        Snippet: PHPSnippet,
-    },
-    {
-        value: 'Ruby',
-        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconRuby,
-        Snippet: RubySnippet,
-    },
-    {
-        value: 'Golang',
-        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconGolang,
-        Snippet: GolangSnippet,
+        type: LibraryType.Server,
     },
     {
         value: 'Python',
         documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconPython,
         Snippet: PythonSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: RubySnippet,
+        type: LibraryType.Server,
     },
     {
         value: 'API',
-        documentationLink: `${DOC_BASE_URL}api/feature-flags${UTM_TAGS}`,
-        Icon: IconOpenInNew,
+        documentationLink: `${DOC_BASE_URL}api/post-only-endpoints#example-request--response-decide-v2`,
         Snippet: APISnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'PHP',
+        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: PHPSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Golang',
+        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${FF_ANCHOR}`,
+        Snippet: GolangSnippet,
+        type: LibraryType.Server,
+    },
+]
+
+const LOCAL_EVALUATION_OPTIONS: InstructionOption[] = [
+    {
+        value: 'Node.js',
+        documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Snippet: NodeLocalEvaluationSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'PHP',
+        documentationLink: `${DOC_BASE_URL}integrations/php-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Snippet: PHPLocalEvaluationSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Ruby',
+        documentationLink: `${DOC_BASE_URL}integrations/ruby-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Snippet: RubyLocalEvaluationSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Golang',
+        documentationLink: `${DOC_BASE_URL}integrations/go-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Snippet: GolangSnippet,
+        type: LibraryType.Server,
+    },
+    {
+        value: 'Python',
+        documentationLink: `${DOC_BASE_URL}integrations/python-integration${UTM_TAGS}${LOCAL_EVAL_ANCHOR}`,
+        Snippet: PythonLocalEvaluationSnippet,
+        type: LibraryType.Server,
+    },
+]
+
+const BOOTSTRAPPING_OPTIONS: InstructionOption[] = [
+    {
+        value: 'JavaScript',
+        documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
+        Snippet: JSBootstrappingSnippet,
+        type: LibraryType.Client,
+    },
+    {
+        value: 'ReactNative',
+        documentationLink: `${DOC_BASE_URL}integrate/client/react-native${UTM_TAGS}${BOOTSTRAPPING_ANCHOR}`,
+        Snippet: JSBootstrappingSnippet,
+        type: LibraryType.Client,
     },
 ]
 
@@ -99,28 +171,37 @@ function FeatureFlagInstructionsHeader({
                 <IconFlag className="FeatureFlagInstructionsHeader__header-title__icon" />
                 <b>{headerPrompt}</b>
             </div>
-
-            <Select
+            <LemonSelect
                 data-attr="feature-flag-instructions-select"
+                options={[
+                    {
+                        title: 'Client libraries',
+                        options: options
+                            .filter((option) => option.type == LibraryType.Client)
+                            .map((option) => ({
+                                value: option.value,
+                                label: option.value,
+                                'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                            })),
+                    },
+                    {
+                        title: 'Server libraries',
+                        options: options
+                            .filter((option) => option.type == LibraryType.Server)
+                            .map((option) => ({
+                                value: option.value,
+                                label: option.value,
+                                'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                            })),
+                    },
+                ]}
+                onChange={(val) => {
+                    if (val) {
+                        selectOption(val)
+                    }
+                }}
                 value={selectedOptionValue}
-                style={{ width: 140 }}
-                onChange={selectOption}
-            >
-                {options.map(({ value, Icon }, index) => (
-                    <Select.Option
-                        data-attr={'feature-flag-instructions-select-option-' + value}
-                        key={index}
-                        value={value}
-                    >
-                        <div className="FeatureFlagInstructionsHeader__option">
-                            <div className="FeatureFlagInstructionsHeader__option__icon">
-                                <Icon />
-                            </div>
-                            <div>{value}</div>
-                        </div>
-                    </Select.Option>
-                ))}
-            </Select>
+            />
         </Row>
     )
 }
@@ -140,10 +221,12 @@ export function CodeInstructions({
     featureFlagKey,
     options,
     headerPrompt,
+    selectedLanguage,
 }: {
     featureFlagKey: string
     options: InstructionOption[]
     headerPrompt: string
+    selectedLanguage?: string
 }): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
@@ -155,6 +238,11 @@ export function CodeInstructions({
             setSelectedOption(option)
         }
     }
+    useEffect(() => {
+        if (selectedLanguage) {
+            selectOption(selectedLanguage)
+        }
+    }, [selectedLanguage])
 
     return (
         <Card size="small">
@@ -174,28 +262,63 @@ export function CodeInstructions({
     )
 }
 
-export function FeatureFlagInstructions({ featureFlagKey }: { featureFlagKey: string }): JSX.Element {
+export function FeatureFlagInstructions({
+    featureFlagKey,
+    language,
+}: {
+    featureFlagKey: string
+    language?: string
+}): JSX.Element {
     return (
         <CodeInstructions
             featureFlagKey={featureFlagKey}
             headerPrompt="Learn how to use feature flags in your code"
             options={OPTIONS}
+            selectedLanguage={language}
         />
     )
 }
 
-const PAYLOAD_OPTIONS = [
+export function FeatureFlagLocalEvaluationInstructions({
+    featureFlagKey,
+    language,
+}: {
+    featureFlagKey: string
+    language?: string
+}): JSX.Element {
+    return (
+        <CodeInstructions
+            featureFlagKey={featureFlagKey}
+            headerPrompt="Learn how to use local evaluation"
+            options={LOCAL_EVALUATION_OPTIONS}
+            selectedLanguage={language}
+        />
+    )
+}
+
+export function FeatureFlagBootstrappingInstructions({ language }: { language: string }): JSX.Element {
+    return (
+        <CodeInstructions
+            featureFlagKey={''}
+            headerPrompt="Learn how to use bootstrapping"
+            options={BOOTSTRAPPING_OPTIONS}
+            selectedLanguage={language}
+        />
+    )
+}
+
+const PAYLOAD_OPTIONS: InstructionOption[] = [
     {
         value: 'JavaScript',
         documentationLink: `${DOC_BASE_URL}integrations/js-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconJavascript,
         Snippet: JSPayloadSnippet,
+        type: LibraryType.Client,
     },
     {
         value: 'Node.js',
         documentationLink: `${DOC_BASE_URL}integrations/node-integration${UTM_TAGS}${FF_ANCHOR}`,
-        Icon: IconNodeJS,
         Snippet: NodeJSPayloadSnippet,
+        type: LibraryType.Server,
     },
 ]
 
