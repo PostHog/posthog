@@ -388,7 +388,7 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     /** Project to filter on. Defaults to current project */
     teamId?: number
 
-    response?: Record<string, any>[]
+    response?: { results: Record<string, any>[] }
 }
 
 export interface TimeToSeeDataQuery extends DataNode {
