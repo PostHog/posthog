@@ -24,7 +24,8 @@ import {
 
 import './FeatureFlagInstructions.scss'
 import { JSPayloadSnippet, NodeJSPayloadSnippet } from 'scenes/feature-flags/FeatureFlagPayloadSnippets'
-import { LemonSelect } from '@posthog/lemon-ui'
+import { LemonCheckbox, LemonSelect } from '@posthog/lemon-ui'
+import { FeatureFlagType } from '~/types'
 
 const DOC_BASE_URL = 'https://posthog.com/docs/'
 const FF_ANCHOR = '#feature-flags'
@@ -222,11 +223,15 @@ export function CodeInstructions({
     options,
     headerPrompt,
     selectedLanguage,
+    newCodeExample,
+    featureFlag,
 }: {
     featureFlagKey: string
     options: InstructionOption[]
     headerPrompt: string
     selectedLanguage?: string
+    newCodeExample?: boolean
+    featureFlag?: FeatureFlagType
 }): JSX.Element {
     const [defaultSelectedOption] = options
     const [selectedOption, setSelectedOption] = useState(defaultSelectedOption)
@@ -245,29 +250,86 @@ export function CodeInstructions({
     }, [selectedLanguage])
 
     return (
-        <Card size="small">
-            <FeatureFlagInstructionsHeader
-                options={options}
-                headerPrompt={headerPrompt}
-                selectedOptionValue={selectedOption.value}
-                selectOption={selectOption}
-            />
-            <LemonDivider />
-            <div className="mt mb">
-                <selectedOption.Snippet data-attr="feature-flag-instructions-snippet" flagKey={featureFlagKey} />
-            </div>
-            <LemonDivider />
-            <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
-        </Card>
+        <>
+            {newCodeExample ? (
+                <div>
+                    <div className="flex flex-row gap-4">
+                        <LemonSelect
+                            data-attr="feature-flag-instructions-select"
+                            options={[
+                                {
+                                    title: 'Client libraries',
+                                    options: OPTIONS.filter((option) => option.type == LibraryType.Client).map(
+                                        (option) => ({
+                                            value: option.value,
+                                            label: option.value,
+                                            'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                        })
+                                    ),
+                                },
+                                {
+                                    title: 'Server libraries',
+                                    options: OPTIONS.filter((option) => option.type == LibraryType.Server).map(
+                                        (option) => ({
+                                            value: option.value,
+                                            label: option.value,
+                                            'data-attr': `feature-flag-instructions-select-option-${option.value}`,
+                                        })
+                                    ),
+                                },
+                            ]}
+                            onChange={(val) => {
+                                if (val) {
+                                    selectOption(val)
+                                }
+                            }}
+                            value={selectedOption.value}
+                        />
+                        {!featureFlag?.ensure_experience_continuity && (
+                            <>
+                                {selectedOption.type === LibraryType.Server && (
+                                    <LemonCheckbox label="Show local evaluation option" onChange={() => {}} />
+                                )}
+                                {selectedOption.type === LibraryType.Client && (
+                                    <LemonCheckbox label="Show bootstrap option" onChange={() => {}} />
+                                )}
+                            </>
+                        )}
+                    </div>
+                </div>
+            ) : (
+                <Card size="small">
+                    <FeatureFlagInstructionsHeader
+                        options={options}
+                        headerPrompt={headerPrompt}
+                        selectedOptionValue={selectedOption.value}
+                        selectOption={selectOption}
+                    />
+                    <LemonDivider />
+                    <div className="mt mb">
+                        <selectedOption.Snippet
+                            data-attr="feature-flag-instructions-snippet"
+                            flagKey={featureFlagKey}
+                        />
+                    </div>
+                    <LemonDivider />
+                    <FeatureFlagInstructionsFooter documentationLink={selectedOption.documentationLink} />
+                </Card>
+            )}
+        </>
     )
 }
 
 export function FeatureFlagInstructions({
     featureFlagKey,
+    newCodeExample,
     language,
+    featureFlag,
 }: {
     featureFlagKey: string
+    newCodeExample?: boolean
     language?: string
+    featureFlag?: FeatureFlagType
 }): JSX.Element {
     return (
         <CodeInstructions
@@ -275,6 +337,8 @@ export function FeatureFlagInstructions({
             headerPrompt="Learn how to use feature flags in your code"
             options={OPTIONS}
             selectedLanguage={language}
+            newCodeExample={newCodeExample}
+            featureFlag={featureFlag}
         />
     )
 }

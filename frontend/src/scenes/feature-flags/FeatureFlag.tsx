@@ -250,6 +250,58 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         }}
                                     </Field>
                                 )}
+                                {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                    <Field name="ensure_experience_continuity">
+                                        {({ value, onChange }) => (
+                                            <div className="border rounded p-4">
+                                                <LemonCheckbox
+                                                    id="continuity-checkbox"
+                                                    label="Persist flag across authentication steps"
+                                                    onChange={() => onChange(!value)}
+                                                    fullWidth
+                                                    checked={value}
+                                                />
+                                                <div className="text-muted text-sm pl-7">
+                                                    If your feature flag is applied prior to an identify or
+                                                    authentication event, use this to ensure that feature flags are not
+                                                    reset after a person is identified. This ensures the experience for
+                                                    the anonymous person is carried forward to the authenticated person.{' '}
+                                                    <Link
+                                                        to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                        target="_blank"
+                                                    >
+                                                        Learn more <IconOpenInNew />
+                                                    </Link>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </Field>
+                                )}
+                                <Field name="active">
+                                    {({ value, onChange }) => (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="flag-enabled-checkbox"
+                                                label="Enable feature flag"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                            />
+                                        </div>
+                                    )}
+                                </Field>
+                            </Col>
+                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                <Col span={12}>
+                                    <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                                </Col>
+                            )}
+                        </Row>
+                        <LemonDivider />
+                        <FeatureFlagRollout />
+                        {featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                            <>
+                                <LemonDivider />
+                                <FeatureFlagCodeExample featureFlag={featureFlag} />
                                 <Field name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -275,27 +327,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         </div>
                                     )}
                                 </Field>
-                                <Field name="active">
-                                    {({ value, onChange }) => (
-                                        <div className="border rounded p-4">
-                                            <LemonCheckbox
-                                                id="flag-enabled-checkbox"
-                                                label="Enable feature flag"
-                                                onChange={() => onChange(!value)}
-                                                checked={value}
-                                            />
-                                        </div>
-                                    )}
-                                </Field>
-                            </Col>
-                            <Col span={12}>
-                                <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                            </Col>
-                        </Row>
-                        <LemonDivider />
-                        <FeatureFlagRollout />
-                        <LemonDivider />
-                        <FeatureFlagCodeExample />
+                            </>
+                        )}
                         <LemonDivider />
                         <FeatureFlagReleaseConditions />
                         <LemonDivider />
@@ -334,8 +367,7 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 )}
                             </>
                         )}
-
-                        <LemonDivider className="mt-8" />
+                        <LemonDivider />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
                                 data-attr="cancel-feature-flag"
