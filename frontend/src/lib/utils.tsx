@@ -941,7 +941,7 @@ export function dateFilterToText(
         if (dateOption && counter) {
             let date = null
             switch (dateOption) {
-                case 'quarter':
+                case 'quarters':
                     date = dayjs().subtract(counter * 3, 'M')
                     break
                 case 'months':

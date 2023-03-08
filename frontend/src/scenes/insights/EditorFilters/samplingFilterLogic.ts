@@ -11,13 +11,6 @@ import { retentionLogic } from 'scenes/retention/retentionLogic'
 
 export const AVAILABLE_SAMPLING_PERCENTAGES = [0.1, 1, 10, 25]
 
-export const INSIGHT_TYPES_WITH_SAMPLING_SUPPORT = new Set([
-    InsightType.LIFECYCLE,
-    InsightType.FUNNELS,
-    InsightType.TRENDS,
-    InsightType.RETENTION,
-])
-
 export interface SamplingFilterLogicProps {
     insightProps: InsightLogicProps
     insightType?: InsightType
@@ -51,7 +44,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             },
         ],
     })),
-    selectors(({ props }) => ({
+    selectors(() => ({
         suggestedSamplingPercentage: [
             (s) => [s.samplingPercentage],
             (samplingPercentage): number | null => {
@@ -72,9 +65,7 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
         samplingAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: Record<string, boolean | string | undefined>): boolean =>
-                !!featureFlags[FEATURE_FLAGS.SAMPLING] &&
-                !!props.insightType &&
-                INSIGHT_TYPES_WITH_SAMPLING_SUPPORT.has(props.insightType),
+                !!featureFlags[FEATURE_FLAGS.SAMPLING],
         ],
     })),
     listeners(({ props, actions, values }) => ({
