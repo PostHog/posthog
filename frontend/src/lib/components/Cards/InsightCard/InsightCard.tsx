@@ -34,7 +34,6 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ResizeHandle1D, ResizeHandle2D } from '../handles'
 import './InsightCard.scss'
 import { InsightDetails } from './InsightDetails'
-import { INSIGHT_TYPES_METADATA, InsightTypeMetadata, QUERY_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/DashboardInsightsTable'
@@ -255,18 +254,31 @@ function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             className={'border-b'}
-            topHeading={<TopHeading insight={insight} />}
+            topHeading={
+                <Link to={urls.insightView(short_id)}>
+                    <h4 title={name} data-attr="insight-card-title">
+                        {name || <i>{summary}</i>}
+                    </h4>
+                </Link>
+            }
             meta={
                 <>
-                    <Link to={urls.insightView(short_id)}>
-                        <h4 title={name} data-attr="insight-card-title">
-                            {name || <i>{summary}</i>}
-                        </h4>
-                    </Link>
+                    {!!insight.description && <div className="CardMeta__description mt-2">{insight.description}</div>}
 
-                    {!!insight.description && <div className="CardMeta__description">{insight.description}</div>}
+                    <div className="flex items-center gap-2 text-xs text-muted leading-6">
+                        <span className="uppercase font-medium">
+                            <DateRange insight={insight} />{' '}
+                        </span>
+                        •
+                        <UserActivityIndicator
+                            showProfilePicture={false}
+                            at={insight.last_modified_at}
+                            by={insight.last_modified_by}
+                            className="text-muted"
+                        />
+                    </div>
+
                     {insight.tags && insight.tags.length > 0 && <ObjectTags tags={insight.tags} staticOnly />}
-                    <UserActivityIndicator at={insight.last_modified_at} by={insight.last_modified_by} />
                 </>
             }
             metaDetails={<InsightDetails insight={insight} />}
@@ -422,20 +434,8 @@ function InsightMeta({
     )
 }
 
-function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
+function DateRange({ insight }: { insight: InsightModel }): JSX.Element {
     const { filters, query } = insight
-
-    let insightType: InsightTypeMetadata
-
-    // check the query first because the backend still adds defaults to empty filters :/
-    if (!!query?.kind) {
-        insightType = QUERY_TYPES_METADATA[query.kind]
-    } else if (!!filters.insight) {
-        insightType = INSIGHT_TYPES_METADATA[filters.insight]
-    } else {
-        // maintain the existing default
-        insightType = INSIGHT_TYPES_METADATA[InsightType.TRENDS]
-    }
 
     let { date_from, date_to } = filters
     if (!!query) {
@@ -447,12 +447,7 @@ function TopHeading({ insight }: { insight: InsightModel }): JSX.Element {
     }
 
     const defaultDateRange = query == undefined || isInsightQueryNode(query) ? 'Last 7 days' : null
-    return (
-        <>
-            <span title={insightType?.description}>{insightType?.name}</span> •{' '}
-            {dateFilterToText(date_from, date_to, defaultDateRange)}
-        </>
-    )
+    return <>{dateFilterToText(date_from, date_to, defaultDateRange)}</>
 }
 
 function VizComponentFallback(): JSX.Element {

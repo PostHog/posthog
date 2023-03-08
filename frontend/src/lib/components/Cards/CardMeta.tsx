@@ -92,7 +92,7 @@ export function CardMeta({
                             )}
                         <div className="CardMeta__main">
                             <div className="CardMeta__top">
-                                <h5>{topHeading}</h5>
+                                {topHeading ? <>{topHeading}</> : null}
                                 <div className="CardMeta__controls">
                                     {showDetailsControls && setAreDetailsShown && (
                                         <LemonButton
@@ -102,7 +102,7 @@ export function CardMeta({
                                             status="muted"
                                             size={'small'}
                                         >
-                                            {showDetailsButtonLabel && `${!areDetailsShown ? 'Show' : 'Hide'} details`}
+                                            {showDetailsButtonLabel && areDetailsShown ? 'Hide' : 'Details'}
                                         </LemonButton>
                                     )}
                                     {samplingNotice ? samplingNotice : null}
