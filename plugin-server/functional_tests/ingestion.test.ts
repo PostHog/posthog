@@ -574,7 +574,7 @@ testIfPoEEmbraceJoinEnabled(
             event: '$merge_dangerously',
             properties: {
                 distinct_id: secondDistinctId,
-                $anon_distinct_id: thirdDistinctId,
+                alias: thirdDistinctId,
             },
         })
 
