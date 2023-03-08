@@ -181,7 +181,7 @@ function FeatureFlagInstructionsHeader({
                             .map((option) => ({
                                 value: option.value,
                                 label: option.value,
-                                'data-attr': `flag-instructions-client-${option.value}`,
+                                'data-attr': `feature-flag-instructions-select-option-${option.value}`,
                             })),
                     },
                     {
@@ -191,7 +191,7 @@ function FeatureFlagInstructionsHeader({
                             .map((option) => ({
                                 value: option.value,
                                 label: option.value,
-                                'data-attr': `flag-instructions-server-${option.value}`,
+                                'data-attr': `feature-flag-instructions-select-option-${option.value}`,
                             })),
                     },
                 ]}
