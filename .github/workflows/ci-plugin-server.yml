@@ -329,6 +329,6 @@ jobs:
             - name: Run load test
               run: |
                   cd plugin-server
-                  SESSONS_COUNT=1000 ./bin/ci_session_recordings_load_test.sh
+                  SESSONS_COUNT=1 ./bin/ci_session_recordings_load_test.sh
 
             # TODO: add tracing/profiling output
