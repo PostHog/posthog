@@ -263,6 +263,7 @@ jobs:
         runs-on: ubuntu-latest
 
         env:
+            DEBUG: 'true'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
 
@@ -270,9 +271,11 @@ jobs:
             - name: Code check out
               uses: actions/checkout@v3
 
-            - name: Start Kafka
+            - name: Start Kafka, PostgreSQL and Redis
               run: |
-                  docker compose -f docker-compose.dev.yml up kafka db -d
+                  # Note: we need to start Redis as well, this is just so
+                  # `./manage.py setup_dev` runs.
+                  docker compose -f docker-compose.dev.yml up kafka db redis -d
 
             - name: Add Kafka to /etc/hosts
               run: echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
@@ -322,14 +325,13 @@ jobs:
                   pnpm build
 
             - name: Set up postgres
-              env:
-                  DEBUG: 'true'
               run: |
                   ./manage.py migrate
+                  ./manage.py setup_dev --no-data
 
             - name: Run load test
               run: |
                   cd plugin-server
-                  SESSONS_COUNT=1000 ./bin/ci_session_recordings_load_test.sh
+                  SESSONS_COUNT=2000 ./bin/ci_session_recordings_load_test.sh
 
             # TODO: add tracing/profiling output

@@ -86,9 +86,6 @@ docker compose \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
     --topic $SESSION_RECORDING_EVENTS_TOPIC >/dev/null 2>&1
 
-echo Creating test user
-"$DIR"/../../manage.py setup_dev >/dev/null 2>&1 || echo 'User already exists' # Assume a failure means it has already been run.
-
 # Generate the session recording events and send them to Kafka.
 echo "Generating $SESSONS_COUNT session recording events"
 "$DIR"/generate_session_recordings_messages.py \
