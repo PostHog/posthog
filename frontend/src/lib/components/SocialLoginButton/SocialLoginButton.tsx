@@ -1,5 +1,4 @@
 import { useValues } from 'kea'
-import './index.scss'
 import clsx from 'clsx'
 import { SocialLoginIcon } from './SocialLoginIcon'
 import { SSOProvider } from '~/types'
@@ -15,7 +14,7 @@ interface SocialLoginLinkProps {
     children: JSX.Element
 }
 
-export function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLinkProps): JSX.Element {
+function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLinkProps): JSX.Element {
     const { searchParams } = useValues(router)
 
     const loginParams: Record<string, string> = { ...extraQueryParams }
@@ -26,7 +25,7 @@ export function SocialLoginLink({ provider, extraQueryParams, children }: Social
         // SAML-based login requires an extra param as technically we can support multiple SAML backends
         loginParams.idp = 'posthog_custom'
     }
-    const loginUrl = combineUrl(`/login/${provider}`, loginParams).url
+    const loginUrl = combineUrl(`/login/${provider}/`, loginParams).url
 
     return (
         <a className="block" href={loginUrl}>
