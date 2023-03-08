@@ -67,6 +67,7 @@ docker compose \
 # Before we do anything, reset the consumer group offsets to the latest offsets.
 # This is to ensure that we are only testing the ingestion of new messages, and
 # not the replay of old messages. We don't fail if the topic does not exist.
+# Note that we need to use the `--execute` flag to actually reset the offsets.
 echo "Resetting consumer group offsets to latest"
 docker compose \
     -f "$DIR"/../../docker-compose.dev.yml exec \
@@ -74,6 +75,7 @@ docker compose \
     --bootstrap-server localhost:9092 \
     --reset-offsets \
     --to-latest \
+    --execute \
     --group $SESSION_RECORDING_INGESTION_CONSUMER_GROUP \
     --topic $SESSION_RECORDING_EVENTS_TOPIC >/dev/null 2>&1
 

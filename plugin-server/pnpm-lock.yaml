@@ -68,7 +68,7 @@ specifiers:
   ioredis: ^4.27.6
   jest: ^28.1.1
   jsonwebtoken: ^9.0.0
-  kafkajs: ^2.2.4
+  kafkajs: ^2.2.0
   kafkajs-snappy: ^1.1.0
   lru-cache: ^6.0.0
   luxon: ^1.27.0
@@ -121,7 +121,7 @@ dependencies:
   hot-shots: 9.3.0
   ioredis: 4.28.5
   jsonwebtoken: 9.0.0
-  kafkajs: 2.2.4
+  kafkajs: 2.2.2
   kafkajs-snappy: 1.1.0
   lru-cache: 6.0.0
   luxon: 1.28.0
@@ -6258,8 +6258,8 @@ packages:
       snappyjs: 0.6.1
     dev: false
 
-  /kafkajs/2.2.4:
-    resolution: {integrity: sha512-j/YeapB1vfPT2iOIUn/vxdyKEuhuY2PxMBvf5JWux6iSaukAccrMtXEY/Lb7OvavDhOWME589bpLrEdnVHjfjA==}
+  /kafkajs/2.2.2:
+    resolution: {integrity: sha512-9wpGLAwRVbVtSew3xwi2f2BMuYLXWhYcoYB/O7gd1JYOYuYTAEC60CeFgRQugI016MxqvOKnOOA+l1jx+4b84g==}
     engines: {node: '>=14.0.0'}
     dev: false
 
