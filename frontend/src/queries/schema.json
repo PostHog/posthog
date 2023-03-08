@@ -2787,11 +2787,18 @@
                     "type": "string"
                 },
                 "response": {
+                    "additionalProperties": false,
                     "description": "Cached query response",
-                    "items": {
-                        "type": "object"
+                    "properties": {
+                        "results": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
                     },
-                    "type": "array"
+                    "required": ["results"],
+                    "type": "object"
                 },
                 "teamId": {
                     "description": "Project to filter on. Defaults to current project",
