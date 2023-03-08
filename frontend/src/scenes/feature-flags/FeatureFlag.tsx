@@ -75,6 +75,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { EmptyDashboardComponent } from 'scenes/dashboard/EmptyDashboardComponent'
+import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -293,6 +294,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         </Row>
                         <LemonDivider />
                         <FeatureFlagRollout />
+                        <LemonDivider />
+                        <FeatureFlagCodeExample />
                         <LemonDivider />
                         <FeatureFlagReleaseConditions />
                         <LemonDivider />
@@ -845,10 +848,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </Field>
                                 </Group>
                             </Col>
-
-                            <Col span={12}>
-                                <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                            </Col>
+                            {!featureFlags[FEATURE_FLAGS.FF_CODE_EXAMPLE] && (
+                                <Col span={12}>
+                                    <FeatureFlagPayloadInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                                </Col>
+                            )}
                         </Row>
                     )}
                 </div>
