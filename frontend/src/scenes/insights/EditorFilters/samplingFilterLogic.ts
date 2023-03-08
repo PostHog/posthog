@@ -1,3 +1,4 @@
+import { globalInsightLogic } from 'scenes/insights/globalInsightLogic'
 import { FEATURE_FLAGS } from './../../../lib/constants'
 import { featureFlagLogic } from './../../../lib/logic/featureFlagLogic'
 import { FilterType, InsightType } from './../../../types'
@@ -29,6 +30,8 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
             ['setFilters as setFunnelFilters'],
             retentionLogic(props.insightProps),
             ['setFilters as setRetentionFilters'],
+            globalInsightLogic,
+            ['setGlobalInsightFilters'],
         ],
     })),
     actions(() => ({
@@ -41,6 +44,9 @@ export const samplingFilterLogic = kea<samplingFilterLogicType>([
                 // clicking on the active button untoggles it and disables sampling
                 setSamplingPercentage: (oldSamplingPercentage, { samplingPercentage }) =>
                     samplingPercentage === oldSamplingPercentage ? null : samplingPercentage,
+                setGlobalInsightFilters: (_, { globalInsightFilters }) => {
+                    return globalInsightFilters.sampling_factor ? globalInsightFilters.sampling_factor * 100 : null
+                },
             },
         ],
     })),
