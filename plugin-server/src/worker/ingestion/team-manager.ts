@@ -179,6 +179,5 @@ export async function fetchTeamByToken(client: Client | Pool, token: string): Pr
         [token],
         'fetchTeamByToken'
     )
-    console.log(token, selectResult.rows)
     return selectResult.rows[0] ?? null
 }
