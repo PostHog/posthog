@@ -59,7 +59,12 @@ export function MetricSelector({
                         filters={filters}
                         insightProps={insightProps}
                         infoTooltipContent="Sampling on experiment goals is an Alpha feature to enable faster computation of experiment results."
-                        setFilters={setFilters}
+                        setFilters={(payload) =>
+                            setFilters({
+                                ...filters,
+                                ...(payload.sampling_factor ? { sampling_factor: payload.sampling_factor } : {}),
+                            })
+                        }
                     />
                     <br />
                 </div>
