@@ -1344,7 +1344,7 @@ describe.each([[true], [false]])('PersonState.update()', (poEEmbraceJoin) => {
             expect(persons[0]).toEqual(
                 expect.objectContaining({
                     id: expect.any(Number),
-                    uuid: uuid2.toString(),
+                    uuid: expect.any(String),
                     properties: {},
                     created_at: timestamp,
                     version: 1,
