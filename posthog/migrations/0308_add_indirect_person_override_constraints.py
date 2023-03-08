@@ -42,6 +42,10 @@ class Migration(migrations.Migration):
             model_name="personoverride",
             name="old_person_id_is_not_override_person_id",
         ),
+        migrations.RemoveConstraint(
+            model_name="personoverride",
+            name="old_person_id_different_from_override_person_id",
+        ),
         migrations.RunSQL(DROP_FUNCTION_FOR_CONSTRAINT_SQL, CREATE_FUNCTION_FOR_CONSTRAINT_SQL),
         migrations.RemoveField(model_name="personoverride", name="old_person_id"),
         migrations.AddField(
@@ -69,6 +73,15 @@ class Migration(migrations.Migration):
             model_name="personoverride",
             constraint=models.UniqueConstraint(
                 fields=("team", "old_person_id"), name="unique override per old_person_id"
+            ),
+        ),
+        migrations.AddConstraint(
+            model_name="personoverride",
+            constraint=models.CheckConstraint(
+                check=models.Q(
+                    ("old_person_id__exact", django.db.models.expressions.F("override_person_id")), _negated=True
+                ),
+                name="old_person_id_different_from_override_person_id",
             ),
         ),
         # Provides operator classes for integers (gist_int4_ops)
