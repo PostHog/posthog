@@ -1,7 +1,7 @@
 import { GithubIcon, GitlabIcon, GoogleIcon, IconKey } from 'lib/lemon-ui/icons'
-import { SSOProvider } from '~/types'
+import { SSOProviders } from '~/types'
 
-export const SocialLoginIcon = (provider: SSOProvider): JSX.Element | undefined => {
+export const SocialLoginIcon = (provider: SSOProviders): JSX.Element | undefined => {
     if (provider === 'google-oauth2') {
         return <GoogleIcon />
     } else if (provider === 'github') {

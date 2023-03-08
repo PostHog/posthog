@@ -3,12 +3,12 @@ import { useValues } from 'kea'
 import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SSOProvider } from '~/types'
+import { SSOProviders } from '~/types'
 
 interface SSOSelectInterface {
-    value: SSOProvider | ''
+    value: SSOProviders | ''
     loading: boolean
-    onChange: (value: SSOProvider | '') => void
+    onChange: (value: SSOProviders | '') => void
     samlAvailable: boolean
 }
 
@@ -31,7 +31,7 @@ export function SSOSelect({ value, loading, onChange, samlAvailable }: SSOSelect
                         preflight.available_social_auth_providers[key] ? undefined : 'This provider is not configured.'
                     }
                 >
-                    {SocialLoginIcon(key as SSOProvider)} {SSO_PROVIDER_NAMES[key]}
+                    {SocialLoginIcon(key as SSOProviders)} {SSO_PROVIDER_NAMES[key]}
                 </Select.Option>
             ))}
             <Select.Option
