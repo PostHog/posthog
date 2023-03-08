@@ -64,6 +64,7 @@ def get_decide(request: HttpRequest):
         "config": {"enable_collect_everything": True},
         "toolbarParams": {},
         "isAuthenticated": False,
+        "capturePerformance": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
 
@@ -169,12 +170,11 @@ def get_decide(request: HttpRequest):
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())
 
-            response["capturePerformance"] = True if team.capture_performance_opt_in else False
-
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
+                response["capturePerformance"] = True if team.capture_performance_opt_in else False
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
