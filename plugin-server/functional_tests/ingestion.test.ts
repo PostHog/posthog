@@ -703,9 +703,8 @@ test.skip(`person properties can't see properties from merge descendants`, async
     })
 
     const thirdUuid = new UUIDT().toString()
-    // NOTE: $create_alias is not symmetric, so we will currently get different
+    // NOTE: $create_alias is not symmetric, so we will get different
     // results according to the order of `bobAnonId` and `aliceAnonId`.
-    // TODO: make $create_alias symmetric.
     await capture({
         teamId,
         distinctId: bobAnonId,
