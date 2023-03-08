@@ -28,13 +28,14 @@ const WARNING_TYPE_RENDERER = {
         const details = warning.details as {
             sourcePersonDistinctId: string
             targetPersonDistinctId: string
+            eventUuid: string
         }
         return (
             <>
                 Refused to merge already identified person{' '}
                 <Link to={urls.person(details.sourcePersonDistinctId)}>{details.sourcePersonDistinctId}</Link> into{' '}
                 <Link to={urls.person(details.targetPersonDistinctId)}>{details.targetPersonDistinctId}</Link> via an
-                $identify or $create_alias call
+                $identify or $create_alias call (event uuid: <code>{details.eventUuid}</code>).
             </>
         )
     },
