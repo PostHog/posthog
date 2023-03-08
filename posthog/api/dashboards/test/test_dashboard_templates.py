@@ -406,7 +406,7 @@ class TestDashboardTemplates(APIBaseTest):
     def test_dashboard_template_schema(self) -> None:
         dashboard_template_schema = {
             "type": "object",
-            "required": ["template_name", "dashboard_description", "dashboard_filters", "tiles", "variables"],
+            "required": ["template_name", "dashboard_description", "dashboard_filters", "tiles"],
             "properties": {
                 "id": {"description": "The id of the dashboard template", "type": "string"},
                 "template_name": {"description": "The name of the dashboard template", "type": "string"},
@@ -423,19 +423,24 @@ class TestDashboardTemplates(APIBaseTest):
                 },
                 "variables": {
                     "description": "The variables of the dashboard template",
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "required": ["id", "name", "type", "default", "description", "required"],
-                        "properties": {
-                            "id": {"description": "The id of the variable", "type": "string"},
-                            "name": {"description": "The name of the variable", "type": "string"},
-                            "type": {"description": "The type of the variable", "enum": ["event"]},
-                            "default": {"description": "The default value of the variable", "type": "object"},
-                            "description": {"description": "The description of the variable", "type": "string"},
-                            "required": {"description": "Whether the variable is required", "type": "boolean"},
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "required": ["id", "name", "type", "default", "description", "required"],
+                                "properties": {
+                                    "id": {"description": "The id of the variable", "type": "string"},
+                                    "name": {"description": "The name of the variable", "type": "string"},
+                                    "type": {"description": "The type of the variable", "enum": ["event"]},
+                                    "default": {"description": "The default value of the variable", "type": "object"},
+                                    "description": {"description": "The description of the variable", "type": "string"},
+                                    "required": {"description": "Whether the variable is required", "type": "boolean"},
+                                },
+                            },
                         },
-                    },
+                        {"type": "null"},
+                    ],
                 },
                 "tags": {
                     "description": "The tags of the dashboard template",

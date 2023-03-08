@@ -142,6 +142,7 @@ export interface UserType extends UserBaseType {
     is_email_verified?: boolean | null
     pending_email?: string | null
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface NotificationSettings {
@@ -210,12 +211,14 @@ export interface BaseMemberType {
     joined_at: string
     updated_at: string
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface OrganizationMemberType extends BaseMemberType {
     /** Level at which the user is in the organization. */
     level: OrganizationMembershipLevel
     is_2fa_enabled: boolean
+    has_social_auth: boolean
 }
 
 export interface ExplicitTeamMemberType extends BaseMemberType {
@@ -1097,6 +1100,7 @@ export interface BillingV2Type {
     stripe_portal_url?: string
     deactivated?: boolean
     current_total_amount_usd?: string
+    current_total_amount_usd_after_discount?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
 
@@ -1111,6 +1115,8 @@ export interface BillingV2Type {
         plan: LicensePlan
     }
     available_plans?: BillingV2PlanType[]
+    discount_percent?: number
+    discount_amount_usd?: string
 }
 
 export interface BillingV2PlanType {
@@ -1613,6 +1619,7 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
     show_values_on_series?: boolean
+    toggledLifecycles?: LifecycleToggle[]
 }
 
 export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
@@ -1792,7 +1799,7 @@ export interface FunnelStep {
 
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
-    average_conversion_time: number
+    average_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
@@ -1821,6 +1828,7 @@ export interface FunnelConversionWindow {
 
 // https://github.com/PostHog/posthog/blob/master/posthog/models/filters/mixins/funnel.py#L100
 export enum FunnelConversionWindowTimeUnit {
+    Second = 'second',
     Minute = 'minute',
     Hour = 'hour',
     Day = 'day',
@@ -1969,6 +1977,7 @@ export interface FeatureFlagType {
     performed_rollback: boolean
     can_edit: boolean
     tags: string[]
+    usage_dashboard?: number
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2050,6 +2059,7 @@ export enum ItemMode { // todo: consolidate this and dashboardmode
 export enum DashboardPlacement {
     Dashboard = 'dashboard', // When on the standard dashboard page
     ProjectHomepage = 'project-homepage', // When embedded on the project homepage
+    FeatureFlag = 'feature-flag',
     Public = 'public', // When viewing the dashboard publicly
     Export = 'export', // When the dashboard is being exported (alike to being printed)
 }
@@ -2698,3 +2708,25 @@ export interface RecordingReportLoadTimes {
 }
 
 export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
+
+export type PromptButtonType = 'primary' | 'secondary'
+export type PromptType = 'modal' | 'popup'
+
+export type PromptPayload = {
+    title: string
+    body: string
+    type: PromptType
+    image?: string
+    url_match?: string
+    primaryButtonText?: string
+    secondaryButtonText?: string
+    primaryButtonURL?: string
+}
+
+export type PromptFlag = {
+    flag: string
+    payload: PromptPayload
+    showingPrompt: boolean
+    locationCSS?: Partial<CSSStyleDeclaration>
+    tooltipCSS?: Partial<CSSStyleDeclaration>
+}

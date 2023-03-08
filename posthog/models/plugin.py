@@ -218,7 +218,7 @@ class PluginConfig(models.Model):
     # Error when running this plugin on an event (frontend: PluginErrorType)
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
-    error: models.JSONField = models.JSONField(default=None, null=True)
+    error: models.JSONField = models.JSONField(default=None, null=True, blank=True)
     # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 

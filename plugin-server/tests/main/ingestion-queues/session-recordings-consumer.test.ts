@@ -65,5 +65,8 @@ describe('session-recordings-consumer', () => {
             } as any,
             heartbeat: jest.fn(),
         })
+
+        // Should have send to the DLQ.
+        expect(producer.produce).toHaveBeenCalledTimes(2)
     })
 })

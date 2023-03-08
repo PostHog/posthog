@@ -634,7 +634,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : undefined
             },
         ],
-        placement: [() => [(_, props) => props.placement], (placement) => placement ?? DashboardPlacement.Dashboard],
+        placement: [
+            () => [(_, props) => props.placement],
+            (placement): DashboardPlacement => placement || DashboardPlacement.Dashboard,
+        ],
         apiUrl: [
             () => [(_, props) => props.id],
             (id) => {
@@ -674,10 +677,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         blockRefresh: [
-            (s) => [s.lastRefreshed],
-            (lastRefreshed: Dayjs) => {
+            (s) => [s.lastRefreshed, s.placement],
+            (lastRefreshed: Dayjs, placement: DashboardPlacement) => {
                 return (
                     !!lastRefreshed &&
+                    !(placement === DashboardPlacement.FeatureFlag) &&
                     now()
                         .subtract(DASHBOARD_MIN_REFRESH_INTERVAL_MINUTES - 0.5, 'minutes')
                         .isBefore(lastRefreshed)

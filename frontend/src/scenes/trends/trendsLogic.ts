@@ -49,22 +49,9 @@ export const trendsLogic = kea<trendsLogicType>([
         toggleLifecycle: (lifecycleName: LifecycleToggle) => ({ lifecycleName }),
         setTargetAction: (action: ActionFilter) => ({ action }),
         setIsFormulaOn: (enabled: boolean) => ({ enabled }),
-        setLifecycles: (lifecycles: LifecycleToggle[]) => ({ lifecycles }),
     })),
 
     reducers(({ props }) => ({
-        toggledLifecycles: [
-            ['new', 'resurrecting', 'returning', 'dormant'],
-            {
-                toggleLifecycle: (state, { lifecycleName }) => {
-                    if (state.includes(lifecycleName)) {
-                        return state.filter((lifecycles) => lifecycles !== lifecycleName)
-                    }
-                    return [...state, lifecycleName]
-                },
-                setLifecycles: (_, { lifecycles }) => lifecycles,
-            },
-        ],
         targetAction: [
             {} as ActionFilter,
             {
@@ -168,6 +155,19 @@ export const trendsLogic = kea<trendsLogicType>([
                     : 'none' // mixed group types
             },
         ],
+        toggledLifecycles: [
+            (s) => [s.filters, s.loadedFilters],
+            (inflightFilters, loadedFilters): string[] => {
+                const defaultToggleState = ['new', 'resurrecting', 'returning', 'dormant']
+                if (isLifecycleFilter(inflightFilters)) {
+                    return inflightFilters.toggledLifecycles || defaultToggleState
+                } else if (isLifecycleFilter(loadedFilters)) {
+                    return (loadedFilters as Partial<LifecycleFilterType>).toggledLifecycles || defaultToggleState
+                } else {
+                    return defaultToggleState
+                }
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -197,6 +197,12 @@ export const trendsLogic = kea<trendsLogicType>([
             if (!enabled) {
                 actions.setFilters({ formula: undefined })
             }
+        },
+        toggleLifecycle: ({ lifecycleName }) => {
+            const toggledLifecycles = values.toggledLifecycles.includes(lifecycleName)
+                ? values.toggledLifecycles.filter((s) => s !== lifecycleName)
+                : [...values.toggledLifecycles, lifecycleName]
+            actions.setFilters({ toggledLifecycles } as Partial<LifecycleFilterType>, true)
         },
     })),
     subscriptions(({ values, actions }) => ({

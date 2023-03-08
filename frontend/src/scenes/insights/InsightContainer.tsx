@@ -20,7 +20,8 @@ import {
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
-import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import { InsightLegendButton } from 'lib/components/InsightLegend/InsightLegendButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -67,7 +68,7 @@ export function InsightContainer({
 
     const { activeView } = useValues(insightNavLogic(insightProps))
 
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
+    const { isFunnelWithEnoughSteps, hasFunnelResults, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -80,13 +81,13 @@ export function InsightContainer({
         }
         // Insight specific empty states - note order is important here
         if (activeView === InsightType.FUNNELS) {
-            if (!areFiltersValid) {
+            if (!isFunnelWithEnoughSteps) {
                 return <FunnelSingleStepState actionable={insightMode === ItemMode.Edit || disableTable} />
             }
             if (!areExclusionFiltersValid) {
                 return <FunnelInvalidExclusionState />
             }
-            if (!isValidFunnel && !insightLoading) {
+            if (!hasFunnelResults && !insightLoading) {
                 return <InsightEmptyState />
             }
         }
@@ -96,7 +97,14 @@ export function InsightContainer({
             return <InsightErrorState queryId={erroredQueryId} />
         }
         if (!!timedOutQueryId) {
-            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
+            return (
+                <InsightTimeoutState
+                    isLoading={insightLoading}
+                    queryId={timedOutQueryId}
+                    insightType={activeView}
+                    insightProps={insightProps}
+                />
+            )
         }
 
         return null
@@ -107,8 +115,8 @@ export function InsightContainer({
             isFunnelsFilter(filters) &&
             erroredQueryId === null &&
             timedOutQueryId === null &&
-            areFiltersValid &&
-            isValidFunnel &&
+            isFunnelWithEnoughSteps &&
+            hasFunnelResults &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
             !disableTable
         ) {

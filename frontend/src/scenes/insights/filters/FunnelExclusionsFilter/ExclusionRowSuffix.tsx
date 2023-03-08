@@ -12,7 +12,9 @@ import { getClampedStepRangeFilterDataExploration } from 'scenes/funnels/funnelU
 
 export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { querySource, insightFilter, exclusionDefaultStepRange } = useValues(funnelDataLogic(insightProps))
+    const { querySource, insightFilter, exclusionDefaultStepRange, isFunnelWithEnoughSteps, series } = useValues(
+        funnelDataLogic(insightProps)
+    )
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
 
     const setOneEventExclusionFilter = (eventFilter: FunnelStepRangeEntityFilter, index: number): void => {
@@ -33,8 +35,8 @@ export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixCompo
     return (
         <ExclusionRowSuffixComponent
             exclusions={(insightFilter as FunnelsFilterType)?.exclusions}
-            areFiltersValid={(querySource as FunnelsQuery).series.length > 1}
-            numberOfSeries={(querySource as FunnelsQuery).series.length}
+            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
+            numberOfSeries={series?.length || 0}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
             setOneEventExclusionFilter={setOneEventExclusionFilter}
             {...props}
@@ -44,13 +46,15 @@ export function ExclusionRowSuffixDataExploration(props: ExclusionRowSuffixCompo
 
 export function ExclusionRowSuffix(props: ExclusionRowSuffixComponentBaseProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
-    const { filters, areFiltersValid, numberOfSeries, exclusionDefaultStepRange } = useValues(funnelLogic(insightProps))
+    const { filters, isFunnelWithEnoughSteps, numberOfSeries, exclusionDefaultStepRange } = useValues(
+        funnelLogic(insightProps)
+    )
     const { setOneEventExclusionFilter } = useActions(funnelLogic(insightProps))
 
     return (
         <ExclusionRowSuffixComponent
             exclusions={filters.exclusions}
-            areFiltersValid={areFiltersValid}
+            isFunnelWithEnoughSteps={isFunnelWithEnoughSteps}
             numberOfSeries={numberOfSeries}
             exclusionDefaultStepRange={exclusionDefaultStepRange}
             setOneEventExclusionFilter={setOneEventExclusionFilter}
@@ -67,7 +71,7 @@ type ExclusionRowSuffixComponentBaseProps = {
 }
 
 type ExclusionRowSuffixComponentProps = ExclusionRowSuffixComponentBaseProps & {
-    areFiltersValid: boolean
+    isFunnelWithEnoughSteps: boolean
     numberOfSeries: number
     exclusionDefaultStepRange: Omit<FunnelStepRangeEntityFilter, 'id' | 'name'>
     exclusions?: FunnelStepRangeEntityFilter[]
@@ -79,7 +83,7 @@ export function ExclusionRowSuffixComponent({
     index,
     onClose,
     isVertical,
-    areFiltersValid,
+    isFunnelWithEnoughSteps,
     numberOfSeries,
     exclusionDefaultStepRange,
     exclusions,
@@ -113,7 +117,7 @@ export function ExclusionRowSuffixComponent({
             between
             <Select
                 defaultValue={0}
-                disabled={!areFiltersValid}
+                disabled={!isFunnelWithEnoughSteps}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                 data-attr="funnel-exclusion-funnel_from_step-selector"
@@ -134,7 +138,7 @@ export function ExclusionRowSuffixComponent({
             and
             <Select
                 defaultValue={(stepRange.funnel_from_step ?? 0) + 1}
-                disabled={!areFiltersValid}
+                disabled={!isFunnelWithEnoughSteps}
                 dropdownMatchSelectWidth={false}
                 dropdownAlign={ANTD_TOOLTIP_PLACEMENTS.bottomRight}
                 data-attr="funnel-exclusion-funnel_to_step-selector"

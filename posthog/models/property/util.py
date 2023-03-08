@@ -13,9 +13,9 @@ from typing import (
     cast,
 )
 
-from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
 
+from posthog.clickhouse.client.escape import escape_param_for_clickhouse
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
@@ -77,7 +77,6 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
-
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -581,7 +580,7 @@ def get_single_or_multi_property_string_expr(
         expression, _ = get_property_string_expr(
             table,
             str(breakdown),
-            escape_param(breakdown),
+            escape_param_for_clickhouse(breakdown),
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
@@ -594,7 +593,7 @@ def get_single_or_multi_property_string_expr(
             expr, _ = get_property_string_expr(
                 table,
                 b,
-                escape_param(b),
+                escape_param_for_clickhouse(b),
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,

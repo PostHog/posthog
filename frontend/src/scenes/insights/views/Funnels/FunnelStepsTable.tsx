@@ -2,7 +2,13 @@ import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { LemonTable, LemonTableColumn, LemonTableColumnGroup } from 'lib/lemon-ui/LemonTable'
-import { FlattenedFunnelStepByBreakdown } from '~/types'
+import {
+    BreakdownKeyType,
+    FlattenedFunnelStepByBreakdown,
+    FunnelStep,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+} from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
@@ -16,20 +22,92 @@ import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/lemon-ui/icons'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
+import { BreakdownFilter } from '~/queries/schema'
+
+export function FunnelStepsTableDataExploration(): JSX.Element | null {
+    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { breakdown } = useValues(insightDataLogic(insightProps))
+    const { steps, flattenedBreakdowns, visibleStepsWithConversionMetrics } = useValues(funnelDataLogic(insightProps))
+    const { hiddenLegendKeys } = useValues(funnelLogic(insightProps))
+    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(
+        funnelLogic(insightProps)
+    )
+
+    return (
+        <FunnelStepsTableComponent
+            insightLoading={insightLoading}
+            breakdownFilter={breakdown}
+            steps={steps}
+            flattenedBreakdowns={flattenedBreakdowns}
+            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
+            isOnlySeries={flattenedBreakdowns.length <= 1}
+            hiddenLegendKeys={hiddenLegendKeys}
+            setHiddenById={setHiddenById}
+            toggleVisibilityByBreakdown={toggleVisibilityByBreakdown}
+            openPersonsModalForSeries={openPersonsModalForSeries}
+        />
+    )
+}
 
 export function FunnelStepsTable(): JSX.Element | null {
-    const { insightProps } = useValues(insightLogic)
-    const logic = funnelLogic(insightProps)
-    const {
-        insightLoading,
-        filters,
-        steps,
-        flattenedBreakdowns,
-        hiddenLegendKeys,
-        visibleStepsWithConversionMetrics,
-        isOnlySeries,
-    } = useValues(logic)
-    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
+    const { insightProps, insightLoading } = useValues(insightLogic)
+    const { filters, steps, flattenedBreakdowns, hiddenLegendKeys, visibleStepsWithConversionMetrics, isOnlySeries } =
+        useValues(funnelLogic(insightProps))
+    const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(
+        funnelLogic(insightProps)
+    )
+
+    return (
+        <FunnelStepsTableComponent
+            insightLoading={insightLoading}
+            breakdownFilter={filters}
+            steps={steps}
+            flattenedBreakdowns={flattenedBreakdowns}
+            hiddenLegendKeys={hiddenLegendKeys}
+            visibleStepsWithConversionMetrics={visibleStepsWithConversionMetrics}
+            isOnlySeries={isOnlySeries}
+            setHiddenById={setHiddenById}
+            toggleVisibilityByBreakdown={toggleVisibilityByBreakdown}
+            openPersonsModalForSeries={openPersonsModalForSeries}
+        />
+    )
+}
+
+type FunnelStepsTableComponentProps = {
+    insightLoading: boolean
+    breakdownFilter?: BreakdownFilter
+    steps: FunnelStepWithNestedBreakdown[]
+    flattenedBreakdowns: FlattenedFunnelStepByBreakdown[]
+    hiddenLegendKeys: Record<string, boolean | undefined>
+    visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[]
+    isOnlySeries: boolean
+    setHiddenById: (entry: Record<string, boolean | undefined>) => void
+    toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType | undefined) => void
+    openPersonsModalForSeries: ({
+        step,
+        series,
+        converted,
+    }: {
+        step: FunnelStep
+        series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
+        converted: boolean
+    }) => void
+}
+
+export function FunnelStepsTableComponent({
+    insightLoading,
+    breakdownFilter,
+    steps,
+    flattenedBreakdowns,
+    hiddenLegendKeys,
+    visibleStepsWithConversionMetrics,
+    isOnlySeries,
+    setHiddenById,
+    toggleVisibilityByBreakdown,
+    openPersonsModalForSeries,
+}: FunnelStepsTableComponentProps): JSX.Element | null {
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
@@ -84,7 +162,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                             formatPropertyValueForDisplay,
                             value,
                             breakdown.breakdown,
-                            filters.breakdown_type
+                            breakdownFilter?.breakdown_type
                         )
                         return isOnlySeries ? (
                             <span className="font-medium">{label}</span>

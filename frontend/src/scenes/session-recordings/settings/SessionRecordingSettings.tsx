@@ -130,7 +130,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     selected, then there will be no domain restriction.
                 </p>
                 <p>
-                    Domains and wilcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
+                    Domains and wildcard subdomains are allowed (e.g. <code>https://*.example.com</code>). However,
                     wildcarded top-level domains cannot be used (for security reasons).
                 </p>
                 <AuthorizedUrlList type={AuthorizedUrlListType.RECORDING_DOMAINS} />

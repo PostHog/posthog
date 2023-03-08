@@ -16,13 +16,18 @@ export function TwoFactorAuthentication(): JSX.Element {
         <div className="flex flex-col">
             {modalVisible && (
                 <LemonModal title="Set up or manage 2FA" onClose={() => setModalVisible(false)}>
-                    <Setup2FA
-                        onSuccess={() => {
-                            setModalVisible(false)
-                            updateUser({})
-                            loadMembers()
-                        }}
-                    />
+                    <>
+                        <b>
+                            Use an authenticator app like Google Authenticator or 1Password to scan the QR code below.
+                        </b>
+                        <Setup2FA
+                            onSuccess={() => {
+                                setModalVisible(false)
+                                updateUser({})
+                                loadMembers()
+                            }}
+                        />
+                    </>
                 </LemonModal>
             )}
 
@@ -30,7 +35,7 @@ export function TwoFactorAuthentication(): JSX.Element {
                 <>
                     <div>
                         <IconCheckmark color="green" />
-                        2FA enabled.
+                        <b>2FA enabled.</b>
                     </div>
                     <br />
                     <div className="w-60">
@@ -40,16 +45,15 @@ export function TwoFactorAuthentication(): JSX.Element {
                     </div>
                 </>
             ) : (
-                <>
-                    <div>
+                <div>
+                    <div className="mb-2">
                         <IconWarning color="orange" />
-                        2FA is not enabled.
+                        <b>2FA is not enabled.</b>
                     </div>
-                    <br />
                     <LemonButton type="primary" onClick={() => setModalVisible(true)}>
                         Set up 2FA
                     </LemonButton>
-                </>
+                </div>
             )}
         </div>
     )
