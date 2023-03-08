@@ -28,6 +28,13 @@ TOKEN=e2e_token_1239 # Created by the setup_dev management command.
 
 LOG_FILE=$(mktemp)
 
+# If GITHUB_STEP_SUMMARY isn't already set, set it to a temporary file. This is
+# used to store the Workflow step summary, but when run locally we do not have
+# this set.
+if [[ -z "${GITHUB_STEP_SUMMARY:-}" ]]; then
+    GITHUB_STEP_SUMMARY=$(mktemp)
+fi
+
 SESSION_RECORDING_EVENTS_TOPIC=session_recording_events
 SESSION_RECORDING_INGESTION_CONSUMER_GROUP=session-recordings
 
@@ -104,7 +111,7 @@ echo "Generating $SESSONS_COUNT session recording events"
 # messages if we want to make this time insignificant.
 PLUGIN_SERVER_MODE=recordings-ingestion node dist/index.js >"$LOG_FILE" 2>&1 &
 SERVER_PID=$!
-trap 'cat $LOG_FILE; rm "$LOG_FILE"; kill "$SERVER_PID"' EXIT
+trap 'kill "$SERVER_PID"; cat "$LOG_FILE"' EXIT
 
 # Wait for the plugin server health check to be ready, and timeout after 10
 # seconds with exit code 1.
