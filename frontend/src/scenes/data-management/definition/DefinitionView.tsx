@@ -50,11 +50,11 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         definition,
         definitionLoading,
         definitionMissing,
+        hasTaxonomyFeatures,
         singular,
         mode,
         isEvent,
         backDetailUrl,
-        hasTaxonomyFeatures,
     } = useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -149,7 +149,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     </LemonButton>
                                 )}
 
-                                {hasTaxonomyFeatures && (
+                                {(hasTaxonomyFeatures || !isEvent) && (
                                     <LemonButton
                                         data-attr="edit-definition"
                                         type="secondary"
