@@ -292,7 +292,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 caption={`Remember to log in with ${invite?.target_email}`}
                 captionLocation="bottom"
                 topDivider
-                redirectQueryParams={invite ? { invite_id: invite.id } : undefined}
+                queryString={invite ? `?invite_id=${invite.id}` : ''}
             />
         </BridgePage>
     )

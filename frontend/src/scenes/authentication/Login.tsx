@@ -4,10 +4,13 @@ import { useActions, useValues } from 'kea'
 import { loginLogic } from './loginLogic'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { SocialLoginButtons, SSOEnforcedLoginButton } from 'lib/components/SocialLoginButton'
+import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import clsx from 'clsx'
 import { SceneExport } from 'scenes/sceneTypes'
-import { LemonButton, LemonInput } from '@posthog/lemon-ui'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { SSO_PROVIDER_NAMES } from 'lib/constants'
+import { SSOProviders } from '~/types'
+import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import { AlertMessage } from 'lib/lemon-ui/AlertMessage'
@@ -43,6 +46,30 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
 export const scene: SceneExport = {
     component: Login,
     logic: loginLogic,
+}
+
+function SSOLoginButton({
+    email,
+    provider,
+    status = 'primary',
+}: {
+    email: string
+    provider: SSOProviders
+    status?: LemonButtonProps['status']
+}): JSX.Element {
+    return (
+        <LemonButton
+            className="btn-bridge"
+            data-attr="sso-login"
+            htmlType="button"
+            fullWidth
+            onClick={() => (window.location.href = `/login/${provider}/?email=${email}`)}
+            icon={SocialLoginIcon(provider)}
+            status={status}
+        >
+            Login with {SSO_PROVIDER_NAMES[provider]}
+        </LemonButton>
+    )
 }
 
 export function Login(): JSX.Element {
@@ -125,13 +152,13 @@ export function Login(): JSX.Element {
                             center
                             loading={isLoginSubmitting || precheckResponseLoading}
                         >
-                            Log in
+                            Login
                         </LemonButton>
                     ) : (
-                        <SSOEnforcedLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
+                        <SSOLoginButton provider={precheckResponse.sso_enforcement} email={login.email} />
                     )}
                     {precheckResponse.saml_available && !precheckResponse.sso_enforcement && (
-                        <SSOEnforcedLoginButton provider="saml" email={login.email} />
+                        <SSOLoginButton provider="saml" email={login.email} status="primary" />
                     )}
                 </Form>
                 {preflight?.cloud && (
