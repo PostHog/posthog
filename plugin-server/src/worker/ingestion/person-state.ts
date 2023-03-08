@@ -438,6 +438,7 @@ export class PersonState {
             captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
                 sourcePersonDistinctId: otherPersonDistinctId,
                 targetPersonDistinctId: mergeIntoDistinctId,
+                eventUuid: this.event.uuid,
             })
             status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
             return
