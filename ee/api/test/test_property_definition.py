@@ -208,6 +208,15 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         response_data = response.json()
         self.assertEqual(response_data["property_type"], "DateTime")
 
+    def test_cannot_update_more_than_property_type_without_license(self):
+        property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/",
+            data={"property_type": "DateTime", "tags": ["test"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_402_PAYMENT_REQUIRED)
+        self.assertIn("This feature is part of the premium PostHog offering.", response.json()["detail"])
+
     def test_with_expired_license(self):
         super(LicenseManager, cast(LicenseManager, License.objects)).create(
             plan="enterprise", valid_until=timezone.datetime(2010, 1, 19, 3, 14, 7)
