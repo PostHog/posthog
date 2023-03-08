@@ -11,19 +11,16 @@ import { router, combineUrl } from 'kea-router'
 
 interface SocialLoginLinkProps {
     provider: SSOProvider
-    email?: string
+    extraQueryParams?: Record<string, string>
     children: JSX.Element
 }
 
-export function SocialLoginLink({ provider, email, children }: SocialLoginLinkProps): JSX.Element {
+export function SocialLoginLink({ provider, extraQueryParams, children }: SocialLoginLinkProps): JSX.Element {
     const { searchParams } = useValues(router)
 
-    const loginParams: Record<string, string> = {}
+    const loginParams: Record<string, string> = { ...extraQueryParams }
     if (searchParams.next) {
         loginParams.next = searchParams.next
-    }
-    if (email) {
-        loginParams.email = searchParams.email
     }
     if (provider === 'saml') {
         // SAML-based login requires an extra param as technically we can support multiple SAML backends
@@ -40,9 +37,10 @@ export function SocialLoginLink({ provider, email, children }: SocialLoginLinkPr
 
 interface SocialLoginButtonProps {
     provider: SSOProvider
+    redirectQueryParams?: Record<string, string>
 }
 
-export function SocialLoginButton({ provider }: SocialLoginButtonProps): JSX.Element | null {
+export function SocialLoginButton({ provider, redirectQueryParams }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
 
     if (!preflight?.available_social_auth_providers[provider]) {
@@ -50,7 +48,7 @@ export function SocialLoginButton({ provider }: SocialLoginButtonProps): JSX.Ele
     }
 
     return (
-        <SocialLoginLink provider={provider}>
+        <SocialLoginLink provider={provider} extraQueryParams={redirectQueryParams}>
             <LemonButton size="medium" icon={SocialLoginIcon(provider)}>
                 <span className={'text-default'}>{SSO_PROVIDER_NAMES[provider]}</span>
             </LemonButton>
@@ -65,6 +63,7 @@ interface SocialLoginButtonsProps {
     className?: string
     topDivider?: boolean
     bottomDivider?: boolean
+    redirectQueryParams?: Record<string, string>
 }
 
 export function SocialLoginButtons({
@@ -115,7 +114,7 @@ interface SSOEnforcedLoginButtonProps {
 
 export function SSOEnforcedLoginButton({ provider, email }: SSOEnforcedLoginButtonProps): JSX.Element {
     return (
-        <SocialLoginLink provider={provider} email={email}>
+        <SocialLoginLink provider={provider} extraQueryParams={{ email }}>
             <LemonButton
                 className="btn-bridge"
                 data-attr="sso-login"
