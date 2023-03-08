@@ -50,11 +50,12 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
         definition,
         definitionLoading,
         definitionMissing,
+        hasTaxonomyFeatures,
         singular,
         mode,
         isEvent,
+        isProperty,
         backDetailUrl,
-        hasTaxonomyFeatures,
     } = useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -149,7 +150,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     </LemonButton>
                                 )}
 
-                                {hasTaxonomyFeatures && (
+                                {(hasTaxonomyFeatures || isProperty) && (
                                     <LemonButton
                                         data-attr="edit-definition"
                                         type="secondary"
@@ -194,7 +195,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     : humanFriendlyNumber(definition.query_usage_30_day)
                             }
                         />
-                        {!isEvent && (
+                        {isProperty && (
                             <DefinitionPopover.Card
                                 title="Property Type"
                                 value={(definition as PropertyDefinition).property_type ?? '-'}

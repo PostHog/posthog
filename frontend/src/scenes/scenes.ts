@@ -244,6 +244,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         allowUnauthenticated: true,
         plain: true,
     },
+    [Scene.Feedback]: {
+        projectBased: true,
+        name: 'Feedback',
+    },
 }
 
 export const redirects: Record<
@@ -362,4 +366,6 @@ export const routes: Record<string, Scene> = {
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.query()]: Scene.Query,
+    [urls.feedback()]: Scene.Feedback,
+    [urls.feedback() + '/*']: Scene.Feedback,
 }

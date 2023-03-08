@@ -557,4 +557,31 @@ def stickiness_test_factory(stickiness, event_factory, person_factory, action_fa
             self.assertEqual(response[0]["labels"][6], "7 days")
             self.assertEqual(response[0]["data"][6], 0)
 
+        @snapshot_clickhouse_queries
+        def test_stickiness_all_time_with_sampling(self):
+            self._create_multiple_people()
+
+            with freeze_time("2020-01-08T13:01:01Z"):
+                stickiness_response = get_stickiness_ok(
+                    client=self.client,
+                    team=self.team,
+                    request={
+                        "shown_as": "Stickiness",
+                        "date_from": "all",
+                        "events": [{"id": "watched movie"}],
+                        "sampling_factor": 1,
+                    },
+                )
+                response = stickiness_response["result"]
+
+            self.assertEqual(response[0]["count"], 4)
+            self.assertEqual(response[0]["labels"][0], "1 day")
+            self.assertEqual(response[0]["data"][0], 2)
+            self.assertEqual(response[0]["labels"][1], "2 days")
+            self.assertEqual(response[0]["data"][1], 1)
+            self.assertEqual(response[0]["labels"][2], "3 days")
+            self.assertEqual(response[0]["data"][2], 1)
+            self.assertEqual(response[0]["labels"][6], "7 days")
+            self.assertEqual(response[0]["data"][6], 0)
+
     return TestStickiness
